@@ -1,0 +1,14 @@
+# Swift / SwiftPM
+.build/
+*.xcodeproj
+xcuserdata/
+DerivedData/
+*.o
+*.dSYM/
+
+# 本地运行数据（不进 git）
+.workbuddy/
+
+# 系统
+.DS_Store
+*.log

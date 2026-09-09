@@ -1,0 +1,68 @@
+{
+  "product": {
+    "learning_language": "en-US",
+    "native_language": "zh-CN",
+    "teacher_voice": "Serena",
+    "practice_mode": "conversation",
+    "theme_mode": "day",
+    "selected_models": {
+      "llm": "deepseek-r1:7b"
+    }
+  },
+  "providers": [
+    {
+      "id": "ollama.llm",
+      "kind": "llm",
+      "enabled": true,
+      "runtime": "ollama",
+      "endpoint": "http://127.0.0.1:11434",
+      "model": "deepseek-r1:7b",
+      "candidate_models": ["deepseek-r1:7b"],
+      "streaming": true,
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "max_tokens": 1024,
+      "request_timeout": 120
+    },
+    {
+      "id": "mock.asr",
+      "kind": "asr",
+      "enabled": true,
+      "runtime": "mock",
+      "streaming": false,
+      "candidate_models": []
+    },
+    {
+      "id": "mock.tts",
+      "kind": "tts",
+      "enabled": true,
+      "runtime": "mock",
+      "streaming": false,
+      "candidate_models": []
+    },
+    {
+      "id": "mock.vad",
+      "kind": "vad",
+      "enabled": true,
+      "runtime": "mock",
+      "streaming": false,
+      "candidate_models": []
+    },
+    {
+      "id": "mock.embedding",
+      "kind": "embedding",
+      "enabled": true,
+      "runtime": "mock",
+      "streaming": false,
+      "candidate_models": []
+    },
+    {
+      "id": "mock.pronunciation",
+      "kind": "pronunciation",
+      "enabled": true,
+      "runtime": "mock",
+      "streaming": false,
+      "candidate_models": []
+    }
+  ]
+}
