@@ -531,3 +531,11 @@ Known Limitations / Unverified Assumptions / Next Recommended Task
 - [ ] 无未验证的 API 假设
 - [ ] 文档已同步
 - [ ] Mock 已标注 `[MOCK]`（如适用）
+
+## 0.3 .app 打包与终端验证（2026-09-09 实测沉淀）
+
+- **打包**：`Scripts/make_app.sh`（`--no-build` 跳过构建）→ `dist/AI_Language_Coach.app`（约 4MB）。
+  - release 构建 + `strip -x`；SwiftPM 资源 bundle（`AILanguageCoach_AIInfrastructure.bundle`）**必须放 .app 根目录**（生成的 `Bundle.module` 在 `Bundle.main.bundleURL` 下查找）。
+  - 不做 codesign：本机构建无 quarantine，双击可跑；整包签名会报 "unsealed contents present in the bundle root"（资源 bundle 在根目录所致）。
+  - **release 增量构建可能漏更新可执行文件**（"Build complete 0.19s" 假象）——验证行为前 `rm -rf .build/arm64-apple-macosx/release` 全量重建；且 release 二进制里 grep 不到 Swift 字符串字面量不代表没编进去，以行为验证为准。
+- **终端验证**：应用窗口 owner 名取自 CFBundleDisplayName（现为「语林 AI Language Coach」），`wid.swift / bounds.swift / activate.swift` 均已兼容中文名；**zsh 数组下标从 1 开始**（`$B[0]` 为空）；`open --args` 传参不可靠，验证用启动参数时直接运行二进制（注意：直接运行 bundle 内二进制可能出现 138pt 小窗口，`open` 正常；异常小窗口时 `defaults delete com.ailanguagecoach.app` 清 frame）。截图辅助：`--open-settings` / `--open-records`。
