@@ -27,6 +27,22 @@ public final class AppState {
     public private(set) var bootMessage: String?
     public var modelDraft: String = ""
     public var showingSettings = false
+    // MARK: 模型 Provider（本地 + 云端并存）
+    /// 当前生效的 LLM Provider（决定实际调用本地还是云端）。
+    public private(set) var activeProvider: ProviderConfig?
+    /// 设置页当前选中的 Provider 标签（可编辑未生效的 Provider）。
+    public var selectedProviderID: String = "ollama.llm"
+    /// 云端 API Key 草稿（按 provider id 存，避免切换标签互相覆盖）。
+    public var apiKeyDrafts: [String: String] = [:]
+    /// 云端探测到的模型列表（按 provider id 缓存）。
+    public private(set) var remoteModels: [String: [DiscoveredModel]] = [:]
+    /// 云端推理强度草稿（low / medium / high；nil = 标准）。
+    public var reasoningEffortDraft: String?
+    public private(set) var isFetchingRemoteModels = false
+    /// 云端配置操作结果（成功提示或错误）。
+    public var remoteMessage: String?
+    /// 上下文窗口（token），nil = 未知。
+    public private(set) var contextLimit: Int?
     // MARK: 语音（第 17/18 步）
     /// 是否正在录音。
     public private(set) var isRecording = false
@@ -84,6 +100,19 @@ public final class AppState {
     public var currentModelName: String? {
         if let resolved = availableModels.first(where: { $0.id == modelDraft })?.name { return resolved }
         return modelDraft.isEmpty ? nil : modelDraft
+    }
+
+    /// 状态栏用：生效 Provider 的展示名（如「本地模型」「DeepSeek」）。
+    public var activeProviderName: String { activeProvider?.userFacingName ?? "未配置" }
+    /// 生效 Provider 是否为云端 API。
+    public var isActiveProviderRemote: Bool { activeProvider?.runtime == .remoteAPI }
+
+    /// 设置页 Provider 标签列表（id + 展示名），来自配置文件。
+    public func llmProviderOptions() async -> [(id: String, name: String, isRemote: Bool)] {
+        let configuration = await services.configuration
+        return configuration.providers
+            .filter { $0.kind == .llm }
+            .map { ($0.id, $0.userFacingName, $0.runtime == .remoteAPI) }
     }
 
     // MARK: - 启动
@@ -190,11 +219,88 @@ public final class AppState {
         health = await services.llmHealth()
         let models = await services.availableLLMModels()
         availableModels = models.filter { !$0.isEmbeddingOnly }
+        activeProvider = await services.activeLLMProvider()
+        if activeProvider == nil { selectedProviderID = "" } else if !isActiveProviderRemote || selectedProviderID.isEmpty {
+            selectedProviderID = activeProvider?.id ?? selectedProviderID
+        }
         if let current = await services.currentLLMModel() {
             modelDraft = current
         } else {
             modelDraft = availableModels.first?.id ?? ""
         }
+        // 上下文窗口：优先取 runtime 发现的当前模型长度，其次配置值。
+        let configured = await services.contextWindow()
+        contextLimit = availableModels.first(where: { $0.id == modelDraft })?.contextLength ?? configured
+    }
+
+    // MARK: - 模型 Provider（本地 / 云端切换）
+
+    /// API Key 解析：草稿优先，为空则回退到已保存的密钥。
+    private func resolvedAPIKey(for providerID: String) async -> String {
+        let draft = apiKeyDrafts[providerID] ?? ""
+        if !draft.trimmingCharacters(in: .whitespaces).isEmpty { return draft }
+        let configuration = await services.configuration
+        return configuration.providers.first { $0.id == providerID }?.apiKey ?? ""
+    }
+
+    /// 设置页：切换选中的 Provider 标签（仅改 UI，不生效）。
+    public func selectProviderTab(_ id: String) {
+        selectedProviderID = id
+        remoteMessage = nil
+        reasoningEffortDraft = id == activeProvider?.id ? activeProvider?.reasoningEffort : reasoningEffortDraft
+    }
+
+    /// 设置页：激活某个 Provider（本地或云端）。
+    public func activateProvider(_ id: String) async {
+        do {
+            try await services.switchLLMProvider(id)
+            bootMessage = nil
+            remoteMessage = nil
+        } catch {
+            remoteMessage = error.localizedDescription
+        }
+        await refreshStatus()
+    }
+
+    /// 设置页：校验云端 API Key 并拉取模型列表（不落盘）。
+    public func fetchRemoteModels() async {
+        let apiKey = await resolvedAPIKey(for: selectedProviderID)
+        guard !apiKey.isEmpty else {
+            remoteMessage = "请先填写 API Key"
+            return
+        }
+        isFetchingRemoteModels = true
+        remoteMessage = nil
+        do {
+            let models = try await services.fetchRemoteModels(providerID: selectedProviderID, apiKey: apiKey)
+            remoteModels[selectedProviderID] = models.filter { !$0.isEmbeddingOnly }
+            remoteMessage = "验证成功，获取到 \(models.count) 个模型"
+        } catch {
+            remoteMessage = error.localizedDescription
+        }
+        isFetchingRemoteModels = false
+    }
+
+    /// 设置页：保存云端配置（API Key + 模型 + 推理强度）并激活。
+    public func applyRemoteProvider(model: String) async {
+        let apiKey = await resolvedAPIKey(for: selectedProviderID)
+        guard !apiKey.isEmpty else {
+            remoteMessage = "请先填写 API Key"
+            return
+        }
+        do {
+            try await services.applyRemoteLLM(
+                providerID: selectedProviderID,
+                apiKey: apiKey,
+                model: model,
+                reasoningEffort: reasoningEffortDraft
+            )
+            bootMessage = nil
+            remoteMessage = "已启用云端模型 \(model)"
+        } catch {
+            remoteMessage = error.localizedDescription
+        }
+        await refreshStatus()
     }
 
     // MARK: - 主题

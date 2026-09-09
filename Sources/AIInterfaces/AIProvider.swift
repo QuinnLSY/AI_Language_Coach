@@ -28,7 +28,7 @@ public enum ProviderHealth: Sendable, Equatable {
     public var userFacingDescription: String {
         switch self {
         case .connected: "已就绪"
-        case .runtimeUnavailable: "本地服务未启动"
+        case .runtimeUnavailable: "服务未启动或不可达"
         case .modelUnavailable(let m): "模型 \(m) 不可用"
         case .configurationInvalid(let r): "配置有误：\(r)"
         case .requestFailed(let r): "连接失败：\(r)"
@@ -77,11 +77,14 @@ public struct DiscoveredModel: Sendable, Equatable, Identifiable {
     public var id: String
     public var name: String
     public var isEmbeddingOnly: Bool
+    /// 上下文窗口长度（token）；runtime 未上报时为 nil。
+    public var contextLength: Int?
 
-    public init(id: String, name: String, isEmbeddingOnly: Bool = false) {
+    public init(id: String, name: String, isEmbeddingOnly: Bool = false, contextLength: Int? = nil) {
         self.id = id
         self.name = name
         self.isEmbeddingOnly = isEmbeddingOnly
+        self.contextLength = contextLength
     }
 }
 

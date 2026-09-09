@@ -7,12 +7,20 @@ import Foundation
 /// 会劫持 `localhost` 请求并返回 502。所有本地 runtime 会话**必须**清空代理字典。
 public struct HTTPClient: Sendable {
 
-    public init() {}
+    /// 是否沿用系统代理设置。**本地 runtime 必须绕开代理**（防 502 劫持），
+    /// 云端 API（DeepSeek / OpenRouter）通常需要系统代理才能出网。
+    private let useSystemProxy: Bool
+
+    public init(useSystemProxy: Bool = false) {
+        self.useSystemProxy = useSystemProxy
+    }
 
     private func makeSession(timeout: TimeInterval) -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         // 绕开系统代理，否则 localhost 请求会被代理拦截。
-        configuration.connectionProxyDictionary = [:]
+        if !useSystemProxy {
+            configuration.connectionProxyDictionary = [:]
+        }
         configuration.timeoutIntervalForRequest = timeout
         configuration.timeoutIntervalForResource = max(timeout * 4, 60)
         configuration.httpAdditionalHeaders = ["Accept": "application/json"]

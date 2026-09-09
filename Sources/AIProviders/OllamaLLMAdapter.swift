@@ -211,18 +211,27 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
         }
         let list = try Self.decode(OllamaModelList.self, from: data)
 
-        // 补充能力信息（Ollama 原生 /api/tags 带 capabilities），失败则忽略。
+        // 补充能力信息（Ollama 原生 /api/tags 带 capabilities / context_length），失败则忽略。
         var embeddingOnly = Set<String>()
+        var contextLengths: [String: Int] = [:]
         if let tags = try? await fetchTags(base: base) {
             for model in tags.models {
                 if let capabilities = model.capabilities, capabilities.contains("embedding"), !capabilities.contains("completion") {
                     embeddingOnly.insert(model.name)
                 }
+                if let length = model.contextLength, length > 0 {
+                    contextLengths[model.name] = length
+                }
             }
         }
 
         return list.data.map { item in
-            DiscoveredModel(id: item.id, name: item.id, isEmbeddingOnly: embeddingOnly.contains(item.id))
+            DiscoveredModel(
+                id: item.id,
+                name: item.id,
+                isEmbeddingOnly: embeddingOnly.contains(item.id),
+                contextLength: contextLengths[item.id] ?? contextLengths["\(item.id):latest"]
+            )
         }
     }
 
@@ -367,6 +376,7 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
         struct Item: Decodable {
             let name: String
             let capabilities: [String]?
+            let contextLength: Int?
         }
     }
 

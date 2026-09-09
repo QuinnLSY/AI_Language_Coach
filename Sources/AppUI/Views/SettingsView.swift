@@ -44,6 +44,8 @@ public struct SettingsView: View {
     @State private var isRefreshing = false
     @State private var isClearingCache = false
     @State private var showClearConfirm = false
+    /// 配置里的 LLM Provider 标签（本地 / 云端）。
+    @State private var providerOptions: [(id: String, name: String, isRemote: Bool)] = []
 
     public init(state: AppState) { self.state = state }
 
@@ -248,64 +250,209 @@ public struct SettingsView: View {
         .help("设为\(partnerRole.title)：\(kind.displayName)")
     }
 
-    // MARK: - 模型
+    // MARK: - 模型提供商（本地 / 云端并存，二选一生效）
 
     private var modelCard: some View {
-        card(title: "AI 大脑", systemImage: "brain") {
+        card(title: "模型提供商", systemImage: "brain") {
             VStack(alignment: .leading, spacing: 12) {
+                // 提供商标签行：本地模型 / DeepSeek / OpenRouter…
                 HStack(spacing: 8) {
-                    Circle()
-                        .fill(state.health.isUsable ? Color.green : Color.orange)
-                        .frame(width: 8, height: 8)
-                    Text(state.health.userFacingDescription)
-                        .font(.system(size: 12, design: .rounded))
-                        .foregroundStyle(theme.secondaryText)
-                    Spacer()
-                    Button {
-                        isRefreshing = true
-                        Task {
-                            await state.refreshStatus()
-                            isRefreshing = false
-                        }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
+                    ForEach(providerOptions, id: \.id) { option in
+                        providerTab(option)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(isRefreshing)
-                    .help("重新检测本地模型")
+                    Spacer()
                 }
 
-                if state.availableModels.isEmpty {
-                    Text("没有检测到本地模型。请确认本地模型服务已启动后点击刷新。")
+                if providerOptions.isEmpty {
+                    Text("配置文件里没有 LLM Provider。")
                         .font(.system(size: 12, design: .rounded))
                         .foregroundStyle(.orange)
+                } else if isSelectedProviderRemote {
+                    remoteProviderSection
                 } else {
-                    Picker("选择模型", selection: Binding(
-                        get: { state.modelDraft },
-                        set: { name in Task { await state.applyModel(name) } }
-                    )) {
-                        ForEach(state.availableModels) { model in
-                            Text(model.name).tag(model.id)
-                        }
-                    }
-                    .labelsHidden()
+                    localProviderSection
                 }
 
-                HStack(spacing: 8) {
-                    TextField("或手动填写模型名", text: $state.modelDraft)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 13, design: .rounded))
-                    Button("应用") {
-                        Task { await state.applyModel(state.modelDraft) }
-                    }
-                    .disabled(state.modelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if let message = state.remoteMessage {
+                    Text(message)
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundStyle(message.contains("成功") || message.contains("已启用") ? .green : .orange)
                 }
 
-                Text("模型完全在本地运行，不上传任何对话内容。")
-                    .font(.system(size: 11, design: .rounded))
-                    .foregroundStyle(theme.secondaryText)
+                if state.activeProvider?.id == state.selectedProviderID, let bootMessage = state.bootMessage {
+                    Text(bootMessage)
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundStyle(.orange)
+                }
             }
         }
+    }
+
+    private func providerTab(_ option: (id: String, name: String, isRemote: Bool)) -> some View {
+        let isActive = state.activeProvider?.id == option.id
+        return Button {
+            state.selectProviderTab(option.id)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: option.isRemote ? "cloud.fill" : "desktopcomputer")
+                    .font(.system(size: 10))
+                Text(option.name)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(state.selectedProviderID == option.id ? Color.white : theme.primaryText)
+            .padding(.horizontal, 13)
+            .frame(height: 30)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(state.selectedProviderID == option.id ? theme.accent : theme.surfaceAlt)
+            )
+            .overlay(alignment: .topTrailing) {
+                if isActive {
+                    Circle()
+                        .fill(Color.green)
+                        .frame(width: 7, height: 7)
+                        .offset(x: 3, y: -3)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .help(isActive ? "当前生效" : "切换到\(option.name)")
+    }
+
+    private var isSelectedProviderRemote: Bool {
+        providerOptions.first { $0.id == state.selectedProviderID }?.isRemote ?? false
+    }
+
+    /// 本地模型（Ollama）：状态 + 模型选择。
+    private var localProviderSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(state.health.isUsable ? Color.green : Color.orange)
+                    .frame(width: 8, height: 8)
+                Text(state.health.userFacingDescription)
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                Spacer()
+                Button {
+                    isRefreshing = true
+                    Task {
+                        await state.refreshStatus()
+                        isRefreshing = false
+                    }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.plain)
+                .disabled(isRefreshing)
+                .help("重新检测本地模型")
+            }
+
+            if state.availableModels.isEmpty {
+                Text("没有检测到本地模型。请确认本地模型服务已启动后点击刷新。")
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundStyle(.orange)
+            } else {
+                Picker("选择模型", selection: Binding(
+                    get: { state.modelDraft },
+                    set: { name in Task { await state.applyModel(name) } }
+                )) {
+                    ForEach(state.availableModels) { model in
+                        Text(model.name).tag(model.id)
+                    }
+                }
+                .labelsHidden()
+            }
+
+            HStack(spacing: 8) {
+                TextField("或手动填写模型名", text: $state.modelDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 13, design: .rounded))
+                Button("应用") {
+                    Task { await state.applyModel(state.modelDraft) }
+                }
+                .disabled(state.modelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+
+            if state.activeProvider?.id != state.selectedProviderID {
+                Button("启用本地模型") {
+                    Task { await state.activateProvider(state.selectedProviderID) }
+                }
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+            }
+
+            Text("模型完全在本地运行，不上传任何对话内容。")
+                .font(.system(size: 11, design: .rounded))
+                .foregroundStyle(theme.secondaryText)
+        }
+    }
+
+    /// 云端 Provider：API Key → 验证并获取模型 → 选模型 / 推理强度 → 启用。
+    private var remoteProviderSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // ① API Key
+            HStack(spacing: 8) {
+                SecureField("API Key", text: Binding(
+                    get: { state.apiKeyDrafts[state.selectedProviderID] ?? "" },
+                    set: { state.apiKeyDrafts[state.selectedProviderID] = $0 }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 13, design: .rounded))
+
+                Button {
+                    Task { await state.fetchRemoteModels() }
+                } label: {
+                    HStack(spacing: 5) {
+                        if state.isFetchingRemoteModels {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "key.horizontal")
+                        }
+                        Text("验证并获取模型")
+                    }
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                }
+                .buttonStyle(.plain)
+                .disabled(state.isFetchingRemoteModels)
+            }
+
+            // ② 模型列表（验证成功后自动出现）
+            let models = state.remoteModels[state.selectedProviderID] ?? []
+            if !models.isEmpty {
+                Picker("选择模型", selection: Binding(
+                    get: { remoteModelDraft(models: models) },
+                    set: { model in Task { await state.applyRemoteProvider(model: model) } }
+                )) {
+                    ForEach(models) { model in
+                        Text(model.name).tag(model.id)
+                    }
+                }
+                .labelsHidden()
+            }
+
+            // ③ 推理强度
+            Picker("推理强度", selection: Binding(
+                get: { state.reasoningEffortDraft },
+                set: { state.reasoningEffortDraft = $0 }
+            )) {
+                Text("标准").tag(String?.none)
+                Text("低").tag(String?.some("low"))
+                Text("中").tag(String?.some("medium"))
+                Text("高").tag(String?.some("high"))
+            }
+
+            Text("对话内容会发送到该服务商的云端处理。填写正确的 API Key 后点击「验证并获取模型」，选择模型即可自动启用。")
+                .font(.system(size: 11, design: .rounded))
+                .foregroundStyle(theme.secondaryText)
+        }
+    }
+
+    /// 云端模型草稿：当前生效模型优先，否则列表第一个。
+    private func remoteModelDraft(models: [DiscoveredModel]) -> String {
+        if state.activeProvider?.id == state.selectedProviderID, !state.modelDraft.isEmpty {
+            return state.modelDraft
+        }
+        return models.first?.id ?? ""
     }
 
     // MARK: - 语音（说话 + 教师朗读）
@@ -618,8 +765,12 @@ public struct SettingsView: View {
 
     private func loadRuntimeValues() async {
         let configuration = await state.services.configuration
-        endpointDraft = configuration.enabledProvider(for: .llm)?.endpoint ?? ""
-        temperatureDraft = configuration.enabledProvider(for: .llm)?.temperature ?? 0.7
+        endpointDraft = configuration.resolvedProvider(for: .llm)?.endpoint ?? ""
+        temperatureDraft = configuration.resolvedProvider(for: .llm)?.temperature ?? 0.7
+        providerOptions = await state.llmProviderOptions()
+        if state.selectedProviderID.isEmpty, let first = providerOptions.first {
+            state.selectProviderTab(first.id)
+        }
         logs = await LogBus.shared.recent(limit: 60)
     }
 }

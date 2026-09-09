@@ -24,6 +24,13 @@ public final class ChatService {
     public private(set) var correctionsByMessage: [UUID: [GrammarCorrection]] = [:]
     /// 本会话累计纠错条数。
     public var correctionCount: Int { correctionsByMessage.values.reduce(0) { $0 + $1.count } }
+    /// 上下文占用估算（token）：流式响应通常不回传 usage，用字符数近似
+    /// （中英混合约 3 字符/token，每条消息附加 ~8 token 结构开销）。
+    public var estimatedContextTokens: Int {
+        var chars = 0
+        for message in messages { chars += message.content.count + 24 }
+        return (chars * 10 + 29) / 30
+    }
 
     private let services: CoachServices
     private var generationTask: Task<Void, Never>?
@@ -78,7 +85,7 @@ public final class ChatService {
         defer { isGenerating = false }
 
         let configuration = await services.configuration
-        let providerConfig = configuration.enabledProvider(for: .llm)
+        let providerConfig = configuration.resolvedProvider(for: .llm)
         let model = await services.currentLLMModel()
 
         let systemPrompt = PromptBuilder.teacherSystemPrompt(

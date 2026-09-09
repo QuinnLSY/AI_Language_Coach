@@ -74,6 +74,15 @@ public struct MainView: View {
             if CommandLine.arguments.contains("--open-records") {
                 Task { await state.openRecords() }
             }
+            // 端到端验证辅助：--send "文本" 启动后自动发送一条消息
+            if let index = CommandLine.arguments.firstIndex(of: "--send"),
+               index + 1 < CommandLine.arguments.count {
+                let text = CommandLine.arguments[index + 1]
+                Task {
+                    try? await Task.sleep(for: .seconds(1))
+                    state.chat.send(text)
+                }
+            }
         }
         .onChange(of: colorScheme) { _, newValue in
             state.systemIsDark = (newValue == .dark)
@@ -100,6 +109,8 @@ public struct MainView: View {
                     chat: state.chat,
                     modelName: state.currentModelName,
                     health: state.health,
+                    providerLabel: state.activeProviderName,
+                    contextLimit: state.contextLimit,
                     teacherKind: state.teacherAnimalKind,
                     studentKind: state.studentAnimalKind,
                     isRecording: state.isRecording,

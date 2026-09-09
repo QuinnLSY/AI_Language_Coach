@@ -42,8 +42,8 @@ public actor CoachServices {
     /// 按当前配置装配 LLM Provider（初始化 + 校验）。不抛错则可用。
     public func bootstrapLLM() async throws {
         let configuration = await config.current
-        guard var providerConfig = configuration.enabledProvider(for: .llm) else {
-            throw AppError.configuration("没有启用的 LLM Provider")
+        guard var providerConfig = configuration.resolvedProvider(for: .llm) else {
+            throw AppError.configuration("没有可用的 LLM Provider")
         }
         if let model = configuration.resolvedModel(for: .llm) {
             providerConfig.model = model
@@ -109,13 +109,61 @@ public actor CoachServices {
     /// 高级设置：修改 LLM Provider 的端点 / 温度后重新装配。
     public func setLLMProviderField(endpoint: String? = nil, temperature: Double? = nil) async throws {
         let configuration = await config.current
-        guard var provider = configuration.enabledProvider(for: .llm) else {
-            throw AppError.configuration("没有启用的 LLM Provider")
+        guard var provider = configuration.resolvedProvider(for: .llm) else {
+            throw AppError.configuration("没有可用的 LLM Provider")
         }
         if let endpoint { provider.endpoint = endpoint }
         if let temperature { provider.temperature = temperature }
         try await config.updateProvider(provider)
         try await bootstrapLLM()
+    }
+
+    /// 切换激活的 LLM Provider（本地 / 云端并存，二选一生效）。
+    /// 同时把产品层选中模型对齐到该 Provider 的默认模型，避免跨 Provider 串模型名。
+    public func switchLLMProvider(_ providerID: String) async throws {
+        let configuration = await config.current
+        guard let target = configuration.providers.first(where: { $0.id == providerID && $0.kind == .llm }) else {
+            throw AppError.configuration("找不到 LLM Provider：\(providerID)")
+        }
+        var product = configuration.product
+        for var provider in configuration.providers where provider.kind == .llm {
+            provider.enabled = provider.id == providerID
+            try await config.updateProvider(provider)
+        }
+        product.activateProvider(providerID, for: .llm)
+        product.selectModel(target.model ?? target.candidateModels.first, for: .llm)
+        try await config.updateProduct(product)
+        try await bootstrapLLM()
+    }
+
+    /// 校验云端 API Key 并拉取可用模型（不落盘，仅探测）。
+    public func fetchRemoteModels(providerID: String, apiKey: String) async throws -> [DiscoveredModel] {
+        let configuration = await config.current
+        guard var providerConfig = configuration.providers.first(where: { $0.id == providerID && $0.kind == .llm }) else {
+            throw AppError.configuration("找不到 LLM Provider：\(providerID)")
+        }
+        providerConfig.apiKey = apiKey
+        let provider = RemoteLLMAdapter(providerID: providerConfig.id)
+        try await provider.initialize(config: providerConfig)
+        return try await provider.discoverModels()
+    }
+
+    /// 保存云端 Provider 的 API Key / 模型 / 推理强度，并激活 + 重装配。
+    public func applyRemoteLLM(providerID: String, apiKey: String, model: String, reasoningEffort: String?) async throws {
+        let configuration = await config.current
+        guard var provider = configuration.providers.first(where: { $0.id == providerID && $0.kind == .llm }) else {
+            throw AppError.configuration("找不到 LLM Provider：\(providerID)")
+        }
+        provider.apiKey = apiKey
+        provider.model = model
+        provider.reasoningEffort = reasoningEffort
+        try await config.updateProvider(provider)
+        try await switchLLMProvider(providerID)
+    }
+
+    /// 当前生效 LLM 的上下文窗口（token）。nil = 未知。
+    public func contextWindow() async -> Int? {
+        await config.current.contextWindow(for: .llm)
     }
 
     /// 统一的产品配置写入口（避免 UI 直接访问 ConfigStore）。
@@ -136,10 +184,15 @@ public actor CoachServices {
         }
         if result.isEmpty {
             let configuration = await config.current
-            let candidates = configuration.enabledProvider(for: .llm)?.candidateModels ?? []
+            let candidates = configuration.resolvedProvider(for: .llm)?.candidateModels ?? []
             result = candidates.map { DiscoveredModel(id: $0, name: $0) }
         }
         return result
+    }
+
+    /// 当前激活的 LLM Provider 配置（供 UI 展示名称 / 运行时类型）。
+    public func activeLLMProvider() async -> ProviderConfig? {
+        await config.current.resolvedProvider(for: .llm)
     }
 
     public func currentLLMModel() async -> String? {
@@ -241,6 +294,8 @@ public actor CoachServices {
         switch config.runtime {
         case .ollama:
             OllamaLLMAdapter(providerID: config.id)
+        case .remoteAPI:
+            RemoteLLMAdapter(providerID: config.id)
         case .mock:
             MockLLMProvider(providerID: config.id)
         default:

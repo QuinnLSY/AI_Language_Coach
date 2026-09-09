@@ -8,7 +8,7 @@
     "teacher_animal": "panda",
     "student_animal": "bear",
     "selected_models": {
-      "llm": "deepseek-r1:7b"
+      "llm": "qwen3:8b"
     }
   },
   "providers": [
@@ -17,13 +17,40 @@
       "kind": "llm",
       "enabled": true,
       "runtime": "ollama",
+      "display_name": "本地模型",
       "endpoint": "http://127.0.0.1:11434",
-      "model": "deepseek-r1:7b",
-      "candidate_models": ["deepseek-r1:7b"],
+      "model": "qwen3:8b",
+      "candidate_models": ["qwen3:8b", "deepseek-r1:7b"],
       "streaming": true,
       "temperature": 0.7,
       "top_p": 0.9,
-      "max_tokens": 1024,
+      "max_tokens": 4096,
+      "request_timeout": 120
+    },
+    {
+      "id": "remote.deepseek",
+      "kind": "llm",
+      "enabled": false,
+      "runtime": "remoteAPI",
+      "display_name": "DeepSeek",
+      "endpoint": "https://api.deepseek.com",
+      "candidate_models": [],
+      "streaming": true,
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "request_timeout": 120
+    },
+    {
+      "id": "remote.openrouter",
+      "kind": "llm",
+      "enabled": false,
+      "runtime": "remoteAPI",
+      "display_name": "OpenRouter",
+      "endpoint": "https://openrouter.ai/api",
+      "candidate_models": [],
+      "streaming": true,
+      "temperature": 0.7,
+      "max_tokens": 4096,
       "request_timeout": 120
     },
     {

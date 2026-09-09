@@ -59,4 +59,78 @@ final class ConfigurationTests: XCTestCase {
         XCTAssertTrue(prompt.contains("en-US"))
         XCTAssertTrue(prompt.contains("zh-CN"))
     }
+
+    // MARK: - 本地 / 云端 Provider 并存
+
+    func testDefaultConfigurationContainsRemoteProviders() throws {
+        let configuration = try DefaultConfiguration.load()
+        let deepseek = try XCTUnwrap(configuration.providers.first { $0.id == "remote.deepseek" })
+        let openrouter = try XCTUnwrap(configuration.providers.first { $0.id == "remote.openrouter" })
+        XCTAssertEqual(deepseek.runtime, .remoteAPI)
+        XCTAssertEqual(openrouter.runtime, .remoteAPI)
+        // 默认不启用、不带密钥
+        XCTAssertFalse(deepseek.enabled)
+        XCTAssertNil(deepseek.apiKey)
+        XCTAssertEqual(deepseek.userFacingName, "DeepSeek")
+    }
+
+    func testResolvedProviderPrefersActiveProductSelection() {
+        var configuration = AppConfiguration()
+        configuration.providers = [
+            ProviderConfig(id: "local.llm", kind: .llm, enabled: true, runtime: .ollama),
+            ProviderConfig(id: "remote.llm", kind: .llm, enabled: false, runtime: .remoteAPI)
+        ]
+        // 未激活时选首个启用的
+        XCTAssertEqual(configuration.resolvedProvider(for: .llm)?.id, "local.llm")
+        // 激活云端后（即使 enabled=false 也能被激活逻辑选中）
+        configuration.product.activateProvider("remote.llm", for: .llm)
+        XCTAssertEqual(configuration.resolvedProvider(for: .llm)?.id, "remote.llm")
+    }
+
+    func testSwitchingProviderAlignsSelectedModel() throws {
+        var configuration = AppConfiguration()
+        configuration.providers = [
+            ProviderConfig(id: "local.llm", kind: .llm, enabled: true, runtime: .ollama, model: "qwen3:8b"),
+            ProviderConfig(id: "remote.llm", kind: .llm, enabled: false, runtime: .remoteAPI, model: "deepseek-chat")
+        ]
+        configuration.product.selectModel("qwen3:8b", for: .llm)
+        // 模拟 switchLLMProvider 的产品层对齐（激活 + 选中模型跟随 Provider 默认值）
+        let target = try XCTUnwrap(configuration.providers.first { $0.id == "remote.llm" })
+        configuration.product.activateProvider(target.id, for: .llm)
+        configuration.product.selectModel(target.model, for: .llm)
+        XCTAssertEqual(configuration.resolvedModel(for: .llm), "deepseek-chat")
+    }
+
+    func testProviderConfigCodableRoundTripsRemoteFields() throws {
+        let provider = ProviderConfig(
+            id: "remote.test", kind: .llm, enabled: true, runtime: .remoteAPI,
+            displayName: "Test", endpoint: "https://example.com",
+            apiKey: "sk-test", reasoningEffort: "high", contextLength: 65536,
+            model: "test-model"
+        )
+        let data = try JSONEncoder().encode(provider)
+        let decoded = try JSONDecoder().decode(ProviderConfig.self, from: data)
+        XCTAssertEqual(decoded, provider)
+    }
+
+    func testLegacyConfigWithoutNewFieldsStillDecodes() throws {
+        // 只保留旧版就有的字段（candidateModels / streaming 是必填，旧配置一直带）
+        let legacy = """
+        {"id":"old.llm","kind":"llm","enabled":true,"runtime":"ollama","model":"m","candidateModels":[],"streaming":true}
+        """
+        let provider = try JSONDecoder().decode(ProviderConfig.self, from: Data(legacy.utf8))
+        XCTAssertNil(provider.apiKey)
+        XCTAssertNil(provider.reasoningEffort)
+        XCTAssertNil(provider.contextLength)
+        XCTAssertEqual(provider.model, "m")
+    }
+
+    func testContextWindowFromResolvedProvider() {
+        var configuration = AppConfiguration()
+        configuration.providers = [
+            ProviderConfig(id: "remote.llm", kind: .llm, runtime: .remoteAPI, contextLength: 65536)
+        ]
+        configuration.product.activateProvider("remote.llm", for: .llm)
+        XCTAssertEqual(configuration.contextWindow(for: .llm), 65536)
+    }
 }

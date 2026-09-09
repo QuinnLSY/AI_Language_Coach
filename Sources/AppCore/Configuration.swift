@@ -64,6 +64,8 @@ public enum RuntimeKind: String, Codable, Sendable, CaseIterable {
     case pythonProcess
     case externalLocalRuntime
     case pipeline
+    /// 云端 OpenAI 兼容 API（DeepSeek / OpenRouter 等），凭 API Key 调用。
+    case remoteAPI
     case mock
 }
 
@@ -75,8 +77,16 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
     public var kind: AIProviderKind
     public var enabled: Bool
     public var runtime: RuntimeKind
+    /// 用户可见的 Provider 名称（如「本地模型」「DeepSeek」）。缺省时 UI 用 id 展示。
+    public var displayName: String?
     /// 端点（如本地 runtime 的 base URL）。AUTO_MANAGED：默认由应用解析。
     public var endpoint: String?
+    /// 云端 API 密钥（remoteAPI runtime 必需）。随用户配置存本地，不进 git。
+    public var apiKey: String?
+    /// 模型推理强度（low / medium / high；nil = 不发送，由服务端默认）。
+    public var reasoningEffort: String?
+    /// 上下文窗口长度（token），用于界面展示占用。nil = 未知，只展示估算用量。
+    public var contextLength: Int?
     /// 当前选中的模型。USER_VISIBLE：UI 可填可选。
     public var model: String?
     /// runtime 不可用时降级展示的候选模型列表。
@@ -92,7 +102,11 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         kind: AIProviderKind,
         enabled: Bool = true,
         runtime: RuntimeKind = .mock,
+        displayName: String? = nil,
         endpoint: String? = nil,
+        apiKey: String? = nil,
+        reasoningEffort: String? = nil,
+        contextLength: Int? = nil,
         model: String? = nil,
         candidateModels: [String] = [],
         streaming: Bool = false,
@@ -105,7 +119,11 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         self.kind = kind
         self.enabled = enabled
         self.runtime = runtime
+        self.displayName = displayName
         self.endpoint = endpoint
+        self.apiKey = apiKey
+        self.reasoningEffort = reasoningEffort
+        self.contextLength = contextLength
         self.model = model
         self.candidateModels = candidateModels
         self.streaming = streaming
@@ -114,6 +132,8 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         self.maxTokens = maxTokens
         self.requestTimeout = requestTimeout
     }
+
+    public var userFacingName: String { displayName ?? id }
 }
 
 // MARK: - 产品配置
@@ -130,6 +150,9 @@ public struct ProductConfig: Sendable, Equatable {
     public var teacherAnimal: String
     /// 小学员形象（`AnimalKind.rawValue` 字符串，UI 层映射）。默认小熊。
     public var studentAnimal: String
+    /// 每类能力当前激活的 Provider（`AIProviderKind.rawValue -> provider id`）。
+    /// 本地模型与云端 Provider 并存时，由它决定实际用谁。
+    public var activeProviders: [String: String]
 
     public init(
         learningLanguage: String = "en-US",
@@ -139,7 +162,8 @@ public struct ProductConfig: Sendable, Equatable {
         themeMode: ThemeMode = .day,
         selectedModels: [String: String] = [:],
         teacherAnimal: String = "panda",
-        studentAnimal: String = "bear"
+        studentAnimal: String = "bear",
+        activeProviders: [String: String] = [:]
     ) {
         self.learningLanguage = learningLanguage
         self.nativeLanguage = nativeLanguage
@@ -149,11 +173,17 @@ public struct ProductConfig: Sendable, Equatable {
         self.selectedModels = selectedModels
         self.teacherAnimal = teacherAnimal
         self.studentAnimal = studentAnimal
+        self.activeProviders = activeProviders
     }
 
     public func selectedModel(for kind: AIProviderKind) -> String? { selectedModels[kind.rawValue] }
     public mutating func selectModel(_ model: String?, for kind: AIProviderKind) {
         selectedModels[kind.rawValue] = model
+    }
+
+    public func activeProvider(for kind: AIProviderKind) -> String? { activeProviders[kind.rawValue] }
+    public mutating func activateProvider(_ id: String?, for kind: AIProviderKind) {
+        activeProviders[kind.rawValue] = id
     }
 }
 
@@ -162,7 +192,7 @@ public struct ProductConfig: Sendable, Equatable {
 extension ProductConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case learningLanguage, nativeLanguage, teacherVoice, practiceMode, themeMode
-        case selectedModels, teacherAnimal, studentAnimal
+        case selectedModels, teacherAnimal, studentAnimal, activeProviders
     }
 
     public init(from decoder: Decoder) throws {
@@ -175,6 +205,7 @@ extension ProductConfig: Codable {
         selectedModels = try container.decodeIfPresent([String: String].self, forKey: .selectedModels) ?? [:]
         teacherAnimal = try container.decodeIfPresent(String.self, forKey: .teacherAnimal) ?? "panda"
         studentAnimal = try container.decodeIfPresent(String.self, forKey: .studentAnimal) ?? "bear"
+        activeProviders = try container.decodeIfPresent([String: String].self, forKey: .activeProviders) ?? [:]
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -187,6 +218,7 @@ extension ProductConfig: Codable {
         try container.encode(selectedModels, forKey: .selectedModels)
         try container.encode(teacherAnimal, forKey: .teacherAnimal)
         try container.encode(studentAnimal, forKey: .studentAnimal)
+        try container.encode(activeProviders, forKey: .activeProviders)
     }
 }
 
@@ -207,10 +239,24 @@ public struct AppConfiguration: Codable, Sendable, Equatable {
         providers.first { $0.kind == kind && $0.enabled }
     }
 
+    /// 解析某能力实际生效的 Provider：产品层激活的 id 优先，其次首个启用的。
+    public func resolvedProvider(for kind: AIProviderKind) -> ProviderConfig? {
+        if let activeID = product.activeProvider(for: kind),
+           let active = providers.first(where: { $0.id == activeID && $0.kind == kind }) {
+            return active
+        }
+        return enabledProvider(for: kind)
+    }
+
     /// 解析某能力最终使用的模型：产品层选择 > Provider 默认 > 候选列表首个。
     public func resolvedModel(for kind: AIProviderKind) -> String? {
         if let picked = product.selectedModel(for: kind) { return picked }
-        guard let provider = enabledProvider(for: kind) else { return nil }
+        guard let provider = resolvedProvider(for: kind) else { return nil }
         return provider.model ?? provider.candidateModels.first
+    }
+
+    /// 当前生效 Provider 的上下文窗口长度（token）。nil = 未知。
+    public func contextWindow(for kind: AIProviderKind) -> Int? {
+        resolvedProvider(for: kind)?.contextLength
     }
 }

@@ -39,7 +39,7 @@ let package = Package(
             name: "AILanguageCoachTests",
             dependencies: [
                 "AppCore", "AIDomain", "AIInterfaces",
-                "AIInfrastructure", "AIProviders", "AIServices",
+                "AIInfrastructure", "AIProviders", "AIServices", "AppUI",
             ]
         ),
     ],

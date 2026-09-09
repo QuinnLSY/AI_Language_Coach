@@ -11,6 +11,10 @@ public struct ChatView: View {
     let chat: ChatService
     let modelName: String?
     let health: ProviderHealth
+    /// 状态栏用：生效 Provider 名称（本地模型 / DeepSeek / OpenRouter…）。
+    var providerLabel: String = ""
+    /// 上下文窗口长度（token）；nil = 未知，只展示估算用量。
+    var contextLimit: Int? = nil
     /// AI 老师形象（头部 / 回复气泡头像）。
     let teacherKind: AnimalKind
     /// 小学员形象（学员消息头像 / 空态引导）。
@@ -29,6 +33,7 @@ public struct ChatView: View {
     @FocusState private var isInputFocused: Bool
 
     public init(chat: ChatService, modelName: String?, health: ProviderHealth,
+                providerLabel: String = "", contextLimit: Int? = nil,
                 teacherKind: AnimalKind = .panda, studentKind: AnimalKind = .bear,
                 isRecording: Bool = false, isTranscribing: Bool = false,
                 autoSpeak: Bool = false,
@@ -38,6 +43,8 @@ public struct ChatView: View {
         self.chat = chat
         self.modelName = modelName
         self.health = health
+        self.providerLabel = providerLabel
+        self.contextLimit = contextLimit
         self.teacherKind = teacherKind
         self.studentKind = studentKind
         self.isRecording = isRecording
@@ -54,6 +61,7 @@ public struct ChatView: View {
             Divider().overlay(theme.divider)
             messageArea
             inputBar
+            contextStrip
         }
         .background(theme.surfaceAlt.opacity(0.35))
     }
@@ -374,6 +382,46 @@ public struct ChatView: View {
         }
         .buttonStyle(.plain)
         .help(isRecording ? "停止并识别" : "点击说话")
+    }
+
+    // MARK: - 上下文状态栏（输入框下方：当前模型 + 上下文占用）
+
+    private var contextStrip: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(health.isUsable ? Color.green : Color.orange)
+                .frame(width: 6, height: 6)
+            Text(contextSummary)
+                .font(.system(size: 10, design: .rounded))
+                .foregroundStyle(theme.secondaryText)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18)
+        .padding(.bottom, 6)
+    }
+
+    /// 「本地模型 · qwen3:8b · 上下文 ≈1.2k / 8.0k（15%）」
+    private var contextSummary: String {
+        var parts: [String] = []
+        if !providerLabel.isEmpty { parts.append(providerLabel) }
+        if let modelName, !modelName.isEmpty { parts.append(modelName) }
+        parts.append(contextDescription)
+        return parts.joined(separator: " · ")
+    }
+
+    private var contextDescription: String {
+        let used = chat.estimatedContextTokens
+        if let contextLimit, contextLimit > 0 {
+            let fraction = min(Double(used) / Double(contextLimit), 1)
+            return "上下文 ≈\(Self.tokenCount(used)) / \(Self.tokenCount(contextLimit))（\(Int(fraction * 100))%）"
+        }
+        return "上下文 ≈\(Self.tokenCount(used)) tokens"
+    }
+
+    /// token 数缩写：1234 → 1.2k。
+    public nonisolated static func tokenCount(_ tokens: Int) -> String {
+        tokens >= 1000 ? String(format: "%.1fk", Double(tokens) / 1000) : "\(tokens)"
     }
 
     private func send() {
