@@ -43,6 +43,10 @@ public final class AppState {
     public var remoteMessage: String?
     /// 上下文窗口（token），nil = 未知。
     public private(set) var contextLimit: Int?
+    /// 生效模型的推理强度（low / medium / high；nil = 标准）。
+    public private(set) var activeReasoningEffort: String?
+    /// 今日全局 token 用量（侧边栏黑板 / 督促气泡判定）。
+    public private(set) var todayTokens: Int = 0
     // MARK: 语音（第 17/18 步）
     /// 是否正在录音。
     public private(set) var isRecording = false
@@ -132,9 +136,17 @@ public final class AppState {
         } catch {
             bootMessage = error.localizedDescription
         }
+        // 恢复上次会话的聊天内容（无历史则保持空白）
+        await chat.restoreLastSessionIfNeeded()
         await bootstrapVoice()
         await refreshStatus()
+        refreshTodayTokens()
         isBooting = false
+    }
+
+    /// 刷新今日 token 用量（每次回复完成 / 打开侧边栏时调用）。
+    public func refreshTodayTokens() {
+        todayTokens = DailyTokenCounter.todayTokens()
     }
 
     // MARK: - 语音（第 17/18 步）
@@ -231,6 +243,11 @@ public final class AppState {
         // 上下文窗口：优先取 runtime 发现的当前模型长度，其次配置值。
         let configured = await services.contextWindow()
         contextLimit = availableModels.first(where: { $0.id == modelDraft })?.contextLength ?? configured
+        // 生效模型的推理强度（头部胶囊展示用）。
+        activeReasoningEffort = await services.activeReasoningEffort()
+        // 关键：同步本地 product 缓存。否则切换 Provider 后，任何一次 persistProduct
+        // 都会用旧缓存回写配置，把 activeProviders/apiKey 决策抹掉（重启回到 qwen3 的根源）。
+        product = await services.configuration.product
     }
 
     // MARK: - 模型 Provider（本地 / 云端切换）

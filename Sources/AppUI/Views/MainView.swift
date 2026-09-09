@@ -111,6 +111,7 @@ public struct MainView: View {
                     health: state.health,
                     providerLabel: state.activeProviderName,
                     contextLimit: state.contextLimit,
+                    reasoningLabel: Self.reasoningDisplay(state.activeReasoningEffort),
                     teacherKind: state.teacherAnimalKind,
                     studentKind: state.studentAnimalKind,
                     isRecording: state.isRecording,
@@ -250,6 +251,16 @@ public struct MainView: View {
     }
 
     // MARK: -
+
+    /// 推理强度展示文案（low/medium/high → 低/中/高）。
+    public static func reasoningDisplay(_ effort: String?) -> String? {
+        switch effort {
+        case "low": "低"
+        case "medium": "中"
+        case "high": "高"
+        default: nil
+        }
+    }
 
     private func open(_ level: TreeLevel) async {
         guard level.state != .locked else { return }

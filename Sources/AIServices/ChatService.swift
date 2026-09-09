@@ -15,6 +15,8 @@ public final class ChatService {
     public private(set) var isGenerating = false
     /// 模型正在「思考」：已有推理增量但还没有正文（推理模型常见）。
     public private(set) var isThinking = false
+    /// 流式思考过程（实时增长；UI 折叠面板展示最新若干行）。
+    public private(set) var streamingReasoning: String = ""
     public private(set) var errorMessage: String?
 
     public var profile: LearnerProfile = LearnerProfile()
@@ -72,6 +74,14 @@ public final class ChatService {
         isGenerating = false
     }
 
+    /// 启动时恢复上次会话：消息回流 + 继续往同一会话里追加。
+    public func restoreLastSessionIfNeeded() async {
+        guard messages.isEmpty, !isGenerating else { return }
+        guard let restored = await services.latestChatSession(), !restored.messages.isEmpty else { return }
+        sessionID = restored.session.id
+        messages = restored.messages
+    }
+
     public func clear() {
         cancel()
         messages.removeAll()
@@ -107,13 +117,17 @@ public final class ChatService {
             streaming: true
         )
 
+        let tokensBefore = estimatedContextTokens
         var accumulated = ""
         var reasoning = ""
         do {
             let stream = await services.llm.stream(request)
             for try await chunk in stream {
                 if Task.isCancelled { break }
-                if let delta = chunk.reasoningDelta, !delta.isEmpty { reasoning += delta }
+                if let delta = chunk.reasoningDelta, !delta.isEmpty {
+                    reasoning += delta
+                    streamingReasoning = reasoning
+                }
                 if !chunk.textDelta.isEmpty {
                     accumulated += chunk.textDelta
                     streamingText = accumulated
@@ -129,19 +143,27 @@ public final class ChatService {
         }
 
         streamingText = ""
+        streamingReasoning = ""
         isThinking = false
         let finalText = Self.stripThinking(accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
         // 用户主动叫停时保留已生成内容，不算错误。
         if !finalText.isEmpty {
             // 抽取老师标注的纠错块（[[FIX]] ...），不进聊天正文。
             let parsed = Self.extractCorrections(finalText)
-            let message = ChatMessage(role: .assistant, content: parsed.cleanText)
+            let trimmedReasoning = reasoning.trimmingCharacters(in: .whitespacesAndNewlines)
+            let message = ChatMessage(
+                role: .assistant,
+                content: parsed.cleanText,
+                reasoning: trimmedReasoning.isEmpty ? nil : trimmedReasoning
+            )
             messages.append(message)
             persist(message)
             if !parsed.corrections.isEmpty {
                 correctionsByMessage[message.id] = parsed.corrections
                 persistCorrections(parsed.corrections)
             }
+            // 今日全局 token 用量（上下文增量估算，供黑板/督促气泡）。
+            DailyTokenCounter.add(max(estimatedContextTokens - tokensBefore, 0))
         }
     }
 

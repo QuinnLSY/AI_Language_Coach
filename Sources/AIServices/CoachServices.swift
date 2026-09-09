@@ -199,6 +199,17 @@ public actor CoachServices {
         await config.current.resolvedModel(for: .llm)
     }
 
+    /// 上次会话（含消息），供启动时恢复聊天框。没有历史时返回 nil。
+    public func latestChatSession() async -> (session: ChatSession, messages: [ChatMessage])? {
+        guard let learning else { return nil }
+        return try? await learning.latestSession()
+    }
+
+    /// 当前生效 LLM 的推理强度（low / medium / high；nil = 标准）。
+    public func activeReasoningEffort() async -> String? {
+        await config.current.resolvedProvider(for: .llm)?.reasoningEffort
+    }
+
     public func llmHealth() async -> ProviderHealth {
         await llm.healthCheck()
     }

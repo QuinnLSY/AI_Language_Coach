@@ -14,12 +14,28 @@ public struct ChatMessage: Codable, Sendable, Equatable, Identifiable {
     public var role: ChatRole
     public var content: String
     public var createdAt: Date
+    /// 推理模型的思考过程（展示用，可折叠；旧消息/旧库无此字段）。
+    public var reasoning: String?
 
-    public init(id: UUID = UUID(), role: ChatRole, content: String, createdAt: Date = Date()) {
+    public init(id: UUID = UUID(), role: ChatRole, content: String, createdAt: Date = Date(), reasoning: String? = nil) {
         self.id = id
         self.role = role
         self.content = content
         self.createdAt = createdAt
+        self.reasoning = reasoning
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, role, content, createdAt, reasoning
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        role = try container.decode(ChatRole.self, forKey: .role)
+        content = try container.decode(String.self, forKey: .content)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        reasoning = try container.decodeIfPresent(String.self, forKey: .reasoning)
     }
 }
 

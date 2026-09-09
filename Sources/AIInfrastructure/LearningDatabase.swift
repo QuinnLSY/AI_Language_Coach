@@ -9,7 +9,8 @@ public actor LearningDatabase {
 
     private let db: SQLiteDatabase
 
-    public static let schemaVersion = 1
+    /// v2：messages 增加 reasoning 列（推理模型思考过程持久化）。
+    public static let schemaVersion = 2
 
     /// 测试用内存库。
     public static func inMemory() throws -> LearningDatabase {
@@ -62,7 +63,8 @@ public actor LearningDatabase {
             session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
             role TEXT NOT NULL,
             content TEXT NOT NULL,
-            created_at REAL NOT NULL
+            created_at REAL NOT NULL,
+            reasoning TEXT
         )
         """)
         try db.run("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)")
@@ -77,6 +79,9 @@ public actor LearningDatabase {
             created_at REAL NOT NULL
         )
         """)
+
+        // v1 → v2：给已存在的 messages 表补 reasoning 列（列已存在时报错属预期，忽略）。
+        try? db.run("ALTER TABLE messages ADD COLUMN reasoning TEXT")
 
         try db.setSchemaVersion(Self.schemaVersion)
     }
@@ -160,13 +165,14 @@ public actor LearningDatabase {
     public func appendMessage(_ message: ChatMessage, sessionID: UUID) throws {
         try db.runInTransaction([
             (
-                "INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, reasoning) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 [
                     .text(message.id.uuidString),
                     .text(sessionID.uuidString),
                     .text(message.role.rawValue),
                     .text(message.content),
                     .real(message.createdAt.timeIntervalSince1970),
+                    message.reasoning.map { .text($0) } ?? .null,
                 ]
             ),
             (
@@ -174,6 +180,41 @@ public actor LearningDatabase {
                 [.text(sessionID.uuidString)]
             ),
         ])
+    }
+
+    /// 某会话的全部消息（按时间正序），用于启动时恢复上次会话。
+    public func messages(sessionID: UUID) throws -> [ChatMessage] {
+        let rows = try db.query(
+            "SELECT id, role, content, created_at, reasoning FROM messages WHERE session_id = ?1 ORDER BY created_at ASC, rowid ASC",
+            [.text(sessionID.uuidString)]
+        ) { row -> ChatMessage? in
+            guard let idText = row.string(0), let id = UUID(uuidString: idText),
+                  let roleRaw = row.string(1), let role = ChatRole(rawValue: roleRaw),
+                  let content = row.string(2), let created = row.double(3)
+            else { return nil }
+            return ChatMessage(
+                id: id, role: role, content: content,
+                createdAt: Date(timeIntervalSince1970: created),
+                reasoning: row.string(4)
+            )
+        }
+        return rows.compactMap { $0 }
+    }
+
+    /// 最近一个会话（含消息）。没有历史会话时返回 nil。
+    public func latestSession() throws -> (session: ChatSession, messages: [ChatMessage])? {
+        let rows = try db.query(
+            "SELECT id, started_at, mode FROM sessions WHERE id != 'archive' ORDER BY started_at DESC LIMIT 1"
+        ) { row -> (UUID, Date, PracticeMode)? in
+            guard let idText = row.string(0), let id = UUID(uuidString: idText),
+                  let started = row.double(1),
+                  let modeRaw = row.string(2), let mode = PracticeMode(rawValue: modeRaw)
+            else { return nil }
+            return (id, Date(timeIntervalSince1970: started), mode)
+        }
+        guard let first = rows.compactMap({ $0 }).first else { return nil }
+        let session = ChatSession(id: first.0, startedAt: first.1, mode: first.2)
+        return (session, try messages(sessionID: first.0))
     }
 
     public func finishSession(id: UUID, endedAt: Date = Date()) throws {

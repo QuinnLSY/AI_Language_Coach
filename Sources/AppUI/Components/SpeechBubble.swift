@@ -16,13 +16,16 @@ public struct TalkingAnimal: View {
     /// 1 = 朝右，-1 = 朝左（只翻转动物，不镜像气泡文字）。
     public var facing: CGFloat = 1
     public var phrases: [String] = []
+    /// 气泡出现/消失时回调（父级据此把该个体抬到最上层，避免被相邻气泡遮挡）。
+    public var onBubbleChange: ((Bool) -> Void)? = nil
 
     @State private var bubble: String?
     @State private var clickTick = 0
 
     public init(kind: AnimalKind, isSleeping: Bool = false, size: CGFloat = 64,
                 accessory: AnimalAccessory = .none, bobbing: Bool = true,
-                facing: CGFloat = 1, phrases: [String] = []) {
+                facing: CGFloat = 1, phrases: [String] = [],
+                onBubbleChange: ((Bool) -> Void)? = nil) {
         self.kind = kind
         self.isSleeping = isSleeping
         self.size = size
@@ -30,6 +33,7 @@ public struct TalkingAnimal: View {
         self.bobbing = bobbing
         self.facing = facing
         self.phrases = phrases
+        self.onBubbleChange = onBubbleChange
     }
 
     public var body: some View {
@@ -52,7 +56,11 @@ public struct TalkingAnimal: View {
         .task(id: clickTick) {
             guard bubble != nil else { return }
             try? await Task.sleep(nanoseconds: 3_000_000_000)
+            // 关键：被新的点击取消时（连点）必须直接返回，
+            // 否则会立刻把气泡关掉——这正是「连点时气泡一闪就收」的根源。
+            guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.25)) { bubble = nil }
+            onBubbleChange?(false)
         }
         .accessibilityLabel("\(kind.displayName)（点击听它说话）")
         .accessibilityAddTraits(.isButton)
@@ -62,7 +70,9 @@ public struct TalkingAnimal: View {
         guard !phrases.isEmpty else { return }
         let pool = phrases.filter { $0 != bubble }
         let next = pool.randomElement() ?? phrases[0]
+        let isNewBubble = bubble == nil
         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { bubble = next }
+        if isNewBubble { onBubbleChange?(true) }
         clickTick += 1
     }
 }

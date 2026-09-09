@@ -267,6 +267,9 @@ private struct LevelNode: View {
 struct ForestGroundBand: View {
     let theme: ForestTheme
 
+    /// 当前有气泡在显示的居民（点击或自发动作）——它的气泡要盖在所有气泡之上。
+    @State private var speakingIndex: Int?
+
     // 各类元素的**上限**：始终按上限创建视图，靠透明度控制显隐。
     // 这样拖动分割线时元素不会突然创建/销毁（那正是画面抖动的来源）。
     private let grassCount = 26
@@ -427,7 +430,6 @@ struct ForestGroundBand: View {
         let base = min(54, 28 + quantizedWidth * 0.045) * (0.72 + depth * 0.42)
         let size = base * (0.94 + pr(index, 5) * 0.14)
         let facing: CGFloat = pr(index, 3) > 0.5 ? 1 : -1
-        let bobbing = pr(index, 7) > 0.38 && !theme.isNight
         let y = groundLine - size * 0.5 - depth * 10 + pr(index, 9) * 6
         // 可见个体在整条带上均分，站位抖动幅度随间距收窄，避免重叠
         let pitch = span / CGFloat(max(1, visibleCount))
@@ -441,17 +443,24 @@ struct ForestGroundBand: View {
                 .frame(width: size * 0.92, height: size * 0.15)
                 .offset(y: size * 0.42)
 
-            TalkingAnimal(
+            LivelyAnimal(
                 kind: kind,
                 isSleeping: theme.isNight,
                 size: size,
-                bobbing: bobbing,
                 facing: facing,
-                phrases: kind.phrases
+                phrases: kind.phrases,
+                onBubbleChange: { active in
+                    if active {
+                        speakingIndex = index
+                    } else if speakingIndex == index {
+                        speakingIndex = nil
+                    }
+                }
             )
         }
         .position(x: x, y: y)
-        .zIndex(Double(Int(depth * 10)))
+        // 说话的个体永远在最上层，气泡不被相邻气泡/动物遮挡
+        .zIndex(speakingIndex == index ? 1000 : Double(Int(depth * 10)))
         .opacity(visible ? 1 : 0)
         .scaleEffect(visible ? 1 : 0.6, anchor: .bottom)
         .allowsHitTesting(visible)

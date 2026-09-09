@@ -15,6 +15,8 @@ public struct ChatView: View {
     var providerLabel: String = ""
     /// 上下文窗口长度（token）；nil = 未知，只展示估算用量。
     var contextLimit: Int? = nil
+    /// 生效模型的推理强度（low / medium / high；nil = 标准）。
+    var reasoningLabel: String? = nil
     /// AI 老师形象（头部 / 回复气泡头像）。
     let teacherKind: AnimalKind
     /// 小学员形象（学员消息头像 / 空态引导）。
@@ -32,8 +34,11 @@ public struct ChatView: View {
     @State private var input: String = ""
     @FocusState private var isInputFocused: Bool
 
+    /// 相隔超过该时长的两条消息之间才显示时间戳。
+    private let timestampGap: TimeInterval = 5 * 60
+
     public init(chat: ChatService, modelName: String?, health: ProviderHealth,
-                providerLabel: String = "", contextLimit: Int? = nil,
+                providerLabel: String = "", contextLimit: Int? = nil, reasoningLabel: String? = nil,
                 teacherKind: AnimalKind = .panda, studentKind: AnimalKind = .bear,
                 isRecording: Bool = false, isTranscribing: Bool = false,
                 autoSpeak: Bool = false,
@@ -45,6 +50,7 @@ public struct ChatView: View {
         self.health = health
         self.providerLabel = providerLabel
         self.contextLimit = contextLimit
+        self.reasoningLabel = reasoningLabel
         self.teacherKind = teacherKind
         self.studentKind = studentKind
         self.isRecording = isRecording
@@ -64,6 +70,12 @@ public struct ChatView: View {
             contextStrip
         }
         .background(theme.surfaceAlt.opacity(0.35))
+        // 教师回复完成后自动朗读（设置里可关）；挂在最外层，空态切换分支也不丢事件。
+        .onChange(of: chat.messages.count) { _, count in
+            if autoSpeak, count > 0, let last = chat.messages.last, last.role == .assistant {
+                onSpeakTap?(last.content)
+            }
+        }
     }
 
     // MARK: - 头部
@@ -84,18 +96,24 @@ public struct ChatView: View {
             Spacer()
 
             if let modelName, !modelName.isEmpty {
-                Text(modelName)
+                Text(headerModelCaption(modelName))
                     .font(.system(size: 10, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(
-                        Capsule().fill(theme.surfaceAlt)
-                    )
+                    .background(Capsule().fill(theme.surfaceAlt))
             }
         }
         .padding(.horizontal, 18)
         .frame(height: 64)
+    }
+
+    /// 右上角胶囊：模型名 · 推理强度（如「qwen3:8b · 高」）。
+    private func headerModelCaption(_ model: String) -> String {
+        if let reasoningLabel, !reasoningLabel.isEmpty {
+            return "\(model) · \(reasoningLabel)"
+        }
+        return model
     }
 
     private var statusLine: String {
@@ -107,57 +125,78 @@ public struct ChatView: View {
 
     // MARK: - 消息区
 
+    @ViewBuilder
     private var messageArea: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if chat.messages.isEmpty && chat.streamingText.isEmpty {
-                        emptyHint
-                    }
-
-                    ForEach(chat.messages) { message in
-                        VStack(alignment: .leading, spacing: 6) {
-                            timestamp(message.createdAt)
-                            bubble(message)
-                        }
-                        .id(message.id.uuidString)
-                    }
-
-                    if chat.isGenerating && !chat.streamingText.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            timestamp(Date())
-                            bubble(ChatMessage(role: .assistant, content: chat.streamingText))
-                        }
-                        .id("streaming")
-                    } else if chat.isGenerating {
-                        HStack(spacing: 8) {
-                            CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
-                            if chat.isThinking {
-                                Text("思考中…")
-                                    .font(.system(size: 12, design: .rounded))
-                                    .foregroundStyle(theme.secondaryText)
+        if chat.messages.isEmpty && chat.streamingText.isEmpty && chat.streamingReasoning.isEmpty && !chat.isGenerating {
+            // 空态：小动物相对整个对话区垂直居中。
+            GeometryReader { geo in
+                emptyHint
+                    .frame(width: geo.size.width, height: geo.size.height)
+            }
+        } else {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(Array(chat.messages.enumerated()), id: \.element.id) { index, message in
+                            VStack(alignment: .leading, spacing: 6) {
+                                // 距上一条超过 5 分钟才显示时间戳；首条消息必显示。
+                                if index == 0
+                                    || message.createdAt.timeIntervalSince(chat.messages[index - 1].createdAt) > timestampGap {
+                                    timestamp(message.createdAt)
+                                }
+                                bubble(message)
                             }
-                            TypingDots(color: theme.secondaryText)
+                            .id(message.id.uuidString)
                         }
-                        .id("streaming")
-                    }
 
-                    if let errorMessage = chat.errorMessage {
-                        errorBanner(errorMessage)
+                        if chat.isGenerating {
+                            streamingCard
+                                .id("streaming")
+                        }
+
+                        if let errorMessage = chat.errorMessage {
+                            errorBanner(errorMessage)
+                        }
                     }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .onChange(of: chat.messages.count) { _, count in
-                scrollToBottom(proxy)
-                // 教师回复完成后自动朗读（设置里可关）
-                if autoSpeak, count > 0, let last = chat.messages.last, last.role == .assistant {
-                    onSpeakTap?(last.content)
+                .onChange(of: chat.messages.count) { _, _ in scrollToBottom(proxy) }
+                .onChange(of: chat.streamingText) { scrollToBottom(proxy) }
+                .onChange(of: chat.streamingReasoning) { _, _ in
+                    // 思考阶段也保持滚动到底（面板自动跟随最新内容）
+                    if chat.streamingText.isEmpty { scrollToBottom(proxy) }
                 }
             }
-            .onChange(of: chat.streamingText) { scrollToBottom(proxy) }
+        }
+    }
+
+    /// 生成中的卡片：思考面板（实时增长）+ 流式正文。
+    @ViewBuilder
+    private var streamingCard: some View {
+        let streamingMessage = ChatMessage(role: .assistant, content: chat.streamingText)
+        if !chat.streamingReasoning.isEmpty {
+            HStack(alignment: .top, spacing: 8) {
+                CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
+                ThinkingPanel(reasoning: chat.streamingReasoning, isStreaming: chat.streamingText.isEmpty)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else if !chat.streamingText.isEmpty {
+            bubble(streamingMessage)
+        } else if chat.isThinking {
+            HStack(spacing: 8) {
+                CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
+                Text("思考中…")
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                TypingDots(color: theme.secondaryText)
+            }
+        } else {
+            HStack(spacing: 8) {
+                CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
+                TypingDots(color: theme.secondaryText)
+            }
         }
     }
 
@@ -169,7 +208,7 @@ public struct ChatView: View {
         }
     }
 
-    /// 每条消息上方的时间戳：`9月9日 周三 18:57`。
+    /// 每条消息上方的时间戳：`9月9日 周三 18:57`（仅间隔 > 5 分钟才出现）。
     private func timestamp(_ date: Date) -> some View {
         Text(Self.stamp(date))
             .font(.system(size: 10, design: .rounded))
@@ -190,8 +229,6 @@ public struct ChatView: View {
                 .font(.system(size: 14, design: .rounded))
                 .foregroundStyle(theme.secondaryText)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 60)
     }
 
     private func errorBanner(_ message: String) -> some View {
@@ -219,10 +256,11 @@ public struct ChatView: View {
                 CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
             }
             VStack(alignment: .leading, spacing: 6) {
-                Text(message.content)
-                    .font(.system(size: 14, design: .rounded))
-                    .foregroundStyle(theme.primaryText)
-                    .textSelection(.enabled)
+                // 思考过程：对话卡片内嵌的折叠面板，正文在其下方。
+                if !isUser, let reasoning = message.reasoning, !reasoning.isEmpty {
+                    ThinkingPanel(reasoning: reasoning, isStreaming: false)
+                }
+                MarkdownText(message.content, fontSize: 14, color: theme.primaryText)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .background(
@@ -344,7 +382,7 @@ public struct ChatView: View {
             .help(chat.isGenerating ? "停止" : "发送")
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 12)
+        .padding(.top, 12)
     }
 
     /// 麦克风按钮：点击说话 → 再点识别填入输入框。
@@ -384,29 +422,33 @@ public struct ChatView: View {
         .help(isRecording ? "停止并识别" : "点击说话")
     }
 
-    // MARK: - 上下文状态栏（输入框下方：当前模型 + 上下文占用）
+    // MARK: - 上下文状态栏（输入框下方：整体居中，占用用圆环表示）
 
     private var contextStrip: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(health.isUsable ? Color.green : Color.orange)
-                .frame(width: 6, height: 6)
+        HStack(spacing: 8) {
+            Spacer()
             Text(contextSummary)
                 .font(.system(size: 10, design: .rounded))
                 .foregroundStyle(theme.secondaryText)
                 .lineLimit(1)
-            Spacer(minLength: 0)
+            ContextGauge(
+                used: chat.estimatedContextTokens,
+                limit: contextLimit,
+                tooltip: contextDescription,
+                track: theme.divider
+            )
+            Spacer()
         }
         .padding(.horizontal, 18)
+        .padding(.top, 2)
         .padding(.bottom, 6)
     }
 
-    /// 「本地模型 · qwen3:8b · 上下文 ≈1.2k / 8.0k（15%）」
+    /// 「本地模型 · qwen3:8b」
     private var contextSummary: String {
         var parts: [String] = []
         if !providerLabel.isEmpty { parts.append(providerLabel) }
         if let modelName, !modelName.isEmpty { parts.append(modelName) }
-        parts.append(contextDescription)
         return parts.joined(separator: " · ")
     }
 
@@ -429,6 +471,121 @@ public struct ChatView: View {
         input = ""
         chat.send(text)
         isInputFocused = true
+    }
+}
+
+// MARK: - 思考过程折叠面板
+
+/// 推理模型的思考过程：卡片内嵌面板，箭头切换展开/收起（默认展开）。
+/// 固定高度只露出最新内容（约 10 行），滚动可回看全部；60% 透明度灰色背景。
+struct ThinkingPanel: View {
+
+    @Environment(\.forestTheme) private var theme
+    let reasoning: String
+    /// 流式阶段为 true：内容持续增长，自动吸底显示最新思考。
+    let isStreaming: Bool
+
+    @State private var isExpanded = true
+
+    /// 约等于 10 行的固定高度。
+    private let panelHeight: CGFloat = 150
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeOut(duration: 0.18)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    Text(isStreaming ? "正在思考…" : "思考过程")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    Spacer()
+                }
+                .foregroundStyle(theme.secondaryText)
+                .contentShape(Rectangle())
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        Text(reasoning)
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(theme.primaryText.opacity(0.82))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 10)
+                            .padding(.bottom, 8)
+                            .id("thinking-bottom")
+                    }
+                    .frame(height: panelHeight)
+                    .onChange(of: reasoning) { _, _ in
+                        guard isStreaming else { return }
+                        proxy.scrollTo("thinking-bottom", anchor: .bottom)
+                    }
+                    .onAppear {
+                        proxy.scrollTo("thinking-bottom", anchor: .bottom)
+                    }
+                }
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.gray.opacity(0.6))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(theme.divider.opacity(0.6), lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - 上下文占用圆环
+
+/// 圆环仪表：淡灰整圈 = 模型上下文窗口，白色弧 = 已用占比；悬停显示文字气泡。
+struct ContextGauge: View {
+
+    let used: Int
+    let limit: Int?
+    let tooltip: String
+    let track: Color
+
+    @State private var isHovering = false
+
+    private var fraction: Double {
+        guard let limit, limit > 0 else { return 0 }
+        return min(Double(used) / Double(limit), 1)
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(track, lineWidth: 3)
+            if limit != nil {
+                Circle()
+                    .trim(from: 0, to: max(fraction, 0.02))
+                    .stroke(Color.white, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+        }
+        .frame(width: 13, height: 13)
+        .overlay(alignment: .bottom) {
+            if isHovering {
+                SpeechBubble(text: tooltip, maxWidth: 220)
+                    .fixedSize()
+                    .offset(y: 40)
+                    .zIndex(10)
+                    .transition(.opacity)
+            }
+        }
+        .contentShape(Circle().inset(by: -6))
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.15)) { isHovering = hovering }
+        }
+        .help(tooltip)
     }
 }
 

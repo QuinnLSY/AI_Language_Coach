@@ -34,6 +34,10 @@ public struct AppSidebar: View {
         .frame(width: isExpanded ? Self.expandedWidth : Self.collapsedWidth)
         .background(theme.surfaceAlt.opacity(0.94))
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: isExpanded)
+        // 每次老师回复后刷新黑板上的今日 token 用量
+        .onChange(of: state.chat.messages.count) { _, _ in
+            state.refreshTodayTokens()
+        }
     }
 
     private var isExpanded: Bool { state.isSidebarExpanded }
@@ -101,28 +105,17 @@ public struct AppSidebar: View {
         .padding(.top, 10)
     }
 
-    // MARK: - 老师座位（老师形象，带教棍；白天夜晚文案随主题）
+    // MARK: - 老师座位（黑板 + 教棍老师 + 督促气泡；白天夜晚文案随主题）
 
     @ViewBuilder
     private var teacherSeat: some View {
         if isExpanded {
-            VStack(spacing: 6) {
-                CuteAnimalView(
-                    kind: state.teacherAnimalKind,
-                    isSleeping: theme.isNight,
-                    size: 84,
-                    accessory: .teacher
-                )
-                .help("AI 老师 · \(state.teacherAnimalKind.displayName)（可在设置中更换）")
-                Text(state.teacherAnimalKind.displayName + "老师")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(theme.primaryText)
-                Text(theme.isNight ? "夜深了，明天再爬一棵树" : "今天也要一起加油哦")
-                    .font(.system(size: 10, design: .rounded))
-                    .foregroundStyle(theme.secondaryText)
-                    .multilineTextAlignment(.center)
-            }
-            .padding(.bottom, 8)
+            TeacherCorner(
+                kind: state.teacherAnimalKind,
+                isSleeping: theme.isNight,
+                todayTokens: state.todayTokens
+            )
+            .help("AI 老师 · \(state.teacherAnimalKind.displayName)（可在设置中更换）")
             .transition(.opacity)
         } else {
             CuteAnimalView(kind: state.teacherAnimalKind, isSleeping: theme.isNight, size: 46, accessory: .teacher)

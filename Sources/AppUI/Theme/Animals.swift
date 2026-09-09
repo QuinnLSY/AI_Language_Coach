@@ -810,37 +810,49 @@ private enum AccessoryPalette {
     static let tip = Color(hex: 0xFFD34D)
 }
 
-/// 教棍：斜靠在身体右侧的木质小棍 + 金色圆头，从右上轻搭下来。
+/// 教棍：握在老师手边的木质小棍 + 金色圆头；比身体短一号，
+/// 每隔几秒以棍身底端为轴小幅上下挥动一次（讲课的节奏感）。
 private struct TeacherPointer: View {
     let size: CGFloat
 
+    @State private var isWaving = false
+    private let waveTimer = Timer.publish(every: 4.2, on: .main, in: .common).autoconnect()
+
     var body: some View {
         ZStack {
-            // 棍身
-            Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: [AccessoryPalette.wood, AccessoryPalette.woodDark],
-                        startPoint: .top, endPoint: .bottom
+            // 棍组（以底端为轴挥动）
+            ZStack {
+                // 棍身
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [AccessoryPalette.wood, AccessoryPalette.woodDark],
+                            startPoint: .top, endPoint: .bottom
+                        )
                     )
-                )
-                .frame(width: max(2.5, size * 0.055), height: size * 0.58)
-                .rotationEffect(.degrees(-24))
-                .offset(x: size * 0.36, y: -size * 0.10)
-            // 高光
-            Capsule()
-                .fill(.white.opacity(0.35))
-                .frame(width: max(1, size * 0.014), height: size * 0.30)
-                .rotationEffect(.degrees(-24))
-                .offset(x: size * 0.33, y: -size * 0.15)
-            // 金色圆头（棍梢）
-            Circle()
-                .fill(AccessoryPalette.tip)
-                .frame(width: size * 0.11, height: size * 0.11)
-                .overlay(Circle().stroke(AccessoryPalette.woodDark.opacity(0.55), lineWidth: max(1, size * 0.012)))
-                .offset(x: size * 0.46, y: -size * 0.35)
+                    .frame(width: max(2.2, size * 0.042), height: size * 0.40)
+                // 高光
+                Capsule()
+                    .fill(.white.opacity(0.35))
+                    .frame(width: max(1, size * 0.012), height: size * 0.20)
+                    .offset(x: -size * 0.012, y: -size * 0.04)
+                // 金色圆头（棍梢）
+                Circle()
+                    .fill(AccessoryPalette.tip)
+                    .frame(width: size * 0.085, height: size * 0.085)
+                    .overlay(Circle().stroke(AccessoryPalette.woodDark.opacity(0.55), lineWidth: max(1, size * 0.01)))
+                    .offset(y: -size * 0.20)
+            }
+            .rotationEffect(.degrees(isWaving ? -18 : 6), anchor: .bottom)
+            .animation(.easeInOut(duration: 0.45), value: isWaving)
+            .offset(x: size * 0.26, y: size * 0.06)
         }
         .frame(width: size, height: size)
+        .onReceive(waveTimer) { _ in
+            // 挥一下再收回：小幅、不频繁
+            isWaving = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { isWaving = false }
+        }
     }
 }
 
