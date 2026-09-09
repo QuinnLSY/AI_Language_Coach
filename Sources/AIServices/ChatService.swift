@@ -18,23 +18,40 @@ public final class ChatService {
     public private(set) var errorMessage: String?
 
     public var profile: LearnerProfile = LearnerProfile()
+    /// 当前练习会话（持久化用）。
+    public private(set) var sessionID: UUID
 
     private let services: CoachServices
     private var generationTask: Task<Void, Never>?
 
     public init(services: CoachServices) {
         self.services = services
+        let id = UUID()
+        self.sessionID = id
+        Task { [services, id] in
+            await services.persistSession(ChatSession(id: id, mode: .conversation))
+        }
     }
 
     public func send(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isGenerating else { return }
-        messages.append(ChatMessage(role: .user, content: trimmed))
+        let message = ChatMessage(role: .user, content: trimmed)
+        messages.append(message)
+        persist(message)
         streamingText = ""
         errorMessage = nil
         isGenerating = true
         generationTask = Task { [weak self] in
             await self?.generate()
+        }
+    }
+
+    private func persist(_ message: ChatMessage) {
+        let sessionID = sessionID
+        let services = services
+        Task {
+            await services.persistMessage(message, sessionID: sessionID)
         }
     }
 
@@ -105,7 +122,9 @@ public final class ChatService {
         let finalText = Self.stripThinking(accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
         // 用户主动叫停时保留已生成内容，不算错误。
         if !finalText.isEmpty {
-            messages.append(ChatMessage(role: .assistant, content: finalText))
+            let message = ChatMessage(role: .assistant, content: finalText)
+            messages.append(message)
+            persist(message)
         }
     }
 

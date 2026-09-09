@@ -268,11 +268,11 @@ private struct GroundScene: View {
                 .fill(theme.hillNear)
                 .frame(height: 90)
 
-            HStack(alignment: .bottom, spacing: 14) {
-                CuteAnimalView(kind: .rabbit, isSleeping: theme.isNight, size: 54)
-                CuteAnimalView(kind: .squirrel, isSleeping: theme.isNight, size: 46)
-                CuteAnimalView(kind: .hedgehog, isSleeping: theme.isNight, size: 44)
-                CuteAnimalView(kind: .owl, isSleeping: theme.isNight, size: 50)
+            HStack(alignment: .bottom, spacing: 12) {
+                CuteAnimalView(kind: .panda, isSleeping: theme.isNight, size: 58)
+                CuteAnimalView(kind: .tiger, isSleeping: theme.isNight, size: 58)
+                CuteAnimalView(kind: .rabbit, isSleeping: theme.isNight, size: 50)
+                CuteAnimalView(kind: .owl, isSleeping: theme.isNight, size: 52)
             }
             .offset(y: -6)
 

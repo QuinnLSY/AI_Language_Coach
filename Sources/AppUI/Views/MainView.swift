@@ -1,7 +1,7 @@
 import AIDomain
 import SwiftUI
 
-/// 主界面：左侧「参天大树」闯关画布，右侧与 AI 教师的对话。
+/// 主界面：**左侧可收拉侧边栏 / 中间对话 / 右侧成长之树闯关画布**。
 public struct MainView: View {
 
     @Bindable var state: AppState
@@ -14,33 +14,52 @@ public struct MainView: View {
             ForestSky(theme: state.theme)
 
             HStack(spacing: 0) {
-                sidebar
-                    .frame(width: 340)
+                AppSidebar(state: state)
+
                 Divider().overlay(state.theme.divider)
+
                 chatArea
+
+                Divider().overlay(state.theme.divider)
+
+                levelPanel
+            }
+
+            if state.showingSettings {
+                settingsOverlay
             }
         }
-        .frame(minWidth: 1020, minHeight: 680)
+        .frame(minWidth: 1180, minHeight: 720)
         .forestTheme(state.theme)
-        .animation(.easeInOut(duration: 0.6), value: state.theme.palette)
+        // 日夜切换作用于全局：原生控件（TextField / Picker / 滚动条）也一起跟随。
+        .preferredColorScheme(state.theme.isNight ? .dark : .light)
+        .animation(.easeInOut(duration: 0.5), value: state.theme.palette)
+        .animation(.easeOut(duration: 0.22), value: state.showingSettings)
         .task {
             state.systemIsDark = (colorScheme == .dark)
             await state.start()
+            // 截图/验证辅助：--open-settings 启动时直接打开设置面板
+            if CommandLine.arguments.contains("--open-settings") {
+                state.showingSettings = true
+            }
         }
         .onChange(of: colorScheme) { _, newValue in
             state.systemIsDark = (newValue == .dark)
         }
-        .sheet(isPresented: $state.showingSettings) {
-            SettingsView(state: state)
-                .frame(width: 640, height: 720)
-        }
     }
 
-    // MARK: - 侧边栏：大树
+    // MARK: - 中间：对话
 
-    private var sidebar: some View {
+    private var chatArea: some View {
+        ChatView(chat: state.chat, modelName: state.currentModelName, health: state.health)
+            .background(state.theme.surfaceAlt.opacity(0.55))
+    }
+
+    // MARK: - 右侧：成长之树
+
+    private var levelPanel: some View {
         VStack(spacing: 0) {
-            header
+            levelHeader
             Divider().overlay(state.theme.divider)
             ScrollView(.vertical, showsIndicators: false) {
                 TreeCanvas(theme: state.theme, progress: state.progress) { level in
@@ -49,33 +68,23 @@ public struct MainView: View {
                 .padding(.top, 8)
             }
         }
+        .frame(width: 340)
         .background(state.theme.surface.opacity(0.62))
     }
 
-    private var header: some View {
+    private var levelHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("森林语言树")
-                        .font(.system(size: 19, weight: .bold, design: .rounded))
-                        .foregroundStyle(state.theme.primaryText)
-                    Text("和小动物们一起向上爬")
-                        .font(.system(size: 12, design: .rounded))
-                        .foregroundStyle(state.theme.secondaryText)
-                }
+            HStack(spacing: 8) {
+                Image(systemName: "tree.fill")
+                    .foregroundStyle(state.theme.accent)
+                    .font(.system(size: 14))
+                Text("成长之树")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(state.theme.primaryText)
                 Spacer()
-                Button {
-                    Task { await state.toggleDayNight() }
-                } label: {
-                    Image(systemName: state.theme.isNight ? "sun.max.fill" : "moon.stars.fill")
-                        .font(.system(size: 15))
-                        .foregroundStyle(state.theme.accent)
-                        .frame(width: 34, height: 34)
-                        .background(Circle().fill(state.theme.surface))
-                        .overlay(Circle().strokeBorder(state.theme.divider, lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-                .help(state.theme.isNight ? "切换到白天" : "切换到夜晚")
+                Text("已爬升 \(Int(state.progress.climbFraction * 100))%")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(state.theme.secondaryText)
             }
 
             HStack(spacing: 6) {
@@ -86,7 +95,7 @@ public struct MainView: View {
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(state.theme.primaryText)
                 Spacer()
-                Text("已爬升 \(Int(state.progress.climbFraction * 100))%")
+                Text("\(state.progress.levels.filter { $0.state == .completed }.count)/\(state.progress.levels.count) 关")
                     .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(state.theme.secondaryText)
             }
@@ -108,22 +117,36 @@ public struct MainView: View {
         .padding(.vertical, 14)
     }
 
-    // MARK: - 对话区
+    // MARK: - 设置浮层（全局响应日夜，可关闭）
 
-    private var chatArea: some View {
-        ChatView(
-            chat: state.chat,
-            modelName: state.currentModelName,
-            health: state.health
-        ) {
-            state.showingSettings = true
+    private var settingsOverlay: some View {
+        ZStack {
+            state.theme.scrim
+                .contentShape(Rectangle())
+                .onTapGesture { state.showingSettings = false }
+
+            SettingsView(state: state)
+                .frame(width: 680)
+                .frame(maxHeight: 740)
+                .background(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(state.theme.panel)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .strokeBorder(state.theme.divider, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .shadow(color: state.theme.shadow, radius: 30, x: 0, y: 14)
+                .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
         }
-        .background(state.theme.surface.opacity(0.78))
+        .zIndex(20)
     }
+
+    // MARK: -
 
     private func open(_ level: TreeLevel) async {
         guard level.state != .locked else { return }
-        let title = level.title
-        state.chat.send("Let's practice: \(title)")
+        state.chat.send("Let's practice: \(level.title)")
     }
 }

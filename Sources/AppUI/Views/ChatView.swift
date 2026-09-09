@@ -10,16 +10,14 @@ public struct ChatView: View {
     let chat: ChatService
     let modelName: String?
     let health: ProviderHealth
-    var onOpenSettings: () -> Void = {}
 
     @State private var input: String = ""
     @FocusState private var isInputFocused: Bool
 
-    public init(chat: ChatService, modelName: String?, health: ProviderHealth, onOpenSettings: @escaping () -> Void = {}) {
+    public init(chat: ChatService, modelName: String?, health: ProviderHealth) {
         self.chat = chat
         self.modelName = modelName
         self.health = health
-        self.onOpenSettings = onOpenSettings
     }
 
     public var body: some View {
@@ -49,15 +47,16 @@ public struct ChatView: View {
 
             Spacer()
 
-            Button {
-                onOpenSettings()
-            } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 15))
+            if let modelName, !modelName.isEmpty {
+                Text(modelName)
+                    .font(.system(size: 10, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule().fill(theme.surfaceAlt)
+                    )
             }
-            .buttonStyle(.plain)
-            .help("设置")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)

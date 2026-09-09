@@ -16,7 +16,8 @@ public final class AppState {
 
     public var themeMode: ThemeMode = .day
     public var systemIsDark: Bool = false
-    public var progress: LearnerProgress = SampleProgress.make()
+    /// 真实进度：来自学习数据库；首次启动为种子关卡。
+    public var progress: LearnerProgress = .seed()
 
     public private(set) var availableModels: [DiscoveredModel] = []
     public private(set) var health: ProviderHealth = .configurationInvalid(reason: "尚未初始化")
@@ -57,6 +58,7 @@ public final class AppState {
         themeMode = configuration.product.themeMode
         chat.profile.learningLanguage = configuration.product.learningLanguage
         chat.profile.nativeLanguage = configuration.product.nativeLanguage
+        progress = await services.loadProgress()
 
         isBooting = true
         do {
@@ -90,6 +92,20 @@ public final class AppState {
 
     public func toggleDayNight() async {
         await setThemeMode(theme.isNight ? .day : .night)
+    }
+
+    // MARK: - 进度
+
+    /// 通关一个关卡：累加星星、标记完成并解锁下一关，随后持久化。
+    public func completeLevel(_ levelID: String, earnedStars: Int) async {
+        guard let index = progress.levels.firstIndex(where: { $0.id == levelID }) else { return }
+        progress.levels[index].earnedStars = max(progress.levels[index].earnedStars, earnedStars)
+        progress.levels[index].state = .completed
+        if let next = progress.levels.indices.first(where: { $0 > index && progress.levels[$0].state == .locked }) {
+            progress.levels[next].state = .unlocked
+        }
+        progress.recalculateSummary()
+        await services.saveProgress(progress)
     }
 
     // MARK: - 模型（UI 可填可选，代码零字面量）

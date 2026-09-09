@@ -96,7 +96,7 @@ UI → Application Services → Agents → Managers → Provider Interfaces → 
 - **Ollama v0.33.3 服务已在运行**（`http://127.0.0.1:11434`）。已装模型：`deepseek-r1:7b`（completion）、`nomic-embed-text:latest`（embedding / 768 维 / ctx 2048）。**`qwen3` 未安装** → 健康检查与集成测试必须容忍模型缺失。
 - **`/v1/chat/completions` 实际字段已实测并写入 `AGENTS.md §0.2`**（非流式 / 流式 SSE / 错误 404 三份真实样本）。写 Adapter 前以该节为准，未实测字段先补测，禁止编造。
 - ⚠️ **系统代理劫持 localhost**：`HTTP_PROXY/HTTPS_PROXY=http://127.0.0.1:59067`，导致 `URLSession` 访问 `localhost:11434` 返回 502。**本地 runtime 的 `URLSessionConfiguration` 必须显式 `connectionProxyDictionary = [:]`**；命令行探测用 `curl --noproxy '*'`。
-- 无 `brew`。仓库尚未 `git init`。
+- 无 `brew`。git 仓库已 init（首次提交 be12b4b）。
 
 ### 已知文档冲突（待确认）
 
@@ -155,13 +155,43 @@ M1 Pro / 16GB：TTS 先 0.6B，benchmark 后再考虑 1.7B；优先保证 ASR+LL
 **禁止一上来就把 runtime 调用塞进 Agent。**
 **验收硬指标**：WhisperKit→其他 ASR、Qwen3→其他 LLM、Qwen3-TTS→GPT-SoVITS、Silero→其他 VAD、Ollama Embedding→MLX、发音 Pipeline A→B —— 全部替换**不动任何 Agent**；甚至 runtime 从 Ollama 换成 MLX/llama.cpp 跑同一个 Qwen3，也只改 Adapter/Provider 层。
 
-### 当前进度
+### 当前进度（2026-09-09 下午）
 
-- **Phase 0（仓库 Bootstrap）— 未开始**。仓库目前只有 `AI Agent Project Bootstrap Prompt.md` + `Docs/` 五份文档（PRD / 技术设计 / 开发规则 / 实施计划 / 本地模型接入规范 v2.0）+ `AGENTS.md` + `MEMORY.md`，无源码、无 `Package.swift`、无 git 仓库。
+**Phase 0 + UI 大改版 + 第 14 步（SQLite 数据库）已完成**。
 
-### 下一步
+```
+Sources/
+  AppCore/            日志(LogBus)/错误/配置模型（ThemeMode·PracticeMode·ProviderConfig·ProductConfig）
+  AIDomain/           ChatMessage·ChatSession·LearnerProfile·TreeLevel·LearnerProgress(+seed种子关卡)·SessionSummary
+  AIInterfaces/       AIProvider 基契约 + 六能力协议 + LLM 传输模型 + AIProviderError(14 case)
+  AIInfrastructure/   ConfigStore·AppPaths·SQLiteDatabase(系统libsqlite3)·LearningDatabase(levels/sessions/messages/corrections)·HTTPClient·PromptBuilder
+  AIProviders/        MockProviders×6 + OllamaLLMAdapter（已对 deepseek-r1:7b 真机验证，含 reasoning 解析）
+  AIServices/         LLMManager·CoachServices(装配/模型发现/进度读写/会话持久化)·ChatService(流式/取消/思考态/消息落库)
+  AppUI/              ForestTheme·AppLogo·Animals(8物种独立绘制：狐狸/熊猫/老虎/猫头鹰/兔子/熊/松鼠/刺猬)·AppSidebar(可收拉)·ForestSky·TreeCanvas·ChatView·SettingsView·MainView
+  AppMain/            SwiftUI 入口（--open-settings 启动参数用于截图验证）
+Tests/                21 个测试全部通过（含 5 个内存库 DB 测试 + 真实 Ollama 集成测试）
+```
 
-建立 SwiftPM 骨架（`Package.swift`、分层目录、配置系统、日志、测试 target），产出「可构建 + 可测试 + 不依赖任何模型即可启动」的 Phase 0 交付物。
+**2026-09-09 下午 UI 大改版（用户验收通过）**：
+- 布局三栏：**左 = 可收拉侧边栏**（logo/名称"语林"/设置/日夜切换/未来全局功能入口/收拉按钮）；**中 = 对话**；**右 = 成长之树关卡画布**。
+- 设置改为**应用内浮层面板**：头部带关闭按钮（X + Esc 快捷键）+ 日夜快捷切换；点遮罩也可关闭。
+- **日夜切换为全局**：根视图 `.preferredColorScheme` 跟随 + 所有组件从 `ForestTheme` 语义色取色（新增 `scrim/panel/selection/hover`）；设置面板同步切换。
+- 8 种动物**按物种独立绘制**（耳朵/口鼻/尾巴/纹样各有特征），夜晚闭眼 + Zzz。
+- 学习数据库已接线：进度启动时从 DB 加载（首次写种子），会话/消息实时落库（`.workbuddy/app-config/learning.db`，WAL 模式）。
+
+### 截图验证工作流（重要，已踩坑）
+
+1. App 进程会随 shell 命令结束被杀 → **启动 + sleep + 截屏必须在同一条 Bash 命令内**（非沙箱运行）。
+2. `open` 二进制会触发 Gatekeeper 沙箱弹窗（"不允许在终端中打开文档"），且弹窗杀不掉会常驻 → **不要用 `open`**，直接 `.build/debug/AILanguageCoach &`。
+3. 系统弹窗会污染全屏截图 → 用 `screencapture -l<windowID>` 按窗口 ID 截干净画面（窗口 ID 用 swift + CGWindowListCopyWindowInfo 获取，脚本已验证）。
+4. 主题切换验证走配置文件：`.workbuddy/app-config/config.json` 的 `product.theme_mode`（snake_case！不是 themeMode）→ 改后重启进程即可，无需点 UI。
+5. `--open-settings` 启动参数可直接打开设置面板，用于动物/模型设置的截图验证。
+
+### 下一步（按路线图）
+
+1. 第 15 步 学习记忆：Session 总结、纠错记录（corrections 表已建）、词汇积累。
+2. 第 17 步 ASR（WhisperKit）→ 语音输入；第 18 步 TTS（Qwen3-TTS 0.6B）→ 教师语音。
+3. 关卡进度与真实学习数据联动（completeLevel 已实现，待接练习结算）。
 
 ---
 

@@ -16,20 +16,66 @@ public struct SettingsView: View {
     public init(state: AppState) { self.state = state }
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                forestCard
-                modelCard
-                learningCard
-                advancedCard
-                logsCard
+        VStack(spacing: 0) {
+            headerBar
+            Divider().overlay(theme.divider)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    forestCard
+                    modelCard
+                    learningCard
+                    advancedCard
+                    logsCard
+                }
+                .padding(20)
+                .frame(maxWidth: 560, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
-            .padding(20)
-            .frame(maxWidth: 560, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .center)
         }
-        .background(theme.surfaceAlt.opacity(0.3))
+        .background(theme.panel)
         .task { await loadRuntimeValues() }
+    }
+
+    // MARK: - 顶部栏（含关闭按钮 + 日夜快捷切换）
+
+    private var headerBar: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "gearshape.fill")
+                .font(.system(size: 15))
+                .foregroundStyle(theme.accent)
+            Text("设置")
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundStyle(theme.primaryText)
+
+            Spacer()
+
+            Button {
+                Task { await state.toggleDayNight() }
+            } label: {
+                Image(systemName: theme.isNight ? "moon.stars.fill" : "sun.max.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(theme.accent)
+                    .frame(width: 30, height: 30)
+                    .background(Circle().fill(theme.surfaceAlt))
+            }
+            .buttonStyle(.plain)
+            .help(theme.isNight ? "切换到白天" : "切换到夜晚")
+
+            Button {
+                state.showingSettings = false
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(theme.secondaryText)
+                    .frame(width: 30, height: 30)
+                    .background(Circle().fill(theme.surfaceAlt))
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.escape, modifiers: [])
+            .help("关闭设置 (Esc)")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
     }
 
     // MARK: - 森林时刻
@@ -48,10 +94,10 @@ public struct SettingsView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
 
-                HStack(spacing: 18) {
-                    ForEach([AnimalKind.fox, .rabbit, .bear, .owl], id: \.self) { kind in
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 12) {
+                    ForEach(AnimalKind.allCases) { kind in
                         VStack(spacing: 4) {
-                            CuteAnimalView(kind: kind, isSleeping: theme.isNight, size: 54)
+                            CuteAnimalView(kind: kind, isSleeping: theme.isNight, size: 62)
                             Text(kind.displayName)
                                 .font(.system(size: 10, design: .rounded))
                                 .foregroundStyle(theme.secondaryText)

@@ -1,0 +1,167 @@
+import AppCore
+import Foundation
+import SQLite3
+
+/// 参数值：仅覆盖本应用需要的类型。
+public enum SQLiteValue: Sendable, Equatable {
+    case null
+    case int(Int64)
+    case real(Double)
+    case text(String)
+
+    public static func int(_ v: Int) -> SQLiteValue { .int(Int64(v)) }
+}
+
+/// 查询结果行访问器。
+public struct SQLiteRow {
+    fileprivate let statement: OpaquePointer
+    fileprivate let columnCount: Int32
+
+    public func hasColumn(_ index: Int32) -> Bool {
+        index >= 0 && index < columnCount && sqlite3_column_type(statement, index) != SQLITE_NULL
+    }
+
+    public func string(_ index: Int32) -> String? {
+        guard hasColumn(index) else { return nil }
+        guard let cString = sqlite3_column_text(statement, index) else { return nil }
+        return String(cString: cString)
+    }
+
+    public func int(_ index: Int32) -> Int? {
+        guard hasColumn(index) else { return nil }
+        return Int(sqlite3_column_int64(statement, index))
+    }
+
+    public func double(_ index: Int32) -> Double? {
+        guard hasColumn(index) else { return nil }
+        return sqlite3_column_double(statement, index)
+    }
+}
+
+/// 系统自带 libsqlite3 的最小封装（无第三方依赖）。
+/// 设计约束：只暴露 run / query / 事务批处理；所有错误 → `AppError.database`。
+/// 线程安全：SQLite 以 SQLITE_OPEN_FULLMUTEX 打开，handle 仅在 init/close/deinit 中变更 → @unchecked Sendable。
+public final class SQLiteDatabase: @unchecked Sendable {
+
+    private var handle: OpaquePointer?
+    public let path: String
+
+    /// `:memory:` 或临时文件路径用于测试。
+    public init(path: String) throws {
+        self.path = path
+        var db: OpaquePointer?
+        let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
+        guard sqlite3_open_v2(path, &db, flags, nil) == SQLITE_OK else {
+            let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown"
+            sqlite3_close(db)
+            throw AppError.database("无法打开数据库 \(path)：\(message)")
+        }
+        handle = db
+        try run("PRAGMA journal_mode=WAL")
+        try run("PRAGMA foreign_keys=ON")
+    }
+
+    public func close() {
+        if let handle { sqlite3_close_v2(handle) }
+        handle = nil
+    }
+
+    deinit {
+        if let handle { sqlite3_close_v2(handle) }
+        handle = nil
+    }
+
+    // MARK: - 基础操作
+
+    /// 执行写语句（INSERT / UPDATE / DELETE / DDL / PRAGMA）。
+    public func run(_ sql: String, _ params: [SQLiteValue] = []) throws {
+        let statement = try prepare(sql, params)
+        defer { sqlite3_finalize(statement) }
+        let code = sqlite3_step(statement)
+        guard code == SQLITE_DONE || code == SQLITE_ROW else {
+            throw AppError.database("SQL 执行失败：\(lastError())\nSQL: \(sql)")
+        }
+    }
+
+    /// 执行查询并逐行映射。
+    public func query<T>(_ sql: String, _ params: [SQLiteValue] = [], map: (SQLiteRow) throws -> T) throws -> [T] {
+        let statement = try prepare(sql, params)
+        defer { sqlite3_finalize(statement) }
+
+        var rows: [T] = []
+        var code = sqlite3_step(statement)
+        while code == SQLITE_ROW {
+            rows.append(try map(SQLiteRow(statement: statement, columnCount: sqlite3_column_count(statement))))
+            code = sqlite3_step(statement)
+        }
+        guard code == SQLITE_DONE else {
+            throw AppError.database("SQL 查询失败：\(lastError())\nSQL: \(sql)")
+        }
+        return rows
+    }
+
+    /// 在单个事务内顺序执行多条语句。任一失败即回滚。
+    public func runInTransaction(_ statements: [(sql: String, params: [SQLiteValue])]) throws {
+        try run("BEGIN IMMEDIATE")
+        do {
+            for item in statements {
+                try run(item.sql, item.params)
+            }
+            try run("COMMIT")
+        } catch {
+            try? run("ROLLBACK")
+            throw error
+        }
+    }
+
+    /// 当前 schema 版本（`PRAGMA user_version`）。
+    public func schemaVersion() throws -> Int {
+        try query("PRAGMA user_version", map: { $0.int(0) ?? 0 }).first ?? 0
+    }
+
+    public func setSchemaVersion(_ version: Int) throws {
+        try run("PRAGMA user_version=\(version)")
+    }
+
+    // MARK: - 私有
+
+    private func prepare(_ sql: String, _ params: [SQLiteValue]) throws -> OpaquePointer {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
+            throw AppError.database("SQL 预处理失败：\(lastError())\nSQL: \(sql)")
+        }
+        do {
+            try bind(params, to: statement)
+        } catch {
+            sqlite3_finalize(statement)
+            throw error
+        }
+        return statement
+    }
+
+    private func lastError() -> String {
+        String(cString: sqlite3_errmsg(handle))
+    }
+
+    private func bind(_ params: [SQLiteValue], to statement: OpaquePointer) throws {
+        for (offset, value) in params.enumerated() {
+            let index = Int32(offset + 1)
+            let result: Int32
+            switch value {
+            case .null:
+                result = sqlite3_bind_null(statement, index)
+            case .int(let v):
+                result = sqlite3_bind_int64(statement, index, v)
+            case .real(let v):
+                result = sqlite3_bind_double(statement, index, v)
+            case .text(let v):
+                result = sqlite3_bind_text(statement, index, v, -1, SQLITE_TRANSIENT)
+            }
+            guard result == SQLITE_OK else {
+                throw AppError.database("参数绑定失败：\(lastError())")
+            }
+        }
+    }
+}
+
+private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)

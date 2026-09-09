@@ -1,3 +1,4 @@
+import AIDomain
 import AIInfrastructure
 import AIInterfaces
 import AIProviders
@@ -8,12 +9,19 @@ import Foundation
 public actor CoachServices {
 
     public let llm: LLMManager
+    /// 学习数据库。打开失败时为 nil（功能降级为不持久化，不影响对话）。
+    public private(set) var learning: LearningDatabase?
     private let config: ConfigStore
     private var llmProvider: (any LLMProvider)?
 
-    public init(config: ConfigStore = .shared, llm: LLMManager = LLMManager()) {
+    public init(config: ConfigStore = .shared, llm: LLMManager = LLMManager(), databasePath: String? = nil) {
         self.config = config
         self.llm = llm
+        let path = databasePath ?? LearningDatabase.defaultURL().path
+        self.learning = try? LearningDatabase(path: path)
+        if self.learning == nil {
+            AppLog.warning("学习数据库打开失败，持久化已降级关闭: \(path)", category: "database")
+        }
     }
 
     public var configuration: AppConfiguration {
@@ -80,6 +88,41 @@ public actor CoachServices {
 
     public func llmHealth() async -> ProviderHealth {
         await llm.healthCheck()
+    }
+
+    // MARK: - 学习进度（数据库）
+
+    /// 读进度；首次启动（无记录）时写入种子关卡并返回。
+    public func loadProgress() async -> LearnerProgress {
+        guard let learning else { return .seed() }
+        if let saved = try? await learning.loadProgress() {
+            return saved
+        }
+        let seed = LearnerProgress.seed()
+        try? await learning.saveProgress(seed)
+        return seed
+    }
+
+    public func saveProgress(_ progress: LearnerProgress) async {
+        guard let learning else { return }
+        try? await learning.saveProgress(progress)
+    }
+
+    // MARK: - 会话持久化（ChatService 使用）
+
+    public func persistSession(_ session: ChatSession) async {
+        guard let learning else { return }
+        try? await learning.createSession(session)
+    }
+
+    public func persistMessage(_ message: ChatMessage, sessionID: UUID) async {
+        guard let learning else { return }
+        try? await learning.appendMessage(message, sessionID: sessionID)
+    }
+
+    public func finishSession(_ sessionID: UUID) async {
+        guard let learning else { return }
+        try? await learning.finishSession(id: sessionID)
     }
 
     // MARK: - Provider 工厂（唯一允许 new 出 Adapter 的地方）

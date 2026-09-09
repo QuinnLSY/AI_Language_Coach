@@ -20,6 +20,39 @@ public enum DefaultConfiguration {
     }()
 }
 
+// MARK: - 应用路径
+
+/// 统一的项目空间路径定位。约束来自用户要求：所有文件操作仅限项目空间。
+public enum AppPaths {
+
+    /// 用户数据默认写回**项目空间内**（`.workbuddy/app-config/`，不进 git）。
+    /// 找不到项目根（例如未来打包成 .app 发布）时才回退到系统应用支持目录。
+    public static func userDataDirectory() -> URL {
+        if let projectRoot {
+            let directory = projectRoot.appendingPathComponent(".workbuddy/app-config", isDirectory: true)
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            return directory
+        }
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let directory = base.appendingPathComponent("AILanguageCoach", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    /// 通过 `#filePath`（编译期源码路径）向上定位包含 `Sources` 的项目根。
+    public static let projectRoot: URL? = {
+        var url = URL(fileURLWithPath: #filePath).deletingLastPathComponent() // .../Sources/AIInfrastructure
+        for _ in 0..<6 {
+            if url.lastPathComponent == "Sources" {
+                return url.deletingLastPathComponent()
+            }
+            url = url.deletingLastPathComponent()
+        }
+        return nil
+    }()
+}
+
 // MARK: - 配置仓库
 
 /// 配置仓库：内置默认配置 + 用户覆盖层。
@@ -40,31 +73,8 @@ public actor ConfigStore {
     }
 
     /// 用户配置默认写回**项目空间内**（`.workbuddy/app-config/`，不进 git）。
-    /// 约束来自用户要求：所有文件操作仅限项目空间。
-    /// 找不到项目根（例如未来打包成 .app 发布）时才回退到系统应用支持目录。
     public static func defaultFileURL() -> URL {
-        if let projectRoot = Self.projectRoot() {
-            let directory = projectRoot.appendingPathComponent(".workbuddy/app-config", isDirectory: true)
-            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            return directory.appendingPathComponent("config.json")
-        }
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        let directory = base.appendingPathComponent("AILanguageCoach", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory.appendingPathComponent("config.json")
-    }
-
-    /// 通过 `#filePath`（编译期源码路径）向上定位包含 `Sources` 的项目根。
-    private static func projectRoot() -> URL? {
-        var url = URL(fileURLWithPath: #filePath).deletingLastPathComponent() // .../Sources/AIInfrastructure
-        for _ in 0..<6 {
-            if url.lastPathComponent == "Sources" {
-                return url.deletingLastPathComponent()
-            }
-            url = url.deletingLastPathComponent()
-        }
-        return nil
+        AppPaths.userDataDirectory().appendingPathComponent("config.json")
     }
 
     public var current: AppConfiguration { configuration }

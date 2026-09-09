@@ -13,7 +13,7 @@ let package = Package(
         .target(name: "AIInterfaces", dependencies: ["AppCore", "AIDomain"]),
         .target(
             name: "AIInfrastructure",
-            dependencies: ["AppCore", "AIInterfaces"],
+            dependencies: ["AppCore", "AIDomain", "AIInterfaces"],
             resources: [.copy("Resources")]
         ),
         .target(

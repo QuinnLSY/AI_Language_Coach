@@ -77,6 +77,13 @@ public struct ForestTheme: Sendable, Equatable {
     public var bubbleCoach: Color { isNight ? Color(hex: 0x24405A) : Color(hex: 0xFFFFFF) }
     public var divider: Color { isNight ? Color(hex: 0x2A3A57) : Color(hex: 0xDCE7D6) }
 
+    /// 浮层遮罩 / 浮层面板。**任何浮层都必须用这两个语义色**，否则日夜切换会漏。
+    public var scrim: Color { isNight ? Color.black.opacity(0.5) : Color(hex: 0x16301B).opacity(0.22) }
+    public var panel: Color { isNight ? Color(hex: 0x1A2A45, opacity: 0.98) : Color(hex: 0xF7FBF3, opacity: 0.98) }
+    /// 侧边栏选中态 / 悬停态。
+    public var selection: Color { isNight ? Color(hex: 0x2C4468) : Color(hex: 0xDCEFE0) }
+    public var hover: Color { isNight ? Color(hex: 0x22334F) : Color(hex: 0xEAF3E8) }
+
     public var shadow: Color { isNight ? .black.opacity(0.45) : Color(hex: 0x2E4A32).opacity(0.18) }
 }
 
