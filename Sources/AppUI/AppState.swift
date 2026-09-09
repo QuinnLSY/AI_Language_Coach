@@ -16,6 +16,8 @@ public final class AppState {
 
     public var themeMode: ThemeMode = .day
     public var systemIsDark: Bool = false
+    /// 侧边栏展开/收起（供主界面参与宽度分配）。
+    public var isSidebarExpanded = true
     /// 真实进度：来自学习数据库；首次启动为种子关卡。
     public var progress: LearnerProgress = .seed()
 
@@ -44,6 +46,15 @@ public final class AppState {
     public var learningLanguage: String { product.learningLanguage }
     public var nativeLanguage: String { product.nativeLanguage }
     public var teacherVoice: String { product.teacherVoice }
+
+    /// 老师形象（侧边栏底部 + 聊天区 AI 头像）。
+    public var teacherAnimalKind: AnimalKind {
+        AnimalKind(rawValue: product.teacherAnimal) ?? .panda
+    }
+    /// 小学员形象（聊天区学员位 + 右侧爬树形象）。
+    public var studentAnimalKind: AnimalKind {
+        AnimalKind(rawValue: product.studentAnimal) ?? .bear
+    }
 
     public var currentModelName: String? {
         if let resolved = availableModels.first(where: { $0.id == modelDraft })?.name { return resolved }
@@ -144,6 +155,18 @@ public final class AppState {
 
     public func setTeacherVoice(_ voice: String) async {
         product.teacherVoice = voice
+        await persistProduct()
+    }
+
+    // MARK: - 伙伴形象
+
+    public func setTeacherAnimal(_ kind: AnimalKind) async {
+        product.teacherAnimal = kind.rawValue
+        await persistProduct()
+    }
+
+    public func setStudentAnimal(_ kind: AnimalKind) async {
+        product.studentAnimal = kind.rawValue
         await persistProduct()
     }
 

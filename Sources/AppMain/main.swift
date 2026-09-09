@@ -10,9 +10,10 @@ struct AILanguageCoachApp: App {
     var body: some Scene {
         WindowGroup {
             MainView(state: state)
-                .frame(minWidth: 1020, minHeight: 680)
+                .frame(minWidth: 1080, minHeight: 720)
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
+        .defaultSize(width: 1280, height: 820)
     }
 }

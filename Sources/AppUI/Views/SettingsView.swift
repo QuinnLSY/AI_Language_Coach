@@ -2,11 +2,41 @@ import AIInterfaces
 import AppCore
 import SwiftUI
 
+/// 设置里的伙伴角色：老师（侧边栏/聊天区 AI）与 小学员（聊天区学员位/树上攀爬者）。
+private enum PartnerRole: String, CaseIterable, Identifiable {
+    case teacher
+    case student
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .teacher: "老师"
+        case .student: "小学员"
+        }
+    }
+
+    var caption: String {
+        switch self {
+        case .teacher: "显示在左侧边栏与聊天区"
+        case .student: "显示在聊天区与成长之树攀爬者"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .teacher: "graduationcap.fill"
+        case .student: "figure.child"
+        }
+    }
+}
+
 public struct SettingsView: View {
 
     @Environment(\.forestTheme) private var theme
     @Bindable var state: AppState
 
+    @State private var partnerRole: PartnerRole = .teacher
     @State private var endpointDraft: String = ""
     @State private var temperatureDraft: Double = 0.7
     @State private var logs: [LogEntry] = []
@@ -21,14 +51,15 @@ public struct SettingsView: View {
             Divider().overlay(theme.divider)
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    forestCard
+                    themeCard
+                    partnerCard
                     modelCard
                     learningCard
                     advancedCard
                     logsCard
                 }
                 .padding(20)
-                .frame(maxWidth: 560, alignment: .leading)
+                .frame(maxWidth: 620, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .center)
             }
         }
@@ -36,7 +67,7 @@ public struct SettingsView: View {
         .task { await loadRuntimeValues() }
     }
 
-    // MARK: - 顶部栏（含关闭按钮 + 日夜快捷切换）
+    // MARK: - 顶部栏（含关闭按钮；日夜切换收在下方「森林时刻」卡片里）
 
     private var headerBar: some View {
         HStack(spacing: 12) {
@@ -48,18 +79,6 @@ public struct SettingsView: View {
                 .foregroundStyle(theme.primaryText)
 
             Spacer()
-
-            Button {
-                Task { await state.toggleDayNight() }
-            } label: {
-                Image(systemName: theme.isNight ? "moon.stars.fill" : "sun.max.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(theme.accent)
-                    .frame(width: 30, height: 30)
-                    .background(Circle().fill(theme.surfaceAlt))
-            }
-            .buttonStyle(.plain)
-            .help(theme.isNight ? "切换到白天" : "切换到夜晚")
 
             Button {
                 state.showingSettings = false
@@ -78,11 +97,11 @@ public struct SettingsView: View {
         .padding(.vertical, 14)
     }
 
-    // MARK: - 森林时刻
+    // MARK: - 森林时刻（日夜切换在此，不再单独拎出）
 
-    private var forestCard: some View {
+    private var themeCard: some View {
         card(title: "森林时刻", systemImage: theme.isNight ? "moon.stars.fill" : "sun.max.fill") {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 Picker("", selection: Binding(
                     get: { state.themeMode },
                     set: { mode in Task { await state.setThemeMode(mode) } }
@@ -94,23 +113,120 @@ public struct SettingsView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
 
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 12) {
-                    ForEach(AnimalKind.allCases) { kind in
-                        VStack(spacing: 4) {
-                            CuteAnimalView(kind: kind, isSleeping: theme.isNight, size: 62)
-                            Text(kind.displayName)
-                                .font(.system(size: 10, design: .rounded))
-                                .foregroundStyle(theme.secondaryText)
-                        }
-                    }
-                }
-                .padding(.top, 4)
-
-                Text(theme.isNight ? "夜深了，小动物们都在睡觉，星星陪你练习。" : "阳光正好，小动物们都醒着，一起爬树吧！")
+                Text(theme.isNight ? "夜晚的森林很安静，星星陪着小动物们睡觉，也陪你练习。" : "阳光正好，小动物们都醒着，一起爬树学英语吧！")
                     .font(.system(size: 12, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
             }
         }
+    }
+
+    // MARK: - 我的伙伴（老师 / 小学员形象切换）
+
+    private var partnerCard: some View {
+        card(title: "我的伙伴", systemImage: "pawprint.fill") {
+            VStack(alignment: .leading, spacing: 12) {
+                // 角色选择：老师与小学员共用下方的小动物展示区
+                HStack(spacing: 8) {
+                    ForEach(PartnerRole.allCases) { role in
+                        Button {
+                            withAnimation(.easeOut(duration: 0.2)) { partnerRole = role }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: role.icon)
+                                    .font(.system(size: 12))
+                                Text(role.title)
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            }
+                            .foregroundStyle(partnerRole == role ? Color.white : theme.primaryText)
+                            .padding(.horizontal, 14)
+                            .frame(height: 32)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(partnerRole == role ? theme.accent : theme.surfaceAlt)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Spacer()
+                }
+
+                // 当前角色说明
+                HStack(spacing: 8) {
+                    Image(systemName: partnerRole == .teacher ? "graduationcap.fill" : "figure.child")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.accent)
+                    Text(partnerRole.caption)
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                }
+
+                // 小动物展示区：当前角色已选中的动物带身份配件 + 高亮圈
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 12) {
+                    ForEach(AnimalKind.allCases) { kind in
+                        partnerCell(kind)
+                    }
+                }
+                .padding(.top, 2)
+
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.accent)
+                    Text("老师持教棍，小学员戴红领巾。点选即可分别更换两个形象。")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                }
+            }
+        }
+    }
+
+    private func partnerCell(_ kind: AnimalKind) -> some View {
+        let isSelected = partnerRole == .teacher
+            ? kind == state.teacherAnimalKind
+            : kind == state.studentAnimalKind
+        let accessory: AnimalAccessory = isSelected
+            ? (partnerRole == .teacher ? .teacher : .student)
+            : .none
+
+        return Button {
+            Task {
+                if partnerRole == .teacher {
+                    await state.setTeacherAnimal(kind)
+                } else {
+                    await state.setStudentAnimal(kind)
+                }
+            }
+        } label: {
+            VStack(spacing: 4) {
+                CuteAnimalView(kind: kind, isSleeping: theme.isNight, size: 58, accessory: accessory)
+                Text(kind.displayName)
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundStyle(isSelected ? theme.accent : theme.secondaryText)
+                    .fontWeight(isSelected ? .semibold : .regular)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(isSelected ? theme.selection.opacity(0.7) : theme.surfaceAlt.opacity(0.5))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(isSelected ? theme.accent : Color.clear, lineWidth: 2)
+            )
+            .overlay(alignment: .topTrailing) {
+                if isSelected {
+                    Image(systemName: partnerRole == .teacher ? "graduationcap.fill" : "figure.child")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(4)
+                        .background(Circle().fill(theme.accent))
+                        .offset(x: 4, y: -4)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .help("设为\(partnerRole.title)：\(kind.displayName)")
     }
 
     // MARK: - 模型

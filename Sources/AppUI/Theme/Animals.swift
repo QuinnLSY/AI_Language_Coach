@@ -28,6 +28,116 @@ public enum AnimalKind: String, CaseIterable, Sendable, Identifiable {
         case .hedgehog: "小刺猬"
         }
     }
+
+    /// 每只动物 8~10 条符合自身特性的小语句（产品文案；树上的伙伴被点击时冒泡）。
+    public var phrases: [String] {
+        switch self {
+        case .fox:
+            return [
+                "跟我读：The early bird catches the worm！",
+                "嘘——我听见树叶在用英文聊天啦！",
+                "小 trick 要不要？单词要大声说出来才有魔力！",
+                "Practice makes perfect，我可是偷偷练过的！",
+                "G-O-O-D，拼对了就奖励你一颗糖！",
+                "树上有果子、地上有单词，快捡起来！",
+                "你今天读的句子，风都帮你记着呢！",
+                "跟着我念，舌头要翘一点点哦！",
+                "别怕说错，说错了才有小惊喜！",
+                "森林里最亮的，是你开口的声音！",
+            ]
+        case .panda:
+            return [
+                "Good job！今天的你比竹子还棒！",
+                "别急，慢慢来，learning is a journey。",
+                "这句话读得很好，给你一朵小红花。",
+                "来，跟我读：I love learning English！",
+                "累了就歇会儿，竹子分你一半～",
+                "记住啦：little by little, day by day。",
+                "你今天又长高了一点点，真替你高兴。",
+                "发音很棒哦，比上次进步多啦！",
+                "不懂就问，我最喜欢爱问问题的小朋友。",
+                "坚持到这里的你，已经是森林小英雄啦！",
+            ]
+        case .tiger:
+            return [
+                "吼——跟我大声念：I can do it！",
+                "声音再大一点，森林都听到你的勇气啦！",
+                "单词怕什么，跟本大王一起拿下它！",
+                "Roar！犯错也是超酷的尝试！",
+                "今天的目标：吃掉十个新单词！",
+                "大声朗读，把胆怯都吓跑！",
+                "你是最棒的小勇士，再来一关！",
+                "A for effort，努力本身就满分！",
+                "快，趁太阳还在，多练一句！",
+                "我会保护你，尽管开口说吧！",
+            ]
+        case .owl:
+            return [
+                "呜呼——悄悄告诉你，单词睡一觉记得更牢。",
+                "关于发音，我书架上有三百本书可以借你。",
+                "夜里安静，最适合跟读和回想。",
+                "坚持复习，才是聪明的秘诀哦。",
+                "这个语法点，让我翻翻我的智慧手册…",
+                "A wise learner listens first, then speaks。",
+                "你问的这个词，古树年轮里都刻着呢。",
+                "晚上的你，也要像白天一样闪亮。",
+                "复述一遍，就是知识发芽的声音。",
+                "慢慢想，聪明的答案都爱迟到一会儿。",
+            ]
+        case .rabbit:
+            return [
+                "你…你说得好棒呀！（小声）",
+                "跟…跟着我一起念，轻轻地说～",
+                "这个单词好可爱，像胡萝卜一样讨人喜欢。",
+                "慢慢来，我在旁边给你加油。",
+                "嗯嗯，你说对了，奖励你一个抱抱。",
+                "今天也要元气满满地跳跳学英语哦！",
+                "bunny 就是我，carrot 是我最爱～",
+                "别害羞，你的声音很好听呢。",
+                "读错也没关系，胡萝卜不会笑话你。",
+                "等你学会了，我们一起数星星学英语！",
+            ]
+        case .bear:
+            return [
+                "我…我也在学呢，我们一起加油！",
+                "这句好难…但我会认真记住的！",
+                "英语的蜂蜜，舔一口就甜甜的！",
+                "老师夸我了！你也一定会被夸的！",
+                "今天学到的新词，我要带回家给妈妈听。",
+                "嘿嘿，我会背小星星，也会背 A B C。",
+                "摔倒了就爬起来，我再念一遍！",
+                "你读得真好听，像蜂蜜一样甜。",
+                "我们的树，会随着单词越爬越高！",
+                "别走太快，等等我这只小笨熊嘛～",
+            ]
+        case .squirrel:
+            return [
+                "这个单词我收进我的树洞宝库啦！",
+                "蹦蹦跳跳学得快，跟我一起动起来！",
+                "一天捡一个词，冬天就有好多好多！",
+                "嗖——我把发音记住啦！",
+                "来玩个游戏：我说 apple，你说苹果！",
+                "藏起来的单词，都要记得复习哦。",
+                "你的进步，我都悄悄攒进树洞里了。",
+                "单词像松果，捡多了就是大丰收！",
+                "尾巴一甩，难句跑光光！",
+                "快夸我，我刚背下一个长句子！",
+            ]
+        case .hedgehog:
+            return [
+                "我…我慢慢说，你别着急嘛。",
+                "每个单词，都值得被温柔对待。",
+                "刺是我的保护壳，勇敢是我的超能力。",
+                "你读对了！我开心得刺都软了。",
+                "慢慢滚，也能滚到山顶哦。",
+                "别碰我的刺…碰我的单词本可以。",
+                "今天又比昨天多说了一句话，真好。",
+                "小声音也没关系，清楚最重要。",
+                "我背单词的样子，像不像在数星星？",
+                "谢谢你听我说完，你是温柔的朋友。",
+            ]
+        }
+    }
 }
 
 // MARK: - 配色（仅本文件使用；View 层禁止写字面量颜色）
@@ -66,6 +176,15 @@ private enum Fur {
     static let hedgehogFace = Color(hex: 0xE8CBA6)
 }
 
+// MARK: - 角色配件
+
+/// 身份配件：老师持教棍，小学员戴红领巾。配件随动物缩放并参与日夜/跳动。
+public enum AnimalAccessory: Equatable, Sendable {
+    case none
+    case teacher
+    case student
+}
+
 // MARK: - 主体
 
 /// 纯矢量绘制的可爱小动物。夜晚进入「睡觉」状态（闭眼 + Zzz），白天蹦跳眨眼。
@@ -74,16 +193,23 @@ public struct CuteAnimalView: View {
     public let kind: AnimalKind
     public let isSleeping: Bool
     public let size: CGFloat
+    /// 角色配件（老师持教棍 / 小学员戴红领巾）。
+    public var accessory: AnimalAccessory = .none
+    /// 是否持续蹦跳；地面个体可关闭以获得「有的动、有的安静」的差异。
+    public var bobbing: Bool = true
 
     @State private var isBlinking = false
     @State private var isHopping = false
 
     private let blinkTimer = Timer.publish(every: 3.2, on: .main, in: .common).autoconnect()
 
-    public init(kind: AnimalKind, isSleeping: Bool = false, size: CGFloat = 64) {
+    public init(kind: AnimalKind, isSleeping: Bool = false, size: CGFloat = 64,
+                accessory: AnimalAccessory = .none, bobbing: Bool = true) {
         self.kind = kind
         self.isSleeping = isSleeping
         self.size = size
+        self.accessory = accessory
+        self.bobbing = bobbing
     }
 
     public var body: some View {
@@ -95,16 +221,22 @@ public struct CuteAnimalView: View {
                 ZzzView(size: size * 0.28)
                     .offset(x: size * 0.38, y: -size * 0.38)
             }
+
+            switch accessory {
+            case .none: EmptyView()
+            case .teacher: TeacherPointer(size: size)
+            case .student: RedScarf(size: size)
+            }
         }
         .frame(width: size, height: size)
         .offset(y: isSleeping ? size * 0.02 : (isHopping ? -size * 0.045 : 0))
         .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: isHopping)
         .onAppear {
-            guard !isSleeping else { isHopping = false; return }
+            guard bobbing, !isSleeping else { isHopping = false; return }
             isHopping = true
         }
         .onChange(of: isSleeping) { _, sleeping in
-            isHopping = sleeping ? false : true
+            isHopping = (bobbing && !sleeping) ? true : false
         }
         .onReceive(blinkTimer) { _ in
             guard !isSleeping else { return }
@@ -662,5 +794,88 @@ public struct ZzzView: View {
                 opacity = 0
             }
         }
+    }
+}
+
+// MARK: - 配件：老师教棍 / 小学员红领巾
+//
+// 配件按「所有动物共用的身体比例」定位（头在画面上半部、身体居中），
+// 因此对任意物种都贴合在脖子/身侧，不依赖某一物种的局部坐标。
+
+private enum AccessoryPalette {
+    static let wood = Color(hex: 0x9C6B3F)
+    static let woodDark = Color(hex: 0x7A4E2B)
+    static let scarf = Color(hex: 0xE8454B)
+    static let scarfDark = Color(hex: 0xC22F38)
+    static let tip = Color(hex: 0xFFD34D)
+}
+
+/// 教棍：斜靠在身体右侧的木质小棍 + 金色圆头，从右上轻搭下来。
+private struct TeacherPointer: View {
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            // 棍身
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: [AccessoryPalette.wood, AccessoryPalette.woodDark],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
+                .frame(width: max(2.5, size * 0.055), height: size * 0.58)
+                .rotationEffect(.degrees(-24))
+                .offset(x: size * 0.36, y: -size * 0.10)
+            // 高光
+            Capsule()
+                .fill(.white.opacity(0.35))
+                .frame(width: max(1, size * 0.014), height: size * 0.30)
+                .rotationEffect(.degrees(-24))
+                .offset(x: size * 0.33, y: -size * 0.15)
+            // 金色圆头（棍梢）
+            Circle()
+                .fill(AccessoryPalette.tip)
+                .frame(width: size * 0.11, height: size * 0.11)
+                .overlay(Circle().stroke(AccessoryPalette.woodDark.opacity(0.55), lineWidth: max(1, size * 0.012)))
+                .offset(x: size * 0.46, y: -size * 0.35)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+/// 红领巾：脖子处一圈红色三角巾 + 结 + 飘带，贴合所有物种的颈线。
+private struct RedScarf: View {
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            // 颈圈（略弯，绕过脖子后侧）
+            Capsule()
+                .fill(AccessoryPalette.scarf)
+                .frame(width: size * 0.46, height: size * 0.15)
+                .offset(y: size * 0.10)
+            Capsule()
+                .fill(AccessoryPalette.scarfDark.opacity(0.55))
+                .frame(width: size * 0.44, height: size * 0.05)
+                .offset(y: size * 0.155)
+            // 领结结
+            Circle()
+                .fill(AccessoryPalette.scarf)
+                .frame(width: size * 0.13, height: size * 0.12)
+                .offset(y: size * 0.16)
+            // 两条飘带
+            RoundedTriangle()
+                .fill(AccessoryPalette.scarf)
+                .frame(width: size * 0.11, height: size * 0.16)
+                .rotationEffect(.degrees(-12))
+                .offset(x: -size * 0.06, y: size * 0.23)
+            RoundedTriangle()
+                .fill(AccessoryPalette.scarf)
+                .frame(width: size * 0.11, height: size * 0.16)
+                .rotationEffect(.degrees(12))
+                .offset(x: size * 0.06, y: size * 0.23)
+        }
+        .frame(width: size, height: size)
     }
 }

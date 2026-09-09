@@ -118,7 +118,7 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
 
 // MARK: - 产品配置
 
-public struct ProductConfig: Codable, Sendable, Equatable {
+public struct ProductConfig: Sendable, Equatable {
     public var learningLanguage: String
     public var nativeLanguage: String
     public var teacherVoice: String
@@ -126,6 +126,10 @@ public struct ProductConfig: Codable, Sendable, Equatable {
     public var themeMode: ThemeMode
     /// 各能力当前选中的模型（`AIProviderKind.rawValue -> model`）。**由 UI 填写**。
     public var selectedModels: [String: String]
+    /// 老师形象（`AnimalKind.rawValue` 字符串，UI 层映射）。默认小熊猫。
+    public var teacherAnimal: String
+    /// 小学员形象（`AnimalKind.rawValue` 字符串，UI 层映射）。默认小熊。
+    public var studentAnimal: String
 
     public init(
         learningLanguage: String = "en-US",
@@ -133,7 +137,9 @@ public struct ProductConfig: Codable, Sendable, Equatable {
         teacherVoice: String = "Serena",
         practiceMode: PracticeMode = .conversation,
         themeMode: ThemeMode = .day,
-        selectedModels: [String: String] = [:]
+        selectedModels: [String: String] = [:],
+        teacherAnimal: String = "panda",
+        studentAnimal: String = "bear"
     ) {
         self.learningLanguage = learningLanguage
         self.nativeLanguage = nativeLanguage
@@ -141,11 +147,46 @@ public struct ProductConfig: Codable, Sendable, Equatable {
         self.practiceMode = practiceMode
         self.themeMode = themeMode
         self.selectedModels = selectedModels
+        self.teacherAnimal = teacherAnimal
+        self.studentAnimal = studentAnimal
     }
 
     public func selectedModel(for kind: AIProviderKind) -> String? { selectedModels[kind.rawValue] }
     public mutating func selectModel(_ model: String?, for kind: AIProviderKind) {
         selectedModels[kind.rawValue] = model
+    }
+}
+
+// MARK: - 向后兼容解码：旧配置文件缺少新字段时用默认值补齐，不整体作废。
+
+extension ProductConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case learningLanguage, nativeLanguage, teacherVoice, practiceMode, themeMode
+        case selectedModels, teacherAnimal, studentAnimal
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        learningLanguage = try container.decodeIfPresent(String.self, forKey: .learningLanguage) ?? "en-US"
+        nativeLanguage = try container.decodeIfPresent(String.self, forKey: .nativeLanguage) ?? "zh-CN"
+        teacherVoice = try container.decodeIfPresent(String.self, forKey: .teacherVoice) ?? "Serena"
+        practiceMode = try container.decodeIfPresent(PracticeMode.self, forKey: .practiceMode) ?? .conversation
+        themeMode = try container.decodeIfPresent(ThemeMode.self, forKey: .themeMode) ?? .day
+        selectedModels = try container.decodeIfPresent([String: String].self, forKey: .selectedModels) ?? [:]
+        teacherAnimal = try container.decodeIfPresent(String.self, forKey: .teacherAnimal) ?? "panda"
+        studentAnimal = try container.decodeIfPresent(String.self, forKey: .studentAnimal) ?? "bear"
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(learningLanguage, forKey: .learningLanguage)
+        try container.encode(nativeLanguage, forKey: .nativeLanguage)
+        try container.encode(teacherVoice, forKey: .teacherVoice)
+        try container.encode(practiceMode, forKey: .practiceMode)
+        try container.encode(themeMode, forKey: .themeMode)
+        try container.encode(selectedModels, forKey: .selectedModels)
+        try container.encode(teacherAnimal, forKey: .teacherAnimal)
+        try container.encode(studentAnimal, forKey: .studentAnimal)
     }
 }
 

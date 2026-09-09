@@ -5,6 +5,8 @@
     "teacher_voice": "Serena",
     "practice_mode": "conversation",
     "theme_mode": "day",
+    "teacher_animal": "panda",
+    "student_animal": "bear",
     "selected_models": {
       "llm": "deepseek-r1:7b"
     }

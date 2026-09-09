@@ -10,14 +10,21 @@ public struct ChatView: View {
     let chat: ChatService
     let modelName: String?
     let health: ProviderHealth
+    /// AI 老师形象（头部 / 回复气泡头像）。
+    let teacherKind: AnimalKind
+    /// 小学员形象（学员消息头像 / 空态引导）。
+    let studentKind: AnimalKind
 
     @State private var input: String = ""
     @FocusState private var isInputFocused: Bool
 
-    public init(chat: ChatService, modelName: String?, health: ProviderHealth) {
+    public init(chat: ChatService, modelName: String?, health: ProviderHealth,
+                teacherKind: AnimalKind = .panda, studentKind: AnimalKind = .bear) {
         self.chat = chat
         self.modelName = modelName
         self.health = health
+        self.teacherKind = teacherKind
+        self.studentKind = studentKind
     }
 
     public var body: some View {
@@ -34,10 +41,10 @@ public struct ChatView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            CuteAnimalView(kind: .owl, isSleeping: theme.isNight, size: 44)
+            CuteAnimalView(kind: teacherKind, isSleeping: theme.isNight, size: 44)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("森林英语私教")
+                Text("\(teacherKind.displayName)老师")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.primaryText)
                 Text(statusLine)
@@ -59,7 +66,7 @@ public struct ChatView: View {
             }
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 12)
+        .frame(height: 64)
     }
 
     private var statusLine: String {
@@ -89,7 +96,7 @@ public struct ChatView: View {
                             .id("streaming")
                     } else if chat.isGenerating {
                         HStack(spacing: 8) {
-                            CuteAnimalView(kind: .owl, isSleeping: false, size: 30)
+                            CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
                             if chat.isThinking {
                                 Text("思考中…")
                                     .font(.system(size: 12, design: .rounded))
@@ -123,7 +130,7 @@ public struct ChatView: View {
 
     private var emptyHint: some View {
         VStack(spacing: 10) {
-            CuteAnimalView(kind: .bear, isSleeping: theme.isNight, size: 88)
+            CuteAnimalView(kind: studentKind, isSleeping: theme.isNight, size: 92, accessory: .student)
             Text("和老师打个招呼，开始今天的攀爬吧 🌿")
                 .font(.system(size: 14, design: .rounded))
                 .foregroundStyle(theme.secondaryText)
@@ -150,10 +157,10 @@ public struct ChatView: View {
 
     private func bubble(_ message: ChatMessage) -> some View {
         let isUser = message.role == .user
-        return HStack(alignment: .bottom, spacing: 10) {
-            if isUser { Spacer(minLength: 48) }
+        return HStack(alignment: .bottom, spacing: 8) {
+            if isUser { Spacer(minLength: 36) }
             if !isUser {
-                CuteAnimalView(kind: .owl, isSleeping: false, size: 32)
+                CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
             }
             Text(message.content)
                 .font(.system(size: 14, design: .rounded))
@@ -169,7 +176,10 @@ public struct ChatView: View {
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .strokeBorder(theme.divider, lineWidth: 1)
                 )
-            if !isUser { Spacer(minLength: 48) }
+            if isUser {
+                CuteAnimalView(kind: studentKind, isSleeping: false, size: 28, accessory: .student)
+            }
+            if !isUser { Spacer(minLength: 36) }
         }
         .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
     }

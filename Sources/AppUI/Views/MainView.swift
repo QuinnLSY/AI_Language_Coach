@@ -1,35 +1,63 @@
 import AIDomain
+import AppKit
 import SwiftUI
 
 /// 主界面：**左侧可收拉侧边栏 / 中间对话 / 右侧成长之树闯关画布**。
+/// - 三栏顶栏统一 64pt 高，顶部分界线对齐；
+/// - 对话与成长之树之间是可拖动分割线（拖动调整两栏宽度，内容自适应居中）；
+/// - 整页弹性布局：窗口变化时按可用宽度重新分配，不再需要手动拉大窗口。
 public struct MainView: View {
 
     @Bindable var state: AppState
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.forestTheme) private var theme
+
+    /// 成长之树面板宽度（可拖动），由窗口宽度约束夹取。
+    @State private var treePanelWidth: CGFloat = 380
+    @State private var treeDragStart: CGFloat?
+
+    private let sideDividerWidth: CGFloat = 1
+    private let resizeHandleWidth: CGFloat = 14
+    private let chatMinWidth: CGFloat = 400
+    private let treeMinWidth: CGFloat = 300
 
     public init(state: AppState) { self.state = state }
 
     public var body: some View {
-        ZStack {
-            ForestSky(theme: state.theme)
+        GeometryReader { proxy in
+            let total = proxy.size.width
+            let sidebarW = state.isSidebarExpanded ? AppSidebar.expandedWidth : AppSidebar.collapsedWidth
+            let fixedW = sidebarW + sideDividerWidth + resizeHandleWidth
+            let treeW = treeWidth(available: total - fixedW)
+            let chatW = max(chatMinWidth, total - fixedW - treeW)
 
-            HStack(spacing: 0) {
-                AppSidebar(state: state)
+            ZStack {
+                ForestSky(theme: state.theme)
 
-                Divider().overlay(state.theme.divider)
+                HStack(spacing: 0) {
+                    AppSidebar(state: state)
+                        .frame(width: sidebarW)
 
-                chatArea
+                    Divider().overlay(state.theme.divider)
+                        .frame(width: sideDividerWidth)
 
-                Divider().overlay(state.theme.divider)
+                    chatArea
+                        .frame(width: chatW)
 
-                levelPanel
-            }
+                    resizeHandle
+                        .frame(width: resizeHandleWidth)
 
-            if state.showingSettings {
-                settingsOverlay
+                    levelPanel
+                        .frame(width: treeW)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if state.showingSettings {
+                    settingsOverlay
+                }
             }
         }
-        .frame(minWidth: 1180, minHeight: 720)
+        .frame(minWidth: 1080, minHeight: 720)
         .forestTheme(state.theme)
         // 日夜切换作用于全局：原生控件（TextField / Picker / 滚动条）也一起跟随。
         .preferredColorScheme(state.theme.isNight ? .dark : .light)
@@ -48,11 +76,60 @@ public struct MainView: View {
         }
     }
 
+    // MARK: - 宽度分配
+
+    /// 树宽夹取在 [min, 可用宽 - 聊天最小宽]；保证聊天区永远不小于下限。
+    private func treeWidth(available: CGFloat) -> CGFloat {
+        let upper = max(treeMinWidth, available - chatMinWidth)
+        return min(max(treePanelWidth, treeMinWidth), upper)
+    }
+
     // MARK: - 中间：对话
 
     private var chatArea: some View {
-        ChatView(chat: state.chat, modelName: state.currentModelName, health: state.health)
-            .background(state.theme.surfaceAlt.opacity(0.55))
+        ChatView(
+            chat: state.chat,
+            modelName: state.currentModelName,
+            health: state.health,
+            teacherKind: state.teacherAnimalKind,
+            studentKind: state.studentAnimalKind
+        )
+        .background(state.theme.surfaceAlt.opacity(0.55))
+    }
+
+    // MARK: - 可拖动分割线（聊天 / 成长之树之间）
+
+    private var resizeHandle: some View {
+        ZStack {
+            Rectangle()
+                .fill(theme.divider)
+                .frame(width: 1)
+
+            Capsule()
+                .fill(theme.divider.opacity(0.9))
+                .frame(width: 5, height: 44)
+        }
+        .frame(maxHeight: .infinity)
+        .contentShape(Rectangle().inset(by: -2))
+        .gesture(
+            DragGesture(minimumDistance: 1)
+                .onChanged { value in
+                    if treeDragStart == nil { treeDragStart = treePanelWidth }
+                    // 拖动越靠左（translation < 0），树越宽。
+                    treePanelWidth = (treeDragStart ?? treePanelWidth) - value.translation.width
+                }
+                .onEnded { _ in
+                    treeDragStart = nil
+                }
+        )
+        .onHover { hovering in
+            if hovering {
+                NSCursor.resizeLeftRight.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .help("拖动调整对话与成长之树的宽度")
     }
 
     // MARK: - 右侧：成长之树
@@ -60,28 +137,42 @@ public struct MainView: View {
     private var levelPanel: some View {
         VStack(spacing: 0) {
             levelHeader
+                .frame(height: 64)
             Divider().overlay(state.theme.divider)
-            ScrollView(.vertical, showsIndicators: false) {
-                TreeCanvas(theme: state.theme, progress: state.progress) { level in
-                    Task { await open(level) }
+            // 树可上下滚动；林间地面带固定吸附在底部（小动物始终可见、可点击说话）
+            ZStack(alignment: .bottom) {
+                ScrollView(.vertical, showsIndicators: false) {
+                    TreeCanvas(
+                        theme: state.theme,
+                        progress: state.progress,
+                        studentAnimal: state.studentAnimalKind
+                    ) { level in
+                        Task { await open(level) }
+                    }
+                    .padding(.top, 6)
                 }
-                .padding(.top, 8)
+
+                ForestGroundBand(theme: state.theme)
+                    .frame(height: 150)
+                    .allowsHitTesting(true)
             }
         }
-        .frame(width: 340)
         .background(state.theme.surface.opacity(0.62))
     }
 
     private var levelHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 8) {
                 Image(systemName: "tree.fill")
                     .foregroundStyle(state.theme.accent)
                     .font(.system(size: 14))
                 Text("成长之树")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
                     .foregroundStyle(state.theme.primaryText)
                 Spacer()
+                if state.isBooting {
+                    ProgressView().controlSize(.mini)
+                }
                 Text("已爬升 \(Int(state.progress.climbFraction * 100))%")
                     .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(state.theme.secondaryText)
@@ -90,31 +181,18 @@ public struct MainView: View {
             HStack(spacing: 6) {
                 Image(systemName: "star.fill")
                     .foregroundStyle(state.theme.accent)
-                    .font(.system(size: 12))
+                    .font(.system(size: 11))
                 Text("\(state.progress.totalStars) 颗星星")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(state.theme.primaryText)
                 Spacer()
                 Text("\(state.progress.levels.filter { $0.state == .completed }.count)/\(state.progress.levels.count) 关")
                     .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(state.theme.secondaryText)
             }
-
-            if state.isBooting {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text("正在唤醒本地模型…")
-                        .font(.system(size: 11, design: .rounded))
-                        .foregroundStyle(state.theme.secondaryText)
-                }
-            } else if let bootMessage = state.bootMessage {
-                Text(bootMessage)
-                    .font(.system(size: 11, design: .rounded))
-                    .foregroundStyle(.orange)
-            }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .frame(maxHeight: .infinity)
     }
 
     // MARK: - 设置浮层（全局响应日夜，可关闭）
@@ -126,8 +204,8 @@ public struct MainView: View {
                 .onTapGesture { state.showingSettings = false }
 
             SettingsView(state: state)
-                .frame(width: 680)
-                .frame(maxHeight: 740)
+                .frame(width: 720)
+                .frame(maxHeight: 780)
                 .background(
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .fill(state.theme.panel)
