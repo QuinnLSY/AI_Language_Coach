@@ -27,9 +27,31 @@
       "request_timeout": 120
     },
     {
-      "id": "mock.asr",
+      "id": "local.asr",
       "kind": "asr",
       "enabled": true,
+      "runtime": "externalLocalRuntime",
+      "endpoint": "http://127.0.0.1:8858",
+      "candidate_models": ["ggml-small.en"],
+      "model": "ggml-small.en",
+      "streaming": false,
+      "request_timeout": 60
+    },
+    {
+      "id": "local.tts",
+      "kind": "tts",
+      "enabled": true,
+      "runtime": "externalLocalRuntime",
+      "endpoint": "http://127.0.0.1:8855",
+      "model": "serena",
+      "candidate_models": ["serena", "vivian", "ryan", "aiden", "eric"],
+      "streaming": false,
+      "request_timeout": 180
+    },
+    {
+      "id": "mock.asr",
+      "kind": "asr",
+      "enabled": false,
       "runtime": "mock",
       "streaming": false,
       "candidate_models": []
@@ -37,7 +59,7 @@
     {
       "id": "mock.tts",
       "kind": "tts",
-      "enabled": true,
+      "enabled": false,
       "runtime": "mock",
       "streaming": false,
       "candidate_models": []

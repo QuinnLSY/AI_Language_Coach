@@ -267,6 +267,13 @@ private struct LevelNode: View {
 struct ForestGroundBand: View {
     let theme: ForestTheme
 
+    // 各类元素的**上限**：始终按上限创建视图，靠透明度控制显隐。
+    // 这样拖动分割线时元素不会突然创建/销毁（那正是画面抖动的来源）。
+    private let grassCount = 26
+    private let maxBushes = 4
+    private let maxFlowers = 7
+    private let maxResidents = 8
+
     /// 稳定伪随机（同 index/salt 永远同值），保证布局不随重绘跳动。
     private func pr(_ index: Int, _ salt: Int) -> CGFloat {
         let x = sin(Double(index * 137 + salt * 61)) * 43758.5453
@@ -276,7 +283,7 @@ struct ForestGroundBand: View {
 
     /// 居民数量随宽度增减：300 → 3 只，~500 → 6 只，越宽越多；上限物种数 8。
     private func residentCount(_ width: CGFloat) -> Int {
-        min(max(Int((width - 120) / 70) + 1, 3), 8)
+        min(max(Int((width - 120) / 70) + 1, 3), maxResidents)
     }
 
     /// 按宽度取前 N 只物种：伪随机打乱 8 个物种，前 N 个各不相同。
@@ -296,9 +303,15 @@ struct ForestGroundBand: View {
             let height = proxy.size.height
             // 草坡表面（相对本视图坐标）；动物站在坡面上，前后两排错落。
             let groundLine: CGFloat = height - 34
-            let count = residentCount(width)
             let inset: CGFloat = 74
-            let step = max(46, (width - inset * 2) / CGFloat(max(1, count - 1)))
+            let span = max(1, width - inset * 2)
+            // 量化宽度：一切「离散决策」（数量、个体大小）只在 28pt 档位上变化，
+            // 连续量（坐标）仍跟随真实宽度平滑移动 —— 消除拖动时的逐帧重排抖动。
+            let step: CGFloat = 28
+            let qw = (width / step).rounded() * step
+            let count = residentCount(qw)
+            let bushCount = min(1 + Int(qw / 190), maxBushes)
+            let flowerCount = min(2 + Int(qw / 150), maxFlowers)
             let order = speciesOrder()
 
             ZStack(alignment: .bottomLeading) {
@@ -307,51 +320,61 @@ struct ForestGroundBand: View {
                     .fill(theme.hillNear)
                     .frame(height: 96)
 
-                // 远处草丛（密度随宽度）
-                ForEach(0..<min(9 + Int(width / 26), 30), id: \.self) { i in
-                    grassBlade(x: inset + CGFloat(i) / 29 * (width - inset * 2),
+                // 远处草丛（固定数量，按宽度均布；倾角只跟 index 走，不随宽度乱跳）
+                ForEach(0..<grassCount, id: \.self) { i in
+                    grassBlade(x: inset + CGFloat(i) / CGFloat(grassCount - 1) * span,
                                h: 9 + pr(i, 1) * 11,
                                w: 2.6 + pr(i, 2) * 1.6,
+                               seed: i,
                                groundLine: groundLine)
                 }
 
                 // 灌木丛（增加层次，压住“排排站”的感觉）
-                ForEach(0..<min(1 + Int(width / 190), 4), id: \.self) { i in
-                    bush(x: inset + pr(i, 12) * (width - inset * 2),
+                ForEach(0..<maxBushes, id: \.self) { i in
+                    bush(x: inset + pr(i, 12) * span,
                          groundLine: groundLine,
                          seed: i)
+                        .opacity(i < bushCount ? 1 : 0)
+                        .animation(.easeOut(duration: 0.2), value: bushCount)
                 }
 
                 // 小花（错落 + 三种花色）
-                ForEach(0..<min(2 + Int(width / 150), 7), id: \.self) { i in
-                    flower(x: inset + pr(i, 8) * (width - inset * 2),
+                ForEach(0..<maxFlowers, id: \.self) { i in
+                    flower(x: inset + pr(i, 8) * span,
                            groundLine: groundLine,
                            palette: i % 3)
+                        .opacity(i < flowerCount ? 1 : 0)
+                        .animation(.easeOut(duration: 0.2), value: flowerCount)
                 }
 
                 // 林间居民：各物种独立个体，朝向/大小/站位/动与静各不相同
-                ForEach(0..<count, id: \.self) { i in
+                ForEach(0..<maxResidents, id: \.self) { i in
                     resident(
                         kind: order[i % order.count],
                         index: i,
-                        x: inset + CGFloat(i) * step + (pr(i, 4) - 0.5) * 26,
+                        slot: CGFloat(i),
+                        visibleCount: count,
+                        span: span,
+                        inset: inset,
                         groundLine: groundLine,
-                        width: width
+                        quantizedWidth: qw
                     )
                 }
             }
             .frame(width: width, height: height, alignment: .bottomLeading)
+            // 档位切换时让位置/大小平滑过渡，而不是瞬移
+            .animation(.easeOut(duration: 0.18), value: qw)
         }
         .frame(maxWidth: .infinity)
     }
 
     // MARK: 花草
 
-    private func grassBlade(x: CGFloat, h: CGFloat, w: CGFloat, groundLine: CGFloat) -> some View {
+    private func grassBlade(x: CGFloat, h: CGFloat, w: CGFloat, seed: Int, groundLine: CGFloat) -> some View {
         Capsule()
             .fill(theme.foliage.opacity(0.7))
             .frame(width: w, height: h)
-            .rotationEffect(.degrees(Double((pr(Int(x), 6) - 0.5) * 24)))
+            .rotationEffect(.degrees(Double((pr(seed, 6) - 0.5) * 24)))
             .position(x: x, y: groundLine - h / 2 + 3)
     }
 
@@ -394,14 +417,22 @@ struct ForestGroundBand: View {
 
     // MARK: 居民个体
 
-    private func resident(kind: AnimalKind, index: Int, x: CGFloat, groundLine: CGFloat, width: CGFloat) -> some View {
+    private func resident(kind: AnimalKind, index: Int, slot: CGFloat, visibleCount: Int,
+                          span: CGFloat, inset: CGFloat, groundLine: CGFloat,
+                          quantizedWidth: CGFloat) -> some View {
+        let visible = index < visibleCount
         // 前排大、后排小：用伪随机决定“深度”，再按深度给大小与站位
         let depth = pr(index, 14)               // 0(远) ... 1(近)
-        let base = min(54, 28 + width * 0.045) * (0.72 + depth * 0.42)
+        // 个体大小只跟量化宽度走，拖动时不会逐帧缩放（缩放是肉眼可见的抖动源）
+        let base = min(54, 28 + quantizedWidth * 0.045) * (0.72 + depth * 0.42)
         let size = base * (0.94 + pr(index, 5) * 0.14)
         let facing: CGFloat = pr(index, 3) > 0.5 ? 1 : -1
         let bobbing = pr(index, 7) > 0.38 && !theme.isNight
         let y = groundLine - size * 0.5 - depth * 10 + pr(index, 9) * 6
+        // 可见个体在整条带上均分，站位抖动幅度随间距收窄，避免重叠
+        let pitch = span / CGFloat(max(1, visibleCount))
+        let jitter = (pr(index, 4) - 0.5) * min(24, pitch * 0.34)
+        let x = inset + (slot + 0.5) * pitch + jitter
 
         return ZStack {
             // 脚底阴影（落到脚部而不是身体中心）
@@ -421,6 +452,10 @@ struct ForestGroundBand: View {
         }
         .position(x: x, y: y)
         .zIndex(Double(Int(depth * 10)))
+        .opacity(visible ? 1 : 0)
+        .scaleEffect(visible ? 1 : 0.6, anchor: .bottom)
+        .allowsHitTesting(visible)
+        .animation(.easeOut(duration: 0.2), value: visibleCount)
     }
 
     private struct HillCap: Shape {

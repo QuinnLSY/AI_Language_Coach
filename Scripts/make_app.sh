@@ -49,14 +49,15 @@ cat > "$INFO" <<PLIST
     <key>CFBundleName</key><string>AI Language Coach</string>
     <key>CFBundleDisplayName</key><string>语林 AI Language Coach</string>
     <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
-    <key>CFBundleVersion</key><string>0.3.0</string>
-    <key>CFBundleShortVersionString</key><string>0.3.0</string>
+    <key>CFBundleVersion</key><string>0.4.0</string>
+    <key>CFBundleShortVersionString</key><string>0.4.0</string>
     <key>CFBundleExecutable</key><string>$EXEC_NAME</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.education</string>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSMicrophoneUsageDescription</key><string>语林需要使用麦克风进行口语练习与发音识别（完全本地处理，不上传）。</string>
     <key>NSHumanReadableCopyright</key><string>© 2026 AI Language Coach</string>
 </dict>
 </plist>

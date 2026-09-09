@@ -9,6 +9,13 @@ import Foundation
 public actor CoachServices {
 
     public let llm: LLMManager
+    /// 语音识别（ASR）统一入口。
+    public let asr: ASRManager
+    /// 语音合成（TTS）统一入口。
+    public let tts: TTSManager
+    /// 语音能力（录音/识别/朗读）——UI 只认它。
+    public let voice: VoiceService
+
     /// 学习数据库。打开失败时为 nil（功能降级为不持久化，不影响对话）。
     public private(set) var learning: LearningDatabase?
     private let config: ConfigStore
@@ -17,6 +24,9 @@ public actor CoachServices {
     public init(config: ConfigStore = .shared, llm: LLMManager = LLMManager(), databasePath: String? = nil) {
         self.config = config
         self.llm = llm
+        self.asr = ASRManager()
+        self.tts = TTSManager()
+        self.voice = VoiceService(asr: self.asr, tts: self.tts)
         let path = databasePath ?? LearningDatabase.defaultURL().path
         self.learning = try? LearningDatabase(path: path)
         if self.learning == nil {
@@ -45,6 +55,56 @@ public actor CoachServices {
         llmProvider = provider
         await llm.register(provider)
     }
+
+    /// 装配语音能力（ASR + TTS）。**语音是可选能力**：runtime 没启动也不阻断应用。
+    @discardableResult
+    public func bootstrapVoice() async -> (asr: ProviderHealth, tts: ProviderHealth) {
+        let configuration = await config.current
+        let asrHealth = await bootstrapASR(configuration)
+        let ttsHealth = await bootstrapTTS(configuration)
+        if ttsHealth.isUsable { _ = await voice.refreshVoices() }
+        return (asrHealth, ttsHealth)
+    }
+
+    private func bootstrapASR(_ configuration: AppConfiguration) async -> ProviderHealth {
+        guard let providerConfig = Self.preferredProvider(.asr, in: configuration) else {
+            return .configurationInvalid(reason: "没有启用的语音识别 Provider")
+        }
+        let provider = Self.makeASRProvider(providerConfig)
+        do {
+            try await provider.initialize(config: providerConfig)
+        } catch {
+            return .configurationInvalid(reason: error.localizedDescription)
+        }
+        try? await provider.load()
+        await asr.register(provider)
+        return await provider.healthCheck()
+    }
+
+    private func bootstrapTTS(_ configuration: AppConfiguration) async -> ProviderHealth {
+        guard let providerConfig = Self.preferredProvider(.tts, in: configuration) else {
+            return .configurationInvalid(reason: "没有启用的教师语音 Provider")
+        }
+        let provider = Self.makeTTSProvider(providerConfig)
+        do {
+            try await provider.initialize(config: providerConfig)
+        } catch {
+            return .configurationInvalid(reason: error.localizedDescription)
+        }
+        try? await provider.load()
+        await tts.register(provider)
+        return await provider.healthCheck()
+    }
+
+    /// 同类 Provider 中优先选真实 runtime；只有 mock 时才用 mock。
+    private static func preferredProvider(_ kind: AIProviderKind, in configuration: AppConfiguration) -> ProviderConfig? {
+        let candidates = configuration.providers.filter { $0.kind == kind && $0.enabled }
+        return candidates.first { $0.runtime != .mock } ?? candidates.first
+    }
+
+    public func asrHealth() async -> ProviderHealth { await asr.healthCheck() }
+    public func ttsHealth() async -> ProviderHealth { await tts.healthCheck() }
+    public func availableVoices() async -> [String] { await voice.refreshVoices() }
 
     /// 高级设置：修改 LLM Provider 的端点 / 温度后重新装配。
     public func setLLMProviderField(endpoint: String? = nil, temperature: Double? = nil) async throws {
@@ -158,6 +218,24 @@ public actor CoachServices {
     }
 
     // MARK: - Provider 工厂（唯一允许 new 出 Adapter 的地方）
+
+    private static func makeASRProvider(_ config: ProviderConfig) -> any ASRProvider {
+        switch config.runtime {
+        case .externalLocalRuntime:
+            WhisperASRAdapter(providerID: config.id)
+        default:
+            MockASRProvider()
+        }
+    }
+
+    private static func makeTTSProvider(_ config: ProviderConfig) -> any TTSProvider {
+        switch config.runtime {
+        case .externalLocalRuntime:
+            Qwen3TTSAdapter(providerID: config.id)
+        default:
+            MockTTSProvider()
+        }
+    }
 
     private static func makeLLMProvider(_ config: ProviderConfig) -> any LLMProvider {
         switch config.runtime {

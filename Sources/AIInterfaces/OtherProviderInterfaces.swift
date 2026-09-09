@@ -45,15 +45,23 @@ public struct TTSRequest: Sendable {
 public struct TTSResult: Sendable {
     public var audioSamples: [Float]
     public var sampleRate: Int
+    /// runtime 原始音频（如 WAV）。有则直接播放，避免解码后再封装的往返。
+    public var audioData: Data?
 
-    public init(audioSamples: [Float], sampleRate: Int) {
+    public init(audioSamples: [Float], sampleRate: Int, audioData: Data? = nil) {
         self.audioSamples = audioSamples
         self.sampleRate = sampleRate
+        self.audioData = audioData
     }
 }
 
 public protocol TTSProvider: AIProvider {
     func synthesize(_ request: TTSRequest) async throws -> TTSResult
+}
+
+/// 可选能力：runtime 能自报可用音色（不是所有 TTS 都有）。
+public protocol VoiceCatalogProvider: Sendable {
+    func availableVoices() async -> [String]
 }
 
 // MARK: - VAD

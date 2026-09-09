@@ -27,6 +27,22 @@ public final class AppState {
     public private(set) var bootMessage: String?
     public var modelDraft: String = ""
     public var showingSettings = false
+    // MARK: 语音（第 17/18 步）
+    /// 是否正在录音。
+    public private(set) var isRecording = false
+    /// 是否正在识别。
+    public private(set) var isTranscribing = false
+    /// 是否正在朗读教师回复。
+    public private(set) var isSpeaking = false
+    /// 教师回复完成后自动朗读（设置里可关）。
+    public var autoSpeak = false
+    /// 当前教师音色（runtime 自报的候选 + 配置值兜底）。
+    public private(set) var availableVoices: [String] = ["Serena", "Vivian", "Ryan", "Aiden", "Eric"]
+    /// 最近语音错误（nil = 正常）。
+    public private(set) var voiceError: String?
+    /// 语音服务健康状态。
+    public private(set) var asrHealth: ProviderHealth = .configurationInvalid(reason: "尚未初始化")
+    public private(set) var ttsHealth: ProviderHealth = .configurationInvalid(reason: "尚未初始化")
     /// 中栏切换：学习记录页（false = 练习对话）。
     public var showingRecords = false
     /// 学习记录数据（进入页面时加载）。
@@ -87,8 +103,87 @@ public final class AppState {
         } catch {
             bootMessage = error.localizedDescription
         }
+        await bootstrapVoice()
         await refreshStatus()
         isBooting = false
+    }
+
+    // MARK: - 语音（第 17/18 步）
+
+    /// 装配语音能力。**不阻断启动**：runtime 不在线时仅展示状态。
+    public func bootstrapVoice() async {
+        let health = await services.bootstrapVoice()
+        asrHealth = health.asr
+        ttsHealth = health.tts
+        let voices = await services.availableVoices()
+        if !voices.isEmpty {
+            availableVoices = voices
+            await normalizeVoice(voices)
+        }
+    }
+
+    /// 把配置里的音色对齐到 runtime 自报列表（大小写不敏感），避免选择器空选。
+    private func normalizeVoice(_ voices: [String]) async {
+        guard !voices.isEmpty else { return }
+        if let matched = voices.first(where: { $0.caseInsensitiveCompare(product.teacherVoice) == .orderedSame }) {
+            if matched != product.teacherVoice {
+                product.teacherVoice = matched
+                await persistProduct()
+            }
+        } else if product.teacherVoice.isEmpty {
+            product.teacherVoice = voices[0]
+            await persistProduct()
+        }
+    }
+
+    /// 点击麦克风：开始录音。
+    public func startVoiceInput() async {
+        guard !isRecording else { return }
+        isSpeaking = false
+        await services.voice.stopSpeaking()
+        await services.voice.startRecording()
+        let state = await services.voice.isRecording
+        isRecording = state
+        if let error = await services.voice.lastError { voiceError = error }
+    }
+
+    /// 再次点击：停止录音 → 识别 → 填入输入框（由调用方接收文本）。
+    public func finishVoiceInput() async -> String? {
+        guard isRecording else { return nil }
+        let text = await services.voice.stopRecordingAndTranscribe(language: "English")
+        isRecording = false
+        isTranscribing = await services.voice.isTranscribing
+        voiceError = await services.voice.lastError
+        return text
+    }
+
+    public func cancelVoiceInput() async {
+        await services.voice.cancelRecording()
+        isRecording = false
+    }
+
+    /// 朗读教师回复。
+    public func speak(_ text: String) async {
+        await services.voice.speak(text, voice: product.teacherVoice, language: "English")
+        isSpeaking = await services.voice.isSpeaking
+        voiceError = await services.voice.lastError
+    }
+
+    public func stopSpeaking() async {
+        await services.voice.stopSpeaking()
+        isSpeaking = false
+    }
+
+    /// 设置页：切换音色。
+    public func setVoice(_ voice: String) async {
+        product.teacherVoice = voice
+        await persistProduct()
+    }
+
+    /// 设置页：切换自动朗读。
+    public func setAutoSpeak(_ enabled: Bool) async {
+        autoSpeak = enabled
+        if !enabled { await stopSpeaking() }
     }
 
     public func refreshStatus() async {

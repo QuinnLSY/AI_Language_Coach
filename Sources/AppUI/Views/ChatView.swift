@@ -1,6 +1,7 @@
 import AIDomain
 import AIInterfaces
 import AIServices
+import AppCore
 import SwiftUI
 
 public struct ChatView: View {
@@ -14,17 +15,37 @@ public struct ChatView: View {
     let teacherKind: AnimalKind
     /// 小学员形象（学员消息头像 / 空态引导）。
     let studentKind: AnimalKind
+    // 语音（第 17/18 步）
+    var isRecording: Bool = false
+    var isTranscribing: Bool = false
+    var autoSpeak: Bool = false
+    /// 点击麦克风：开始录音 / 停止并识别。
+    var onMicStart: (() async -> Void)? = nil
+    var onMicStop: (() async -> String?)? = nil
+    /// 朗读某段教师回复。
+    var onSpeakTap: ((String) -> Void)? = nil
 
     @State private var input: String = ""
     @FocusState private var isInputFocused: Bool
 
     public init(chat: ChatService, modelName: String?, health: ProviderHealth,
-                teacherKind: AnimalKind = .panda, studentKind: AnimalKind = .bear) {
+                teacherKind: AnimalKind = .panda, studentKind: AnimalKind = .bear,
+                isRecording: Bool = false, isTranscribing: Bool = false,
+                autoSpeak: Bool = false,
+                onMicStart: (() async -> Void)? = nil,
+                onMicStop: (() async -> String?)? = nil,
+                onSpeakTap: ((String) -> Void)? = nil) {
         self.chat = chat
         self.modelName = modelName
         self.health = health
         self.teacherKind = teacherKind
         self.studentKind = studentKind
+        self.isRecording = isRecording
+        self.isTranscribing = isTranscribing
+        self.autoSpeak = autoSpeak
+        self.onMicStart = onMicStart
+        self.onMicStop = onMicStop
+        self.onSpeakTap = onSpeakTap
     }
 
     public var body: some View {
@@ -87,13 +108,19 @@ public struct ChatView: View {
                     }
 
                     ForEach(chat.messages) { message in
-                        bubble(message)
-                            .id(message.id.uuidString)
+                        VStack(alignment: .leading, spacing: 6) {
+                            timestamp(message.createdAt)
+                            bubble(message)
+                        }
+                        .id(message.id.uuidString)
                     }
 
                     if chat.isGenerating && !chat.streamingText.isEmpty {
-                        bubble(ChatMessage(role: .assistant, content: chat.streamingText))
-                            .id("streaming")
+                        VStack(alignment: .leading, spacing: 6) {
+                            timestamp(Date())
+                            bubble(ChatMessage(role: .assistant, content: chat.streamingText))
+                        }
+                        .id("streaming")
                     } else if chat.isGenerating {
                         HStack(spacing: 8) {
                             CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
@@ -115,7 +142,13 @@ public struct ChatView: View {
                 .padding(.vertical, 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .onChange(of: chat.messages.count) { scrollToBottom(proxy) }
+            .onChange(of: chat.messages.count) { _, count in
+                scrollToBottom(proxy)
+                // 教师回复完成后自动朗读（设置里可关）
+                if autoSpeak, count > 0, let last = chat.messages.last, last.role == .assistant {
+                    onSpeakTap?(last.content)
+                }
+            }
             .onChange(of: chat.streamingText) { scrollToBottom(proxy) }
         }
     }
@@ -126,6 +159,20 @@ public struct ChatView: View {
         withAnimation(.easeOut(duration: 0.2)) {
             proxy.scrollTo(target, anchor: .bottom)
         }
+    }
+
+    /// 每条消息上方的时间戳：`9月9日 周三 18:57`。
+    private func timestamp(_ date: Date) -> some View {
+        Text(Self.stamp(date))
+            .font(.system(size: 10, design: .rounded))
+            .foregroundStyle(theme.secondaryText.opacity(0.85))
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.top, 4)
+    }
+
+    /// 手写格式化：避免 DateFormatter 的 locale/并发坑，输出顺序固定为「月日 周 时分」。
+    public nonisolated static func stamp(_ date: Date) -> String {
+        Timestamps.stamp(date)
     }
 
     private var emptyHint: some View {
@@ -181,6 +228,9 @@ public struct ChatView: View {
                 ForEach(corrections) { correction in
                     correctionCard(correction)
                 }
+                if !isUser, let onSpeakTap {
+                    speakButton(message.content, action: onSpeakTap)
+                }
             }
             if isUser {
                 CuteAnimalView(kind: studentKind, isSleeping: false, size: 28, accessory: .student)
@@ -227,10 +277,31 @@ public struct ChatView: View {
         )
     }
 
+    /// 朗读按钮：听老师念这句话。
+    private func speakButton(_ text: String, action: @escaping (String) -> Void) -> some View {
+        Button {
+            action(text)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "speaker.wave.2.fill")
+                Text("听老师读")
+            }
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .foregroundStyle(theme.secondaryText)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(theme.surfaceAlt))
+        }
+        .buttonStyle(.plain)
+        .help("听老师朗读这句")
+    }
+
     // MARK: - 输入区
 
     private var inputBar: some View {
         HStack(spacing: 10) {
+            micButton
+
             TextField("用英语说点什么…", text: $input)
                 .textFieldStyle(.plain)
                 .font(.system(size: 14, design: .rounded))
@@ -266,6 +337,43 @@ public struct ChatView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
+    }
+
+    /// 麦克风按钮：点击说话 → 再点识别填入输入框。
+    private var micButton: some View {
+        Button {
+            Task { @MainActor in
+                if isRecording {
+                    if let text = await onMicStop?(), !text.isEmpty {
+                        input = input.isEmpty ? text : input + " " + text
+                    }
+                    isInputFocused = true
+                } else {
+                    await onMicStart?()
+                }
+            }
+        } label: {
+            Group {
+                if isTranscribing {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: isRecording ? "waveform" : "mic.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                }
+            }
+            .foregroundStyle(isRecording ? Color.red : theme.accent)
+            .frame(width: 40, height: 38)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(isRecording ? Color.red.opacity(0.12) : theme.surfaceAlt)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(isRecording ? Color.red.opacity(0.5) : theme.divider, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .help(isRecording ? "停止并识别" : "点击说话")
     }
 
     private func send() {

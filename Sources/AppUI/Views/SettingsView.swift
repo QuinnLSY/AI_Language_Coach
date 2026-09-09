@@ -56,6 +56,7 @@ public struct SettingsView: View {
                     themeCard
                     partnerCard
                     modelCard
+                    voiceCard
                     learningCard
                     cacheCard
                     advancedCard
@@ -304,6 +305,66 @@ public struct SettingsView: View {
                     .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
             }
+        }
+    }
+
+    // MARK: - 语音（说话 + 教师朗读）
+
+    private var voiceCard: some View {
+        card(title: "语音", systemImage: "waveform") {
+            VStack(alignment: .leading, spacing: 12) {
+                // 两个能力的在线状态
+                HStack(spacing: 16) {
+                    voiceStatusDot("识别", state.asrHealth)
+                    voiceStatusDot("教师朗读", state.ttsHealth)
+                    Spacer()
+                    Button {
+                        Task { await state.bootstrapVoice() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.plain)
+                    .help("重新检测语音服务")
+                }
+
+                if let error = state.voiceError {
+                    Text(error)
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundStyle(.orange)
+                }
+
+                // 教师音色
+                Picker("老师的声音", selection: Binding(
+                    get: { state.teacherVoice },
+                    set: { voice in Task { await state.setVoice(voice) } }
+                )) {
+                    ForEach(state.availableVoices, id: \.self) { voice in
+                        Text(voice.capitalized).tag(voice)
+                    }
+                }
+
+                // 自动朗读
+                Toggle("老师回复后自动朗读", isOn: Binding(
+                    get: { state.autoSpeak },
+                    set: { enabled in Task { await state.setAutoSpeak(enabled) } }
+                ))
+                .font(.system(size: 13, design: .rounded))
+
+                Text("在聊天框点 🎤 说话，松开后文字会填进输入框；每条老师回复下方可点「听老师读」。语音完全在本地处理。")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+            }
+        }
+    }
+
+    private func voiceStatusDot(_ title: String, _ health: ProviderHealth) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(health.isUsable ? Color.green : Color.orange)
+                .frame(width: 8, height: 8)
+            Text("\(title) · \(health.userFacingDescription)")
+                .font(.system(size: 12, design: .rounded))
+                .foregroundStyle(theme.secondaryText)
         }
     }
 

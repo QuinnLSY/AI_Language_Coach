@@ -101,7 +101,13 @@ public struct MainView: View {
                     modelName: state.currentModelName,
                     health: state.health,
                     teacherKind: state.teacherAnimalKind,
-                    studentKind: state.studentAnimalKind
+                    studentKind: state.studentAnimalKind,
+                    isRecording: state.isRecording,
+                    isTranscribing: state.isTranscribing,
+                    autoSpeak: state.autoSpeak,
+                    onMicStart: { await state.startVoiceInput() },
+                    onMicStop: { await state.finishVoiceInput() },
+                    onSpeakTap: { text in Task { await state.speak(text) } }
                 )
             }
         }
