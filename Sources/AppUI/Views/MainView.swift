@@ -70,6 +70,10 @@ public struct MainView: View {
             if CommandLine.arguments.contains("--open-settings") {
                 state.showingSettings = true
             }
+            // 截图/验证辅助：--open-records 启动时直接进入学习记录页
+            if CommandLine.arguments.contains("--open-records") {
+                Task { await state.openRecords() }
+            }
         }
         .onChange(of: colorScheme) { _, newValue in
             state.systemIsDark = (newValue == .dark)
@@ -84,16 +88,23 @@ public struct MainView: View {
         return min(max(treePanelWidth, treeMinWidth), upper)
     }
 
-    // MARK: - 中间：对话
+    // MARK: - 中间：对话 / 学习记录
 
+    @ViewBuilder
     private var chatArea: some View {
-        ChatView(
-            chat: state.chat,
-            modelName: state.currentModelName,
-            health: state.health,
-            teacherKind: state.teacherAnimalKind,
-            studentKind: state.studentAnimalKind
-        )
+        Group {
+            if state.showingRecords {
+                RecordsView(state: state)
+            } else {
+                ChatView(
+                    chat: state.chat,
+                    modelName: state.currentModelName,
+                    health: state.health,
+                    teacherKind: state.teacherAnimalKind,
+                    studentKind: state.studentAnimalKind
+                )
+            }
+        }
         .background(state.theme.surfaceAlt.opacity(0.55))
     }
 

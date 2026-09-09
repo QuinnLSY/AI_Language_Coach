@@ -157,31 +157,74 @@ public struct ChatView: View {
 
     private func bubble(_ message: ChatMessage) -> some View {
         let isUser = message.role == .user
+        let corrections = isUser ? [] : (chat.correctionsByMessage[message.id] ?? [])
         return HStack(alignment: .bottom, spacing: 8) {
             if isUser { Spacer(minLength: 36) }
             if !isUser {
                 CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
             }
-            Text(message.content)
-                .font(.system(size: 14, design: .rounded))
-                .foregroundStyle(theme.primaryText)
-                .textSelection(.enabled)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(isUser ? theme.bubbleUser : theme.bubbleCoach)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(theme.divider, lineWidth: 1)
-                )
+            VStack(alignment: .leading, spacing: 6) {
+                Text(message.content)
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(isUser ? theme.bubbleUser : theme.bubbleCoach)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(theme.divider, lineWidth: 1)
+                    )
+                ForEach(corrections) { correction in
+                    correctionCard(correction)
+                }
+            }
             if isUser {
                 CuteAnimalView(kind: studentKind, isSleeping: false, size: 28, accessory: .student)
             }
             if !isUser { Spacer(minLength: 36) }
         }
         .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
+    }
+
+    /// 「改一改」纠错卡片：原句 → 改正 + 一句话说明。
+    private func correctionCard(_ correction: GrammarCorrection) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 5) {
+                Image(systemName: "pencil.and.list.clipboard")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("改一改")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+            }
+            .foregroundStyle(theme.accent)
+
+            Text(correction.original)
+                .font(.system(size: 12, design: .rounded))
+                .strikethrough()
+                .foregroundStyle(theme.secondaryText)
+            Text(correction.corrected)
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(theme.primaryText)
+            if !correction.explanation.isEmpty {
+                Text(correction.explanation)
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: 320, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(theme.accent.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(theme.accent.opacity(0.35), lineWidth: 1)
+        )
     }
 
     // MARK: - 输入区

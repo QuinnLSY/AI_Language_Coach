@@ -42,6 +42,8 @@ public struct SettingsView: View {
     @State private var logs: [LogEntry] = []
     @State private var showAdvanced = false
     @State private var isRefreshing = false
+    @State private var isClearingCache = false
+    @State private var showClearConfirm = false
 
     public init(state: AppState) { self.state = state }
 
@@ -55,6 +57,7 @@ public struct SettingsView: View {
                     partnerCard
                     modelCard
                     learningCard
+                    cacheCard
                     advancedCard
                     logsCard
                 }
@@ -64,7 +67,22 @@ public struct SettingsView: View {
             }
         }
         .background(theme.panel)
-        .task { await loadRuntimeValues() }
+        .task {
+            await loadRuntimeValues()
+            await state.refreshCacheInfo()
+        }
+        .confirmationDialog("确定清理缓存吗？", isPresented: $showClearConfirm, titleVisibility: .visible) {
+            Button("清理缓存", role: .destructive) {
+                isClearingCache = true
+                Task {
+                    await state.clearCache()
+                    isClearingCache = false
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("将清理过期的对话流水并回收磁盘空间。学习记忆与应用配置会完整保留。")
+        }
     }
 
     // MARK: - 顶部栏（含关闭按钮；日夜切换收在下方「森林时刻」卡片里）
@@ -331,6 +349,110 @@ public struct SettingsView: View {
                 }
             }
             .font(.system(size: 13, design: .rounded))
+        }
+    }
+
+    // MARK: - 缓存管理（大小 / 目录显示 + 清除）
+
+    private var cacheCard: some View {
+        card(title: "存储与缓存", systemImage: "externaldrive.fill") {
+            VStack(alignment: .leading, spacing: 10) {
+                let snapshot = state.cacheSnapshot
+
+                HStack(spacing: 8) {
+                    Image(systemName: "folder")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.accent)
+                    Text(snapshot.directory.isEmpty ? "—" : snapshot.directory)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(theme.secondaryText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+                .help(snapshot.directory)
+
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("合计占用")
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                    Text(snapshot.totalDisplay)
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                        .monospacedDigit()
+                    Spacer()
+                    Button {
+                        Task { await state.refreshCacheInfo() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.plain)
+                    .help("重新统计")
+                }
+
+                // 明细：学习记忆加锁标记（清理时保留）
+                ForEach(snapshot.items) { item in
+                    HStack(spacing: 6) {
+                        Image(systemName: item.isLearningData ? "lock.fill" : "doc")
+                            .font(.system(size: 9))
+                            .foregroundStyle(item.isLearningData ? theme.accent : theme.secondaryText)
+                        Text(item.name)
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundStyle(theme.primaryText)
+                        if item.isLearningData {
+                            Text("学习记忆")
+                                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                                .foregroundStyle(theme.accent)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(theme.accent.opacity(0.12)))
+                        }
+                        Spacer()
+                        Text(CacheSnapshot.byteCount(item.bytes))
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(theme.secondaryText)
+                            .monospacedDigit()
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    if state.cacheFreedBytes > 0 {
+                        Label("已释放 \(CacheSnapshot.byteCount(state.cacheFreedBytes))", systemImage: "trash.slash")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(.green)
+                    }
+                    if let cleared = snapshot.lastClearedAt {
+                        Text("上次清理：\(cleared.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                    Spacer()
+                    Button {
+                        showClearConfirm = true
+                    } label: {
+                        HStack(spacing: 5) {
+                            if isClearingCache {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "paintbrush.fill").font(.system(size: 11))
+                            }
+                            Text("清除缓存")
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .frame(height: 30)
+                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(theme.accent))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isClearingCache || snapshot.items.isEmpty)
+                    .help("清理过期对话流水并回收磁盘空间")
+                }
+
+                Text("清除只影响可再生的对话流水与数据库碎片；学习记忆（错题本、进度）和配置始终保留。")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+            }
         }
     }
 

@@ -27,6 +27,15 @@ public final class AppState {
     public private(set) var bootMessage: String?
     public var modelDraft: String = ""
     public var showingSettings = false
+    /// 中栏切换：学习记录页（false = 练习对话）。
+    public var showingRecords = false
+    /// 学习记录数据（进入页面时加载）。
+    public private(set) var records: [SessionSummary] = []
+    public private(set) var mistakes: [GrammarCorrection] = []
+    /// 数据目录缓存快照（设置页「缓存管理」卡片）。
+    public private(set) var cacheSnapshot: CacheSnapshot = .empty
+    /// 上一次清理释放的字节数（展示用，0 = 无）。
+    public private(set) var cacheFreedBytes: Int64 = 0
 
     /// 产品配置缓存（Sendable，可在 MainActor 直接修改后整体回写）。
     private var product: ProductConfig = ProductConfig()
@@ -168,6 +177,36 @@ public final class AppState {
     public func setStudentAnimal(_ kind: AnimalKind) async {
         product.studentAnimal = kind.rawValue
         await persistProduct()
+    }
+
+    // MARK: - 学习记录
+
+    public func openRecords() async {
+        showingRecords = true
+        await loadRecords()
+    }
+
+    public func openPractice() async {
+        showingRecords = false
+    }
+
+    public func loadRecords() async {
+        records = await services.recentSessions(limit: 20)
+        mistakes = await services.recentCorrections(limit: 50)
+    }
+
+    // MARK: - 缓存管理
+
+    public func refreshCacheInfo() async {
+        cacheSnapshot = await services.cacheSnapshot()
+    }
+
+    /// 清理可再生的缓存（学习记忆与配置始终保留）。
+    public func clearCache() async {
+        let before = await services.clearCaches()
+        let after = await services.cacheSnapshot()
+        cacheSnapshot = after
+        cacheFreedBytes = max(before.totalBytes - after.totalBytes, 0)
     }
 
     // MARK: - 高级（普通用户不需要）

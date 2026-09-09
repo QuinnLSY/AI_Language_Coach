@@ -125,6 +125,38 @@ public actor CoachServices {
         try? await learning.finishSession(id: sessionID)
     }
 
+    public func persistCorrection(_ correction: GrammarCorrection, sessionID: UUID) async {
+        guard let learning else { return }
+        try? await learning.appendCorrection(correction, sessionID: sessionID)
+    }
+
+    public func recentCorrections(limit: Int = 50) async -> [GrammarCorrection] {
+        guard let learning else { return [] }
+        return (try? await learning.recentCorrections(limit: limit)) ?? []
+    }
+
+    public func recentSessions(limit: Int = 20) async -> [SessionSummary] {
+        guard let learning else { return [] }
+        return (try? await learning.recentSessions(limit: limit)) ?? []
+    }
+
+    public func sessionSummary(id: UUID) async -> SessionSummary? {
+        guard let learning else { return nil }
+        return try? await learning.sessionSummary(id: id)
+    }
+
+    // MARK: - 缓存管理（设置页）
+
+    public func cacheSnapshot() async -> CacheSnapshot {
+        CacheManager.snapshot()
+    }
+
+    /// 清理缓存，返回清理前的快照（供 UI 展示释放量）。
+    @discardableResult
+    public func clearCaches() async -> CacheSnapshot {
+        await CacheManager.clearCaches(database: learning)
+    }
+
     // MARK: - Provider 工厂（唯一允许 new 出 Adapter 的地方）
 
     private static func makeLLMProvider(_ config: ProviderConfig) -> any LLMProvider {

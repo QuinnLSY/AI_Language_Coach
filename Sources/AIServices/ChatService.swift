@@ -20,6 +20,10 @@ public final class ChatService {
     public var profile: LearnerProfile = LearnerProfile()
     /// 当前练习会话（持久化用）。
     public private(set) var sessionID: UUID
+    /// 本会话按消息记录的纠错（UI 在气泡下方展示「改一改」卡片）。
+    public private(set) var correctionsByMessage: [UUID: [GrammarCorrection]] = [:]
+    /// 本会话累计纠错条数。
+    public var correctionCount: Int { correctionsByMessage.values.reduce(0) { $0 + $1.count } }
 
     private let services: CoachServices
     private var generationTask: Task<Void, Never>?
@@ -122,9 +126,47 @@ public final class ChatService {
         let finalText = Self.stripThinking(accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
         // 用户主动叫停时保留已生成内容，不算错误。
         if !finalText.isEmpty {
-            let message = ChatMessage(role: .assistant, content: finalText)
+            // 抽取老师标注的纠错块（[[FIX]] ...），不进聊天正文。
+            let parsed = Self.extractCorrections(finalText)
+            let message = ChatMessage(role: .assistant, content: parsed.cleanText)
             messages.append(message)
             persist(message)
+            if !parsed.corrections.isEmpty {
+                correctionsByMessage[message.id] = parsed.corrections
+                persistCorrections(parsed.corrections)
+            }
+        }
+    }
+
+    /// 解析并剥离 `[[FIX]] 原句 => 改正 => 简短说明` 行。
+    /// 返回净化后的正文与纠错列表（纯函数，便于单测）。
+    nonisolated static func extractCorrections(_ text: String) -> (cleanText: String, corrections: [GrammarCorrection]) {
+        var corrections: [GrammarCorrection] = []
+        var keptLines: [String] = []
+        for line in text.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("[[FIX]]") else {
+                keptLines.append(line)
+                continue
+            }
+            let body = trimmed.dropFirst("[[FIX]]".count).trimmingCharacters(in: .whitespaces)
+            let parts = body.components(separatedBy: "=>").map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count >= 2, !parts[0].isEmpty, !parts[1].isEmpty else { continue }
+            let explanation = parts.count >= 3 ? parts[2] : ""
+            corrections.append(GrammarCorrection(original: parts[0], corrected: parts[1], explanation: explanation))
+        }
+        let clean = keptLines.joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (clean, corrections)
+    }
+
+    private func persistCorrections(_ corrections: [GrammarCorrection]) {
+        let sessionID = sessionID
+        let services = services
+        Task {
+            for correction in corrections {
+                await services.persistCorrection(correction, sessionID: sessionID)
+            }
         }
     }
 

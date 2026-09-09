@@ -12,3 +12,6 @@ DerivedData/
 # 系统
 .DS_Store
 *.log
+
+# .app 打包产物（Scripts/make_app.sh 生成）
+dist/

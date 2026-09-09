@@ -184,15 +184,15 @@ public actor LearningDatabase {
     }
 
     public func recentSessions(limit: Int = 20) throws -> [SessionSummary] {
-        try db.query(
+        let rows = try db.query(
             "SELECT id, started_at, COALESCE(ended_at, ?2) AS ended, message_count FROM sessions ORDER BY started_at DESC LIMIT ?1",
             [.int(limit), .real(Date().timeIntervalSince1970)]
-        ) { row in
+        ) { row -> SessionSummary? in
             guard let idText = row.string(0),
                   let id = UUID(uuidString: idText),
                   let started = row.double(1),
                   let ended = row.double(2)
-            else { throw AppError.database("sessions 行数据不完整") }
+            else { return nil }
             return SessionSummary(
                 sessionID: id,
                 startedAt: Date(timeIntervalSince1970: started),
@@ -202,6 +202,7 @@ public actor LearningDatabase {
                 corrections: []
             )
         }
+        return rows.compactMap { $0 }
     }
 
     public func messageCount(sessionID: UUID) throws -> Int {
@@ -210,5 +211,104 @@ public actor LearningDatabase {
             [.text(sessionID.uuidString)],
             map: { $0.int(0) ?? 0 }
         ).first ?? 0
+    }
+
+    // MARK: - 纠错（学习记忆的核心资产）
+
+    public func appendCorrection(_ correction: GrammarCorrection, sessionID: UUID) throws {
+        try db.run(
+            """
+            INSERT OR REPLACE INTO corrections (id, session_id, original, corrected, explanation, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            """,
+            [
+                .text(correction.id.uuidString),
+                .text(sessionID.uuidString),
+                .text(correction.original),
+                .text(correction.corrected),
+                .text(correction.explanation),
+                .real(Date().timeIntervalSince1970),
+            ]
+        )
+    }
+
+    public func corrections(sessionID: UUID) throws -> [GrammarCorrection] {
+        try db.query(
+            "SELECT id, original, corrected, explanation FROM corrections WHERE session_id = ?1 ORDER BY created_at ASC",
+            [.text(sessionID.uuidString)]
+        ) { row in Self.correction(from: row) }
+    }
+
+    /// 最近纠错（跨会话，用于复习/错题本）。
+    public func recentCorrections(limit: Int = 50) throws -> [GrammarCorrection] {
+        try db.query(
+            "SELECT id, original, corrected, explanation FROM corrections ORDER BY created_at DESC LIMIT ?1",
+            [.int(limit)]
+        ) { row in Self.correction(from: row) }
+    }
+
+    /// 会话总结：消息数 + 本会话纠错。
+    public func sessionSummary(id: UUID) throws -> SessionSummary? {
+        let rows = try db.query(
+            "SELECT id, started_at, COALESCE(ended_at, ?2), message_count FROM sessions WHERE id = ?1",
+            [.text(id.uuidString), .real(Date().timeIntervalSince1970)]
+        ) { row in
+            (id: row.string(0), started: row.double(1), ended: row.double(2), count: row.int(3) ?? 0)
+        }
+        guard let row = rows.first,
+              let idText = row.id,
+              let sessionID = UUID(uuidString: idText)
+        else { return nil }
+        return SessionSummary(
+            sessionID: sessionID,
+            startedAt: Date(timeIntervalSince1970: row.started ?? 0),
+            endedAt: Date(timeIntervalSince1970: row.ended ?? Date().timeIntervalSince1970),
+            messageCount: row.count,
+            newStars: 0,
+            corrections: try corrections(sessionID: sessionID)
+        )
+    }
+
+    private static func correction(from row: SQLiteRow) -> GrammarCorrection {
+        guard let idText = row.string(0), let id = UUID(uuidString: idText),
+              let original = row.string(1),
+              let corrected = row.string(2)
+        else { return GrammarCorrection(id: UUID(), original: "", corrected: "", explanation: "") }
+        return GrammarCorrection(
+            id: id,
+            original: original,
+            corrected: corrected,
+            explanation: row.string(3) ?? ""
+        )
+    }
+
+    // MARK: - 空间回收（缓存管理用）
+
+    /// 清理超过保留窗口的旧会话：messages/corrections 随外键级联删除，
+    /// **纠错本体先抢救出来**（学习记忆是资产）——把 session_id 改挂到归档哨兵会话。
+    public func purgeSessionsOlderThan(days: Int) throws {
+        let cutoff = Date().addingTimeInterval(-Double(days) * 86_400).timeIntervalSince1970
+        try db.runInTransaction([
+            // 归档哨兵：为保外键有效而存在，不出现在会话列表（id 非 UUID）
+            ("INSERT OR IGNORE INTO sessions (id, started_at, ended_at, mode, message_count) VALUES ('archive', 0, NULL, 'conversation', 0)", []),
+            (
+                "UPDATE corrections SET session_id = 'archive' WHERE session_id IN (SELECT id FROM sessions WHERE COALESCE(ended_at, started_at) < ?1)",
+                [.real(cutoff)]
+            ),
+        ])
+        try db.run(
+            "DELETE FROM sessions WHERE COALESCE(ended_at, started_at) < ?1 AND id != 'archive'",
+            [.real(cutoff)]
+        )
+    }
+
+    /// WAL checkpoint：把预写日志合并回主库文件，WAL 归零。
+    public func checkpoint() throws {
+        try db.run("PRAGMA wal_checkpoint(TRUNCATE)")
+    }
+
+    /// VACUUM 整理数据库文件，回收删除留下的空洞。
+    public func vacuum() throws {
+        try db.run("VACUUM")
     }
 }

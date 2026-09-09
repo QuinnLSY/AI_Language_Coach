@@ -79,5 +79,63 @@ final class LearningDatabaseTests: XCTestCase {
     func testSchemaVersionStable() async throws {
         let db = try makeDB()
         let version = try await db.schemaVersion()
-        XCTAssertEqual(version, LearningDatabase.schemaVersion)    }
+        XCTAssertEqual(version, LearningDatabase.schemaVersion)
+    }
+
+    // MARK: - 纠错（学习记忆）
+
+    func testCorrectionsRoundtrip() async throws {
+        let db = try makeDB()
+        let session = ChatSession()
+        try await db.createSession(session)
+
+        let fix = GrammarCorrection(original: "I go to school yesterday", corrected: "I went to school yesterday", explanation: "昨天的事用过去式")
+        try await db.appendCorrection(fix, sessionID: session.id)
+
+        let loaded = try await db.corrections(sessionID: session.id)
+        XCTAssertEqual(loaded.count, 1)
+        XCTAssertEqual(loaded.first?.original, fix.original)
+        XCTAssertEqual(loaded.first?.corrected, fix.corrected)
+        XCTAssertEqual(loaded.first?.explanation, fix.explanation)
+
+        let recent = try await db.recentCorrections(limit: 10)
+        XCTAssertEqual(recent.count, 1)
+    }
+
+    func testSessionSummaryIncludesCorrections() async throws {
+        let db = try makeDB()
+        let session = ChatSession()
+        try await db.createSession(session)
+        try await db.appendMessage(ChatMessage(role: .user, content: "She don't like it"), sessionID: session.id)
+        try await db.appendCorrection(
+            GrammarCorrection(original: "She don't like it", corrected: "She doesn't like it", explanation: "三单"),
+            sessionID: session.id
+        )
+        try await db.finishSession(id: session.id)
+
+        let summary = try await db.sessionSummary(id: session.id)
+        XCTAssertNotNil(summary)
+        XCTAssertEqual(summary?.messageCount, 1)
+        XCTAssertEqual(summary?.corrections.count, 1)
+        XCTAssertEqual(summary?.corrections.first?.corrected, "She doesn't like it")
+    }
+
+    func testPurgeSessionsKeepsCorrections() async throws {
+        let db = try makeDB()
+        let old = ChatSession(startedAt: Date(timeIntervalSinceNow: -40 * 86_400))
+        try await db.createSession(old)
+        try await db.appendMessage(ChatMessage(role: .user, content: "old"), sessionID: old.id)
+        try await db.appendCorrection(
+            GrammarCorrection(original: "a old book", corrected: "an old book", explanation: "冠词"),
+            sessionID: old.id
+        )
+        try await db.finishSession(id: old.id, endedAt: Date(timeIntervalSinceNow: -39 * 86_400))
+
+        try await db.purgeSessionsOlderThan(days: 30)
+
+        let sessions = try await db.recentSessions(limit: 10)
+        XCTAssertTrue(sessions.isEmpty, "旧会话应被清理（归档哨兵不进会话列表）")
+        let recent = try await db.recentCorrections(limit: 10)
+        XCTAssertEqual(recent.count, 1, "纠错本体是学习记忆，清理会话时必须保留")
+    }
 }

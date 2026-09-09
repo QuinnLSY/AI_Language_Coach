@@ -70,9 +70,17 @@ public struct AppSidebar: View {
             navItem(
                 icon: "leaf.fill",
                 title: "练习",
-                isActive: !state.showingSettings
+                isActive: !state.showingSettings && !state.showingRecords
             ) {
-                state.showingSettings = false
+                Task { await state.openPractice() }
+            }
+
+            navItem(
+                icon: "chart.bar.fill",
+                title: "学习记录",
+                isActive: state.showingRecords
+            ) {
+                Task { await state.openRecords() }
             }
 
             navItem(
@@ -87,7 +95,6 @@ public struct AppSidebar: View {
                 .padding(.vertical, 6)
 
             VStack(spacing: 4) {
-                navItem(icon: "chart.bar.fill", title: "学习记录", isEnabled: false) {}
                 navItem(icon: "text.book.closed.fill", title: "词汇本", isEnabled: false) {}
             }
         }
