@@ -6,7 +6,7 @@ import Foundation
 
 public enum DefaultConfiguration {
     public static func load() throws -> AppConfiguration {
-        guard let url = Bundle.module.url(forResource: "Config/default-config", withExtension: "json") else {
+        guard let url = AppResourceBundle.module.url(forResource: "Config/default-config", withExtension: "json") else {
             throw AppError.configuration("缺少内置默认配置 default-config.json")
         }
         let data = try Data(contentsOf: url)

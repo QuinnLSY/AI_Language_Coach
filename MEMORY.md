@@ -170,12 +170,55 @@ AppUI/          MainView 关卡点击：绑定情景的关卡直接进情景；R
 AppUI/          学习记录页会话行显示情景标签；AppState.settleScenario（累计加星、封顶 requiredStars、达标通关解锁下一关）
 AppUI/          右上角太阳/月亮 = 日夜切换（CelestialToggle，点太阳→夜晚，点月亮→白天）；夜晚点右下角表情冒「它们在睡觉」气泡
 AppCore/        ProductConfig.autoSpeak（老师回复后自动朗读，默认开且持久化）
-Tests/          114 个测试（新增关卡绑定/结算规则/加星封顶/迁移清理/autoSpeak/主题映射/睡眠气泡），全部通过
+AIInfra/        MicrophoneRecorder 改用硬件格式收流 + AVAudioConverter 重采样（修「点麦克风即退出」崩溃）
+AIInfra/        AppResourceBundle（资源 bundle 定位：Contents/Resources 优先）
+Tests/          128 个测试（新增关卡绑定/结算规则/加星封顶/迁移清理/autoSpeak/主题映射/睡眠气泡/录音格式契约/重采样/资源定位），全部通过
 ```
 
 **本轮修掉的两个真 bug**：
 1. **启动预建空会话** → 「最近会话」永远是新空行，**上次练习与情景根本恢复不回来**。改为首条消息/首次进情景才建行，并加 `hygiene()` 清理历史遗留空会话。
 2. **星星用 `max` 而非累计** → 重复练习永远攒不满 `requiredStars`（关卡需求 4–6 星、单次最多 3 星，数学上不可达）。改为累计并封顶到本关需求。
+
+### 麦克风崩溃修复（2026-09-10 晚，重要）
+
+**现象**：点麦克风 → 弹系统授权 → 点确定 → **应用直接退出**。
+
+**根因（崩溃日志确证，非猜测）**：`~/Library/Logs/DiagnosticReports/Retired/*.ips` 的
+`lastExceptionBacktrace` 指向 `-[AVAudioNode installTapOnBus:bufferSize:format:block:]`
+← `MicrophoneRecorder.start()`，`termination: Abort trap 6 / SIGABRT`。
+原因是把 **16kHz** 的格式传给了 **48kHz**（本机默认输入设备实测 48000Hz）的输入节点，
+`AVAudioEngine` 内部断言 `format.sampleRate == hwFormat.sampleRate` 失败后抛的是
+**Objective-C 异常**，Swift `do/catch` 与 `try?` **都抓不到**，直接 abort。
+
+**修法**：`installTap` 一律用硬件格式（`input.outputFormat(forBus: 0)`）收流，
+再用 `AVAudioConverter` 重采样 + 多声道下混到 16kHz 单声道。
+顺带补上：硬件格式为 0（无输入设备）时抛可读错误而非硬上；`engine.start()` 失败回滚 `removeTap`；
+重采样失败不再静默，走 `captureError` 报给用户。
+
+**实测细节（AVAudioConverter，别当成 bug）**：48k→16k 单声道单次转换 3994/4000 帧没问题；
+但**立体声单次转换只出 2725/4000**（预置样本被扣住），而**连续流式累积 13648/13653 正常** ——
+真实录音是流式的，因此无需处理；写测试时**必须按流式断言**，单次断言会误报。
+
+**连带修掉的第二个真 bug（授权每次重弹）**：`make_app.sh` 里 `strip -x` 会让 linker 的临时签名失效，
+产物实测 `code object is not signed at all` / `Info.plist=not bound` → **完全未签名** →
+TCC 拿不到稳定代码身份 → **每次启动都重弹麦克风授权框**。
+修法：资源 bundle 从 `.app` 根目录挪到 `Contents/Resources/`（根目录放东西会让 codesign 报
+`unsealed contents present in the bundle root`，整个包签不了），strip 之后做
+`codesign --force --sign - --identifier <bundleID> --entitlements Scripts/app.entitlements`
+（entitlement 含 `com.apple.security.device.audio-input`），末尾 `codesign -v` 校验。
+**注意**：ad-hoc 签名按 cdhash 认定，重新构建会换 cdhash → 仍会重弹一次，这是无开发者证书时的固有上限。
+
+**资源查找**：因为改了 bundle 位置，SwiftPM 自动生成的 `Bundle.module` 不再适用
+（它只认 `.app` 根目录）。新增 `AIInfrastructure/AppResourceBundle`，按
+`Contents/Resources` → 可执行文件目录 → 上一级目录 顺序查找，最后兜底 `Bundle.module`；
+PromptBuilder / ScenarioCatalog / LevelBindingCatalog / ConfigStore 共 8 处调用已切换。
+`swift test` 由 Xcode 的 `xctest` 宿主启动（`Bundle.main` 指向 `/Applications/Xcode.app/...`），
+三个候选目录都落空，**测试环境实际靠 `Bundle.module` 的硬编码构建路径兜底**，属正常。
+
+**对话区错误可见性**：此前 `voiceError` 只在设置页显示，聊天里点麦克风失败是**完全静默**的。
+现在输入框上方加了一条可关闭的橙色提示条（`ChatView.voiceErrorBanner` + `AppState.clearVoiceError()`）。
+
+测试 **128/128**（新增 `MicrophoneRecorderTests` 9 个 + `AppResourceBundleTests` 5 个）。
 
 ### 截图验证工作流（重要，已踩坑）
 

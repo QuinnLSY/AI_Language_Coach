@@ -1,10 +1,18 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import AppCore
 import Foundation
 
 /// 麦克风录音器：采集 16kHz 单声道 Float 采样，供 ASR 使用。
 ///
 /// 只负责「把声音变成数字」，不含任何模型/业务逻辑。
+///
+/// ⚠️ 最关键的一条约束（2026-09-10 崩溃修复，勿改）：
+/// `AVAudioNode.installTap` 要求的格式**采样率必须与输入节点的硬件格式完全一致**。
+/// 传一个 16kHz 的格式给 48kHz 的输入节点，`AVAudioEngine` 内部会抛 Objective-C 异常
+/// （`required condition is false: format.sampleRate == hwFormat.sampleRate`），
+/// 这不是 Swift 错误、**catch 不到**，进程直接 SIGABRT 退出。
+/// 而 whisper 需要 16kHz、本机默认输入设备是 48kHz，两者必然不一致 ——
+/// 因此正确做法是：**用硬件格式收流，再自行重采样到 16kHz**。
 public final class MicrophoneRecorder: @unchecked Sendable {
 
     /// 录音采样率（whisper 家族统一 16kHz）。
@@ -14,12 +22,20 @@ public final class MicrophoneRecorder: @unchecked Sendable {
     private var engine: AVAudioEngine?
     private var buffer: [Float] = []
     private var _isRecording = false
+    /// 采集链路上的故障（重采样失败等）；nil = 正常。
+    private var _captureError: String?
 
     public init() {}
 
     public var isRecording: Bool {
         lock.lock(); defer { lock.unlock() }
         return _isRecording
+    }
+
+    /// 采集过程中的错误（重采样失败、引擎异常等），供上层提示用户。
+    public var captureError: String? {
+        lock.lock(); defer { lock.unlock() }
+        return _captureError
     }
 
     /// 麦克风权限。首次调用会弹系统授权框（.app 需声明 NSMicrophoneUsageDescription）。
@@ -40,34 +56,61 @@ public final class MicrophoneRecorder: @unchecked Sendable {
     /// 开始录音。已授权但未安装 tap 时抛错由调用方处理。
     public func start() throws {
         lock.lock()
-        defer { lock.unlock() }
-        guard !_isRecording else { return }
-
-        let engine = AVAudioEngine()
-        let input = engine.inputNode
-        guard let format = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: Self.sampleRate,
-            channels: 1,
-            interleaved: false
-        ) else {
-            throw AppError.audio("无法创建录音格式")
+        if _isRecording {
+            lock.unlock()
+            return
         }
         buffer = []
         buffer.reserveCapacity(Int(Self.sampleRate * 60))
+        _captureError = nil
+        lock.unlock()
 
-        input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] pcm, _ in
+        guard let target = Self.targetFormat() else {
+            throw AppError.audio("无法创建录音格式")
+        }
+
+        let engine = AVAudioEngine()
+        let input = engine.inputNode
+        let hardware = input.outputFormat(forBus: 0)
+        // 没有可用输入设备时硬件格式是 0Hz/0 声道；带着这种格式去 installTap 同样会崩，先拦掉。
+        guard hardware.sampleRate > 0, hardware.channelCount > 0 else {
+            throw AppError.audio("没有可用的麦克风输入设备")
+        }
+
+        // installTap 只接受「与硬件同采样率」的格式，其余差异（声道数、采样格式、采样率）
+        // 全部交给 AVAudioConverter 处理。
+        let tapFormat = Self.tapFormat(for: hardware)
+        let isPassthrough = Self.isSameLayout(tapFormat, target)
+        let converter = isPassthrough ? nil : AVAudioConverter(from: tapFormat, to: target)
+        if !isPassthrough, converter == nil {
+            throw AppError.audio("无法把麦克风音频转换成识别所需格式")
+        }
+
+        input.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { [weak self] pcm, _ in
             guard let self else { return }
-            guard let channel = pcm.floatChannelData?[0] else { return }
-            let count = Int(pcm.frameLength)
+            guard let samples = Self.samples(from: pcm, converter: converter, target: target) else {
+                self.noteCaptureError("麦克风音频重采样失败")
+                return
+            }
+            guard !samples.isEmpty else { return }
             self.lock.lock()
-            self.buffer.append(contentsOf: UnsafeBufferPointer(start: channel, count: count))
+            self.buffer.append(contentsOf: samples)
             self.lock.unlock()
         }
+
         engine.prepare()
-        try engine.start()
+        do {
+            try engine.start()
+        } catch {
+            // 失败路径必须拆掉 tap，否则本地 engine 释放时仍挂着回调。
+            input.removeTap(onBus: 0)
+            throw AppError.audio("无法启动录音：\(error.localizedDescription)")
+        }
+
+        lock.lock()
         self.engine = engine
         _isRecording = true
+        lock.unlock()
     }
 
     /// 停止录音并返回本段音频采样（已释放 tap 与引擎）。
@@ -86,13 +129,88 @@ public final class MicrophoneRecorder: @unchecked Sendable {
 
     /// 实时电平（0…1），供 UI 画波形；未录音时为 0。
     public var level: Float {
-        lock.lock()
-        defer { lock.unlock() }
+        lock.lock(); defer { lock.unlock() }
         guard _isRecording else { return 0 }
         let tail = buffer.suffix(2048)
         guard !tail.isEmpty else { return 0 }
         var sum: Float = 0
         for sample in tail { sum += sample * sample }
         return min(1, sqrt(sum / Float(tail.count)) * 4)
+    }
+
+    // MARK: - 格式（可测的纯逻辑）
+
+    /// 识别链路的统一目标格式：16kHz 单声道 Float32（whisper 要求）。
+    static func targetFormat() -> AVAudioFormat? {
+        AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                      sampleRate: sampleRate,
+                      channels: 1,
+                      interleaved: false)
+    }
+
+    /// 计算 `installTap` 允许使用的格式。
+    ///
+    /// **采样率原样保留**（这是硬约束），只把采样格式规整成 Float32 非交错，
+    /// 便于后续重采样；规整失败时原样返回硬件格式。
+    static func tapFormat(for hardware: AVAudioFormat) -> AVAudioFormat {
+        if hardware.commonFormat == .pcmFormatFloat32, !hardware.isInterleaved {
+            return hardware
+        }
+        return AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                             sampleRate: hardware.sampleRate,
+                             channels: hardware.channelCount,
+                             interleaved: false) ?? hardware
+    }
+
+    /// 两个格式是否完全同构（同采样率 / 同声道数 / 同采样格式），同构则无需转换。
+    static func isSameLayout(_ lhs: AVAudioFormat, _ rhs: AVAudioFormat) -> Bool {
+        lhs.sampleRate == rhs.sampleRate
+            && lhs.channelCount == rhs.channelCount
+            && lhs.commonFormat == rhs.commonFormat
+            && lhs.isInterleaved == rhs.isInterleaved
+    }
+
+    /// 把 tap 回调拿到的 PCM 转成 16kHz 单声道 Float 采样。
+    ///
+    /// `converter == nil` 表示硬件本就与目标格式同构，直接取用。
+    /// 多声道经 AVAudioConverter 自动下混为单声道。
+    static func samples(from pcm: AVAudioPCMBuffer,
+                        converter: AVAudioConverter?,
+                        target: AVAudioFormat) -> [Float]? {
+        guard let converter else {
+            guard let channel = pcm.floatChannelData?[0] else { return nil }
+            return Array(UnsafeBufferPointer(start: channel, count: Int(pcm.frameLength)))
+        }
+
+        let ratio = target.sampleRate / pcm.format.sampleRate
+        let capacity = AVAudioFrameCount((Double(pcm.frameLength) * ratio).rounded(.up)) + 64
+        guard capacity > 0,
+              let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else {
+            return nil
+        }
+
+        // 一个输入缓冲只喂一次；之后必须报 noDataNow，否则转换器会反复索要同一个缓冲。
+        var supplied = false
+        var conversionError: NSError?
+        let status = converter.convert(to: output, error: &conversionError) { _, inputStatus in
+            guard !supplied else {
+                inputStatus.pointee = .noDataNow
+                return nil
+            }
+            supplied = true
+            inputStatus.pointee = .haveData
+            return pcm
+        }
+
+        guard status != .error,
+              output.frameLength > 0,
+              let channel = output.floatChannelData?[0] else { return nil }
+        return Array(UnsafeBufferPointer(start: channel, count: Int(output.frameLength)))
+    }
+
+    private func noteCaptureError(_ message: String) {
+        lock.lock()
+        _captureError = message
+        lock.unlock()
     }
 }

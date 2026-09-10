@@ -174,6 +174,8 @@ public struct MainView: View {
                     autoSpeak: state.autoSpeak,
                     onMicStart: { await state.startVoiceInput() },
                     onMicStop: { await state.finishVoiceInput() },
+                    voiceError: state.voiceError,
+                    onDismissVoiceError: { state.clearVoiceError() },
                     onSpeakTap: { text in Task { await state.speak(text) } },
                     onStopSpeak: { Task { await state.stopSpeaking() } },
                     speechPhase: state.speechPhase,

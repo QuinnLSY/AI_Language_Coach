@@ -9,12 +9,12 @@ public enum LevelBindingCatalog {
 
     /// 随包发布的绑定表（Bundle 资源）。资源缺失时返回空表（关卡退化为普通练习入口）。
     public static func bundled() -> [String: String] {
-        if let url = Bundle.module.url(forResource: "Levels/level_bindings", withExtension: "json"),
+        if let url = AppResourceBundle.module.url(forResource: "Levels/level_bindings", withExtension: "json"),
            let loaded = parse(try? Data(contentsOf: url)) {
             return loaded
         }
         // 兜底：不同打包方式对子目录资源的处理略有差异。
-        if let url = Bundle.module.url(forResource: "level_bindings", withExtension: "json"),
+        if let url = AppResourceBundle.module.url(forResource: "level_bindings", withExtension: "json"),
            let loaded = parse(try? Data(contentsOf: url)) {
             return loaded
         }

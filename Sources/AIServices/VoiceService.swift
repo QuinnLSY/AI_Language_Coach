@@ -90,6 +90,11 @@ public actor VoiceService {
     public func stopRecordingAndTranscribe(language: String? = nil) async -> String? {
         let samples = recorder.stop()
         isRecording = false
+        // 采集链路自身出过问题（如重采样失败）时优先报它，否则「没录到声音」会掩盖真因。
+        if let captureError = recorder.captureError {
+            lastError = captureError
+            return nil
+        }
         guard !samples.isEmpty else {
             lastError = "没有录到声音，请再说一次"
             return nil

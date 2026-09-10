@@ -252,6 +252,7 @@ public final class AppState {
     /// 点击麦克风：开始录音。
     public func startVoiceInput() async {
         guard !isRecording else { return }
+        voiceError = nil
         isSpeaking = false
         await services.voice.stopSpeaking()
         await services.voice.startRecording()
@@ -273,6 +274,11 @@ public final class AppState {
     public func cancelVoiceInput() async {
         await services.voice.cancelRecording()
         isRecording = false
+    }
+
+    /// 关闭对话区的语音错误提示。
+    public func clearVoiceError() {
+        voiceError = nil
     }
 
     /// 朗读教师回复（按设置里的语速播放）。分句流水线：首句先出声。

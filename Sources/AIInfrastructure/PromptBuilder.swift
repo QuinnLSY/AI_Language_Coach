@@ -11,7 +11,7 @@ public enum PromptBuilder {
         proficiency: String,
         practiceMode: PracticeMode
     ) -> String {
-        guard let url = Bundle.module.url(forResource: "Prompts/teacher_system", withExtension: "txt"),
+        guard let url = AppResourceBundle.module.url(forResource: "Prompts/teacher_system", withExtension: "txt"),
               let template = try? String(contentsOf: url, encoding: .utf8)
         else {
             return fallbackSystemPrompt(learningLanguage: learningLanguage)
@@ -29,7 +29,7 @@ public enum PromptBuilder {
         nativeLanguage: String,
         proficiency: String
     ) -> String {
-        guard let url = Bundle.module.url(forResource: "Prompts/session_review", withExtension: "txt"),
+        guard let url = AppResourceBundle.module.url(forResource: "Prompts/session_review", withExtension: "txt"),
               let template = try? String(contentsOf: url, encoding: .utf8)
         else {
             return """
@@ -60,7 +60,7 @@ public enum PromptBuilder {
             ? "This is the final turn of the scene."
             : "There are \(turnsRemaining) learner turns left in this scene."
         let template: String
-        if let url = Bundle.module.url(forResource: "Prompts/scenario", withExtension: "txt"),
+        if let url = AppResourceBundle.module.url(forResource: "Prompts/scenario", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {

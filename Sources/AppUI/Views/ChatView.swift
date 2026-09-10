@@ -28,6 +28,10 @@ public struct ChatView: View {
     /// 点击麦克风：开始录音 / 停止并识别。
     var onMicStart: (() async -> Void)? = nil
     var onMicStop: (() async -> String?)? = nil
+    /// 语音输入错误（录音 / 识别失败）；显示在输入框上方，可关闭。
+    var voiceError: String? = nil
+    /// 关闭语音错误提示。
+    var onDismissVoiceError: (() -> Void)? = nil
     /// 朗读某段教师回复。
     var onSpeakTap: ((String) -> Void)? = nil
     /// 停止当前朗读（朗读中再点按钮 = 停）。
@@ -60,6 +64,8 @@ public struct ChatView: View {
                 autoSpeak: Bool = false,
                 onMicStart: (() async -> Void)? = nil,
                 onMicStop: (() async -> String?)? = nil,
+                voiceError: String? = nil,
+                onDismissVoiceError: (() -> Void)? = nil,
                 onSpeakTap: ((String) -> Void)? = nil,
                 onStopSpeak: (() -> Void)? = nil,
                 speechPhase: SpeechPhase = .idle,
@@ -82,6 +88,8 @@ public struct ChatView: View {
         self.autoSpeak = autoSpeak
         self.onMicStart = onMicStart
         self.onMicStop = onMicStop
+        self.voiceError = voiceError
+        self.onDismissVoiceError = onDismissVoiceError
         self.onSpeakTap = onSpeakTap
         self.onStopSpeak = onStopSpeak
         self.speechPhase = speechPhase
@@ -102,6 +110,7 @@ public struct ChatView: View {
                 Divider().overlay(theme.divider)
             }
             messageArea
+            voiceErrorBanner
             inputBar
             contextStrip
         }
@@ -583,6 +592,46 @@ public struct ChatView: View {
     }
 
     // MARK: - 输入区
+
+    /// 语音输入失败提示（录音/识别出错时贴在输入框上方，可关闭）。
+    /// 没有它时，点麦克风失败在对话区是**完全静默**的，用户只会觉得「没反应」。
+    @ViewBuilder
+    private var voiceErrorBanner: some View {
+        if let voiceError {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+                Text(voiceError)
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button {
+                    onDismissVoiceError?()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .help("关闭提示")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.orange.opacity(0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.orange.opacity(0.35), lineWidth: 1)
+            )
+            .padding(.horizontal, 18)
+            .padding(.top, 10)
+            .transition(.opacity)
+        }
+    }
 
     private var inputBar: some View {
         HStack(spacing: 10) {

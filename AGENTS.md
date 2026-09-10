@@ -534,11 +534,29 @@ Known Limitations / Unverified Assumptions / Next Recommended Task
 - [ ] 文档已同步
 - [ ] Mock 已标注 `[MOCK]`（如适用）
 
+## 0.25 麦克风录音链路（2026-09-10 崩溃修复，勿踩回去）
+
+- ⚠️ **`AVAudioNode.installTap` 的格式采样率必须与输入节点硬件格式完全一致。**
+  传 16kHz 给 48kHz 的输入节点，`AVAudioEngine` 抛的是 **Objective-C 异常**
+  （`required condition is false: format.sampleRate == hwFormat.sampleRate`），
+  Swift 的 `do/catch` 和 `try?` **都抓不到**，进程直接 SIGABRT。
+  用户看到的现象是「点麦克风 → 弹系统授权 → 点确定 → 应用直接退出」。
+- **正确姿势**（`MicrophoneRecorder`）：用硬件格式（`input.outputFormat(forBus: 0)`）收流，
+  再用 `AVAudioConverter` 重采样 / 下混到 16kHz 单声道（whisper 要求）。
+  别图省事把 16kHz 塞给 installTap，也别指望 whisper server 兜底重采样。
+- 硬件格式采样率为 0（无输入设备）时不要硬着头皮 installTap，直接抛可读错误。
+  `engine.start()` 失败要 `removeTap` 回滚。
+- 行为验证：崩溃日志在 `~/Library/Logs/DiagnosticReports/Retired/*.ips`
+  （活跃目录只留近期非 Retired 项）；`lastExceptionBacktrace` 直接给出崩在哪一行。
+- 录音以外的播放链路（`AudioPlayback`）走 `AVAudioPlayerNode + AVAudioUnitTimePitch`，
+  不碰输入节点，无此约束。
+
 ## 0.3 .app 打包与终端验证（2026-09-09 实测沉淀）
 
 - **打包**：`Scripts/make_app.sh`（`--no-build` 跳过构建）→ `dist/AI_Language_Coach.app`（约 4MB）。
-  - release 构建 + `strip -x`；SwiftPM 资源 bundle（`AILanguageCoach_AIInfrastructure.bundle`）**必须放 .app 根目录**（生成的 `Bundle.module` 在 `Bundle.main.bundleURL` 下查找）。
-  - 不做 codesign：本机构建无 quarantine，双击可跑；整包签名会报 "unsealed contents present in the bundle root"（资源 bundle 在根目录所致）。
+  - release 构建 + `strip -x`；SwiftPM 资源 bundle（`AILanguageCoach_AIInfrastructure.bundle`）放 **`Contents/Resources/`**，由 `AIInfrastructure/AppResourceBundle` 负责查找（标准位置 → 可执行文件目录 → 上一级目录，最后兜底 `Bundle.module`）。
+  - ⚠️ **资源 bundle 不能放 `.app` 根目录**：`codesign` 会报 `unsealed contents present in the bundle root` → 整个应用**无法签名**（2026-09-10 修复）。未签名时 TCC 没有稳定代码身份，麦克风授权无法持久化，**每次启动都重弹系统授权框**。
+  - **签名**：`strip` 会让 linker 的临时签名失效，因此脚本在 strip 之后做 ad-hoc 签名（`codesign --force --sign - --identifier <bundleID> --entitlements Scripts/app.entitlements`，entitlement 含 `com.apple.security.device.audio-input`），并以 `codesign -v` 收尾校验。缺任一步都会退回「未签名」状态。
   - **release 增量构建可能漏更新可执行文件**（"Build complete 0.19s" 假象）——验证行为前 `rm -rf .build/arm64-apple-macosx/release` 全量重建；且 release 二进制里 grep 不到 Swift 字符串字面量不代表没编进去，以行为验证为准。
 - **终端验证**：应用窗口 owner 名取自 CFBundleDisplayName（现为「语林 AI Language Coach」），`wid.swift / bounds.swift / activate.swift` 均已兼容中文名；**zsh 数组下标从 1 开始**（`$B[0]` 为空）；`open --args` 传参不可靠，验证用启动参数时直接运行二进制（注意：直接运行 bundle 内二进制可能出现 138pt 小窗口，`open` 正常；异常小窗口时 `defaults delete com.ailanguagecoach.app` 清 frame）。截图辅助：`--open-settings` / `--open-records`。
 - **启动参数（截图 / 端到端验证专用，全部只影响本次进程）**：

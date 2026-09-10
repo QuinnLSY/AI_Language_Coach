@@ -60,12 +60,12 @@ public enum ScenarioCatalog {
 
     private static func loadBundled(logging: Bool) -> [Scenario] {
         // SwiftPM 会把 `Resources` 整目录复制进资源 bundle，故场景在 `Scenarios/` 子目录下。
-        if let directory = Bundle.module.url(forResource: "Scenarios", withExtension: nil) {
+        if let directory = AppResourceBundle.module.url(forResource: "Scenarios", withExtension: nil) {
             let loaded = load(from: directory, logging: logging)
             if !loaded.isEmpty { return loaded }
         }
         // 兜底：直接按扩展名在子目录中查找（不同打包方式对目录资源的处理略有差异）。
-        if let urls = Bundle.module.urls(forResourcesWithExtension: "json", subdirectory: "Scenarios"), !urls.isEmpty {
+        if let urls = AppResourceBundle.module.urls(forResourcesWithExtension: "json", subdirectory: "Scenarios"), !urls.isEmpty {
             let decoder = JSONDecoder()
             let scenarios = urls.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).compactMap { url -> Scenario? in
                 guard let data = try? Data(contentsOf: url) else { return nil }
