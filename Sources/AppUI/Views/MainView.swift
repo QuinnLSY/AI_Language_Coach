@@ -121,6 +121,17 @@ public struct MainView: View {
             if CommandLine.arguments.contains("--open-records") {
                 Task { await state.openRecords() }
             }
+            // 截图/验证辅助：--open-shadowing 启动时直接进入跟读页
+            if CommandLine.arguments.contains("--open-shadowing") {
+                await state.openShadowing()
+            }
+            // 截图/验证辅助：--shadowing-sample "识别文本" 用**同一个纯函数评测器**预览反馈界面
+            // （本机无法合成点击、也无法自动对麦克风说话；它不录音、不落库）
+            if let index = CommandLine.arguments.firstIndex(of: "--shadowing-sample"),
+               index + 1 < CommandLine.arguments.count {
+                await state.openShadowing()
+                state.previewShadowingResult(CommandLine.arguments[index + 1])
+            }
             // 端到端验证辅助：--scenario <id> 启动后直接进入某个情景
             if let index = CommandLine.arguments.firstIndex(of: "--scenario"),
                index + 1 < CommandLine.arguments.count,
@@ -159,8 +170,13 @@ public struct MainView: View {
                 try? await Task.sleep(for: .seconds(2))
             }
             guard !state.chat.messages.isEmpty else { return }
-            guard let last = state.chat.messages.last else { return }
-            await state.translateMessage(last.id)
+            // 学员与老师各翻一条：一个开关就能同时验两种译文对齐（学员右 / 老师左）。
+            if let teacher = state.chat.messages.last(where: { $0.role == .assistant }) {
+                await state.translateMessage(teacher.id)
+            }
+            if let learner = state.chat.messages.last(where: { $0.role == .user }) {
+                await state.translateMessage(learner.id)
+            }
         }
     }
 
@@ -177,7 +193,9 @@ public struct MainView: View {
     @ViewBuilder
     private var chatArea: some View {
         Group {
-            if state.showingRecords {
+            if state.showingShadowing {
+                ShadowingView(state: state)
+            } else if state.showingRecords {
                 RecordsView(state: state)
             } else {
                 ChatView(

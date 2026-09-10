@@ -132,6 +132,25 @@ public final class AppState {
     public private(set) var starterQuestions: [String] = []
     /// 翻译失败提示（对话区展示，可关闭）。
     public var translationNotice: String? { chat.translationError }
+
+    // MARK: - 跟读（第 22 步 Shadowing）
+
+    /// 是否停在跟读页（占中间栏，与学习记录页同级）。
+    public var showingShadowing = false
+    /// 跟读素材（进页面时按需加载；资源缺失则保持空并由 UI 提示）。
+    public private(set) var shadowingDrills: [ShadowingDrill] = []
+    /// 当前练到第几句（在 `shadowingDrills` 中的下标）。
+    public private(set) var shadowingIndex = 0
+    /// 最近一次评测结果（nil = 这一句还没评过）。
+    public private(set) var shadowingComparison: ShadowingComparison?
+    /// 跟读汇总（次数 / 最佳 / 平均 / 最近）。
+    public private(set) var shadowingStats: ShadowingStats = .empty
+    /// 正在跟读录音。
+    public private(set) var isShadowingRecording = false
+    /// 跟读链路上的忙碌态（播放示范 / 识别中 / 回放中）。
+    public private(set) var isShadowingBusy = false
+    /// 跟读提示（可关闭，nil = 正常）。
+    public private(set) var shadowingNotice: String?
     // MARK: 语音流式输入
     /// 录音过程中实时识别出的文本（nil = 未在录音）。UI 把它写进输入框。
     public private(set) var voiceTranscript: String?
@@ -820,12 +839,143 @@ public final class AppState {
     // MARK: - 学习记录
 
     public func openRecords() async {
+        showingShadowing = false
         showingRecords = true
         await loadRecords()
     }
 
     public func openPractice() async {
         showingRecords = false
+        showingShadowing = false
+    }
+
+    // MARK: - 跟读（Shadowing，第 22 步）
+
+    /// 进入跟读页：加载素材 + 刷新统计。
+    public func openShadowing() async {
+        showingRecords = false
+        showingScenarios = false
+        showingShadowing = true
+        await loadShadowing()
+    }
+
+    /// 当前要跟读的句子（素材为空时 nil）。
+    public var currentShadowingDrill: ShadowingDrill? {
+        guard shadowingDrills.indices.contains(shadowingIndex) else { return nil }
+        return shadowingDrills[shadowingIndex]
+    }
+
+    /// 加载素材（进程内只读一次）与跟读汇总。
+    public func loadShadowing() async {
+        if shadowingDrills.isEmpty {
+            shadowingDrills = await services.shadowing.drills()
+            if shadowingDrills.isEmpty {
+                shadowingNotice = "没有找到跟读素材（Resources/Shadowing/*.json），请检查安装包资源是否完整。"
+            }
+        }
+        await refreshShadowingStats()
+    }
+
+    public func refreshShadowingStats() async {
+        shadowingStats = await services.shadowing.stats()
+    }
+
+    /// 换一句（顺序轮换，到底回到第一句）。换句即清掉上一句的结果。
+    public func nextShadowingDrill() {
+        guard !shadowingDrills.isEmpty else { return }
+        shadowingIndex = (shadowingIndex + 1) % shadowingDrills.count
+        shadowingComparison = nil
+        shadowingNotice = nil
+        voiceTranscript = nil
+    }
+
+    /// 听示范（老师的声音读这一句）。再点一次 = 重读。
+    public func playShadowingExample() async {
+        guard let drill = currentShadowingDrill else { return }
+        guard isModelRunning(.tts) else {
+            shadowingNotice = "\(await services.modelLabel(for: .tts)) 已关闭，请在设置里点绿色的「启动」后再听示范。"
+            return
+        }
+        shadowingNotice = nil
+        isShadowingBusy = true
+        await services.shadowing.playReference(
+            drill, voiceName: product.teacherVoice, language: "English",
+            rate: Float(product.speechRate)
+        )
+        shadowingNotice = await services.shadowing.lastError()
+        isShadowingBusy = false
+    }
+
+    /// 点一下开始跟读，再点一下停止并评分。
+    public func toggleShadowingRecording() async {
+        if isShadowingRecording {
+            await finishShadowingRecording()
+        } else {
+            await startShadowingRecording()
+        }
+    }
+
+    public func startShadowingRecording() async {
+        guard currentShadowingDrill != nil else { return }
+        guard isModelRunning(.asr) else {
+            shadowingNotice = "\(await services.modelLabel(for: .asr)) 已关闭，请在设置里点绿色的「启动」后再跟读。"
+            return
+        }
+        shadowingNotice = nil
+        shadowingComparison = nil
+        voiceTranscript = nil
+        // 录音前先停掉示范，避免麦克风把老师的声音也录进去。
+        await services.shadowing.stopAudio()
+        await services.shadowing.startRecording(language: "English")
+        isShadowingRecording = await services.voice.isRecording
+        if let error = await services.shadowing.lastError() { shadowingNotice = error }
+    }
+
+    /// 停止录音 → **原始**识别（不做拼写纠正）→ 逐词对齐评测 → 落库。
+    public func finishShadowingRecording() async {
+        guard let drill = currentShadowingDrill else { return }
+        isShadowingRecording = false
+        isShadowingBusy = true
+        let recognized = await services.shadowing.finishRecording(language: "English")
+        isShadowingBusy = false
+        voiceTranscript = nil
+        guard let recognized, !recognized.isEmpty else {
+            shadowingNotice = await services.shadowing.lastError() ?? "没有听清，凑近麦克风再说一次"
+            return
+        }
+        shadowingComparison = await services.shadowing.evaluate(drill: drill, recognized: recognized)
+        await refreshShadowingStats()
+    }
+
+    /// 听我的：回放刚才录的音，和示范对着听。
+    public func replayShadowingRecording() async {
+        guard await services.shadowing.hasRecording else {
+            shadowingNotice = "还没有录音，先点「开始跟读」说一遍"
+            return
+        }
+        shadowingNotice = nil
+        isShadowingBusy = true
+        do {
+            try await services.shadowing.replayRecording(rate: Float(product.speechRate))
+        } catch {
+            shadowingNotice = "回放失败：\(error.localizedDescription)"
+        }
+        isShadowingBusy = false
+    }
+
+    /// 停掉跟读页面的一切声音（示范 / 回放）。
+    public func stopShadowingAudio() async {
+        await services.shadowing.stopAudio()
+        isShadowingBusy = false
+    }
+
+    public func dismissShadowingNotice() { shadowingNotice = nil }
+
+    /// 截图/验证辅助：拿一段文本直接走**同一个纯函数**评测器，预览反馈界面。
+    /// 不录麦克风、不落库 —— 只为了在无法合成点击的环境里验证渲染。
+    func previewShadowingResult(_ recognized: String) {
+        guard let drill = currentShadowingDrill else { return }
+        shadowingComparison = ShadowingScorer.compare(reference: drill.text, recognized: recognized)
     }
 
     // MARK: - 情景对话（Role Play，第 21 步）
@@ -854,6 +1004,7 @@ public final class AppState {
     public func startScenario(_ scenario: Scenario) async {
         showingRecords = false
         showingScenarios = false
+        showingShadowing = false
         if product.practiceMode != .conversation {
             product.practiceMode = .conversation
             await persistProduct()

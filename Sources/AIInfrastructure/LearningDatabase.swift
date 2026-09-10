@@ -12,7 +12,8 @@ public actor LearningDatabase {
     /// v2：messages 增加 reasoning 列（推理模型思考过程持久化）。
     /// v3：新增 session_reviews（练习复盘）。
     /// v4：sessions 增加 scenario_id 列（情景练习落库，重启后能接着练）。
-    public static let schemaVersion = 4
+    /// v5：新增 shadowing_attempts（跟读记录：参考句 / 学员实际说的 / 匹配率）。
+    public static let schemaVersion = 5
 
     /// 测试用内存库。
     public static func inMemory() throws -> LearningDatabase {
@@ -107,6 +108,20 @@ public actor LearningDatabase {
 
         // v3 → v4：sessions 表补 scenario_id 列（已存在时报错属预期，忽略）。
         try? db.run("ALTER TABLE sessions ADD COLUMN scenario_id TEXT")
+
+        // v4 → v5：跟读记录（第 22 步 Shadowing）。
+        // 跟读是独立练习，不挂在某次对话会话上，因此**不设 session 外键**。
+        try db.run("""
+        CREATE TABLE IF NOT EXISTS shadowing_attempts (
+            id TEXT PRIMARY KEY,
+            drill_id TEXT NOT NULL,
+            reference TEXT NOT NULL,
+            recognized TEXT NOT NULL,
+            accuracy REAL NOT NULL,
+            created_at REAL NOT NULL
+        )
+        """)
+        try db.run("CREATE INDEX IF NOT EXISTS idx_shadowing_created ON shadowing_attempts(created_at DESC)")
 
         try db.setSchemaVersion(Self.schemaVersion)
     }
@@ -468,6 +483,49 @@ public actor LearningDatabase {
             suggestion: row.string(10) ?? "",
             source: SessionReview.Source(rawValue: row.string(11) ?? "llm") ?? .llm
         )
+    }
+
+    // MARK: - 跟读记录（第 22 步 Shadowing）
+
+    /// 记一次跟读（评测完成后写入；跟读不挂在对话会话上，故无 session 外键）。
+    public func appendShadowingAttempt(_ attempt: ShadowingAttempt) throws {
+        try db.run(
+            """
+            INSERT OR REPLACE INTO shadowing_attempts
+                (id, drill_id, reference, recognized, accuracy, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            """,
+            [
+                .text(attempt.id.uuidString),
+                .text(attempt.drillID),
+                .text(attempt.referenceText),
+                .text(attempt.recognizedText),
+                .real(attempt.accuracy),
+                .real(attempt.createdAt.timeIntervalSince1970),
+            ]
+        )
+    }
+
+    /// 最近的跟读记录（**新 → 旧**）。
+    public func recentShadowingAttempts(limit: Int = 50) throws -> [ShadowingAttempt] {
+        try db.query(
+            """
+            SELECT id, drill_id, reference, recognized, accuracy, created_at
+            FROM shadowing_attempts ORDER BY created_at DESC LIMIT ?1
+            """,
+            [.int(limit)]
+        ) { row -> ShadowingAttempt? in
+            guard let idText = row.string(0), let id = UUID(uuidString: idText),
+                  let drillID = row.string(1), let reference = row.string(2),
+                  let recognized = row.string(3), let accuracy = row.double(4),
+                  let created = row.double(5)
+            else { return nil }
+            return ShadowingAttempt(
+                id: id, drillID: drillID, referenceText: reference,
+                recognizedText: recognized, accuracy: accuracy,
+                createdAt: Date(timeIntervalSince1970: created)
+            )
+        }.compactMap { $0 }
     }
 
     /// 字符串列表以 JSON 数组存列（短列表，JSON 足够且可读）。

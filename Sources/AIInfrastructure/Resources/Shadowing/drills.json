@@ -1,0 +1,165 @@
+{
+  "version": 1,
+  "drills": [
+    {
+      "id": "greet_01",
+      "text": "Good morning! How are you doing today?",
+      "translation": "早上好！你今天过得怎么样？",
+      "topic": "日常问候",
+      "difficulty": 1,
+      "focus": "问候句降调，问句末尾轻轻上扬"
+    },
+    {
+      "id": "greet_02",
+      "text": "Nice to meet you. My name is Lin.",
+      "translation": "很高兴认识你，我叫林。",
+      "topic": "自我介绍",
+      "difficulty": 1,
+      "focus": "Nice to meet you 连读，name is 弱读成 name's"
+    },
+    {
+      "id": "greet_03",
+      "text": "Sorry, I didn't catch that. Could you say it again?",
+      "translation": "抱歉，我没听清。你能再说一遍吗？",
+      "topic": "请求重复",
+      "difficulty": 2,
+      "focus": "didn't catch that 的 t 与 c 连起来读"
+    },
+    {
+      "id": "coffee_01",
+      "text": "I'd like a large latte, please.",
+      "translation": "我要一杯大杯拿铁，谢谢。",
+      "topic": "点餐",
+      "difficulty": 1,
+      "focus": "I'd like 说得连贯，please 放在句尾降调"
+    },
+    {
+      "id": "coffee_02",
+      "text": "Could I have the bill, please?",
+      "translation": "可以给我账单吗？",
+      "topic": "点餐",
+      "difficulty": 2,
+      "focus": "Could I 连读成 cou-dai"
+    },
+    {
+      "id": "coffee_03",
+      "text": "Does this come with a side salad?",
+      "translation": "这个配沙拉吗？",
+      "topic": "点餐",
+      "difficulty": 2,
+      "focus": "Does this 的 s 与 th 分清"
+    },
+    {
+      "id": "airport_01",
+      "text": "Here is my passport and boarding pass.",
+      "translation": "这是我的护照和登机牌。",
+      "topic": "机场",
+      "difficulty": 2,
+      "focus": "passport 重音在前，boarding pass 连贯"
+    },
+    {
+      "id": "airport_02",
+      "text": "Is the flight to Tokyo on time?",
+      "translation": "去东京的航班准点吗？",
+      "topic": "机场",
+      "difficulty": 2,
+      "focus": "on time 连读，问句末尾上扬"
+    },
+    {
+      "id": "airport_03",
+      "text": "I have one suitcase to check in.",
+      "translation": "我有一件行李要托运。",
+      "topic": "机场",
+      "difficulty": 2,
+      "focus": "suitcase 的 ui 音，check in 连读"
+    },
+    {
+      "id": "hotel_01",
+      "text": "I have a reservation under the name Chen.",
+      "translation": "我用陈这个名字订了房。",
+      "topic": "酒店",
+      "difficulty": 3,
+      "focus": "under the name 的 the 弱读"
+    },
+    {
+      "id": "hotel_02",
+      "text": "Could I get a wake-up call at seven?",
+      "translation": "能在七点给我一个叫醒电话吗？",
+      "topic": "酒店",
+      "difficulty": 3,
+      "focus": "wake-up call 连读，seven 的 v 音"
+    },
+    {
+      "id": "shopping_01",
+      "text": "Do you have this in a smaller size?",
+      "translation": "这个有小一号的吗？",
+      "topic": "购物",
+      "difficulty": 2,
+      "focus": "Do you 连读成 d'you，smaller 的 l 音"
+    },
+    {
+      "id": "shopping_02",
+      "text": "I'm just looking, thanks. I'll let you know.",
+      "translation": "我先看看，谢谢。需要的话我叫你。",
+      "topic": "购物",
+      "difficulty": 3,
+      "focus": "I'll 与 let you 连读"
+    },
+    {
+      "id": "work_01",
+      "text": "I've been working on this project for three months.",
+      "translation": "这个项目我已经做了三个月了。",
+      "topic": "工作",
+      "difficulty": 3,
+      "focus": "I've been 的缩读，three 的 th 音"
+    },
+    {
+      "id": "work_02",
+      "text": "Could we schedule a meeting for next Tuesday?",
+      "translation": "我们能约下周二开会吗？",
+      "topic": "工作",
+      "difficulty": 3,
+      "focus": "schedule 发音，next Tuesday 的连读"
+    },
+    {
+      "id": "small_01",
+      "text": "I usually go for a run before breakfast.",
+      "translation": "我通常在早饭前去跑步。",
+      "topic": "日常",
+      "difficulty": 2,
+      "focus": "usually 的音节，for a 连读成 fur-a"
+    },
+    {
+      "id": "small_02",
+      "text": "It's been raining all week, so I stayed home.",
+      "translation": "这周一直在下雨，所以我就待在家里。",
+      "topic": "天气",
+      "difficulty": 3,
+      "focus": "It's been 连读，stayed 的 d 轻收"
+    },
+    {
+      "id": "opinion_01",
+      "text": "I think it's a good idea, but I'm not sure about the timing.",
+      "translation": "我觉得这个主意不错，就是时间上我还不确定。",
+      "topic": "表达观点",
+      "difficulty": 4,
+      "focus": "but I'm not 连读，timing 重音在前"
+    },
+    {
+      "id": "opinion_02",
+      "text": "To be honest, I'd rather wait until next month.",
+      "translation": "说实话，我宁愿等到下个月。",
+      "topic": "表达观点",
+      "difficulty": 4,
+      "focus": "To be honest 三个词一气呵成，rather 的 æ 音"
+    },
+    {
+      "id": "opinion_03",
+      "text": "If I were you, I would talk to the manager first.",
+      "translation": "我要是你，我会先跟经理谈谈。",
+      "topic": "表达观点",
+      "difficulty": 4,
+      "focus": "虚拟语气弱读，would 轻读"
+    }
+  ]
+}

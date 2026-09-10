@@ -494,7 +494,7 @@ public struct ChatView: View {
                     }
                 }
                 if let translation {
-                    translationCard(translation)
+                    translationCard(translation, isUser: isUser)
                 }
                 ForEach(corrections) { correction in
                     correctionCard(correction)
@@ -521,20 +521,23 @@ public struct ChatView: View {
     }
 
     /// 译文卡片：默认不显示，点翻译按钮才出现在气泡下方。
-    private func translationCard(_ text: String) -> some View {
+    ///
+    /// 对齐方向与**气泡本身相反**（译文是「旁注」，不是气泡的一部分）：
+    /// 学员气泡靠左 → 译文靠右；老师气泡靠右 → 译文靠左。两侧因此永不重叠，
+    /// 一眼就能分出这句话是谁说的。
+    private func translationCard(_ text: String, isUser: Bool) -> some View {
         HStack(alignment: .top, spacing: 6) {
-            Image(systemName: "quote.closing")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(theme.accent)
-            Text(text)
-                .font(.system(size: 12, design: .rounded))
-                .foregroundStyle(theme.primaryText)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
+            if isUser {
+                translationText(text)
+                translationMark
+            } else {
+                translationMark
+                translationText(text)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .frame(maxWidth: 340, alignment: .leading)
+        .frame(maxWidth: 340, alignment: isUser ? .trailing : .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(theme.surfaceAlt.opacity(0.9))
@@ -543,7 +546,22 @@ public struct ChatView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(theme.accent.opacity(0.28), lineWidth: 1)
         )
+        // 卡片按内容自适应宽度，再整体贴到与气泡相反的一侧。
+        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    private var translationMark: some View {
+        Image(systemName: "quote.closing")
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(theme.accent)
+    }
+
+    private func translationText(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12, design: .rounded))
+            .foregroundStyle(theme.primaryText)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// 翻译按钮：**按需翻译**的入口。

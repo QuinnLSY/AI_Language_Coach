@@ -1,0 +1,352 @@
+import AppCore
+import Foundation
+
+// MARK: - 跟读（Shadowing，第 22 步）
+//
+// 设计依据：Implementation Plan §22「Shadowing」。
+//
+// 链路：参考句 → 听示范（TTS 分句流水线）→ 学员跟读（录音 → **原始** ASR 结果）
+//      → 逐词对齐 → 反馈 → 落库。
+//
+// 两条刻意的设计决定：
+// 1. **跟读不用拼写纠正**。纠正会把「学员实际说了什么」改成「他本来想说什么」，
+//    正好抹掉跟读要评估的东西（漏词、换词、串词）。所以这里吃 ASR 原始输出。
+// 2. **单词语料数据驱动**：素材只来自 `Resources/Shadowing/drills.json`，代码零字面量。
+//    本文件只描述「跟读是什么」与「怎么算匹配」，不含任何界面/资源内容。
+
+/// 一条跟读素材（参考句）。
+public struct ShadowingDrill: Codable, Sendable, Equatable, Identifiable {
+
+    /// 稳定标识（如 `greet_01`）。
+    public let id: String
+    /// 参考句（学习语言）——学员要跟着说的那句。
+    public var text: String
+    /// 母语释义：跟读前先看懂在说什么，否则只是鹦鹉学舌。
+    public var translation: String
+    /// 主题分组（如「日常问候」），UI 只负责渲染。
+    public var topic: String
+    /// 难度 1...5（越界自动夹取）。
+    public var difficulty: Int
+    /// 这一句要留意的点（连读 / 语调 / 弱读…）。可为空。
+    public var focus: String
+
+    public init(
+        id: String,
+        text: String,
+        translation: String = "",
+        topic: String = "",
+        difficulty: Int = 1,
+        focus: String = ""
+    ) {
+        self.id = id
+        self.text = text
+        self.translation = translation
+        self.topic = topic
+        self.difficulty = Self.clamp(difficulty)
+        self.focus = focus
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, text, translation, topic, difficulty, focus
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // id / text 缺失必须显式报错：没有参考句的素材是坏数据，不许静默兜底。
+        id = try container.decode(String.self, forKey: .id)
+        text = try container.decode(String.self, forKey: .text)
+        translation = try container.decodeIfPresent(String.self, forKey: .translation) ?? ""
+        topic = try container.decodeIfPresent(String.self, forKey: .topic) ?? ""
+        focus = try container.decodeIfPresent(String.self, forKey: .focus) ?? ""
+        difficulty = Self.clamp(try container.decodeIfPresent(Int.self, forKey: .difficulty) ?? 1)
+    }
+
+    /// 难度夹取到 1...5。
+    public static func clamp(_ value: Int) -> Int { min(max(value, 1), 5) }
+}
+
+/// 一个跟读素材文件（`Resources/Shadowing/*.json`）。
+public struct ShadowingDrillFile: Codable, Sendable, Equatable {
+    public var version: Int
+    public var drills: [ShadowingDrill]
+
+    public init(version: Int = 1, drills: [ShadowingDrill] = []) {
+        self.version = version
+        self.drills = drills
+    }
+}
+
+// MARK: - 逐词对齐结果
+
+/// 参考句里每个词的跟读结果。
+public enum ShadowingTokenStatus: String, Sendable, Equatable, CaseIterable {
+    /// 跟上了（词对词命中）。
+    case matched
+    /// 漏读了（参考句有、学员没说）。
+    case missing
+    /// 多说了（学员说了、参考句没有）。
+    case extra
+}
+
+/// 对齐后的一个词。
+public struct ShadowingToken: Sendable, Equatable {
+    public var word: String
+    public var status: ShadowingTokenStatus
+
+    public init(word: String, status: ShadowingTokenStatus) {
+        self.word = word
+        self.status = status
+    }
+}
+
+/// 跟读判定分档（纯数据，文案在此集中维护）。
+public enum ShadowingVerdict: String, Sendable, Equatable, CaseIterable {
+    /// 完全跟上。
+    case perfect
+    /// 很接近。
+    case great
+    /// 继续加油。
+    case keepGoing
+    /// 再来一次。
+    case retry
+
+    public var displayName: String {
+        switch self {
+        case .perfect: "完全跟上"
+        case .great: "很接近了"
+        case .keepGoing: "继续加油"
+        case .retry: "再来一次"
+        }
+    }
+
+    public var symbol: String {
+        switch self {
+        case .perfect: "checkmark.seal.fill"
+        case .great: "hand.thumbsup.fill"
+        case .keepGoing: "figure.walk.motion"
+        case .retry: "arrow.counterclockwise"
+        }
+    }
+}
+
+/// 一次跟读的评测结果（参考句 vs 学员实际说的）。
+public struct ShadowingComparison: Sendable, Equatable {
+    public var referenceText: String
+    public var recognizedText: String
+    /// 逐词对齐（顺序与参考句一致，多说的词挂在对应位置之后）。
+    public var tokens: [ShadowingToken]
+    /// 命中的词数。
+    public var matched: Int
+    /// 参考句词数。
+    public var referenceCount: Int
+    /// 匹配率 0...1 = 命中词数 / 参考句词数。
+    public var accuracy: Double
+    public var verdict: ShadowingVerdict
+    /// 漏读 / 读错的词（去重，保持出现顺序）。
+    public var missedWords: [String]
+    /// 一句话反馈。
+    public var hint: String
+
+    public init(
+        referenceText: String,
+        recognizedText: String,
+        tokens: [ShadowingToken],
+        matched: Int,
+        referenceCount: Int,
+        accuracy: Double,
+        verdict: ShadowingVerdict,
+        missedWords: [String],
+        hint: String
+    ) {
+        self.referenceText = referenceText
+        self.recognizedText = recognizedText
+        self.tokens = tokens
+        self.matched = matched
+        self.referenceCount = referenceCount
+        self.accuracy = accuracy
+        self.verdict = verdict
+        self.missedWords = missedWords
+        self.hint = hint
+    }
+
+    /// 百分比整数（UI 直接显示，避免各处重复取整）。
+    public var accuracyPercent: Int { Int((accuracy * 100).rounded()) }
+}
+
+/// 一次跟读记录（落库）。
+public struct ShadowingAttempt: Sendable, Equatable, Identifiable {
+    public var id: UUID
+    public var drillID: String
+    public var referenceText: String
+    public var recognizedText: String
+    public var accuracy: Double
+    public var createdAt: Date
+
+    public init(
+        id: UUID = UUID(),
+        drillID: String,
+        referenceText: String,
+        recognizedText: String,
+        accuracy: Double,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.drillID = drillID
+        self.referenceText = referenceText
+        self.recognizedText = recognizedText
+        self.accuracy = min(max(accuracy, 0), 1)
+        self.createdAt = createdAt
+    }
+}
+
+/// 跟读统计（学习记录 / 页面顶部的汇总）。
+public struct ShadowingStats: Sendable, Equatable {
+    public var attempts: Int
+    public var bestAccuracy: Double
+    public var averageAccuracy: Double
+    /// 最近一次匹配率（无记录为 nil）。
+    public var lastAccuracy: Double?
+
+    public init(attempts: Int, bestAccuracy: Double, averageAccuracy: Double, lastAccuracy: Double?) {
+        self.attempts = attempts
+        self.bestAccuracy = bestAccuracy
+        self.averageAccuracy = averageAccuracy
+        self.lastAccuracy = lastAccuracy
+    }
+
+    public static let empty = ShadowingStats(attempts: 0, bestAccuracy: 0, averageAccuracy: 0, lastAccuracy: nil)
+
+    /// 从记录（约定为**新→旧**）汇总。
+    public static func from(_ attempts: [ShadowingAttempt]) -> ShadowingStats {
+        guard !attempts.isEmpty else { return .empty }
+        let values = attempts.map(\.accuracy)
+        return ShadowingStats(
+            attempts: attempts.count,
+            bestAccuracy: values.max() ?? 0,
+            averageAccuracy: values.reduce(0, +) / Double(values.count),
+            lastAccuracy: attempts.first?.accuracy
+        )
+    }
+}
+
+// MARK: - 匹配算法（纯函数）
+
+/// 逐词对齐与判定。**全部是纯函数**：不碰模型、不碰 IO，因此可以脱机单测。
+public enum ShadowingScorer {
+
+    /// 判定阈值（匹配率）。
+    public static let perfectThreshold = 0.95
+    public static let greatThreshold = 0.85
+    public static let keepGoingThreshold = 0.6
+
+    /// 归一化：小写、去掉标点、压缩空白，再切词。
+    ///
+    /// 保留 `'` 与 `-`：`don't` / `check-in` 应当是一个词，拆开会让匹配率凭空虚高。
+    /// 数字保留（`gate 12` 也是跟读内容）。
+    public static func words(_ text: String) -> [String] {
+        var cleaned = ""
+        cleaned.reserveCapacity(text.count)
+        for character in text.lowercased() {
+            if character.isLetter || character.isNumber || character == "'" || character == "-" {
+                cleaned.append(character)
+            } else {
+                cleaned.append(" ")
+            }
+        }
+        return cleaned.split(separator: " ").map(String.init)
+    }
+
+    /// 匹配率 → 分档。
+    public static func verdict(for accuracy: Double) -> ShadowingVerdict {
+        if accuracy >= perfectThreshold { return .perfect }
+        if accuracy >= greatThreshold { return .great }
+        if accuracy >= keepGoingThreshold { return .keepGoing }
+        return .retry
+    }
+
+    /// 逐词对齐 + 判定 + 反馈。
+    public static func compare(reference: String, recognized: String) -> ShadowingComparison {
+        let refWords = words(reference)
+        let hypWords = words(recognized)
+
+        var tokens: [ShadowingToken] = []
+        var matched = 0
+        var missed: [String] = []
+
+        if refWords.isEmpty {
+            // 参考句为空 / 全是标点：没有可对齐的东西，直接判 0。
+            return ShadowingComparison(
+                referenceText: reference, recognizedText: recognized,
+                tokens: [], matched: 0, referenceCount: 0, accuracy: 0,
+                verdict: .retry, missedWords: [], hint: "这句素材没有可跟读的内容"
+            )
+        }
+
+        // 最长公共子序列 → 骨架对齐；不在骨架上的参考词算漏读，学员多出来的算多说。
+        let table = lcsTable(refWords, hypWords)
+        var i = 0
+        var j = 0
+        while i < refWords.count || j < hypWords.count {
+            if i < refWords.count, j < hypWords.count, refWords[i] == hypWords[j] {
+                tokens.append(ShadowingToken(word: refWords[i], status: .matched))
+                matched += 1
+                i += 1
+                j += 1
+            } else if i < refWords.count,
+                      j == hypWords.count || table[i + 1][j] >= table[i][j + 1] {
+                tokens.append(ShadowingToken(word: refWords[i], status: .missing))
+                if !missed.contains(refWords[i]) { missed.append(refWords[i]) }
+                i += 1
+            } else {
+                // j < hypWords.count：学员多说了（不扣分，但要让用户看见）。
+                tokens.append(ShadowingToken(word: hypWords[j], status: .extra))
+                j += 1
+            }
+        }
+
+        let accuracy = Double(matched) / Double(refWords.count)
+        let verdict = verdict(for: accuracy)
+        return ShadowingComparison(
+            referenceText: reference, recognizedText: recognized,
+            tokens: tokens, matched: matched, referenceCount: refWords.count,
+            accuracy: accuracy, verdict: verdict, missedWords: missed,
+            hint: hint(verdict: verdict, missed: missed, isSilent: hypWords.isEmpty)
+        )
+    }
+
+    /// 一句话反馈。**点名漏掉的词**——「继续加油」这种空话对学习者没有信息量。
+    public static func hint(verdict: ShadowingVerdict, missed: [String], isSilent: Bool) -> String {
+        if isSilent { return "没有听到声音，凑近麦克风再说一次吧" }
+        switch verdict {
+        case .perfect:
+            return "节奏和用词都跟上了，用这个状态再说下一句"
+        case .great:
+            return missed.isEmpty
+                ? "很接近了，再听一遍示范，注意语速和重音"
+                : "很接近了，留意这几个词：\(missed.prefix(4).joined(separator: "、"))"
+        case .keepGoing:
+            return missed.isEmpty
+                ? "整体跟上了，个别词的发音再清楚一点"
+                : "这几个词没跟上：\(missed.prefix(5).joined(separator: "、"))，再听一遍示范"
+        case .retry:
+            return missed.isEmpty
+                ? "这次和示范差得有点多，先听两遍示范再开口"
+                : "慢慢来，先听两遍示范，重点跟上：\(missed.prefix(4).joined(separator: "、"))"
+        }
+    }
+
+    // MARK: - 私有
+
+    /// LCS 长度表（(n+1) × (m+1)），用于回溯骨架对齐。
+    private static func lcsTable(_ lhs: [String], _ rhs: [String]) -> [[Int]] {
+        var table = [[Int]](repeating: [Int](repeating: 0, count: rhs.count + 1), count: lhs.count + 1)
+        for i in stride(from: lhs.count - 1, through: 0, by: -1) {
+            for j in stride(from: rhs.count - 1, through: 0, by: -1) {
+                table[i][j] = lhs[i] == rhs[j]
+                    ? table[i + 1][j + 1] + 1
+                    : max(table[i + 1][j], table[i][j + 1])
+            }
+        }
+        return table
+    }
+}

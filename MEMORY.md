@@ -157,7 +157,7 @@ M1 Pro / 16GB：TTS 先 0.6B，benchmark 后再考虑 1.7B；优先保证 ASR+LL
 
 ### 当前进度（2026-09-10 傍晚·2）
 
-**Phase 0 + UI 大改版 + 第 14 步（SQLite）+ 第 17/18 步（ASR/TTS 本地）+ 第 20 步（Session 总结）+ 第 21 步（情景对话）+ 情景落库与关卡联动已完成**；学习数据库 schema 升到 **v4**。
+**Phase 0 + UI 大改版 + 第 14 步（SQLite）+ 第 17/18 步（ASR/TTS 本地）+ 第 20 步（Session 总结）+ 第 21 步（情景对话）+ 情景落库与关卡联动 + 第 22 步（跟读 Shadowing）已完成**；学习数据库 schema 升到 **v5**。
 
 ```
 AIDomain/       Scenario 增补 isComplete / completion / ScenarioRewardRule（星级·累计加星·结算文案，纯函数）
@@ -232,16 +232,47 @@ PromptBuilder / ScenarioCatalog / LevelBindingCatalog / ConfigStore 共 8 处调
    - `--scenario <id>` 启动即进入某情景；`--send "文本"` 启动后自动发一条消息；`--auto-speak` 打开自动朗读
    - `--auto-end-scenario` 12s 后自动结束情景（看星星结算）；`--sleep-bubble` 夜晚持续冒睡觉气泡
    - `--theme day|night|system` 临时切主题（不落盘）
+   - `--translate-last` 等老师开口后自动翻译最后一条（验气泡翻译对齐）
+   - `--open-shadowing` 进跟读页；`--shadowing-sample "识别文本"` 用**同一个纯函数评测器**预览逐词反馈
+     （本机既不能合成点击、也不能自动对麦克风说话，只有这条路能验跟读的结果界面；不录音、不落库）
 6. ⚠️ **CGEvent 合成点击（click.swift）在本机会被静默丢弃**（无辅助功能权限），osascript 点击对 SwiftUI 按钮时灵时不灵 → UI 验证以「启动参数 + 截图」为准，不要依赖点击。
 7. ⚠️ **显示器休眠后 `screencapture` 全黑 / 报 `could not create image from window`**（窗口 ID 仍拿得到）→ 先 `caffeinate -u -t 3`；仍失败说明屏幕已锁，别误判成「应用起不来」。
 8. 杀进程用 `pkill -x AILanguageCoach`（`pkill -f` 会匹配到当前 shell 命令行，把自己也杀掉）。
 
+### 第 22 步 跟读（Shadowing）（2026-09-10 夜）
+
+**链路**：参考句 → **听示范**（复用朗读分句流水线）→ 学员**跟读**（录音）→ **原始** ASR 结果 → 逐词对齐 → 反馈 → 落库。
+
+```
+AIDomain/        Shadowing.swift：ShadowingDrill / ShadowingAttempt / ShadowingComparison /
+                 ShadowingScorer（LCS 逐词对齐 + 四档判定 + Stats，**全是纯函数**）
+AIInfra/         Resources/Shadowing/drills.json（20 句 / 5 档难度 / 中文释义 + 发音要点）
+                 + ShadowingCatalog（兼容 {version,drills} 与裸数组；坏文件只跳过；去重按难度排序）
+AIInfra/         LearningDatabase **v5**：shadowing_attempts 表（跟读是独立练习，**不挂 session 外键**）
+AIServices/      ShadowingService（示范 / 录音 / 回放 / 评测 / 落库编排）
+                 VoiceService 新增 lastRecording 采样留存 + replayLastRecording（「听我的」）
+AppUI/           ShadowingView（听示范 / 开始跟读 / 听我的 / 逐词 chips / 匹配率 / 换一句）
+                 侧边栏「跟读」入口 + AppState 跟读状态与动作
+Tests/           ShadowingTests 20 个 + v4→v5 迁移用例（总 **204/204**）
+```
+
+**两条刻意决定（改代码前先读）**：
+
+1. **跟读绝不做拼写纠正**。纠正会把「学员实际说的」改写成「他大概想说的」，
+   正好抹掉跟读要评的东西（漏词 / 换词）。这条链路一律用 **ASR 原始输出**，
+   与 `finishVoiceInput()`（对话输入，纠正）刻意分开。
+2. **多说词不扣分**。匹配率 = 命中词数 / **参考句**词数；学员多说的词只标橙提示，
+   不参与扣分（否则「多说一句寒暄」会被当成错误）。
+
 ### 下一步（按路线图）
 
-1. 第 22 步 Shadowing（跟读）→ 复用分句流水线 + 变速播放能力。
-2. 词汇本（侧边栏"词汇本"入口已留）：把复盘 new_words 与场景 target_vocabulary 沉淀为可复习的词汇表。
-3. 关卡绑定表现只绑定 l1–l5（语义贴合：打招呼/自我介绍/点咖啡/过去时/问路）；医生、酒店两个场景仅从「情景对话」入口进入，待内容补齐后再绑。
-4. 第 23 步发音评测（V1.1）。
+1. **词汇本**（侧边栏入口已留、仍 `soon`）：把复盘 `new_words` / 场景 `target_vocabulary` / 跟读素材
+   沉淀成可复习的词汇表（第 24 步）。
+2. **第 23 步 发音评测**（V1.1）：现在跟读只有**文本层**匹配（音准、重音、语调都没评），
+   下一步在逐词对齐之上接 forced alignment + 声学评分。
+3. 跟读可继续加：降速示范（0.75×）对照、按主题筛选素材、结果并入学习记录页。
+4. 关卡绑定表只绑了 l1–l5（打招呼/自我介绍/点咖啡/过去时/问路）；
+   医生、酒店两个场景仅从「情景对话」入口进入，待内容补齐后再绑。
 
 
 ---

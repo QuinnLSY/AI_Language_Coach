@@ -38,6 +38,9 @@ public actor VoiceService {
     public private(set) var lastError: String?
     /// runtime 自报的音色；为空时 UI 回退到内置预设。
     public private(set) var availableVoices: [String] = []
+    /// 最近一次录音的原始采样。跟读（Shadowing）需要「听我的」——
+    /// 识别文本会丢掉的音长、语速、停顿，只有原音频留着才能回放对照。
+    public private(set) var lastRecording: [Float] = []
 
     /// 相位变化回调（含当前朗读文本，供 UI 高亮对应消息）。
     public var onPhaseChange: (@Sendable (SpeechPhase, String?) -> Void)?
@@ -111,6 +114,8 @@ public actor VoiceService {
         }
         isTranscribing = true
         defer { isTranscribing = false }
+        // 留存原音频：跟读要能「听我的」，识别文本替代不了原声。
+        lastRecording = samples
         do {
             let result = try await asr.transcribe(ASRRequest(audioSamples: samples, language: language))
             let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -270,6 +275,27 @@ public actor VoiceService {
         playback.stop()
         isSpeaking = false
         setPhase(.idle, nil)
+    }
+
+    // MARK: - 回放自己的录音（跟读：听示范 → 跟读 → 听我的）
+
+    /// 手上是否有可回放的录音。
+    public var hasRecording: Bool { !lastRecording.isEmpty }
+
+    /// 回放最近一次录音。空录音时抛 `notInitialized`（由调用方转成可读文案）。
+    public func replayLastRecording(rate: Float = 1.0) async throws {
+        guard !lastRecording.isEmpty else { throw AIProviderError.notInitialized }
+        playback.stop()
+        let wav = WhisperASRAdapter.wavData(
+            samples: lastRecording,
+            sampleRate: Int(MicrophoneRecorder.sampleRate)
+        )
+        try await playback.playAndWait(wavData: wav, rate: rate)
+    }
+
+    /// 立刻停止一切播放（示范 / 回放共用）。
+    public func stopPlayback() {
+        playback.stop()
     }
 
     /// 预热本地语音模型（合成一个极短句）。

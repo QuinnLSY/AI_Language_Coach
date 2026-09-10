@@ -21,6 +21,8 @@ public actor CoachServices {
     private let spellingCorrector: SpellingCorrectionService
     /// 气泡翻译（按需 + 有界缓存）。
     private let translator: TranslationService
+    /// 跟读（Shadowing，第 22 步）：示范 / 录音 / 回放 / 评测 / 落库。
+    public let shadowing: ShadowingService
 
     /// 学习数据库。打开失败时为 nil（功能降级为不持久化，不影响对话）。
     public private(set) var learning: LearningDatabase?
@@ -45,6 +47,7 @@ public actor CoachServices {
         self.reviewer = SessionReviewService(llm: self.llm, learning: database)
         self.spellingCorrector = SpellingCorrectionService(llm: self.llm)
         self.translator = TranslationService(llm: self.llm)
+        self.shadowing = ShadowingService(voice: self.voice, learning: database)
         if self.learning == nil {
             AppLog.warning("学习数据库打开失败，持久化已降级关闭: \(path)", category: "database")
         }

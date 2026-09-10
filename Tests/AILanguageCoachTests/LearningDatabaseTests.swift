@@ -190,10 +190,10 @@ final class LearningDatabaseTests: XCTestCase {
         XCTAssertEqual(boundScenario, "shopping")
     }
 
-    func testSchemaVersionIsFour() async throws {
+    func testSchemaVersionIsFive() async throws {
         let db = try makeDB()
         let version = try await db.schemaVersion()
-        XCTAssertEqual(version, 4)
+        XCTAssertEqual(version, 5)
     }
 
     /// 迁移：旧版本每次启动都会建空会话，导致「最近会话」恢复不回来 —— v4 迁移要清掉它们。
@@ -228,12 +228,41 @@ final class LearningDatabaseTests: XCTestCase {
         try legacy.setSchemaVersion(3)
         legacy.close()
 
-        // 重新打开 → 迁移到 v4：遗留空会话被清掉，真会话保留
+        // 重新打开 → 迁移到最新版：遗留空会话被清掉，真会话保留
         let db = try LearningDatabase(path: url.path)
         let sessions = try await db.recentSessions(limit: 10)
         XCTAssertEqual(sessions.count, 1, "空会话是历史包袱，应在迁移时清掉")
         XCTAssertEqual(sessions.first?.sessionID, used.id)
         let version = try await db.schemaVersion()
-        XCTAssertEqual(version, 4)
+        XCTAssertEqual(version, 5)
+    }
+
+    /// 迁移：v4 旧库升级到 v5 时必须补上跟读记录表（旧库根本没有这张表，
+    /// 不补的话点「跟读」写记录会静默失败）。
+    func testMigrationAddsShadowingTable() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("legacy-v4-\(UUID().uuidString).db")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let legacy = try SQLiteDatabase(path: url.path)
+        try legacy.run("""
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY, started_at REAL NOT NULL, ended_at REAL,
+            mode TEXT NOT NULL, message_count INTEGER NOT NULL DEFAULT 0
+        )
+        """)
+        try legacy.setSchemaVersion(4)
+        legacy.close()
+
+        let db = try LearningDatabase(path: url.path)
+        let version = try await db.schemaVersion()
+        XCTAssertEqual(version, 5)
+
+        try await db.appendShadowingAttempt(ShadowingAttempt(
+            drillID: "d", referenceText: "a b c", recognizedText: "a b", accuracy: 2.0 / 3.0
+        ))
+        let loaded = try await db.recentShadowingAttempts(limit: 5)
+        XCTAssertEqual(loaded.count, 1, "升级后应能写入并读回跟读记录")
+        XCTAssertEqual(loaded.first?.drillID, "d")
     }
 }

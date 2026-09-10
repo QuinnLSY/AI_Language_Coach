@@ -74,9 +74,18 @@ public struct AppSidebar: View {
             navItem(
                 icon: "leaf.fill",
                 title: "练习",
-                isActive: !state.showingSettings && !state.showingRecords && !state.showingScenarios
+                isActive: !state.showingSettings && !state.showingRecords
+                    && !state.showingScenarios && !state.showingShadowing
             ) {
                 Task { await state.openPractice() }
+            }
+
+            navItem(
+                icon: "waveform.badge.mic",
+                title: "跟读",
+                isActive: state.showingShadowing
+            ) {
+                Task { await state.openShadowing() }
             }
 
             navItem(
