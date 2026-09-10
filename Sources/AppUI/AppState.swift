@@ -126,8 +126,12 @@ public final class AppState {
     public private(set) var modelRunStates: [AIProviderKind: Bool] = [:]
     /// 正在切换启停的能力（按钮 loading）。
     public private(set) var modelSwitching: Set<AIProviderKind> = []
-    /// 启停操作结果提示（成功或失败），设置页展示。
-    public var modelMessage: String?
+    /// 启停结果弹框（应用顶部向下弹入，数秒后向上收起）。nil = 不显示。
+    public private(set) var modelToast: ModelToast?
+    /// 输入框的预设学员提问（数据来自资源文件；为空则退回普通占位文案）。
+    public private(set) var starterQuestions: [String] = []
+    /// 翻译失败提示（对话区展示，可关闭）。
+    public var translationNotice: String? { chat.translationError }
     // MARK: 语音流式输入
     /// 录音过程中实时识别出的文本（nil = 未在录音）。UI 把它写进输入框。
     public private(set) var voiceTranscript: String?
@@ -136,9 +140,12 @@ public final class AppState {
     private var product: ProductConfig = ProductConfig()
     /// 结算提示的自动收起任务。
     private var rewardDismissTask: Task<Void, Never>?
+    /// 启停弹框的自动收起任务。
+    private var toastDismissTask: Task<Void, Never>?
 
-    public init() {
-        let services = CoachServices()
+    /// 注入外部装配好的服务（**测试专用**：真实 `CoachServices` 会去启停本机模型服务，
+    /// 单测必须换掉它，否则会误杀用户正在运行的 TTS/ASR 进程）。
+    init(services: CoachServices) {
         self.services = services
         self.chat = ChatService(services: services)
         // 应用打开时，所有模型默认为「启动」。
@@ -146,6 +153,8 @@ public final class AppState {
         for kind in AIProviderKind.allCases { states[kind] = true }
         self.modelRunStates = states
     }
+
+    public convenience init() { self.init(services: CoachServices()) }
 
     /// 某能力模型当前是否启动（默认启动）。
     public func isModelRunning(_ kind: AIProviderKind) -> Bool {
@@ -230,8 +239,22 @@ public final class AppState {
         await refreshStatus()
         refreshTodayTokens()
         modelRunStates = await services.modelRunStates()
+        starterQuestions = await services.starterQuestions()
         isBooting = false
+        // 所有服务就绪后由**老师先开口**：学员看到老师说话，就知道现在开口一定有人回。
+        // （以前是学员先发第一句，常常撞上还没装配完的 Provider，那句话就没了。）
+        chat.greetIfNeeded()
     }
+
+    // MARK: - 气泡翻译
+
+    /// 取某条消息的译文（再点一次收起）。走按需翻译 + 有界缓存，不进对话历史。
+    public func translateMessage(_ id: UUID) async {
+        await chat.translate(messageID: id)
+    }
+
+    /// 关闭翻译失败提示。
+    public func clearTranslationNotice() { chat.clearTranslationError() }
 
     // MARK: - 模型启停（设置页「启动 / 关闭」）
 
@@ -239,15 +262,19 @@ public final class AppState {
     ///
     /// - 本地模型：真的把后台服务拉起 / 停掉（Ollama 载入或卸载模型；语音服务执行配置里的启停命令）。
     /// - 云端 / 内置模型：只做应用层面的开关（外部服务无法被本应用终止）。
+    ///
+    /// 结果只走顶部弹框（绿=成功 / 红=失败并说明原因），不再塞在设置页卡片里。
     public func setModelRunning(_ kind: AIProviderKind, running: Bool) async {
         guard !modelSwitching.contains(kind) else { return }
         modelSwitching.insert(kind)
         defer { modelSwitching.remove(kind) }
         let label = await services.modelLabel(for: kind)
         do {
-            modelMessage = try await services.setModelRunning(kind, running: running)
+            let message = try await services.setModelRunning(kind, running: running)
+            showModelToast(message, isSuccess: true)
         } catch {
-            modelMessage = ModelDiagnostics.describe(label: label, error: error)
+            let reason = ModelDiagnostics.describe(label: label, error: error)
+            showModelToast("\(running ? "启动" : "关闭")失败 · \(reason)", isSuccess: false)
         }
         modelRunStates = await services.modelRunStates()
         await refreshStatus()
@@ -255,8 +282,42 @@ public final class AppState {
         await refreshCapabilityInfos()
     }
 
-    /// 清掉启停提示。
-    public func clearModelMessage() { modelMessage = nil }
+    /// 顶部弹框：成功为绿、失败为红，展示后自动向上收起。
+    /// 失败文案更长，多留一点时间让人读完。
+    public func showModelToast(_ message: String, isSuccess: Bool) {
+        toastDismissTask?.cancel()
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+            modelToast = ModelToast(message: message, isSuccess: isSuccess)
+        }
+        let duration: ContinuousClock.Duration = isSuccess ? .seconds(2) : .seconds(4)
+        toastDismissTask = Task { [weak self] in
+            try? await Task.sleep(for: duration)
+            guard !Task.isCancelled else { return }
+            self?.dismissModelToast()
+        }
+    }
+
+    /// 立刻收起启停弹框（点叉 / 自动到时共用）。
+    @MainActor
+    public func dismissModelToast() {
+        toastDismissTask?.cancel()
+        toastDismissTask = nil
+        withAnimation(.easeOut(duration: 0.24)) { modelToast = nil }
+    }
+
+    /// 对话模型跑在哪儿：本地 = local，云端 = cloud（设置页卡片右上角的状态前缀）。
+    public var llmLocationLabel: String { isActiveProviderRemote ? "cloud" : "local" }
+
+    /// 模型提供商卡片右上角那一行：`local.llm · qwen3:8b 已就绪`。
+    ///
+    /// 前缀说明模型跑在本机还是云端（`local` / `cloud`），后缀是健康状态，
+    /// 用户一眼知道自己正在跟哪个模型说话。
+    public var llmProviderStatusLine: String {
+        let head = "\(llmLocationLabel).llm"
+        let model = currentModelName
+        let who = (model?.isEmpty ?? true) ? head : "\(head) · \(model ?? "")"
+        return ModelDiagnostics.describe(label: who, health: health)
+    }
 
     /// 生效 LLM 的「已就绪 / 连接失败」文案（**带上模型名**，用户一眼知道是哪个模型）。
     public var llmHealthDescription: String {

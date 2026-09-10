@@ -176,6 +176,24 @@ final class ModelControlTests: XCTestCase {
         XCTAssertEqual(view.modelStoppedNotice, "本地模型 · qwen3:8b 已关闭", "modelStoppedNotice 必须被 init 存入，否则关闭提示条不显示")
     }
 
+    /// 同一类 bug 的新增面：预设提问 / 翻译回调 / 翻译失败提示同样带默认值，漏赋值不报错。
+    func testChatViewInitStoresStarterQuestionsAndTranslateCallbacks() {
+        let chat = ChatService(services: CoachServices(config: ConfigStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("alc-chatview2-\(UUID().uuidString).json")), databasePath: ":memory:"))
+        let questions = ["How was your day?", "Can you help me order a coffee?"]
+        let view = ChatView(
+            chat: chat,
+            modelName: "qwen3:8b",
+            health: .connected(model: "qwen3:8b"),
+            starterQuestions: questions,
+            onTranslate: { _ in },
+            translationError: "翻译失败：模型未就绪"
+        )
+        XCTAssertEqual(view.starterQuestions, questions, "预设提问漏赋值 → 输入框永不轮换")
+        XCTAssertNotNil(view.onTranslate, "翻译回调漏赋值 → 点翻译按钮没反应")
+        XCTAssertEqual(view.translationError, "翻译失败：模型未就绪")
+    }
+
     // MARK: - 今日 token 分档（0–2000 督促 / 2000–20000 鼓励 / ≥20000 休息）
 
     func testNudgeTiersFollowNewThresholds() {

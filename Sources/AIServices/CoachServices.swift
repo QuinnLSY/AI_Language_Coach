@@ -19,6 +19,8 @@ public actor CoachServices {
     private let reviewer: SessionReviewService
     /// 语音输入专用的拼写纠正（只作用于语音识别结果，手打不改）。
     private let spellingCorrector: SpellingCorrectionService
+    /// 气泡翻译（按需 + 有界缓存）。
+    private let translator: TranslationService
 
     /// 学习数据库。打开失败时为 nil（功能降级为不持久化，不影响对话）。
     public private(set) var learning: LearningDatabase?
@@ -42,6 +44,7 @@ public actor CoachServices {
         self.learning = database
         self.reviewer = SessionReviewService(llm: self.llm, learning: database)
         self.spellingCorrector = SpellingCorrectionService(llm: self.llm)
+        self.translator = TranslationService(llm: self.llm)
         if self.learning == nil {
             AppLog.warning("学习数据库打开失败，持久化已降级关闭: \(path)", category: "database")
         }
@@ -160,6 +163,26 @@ public actor CoachServices {
         return await spellingCorrector.correct(text, options: options)
     }
 
+    /// 把一条对话内容翻译成学员的母语（**按需**：点翻译按钮才调用）。
+    /// 结果有界缓存，重复点开不再产生请求；译文不进对话历史，不占上下文。
+    public func translate(_ text: String, targetLanguage: String) async throws -> String {
+        guard isModelRunning(.llm) else { throw AIProviderError.notInitialized }
+        try await ensureLLMReady()
+        let configuration = await config.current
+        let provider = configuration.resolvedProvider(for: .llm)
+        let options = TranslationService.Options(
+            model: configuration.resolvedModel(for: .llm),
+            temperature: 0,
+            maxTokens: min(provider?.maxTokens ?? 512, 512)
+        )
+        return try await translator.translate(text, targetLanguage: targetLanguage, options: options)
+    }
+
+    /// 输入框的预设学员提问（数据来自资源文件，代码零硬编码）。
+    public func starterQuestions() async -> [String] {
+        StarterQuestionCatalog.bundled()
+    }
+
     /// 高级设置：修改 LLM Provider 的端点 / 温度后重新装配。
     public func setLLMProviderField(endpoint: String? = nil, temperature: Double? = nil) async throws {
         let configuration = await config.current
@@ -228,7 +251,6 @@ public actor CoachServices {
 
     /// 按能力重装配（本地模型切换 / 云端激活后调用）。
     public func rebootstrap(kind: AIProviderKind) async {
-        let configuration = await config.current
         switch kind {
         case .llm:
             try? await bootstrapLLM()

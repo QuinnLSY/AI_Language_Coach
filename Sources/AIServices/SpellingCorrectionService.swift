@@ -129,7 +129,9 @@ public actor SpellingCorrectionService {
             model: options.model,
             temperature: options.temperature ?? 0,
             maxTokens: options.maxTokens ?? 256,
-            streaming: false
+            streaming: false,
+            // 纠错同样是确定性短任务：关掉思考，别让 qwen3:8b 先写一段推理再说正事。
+            reasoningEffort: LLMRequest.noThinkingEffort
         )
         guard let response = try? await llm.generate(request) else { return text }
         return SpellingFixRule.accepted(original: text, candidate: response.text)

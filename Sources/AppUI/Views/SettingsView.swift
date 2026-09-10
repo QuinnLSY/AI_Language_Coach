@@ -327,7 +327,7 @@ public struct SettingsView: View {
     // MARK: - 模型提供商（本地 / 云端并存，二选一生效）
 
     private var modelCard: some View {
-        card(title: "模型提供商", systemImage: "brain") {
+        card(title: "模型提供商", systemImage: "brain", trailing: { modelProviderStatus }) {
             VStack(alignment: .leading, spacing: 12) {
                 // 提供商标签行：本地模型 / DeepSeek / OpenRouter…
                 HStack(spacing: 8) {
@@ -358,6 +358,38 @@ public struct SettingsView: View {
                         .font(.system(size: 12, design: .rounded))
                         .foregroundStyle(.orange)
                 }
+            }
+        }
+    }
+
+    /// 卡片右上角：`local.llm · qwen3:8b 已就绪 【关闭】`。
+    ///
+    /// 与模型管理中心各能力区块一致 —— 状态与「启动 / 关闭」按钮都在右上角，
+    /// 前缀 `local` / `cloud` 直接说明模型跑在本机还是云端。
+    private var modelProviderStatus: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(state.health.isUsable ? Color.green : Color.orange)
+                .frame(width: 8, height: 8)
+            Text(state.llmProviderStatusLine)
+                .font(.system(size: 11, design: .rounded))
+                .foregroundStyle(theme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(2)
+            modelRunButton(.llm)
+            if !isSelectedProviderRemote {
+                Button {
+                    isRefreshing = true
+                    Task {
+                        await state.refreshStatus()
+                        isRefreshing = false
+                    }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.plain)
+                .disabled(isRefreshing)
+                .help("重新检测本地模型")
             }
         }
     }
@@ -438,32 +470,6 @@ public struct SettingsView: View {
               : "启动该模型：本地模型会在本机后台拉起服务")
     }
 
-    /// 启停操作结果提示（成功为绿、失败为橙）。
-    @ViewBuilder
-    private var modelMessageRow: some View {
-        if let message = state.modelMessage {
-            HStack(alignment: .top, spacing: 6) {
-                Image(systemName: message.contains("已启动") || message.contains("已关闭") ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(message.contains("已启动") || message.contains("已关闭") ? .green : .orange)
-                Text(message)
-                    .font(.system(size: 11, design: .rounded))
-                    .foregroundStyle(theme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                Button {
-                    state.clearModelMessage()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(theme.secondaryText)
-                }
-                .buttonStyle(.plain)
-                .help("关闭提示")
-            }
-        }
-    }
-
     private var isSelectedProviderRemote: Bool {
         providerOptions.first { $0.id == state.selectedProviderID }?.isRemote ?? false
     }
@@ -471,33 +477,6 @@ public struct SettingsView: View {
     /// 本地模型（Ollama）：状态 + 模型选择。
     private var localProviderSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(state.health.isUsable ? Color.green : Color.orange)
-                    .frame(width: 8, height: 8)
-                // 状态文案带模型名：失败时用户一眼知道是哪个模型出了问题
-                Text(state.llmHealthDescription)
-                    .font(.system(size: 12, design: .rounded))
-                    .foregroundStyle(theme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                modelRunButton(.llm)
-                Spacer()
-                Button {
-                    isRefreshing = true
-                    Task {
-                        await state.refreshStatus()
-                        isRefreshing = false
-                    }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.plain)
-                .disabled(isRefreshing)
-                .help("重新检测本地模型")
-            }
-
-            modelMessageRow
-
             if state.availableModels.isEmpty {
                 Text("没有检测到本地模型。请确认本地模型服务已启动后点击刷新。")
                     .font(.system(size: 12, design: .rounded))
@@ -540,22 +519,7 @@ public struct SettingsView: View {
     /// 云端 Provider：API Key → 验证并获取模型 → 选模型 / 推理强度 → 启用。
     private var remoteProviderSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // ① 状态 + 启动/关闭（云端模型无法被终止，这里的开关只作用于应用层）
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(state.health.isUsable ? Color.green : Color.orange)
-                    .frame(width: 8, height: 8)
-                Text(state.llmHealthDescription)
-                    .font(.system(size: 12, design: .rounded))
-                    .foregroundStyle(theme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                modelRunButton(.llm)
-                Spacer()
-            }
-
-            modelMessageRow
-
-            // ② API Key
+            // ① API Key（状态与「启动 / 关闭」在卡片右上角；云端模型无法被终止，开关只作用于应用层）
             HStack(spacing: 8) {
                 SecureField("API Key", text: Binding(
                     get: { state.apiKeyDrafts[state.selectedProviderID] ?? "" },
@@ -632,8 +596,6 @@ public struct SettingsView: View {
                         if kind != .pronunciation { Divider().overlay(theme.divider.opacity(0.6)) }
                     }
                 }
-
-                modelMessageRow
 
                 deploymentTips
             }
@@ -1185,6 +1147,17 @@ public struct SettingsView: View {
     // MARK: - 通用
 
     private func card<Content: View>(title: String, systemImage: String, @ViewBuilder content: () -> Content) -> some View {
+        card(title: title, systemImage: systemImage, trailing: { EmptyView() }, content: content)
+    }
+
+    /// 带「卡片右上角内容」的卡片：模型状态与「启动 / 关闭」按钮都放这里，
+    /// 与模型管理中心各能力区块的布局保持一致。
+    private func card<Content: View, Trailing: View>(
+        title: String,
+        systemImage: String,
+        @ViewBuilder trailing: () -> Trailing,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: systemImage)
@@ -1192,6 +1165,8 @@ public struct SettingsView: View {
                 Text(title)
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.primaryText)
+                Spacer(minLength: 8)
+                trailing()
             }
             content()
         }

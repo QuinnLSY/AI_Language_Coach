@@ -124,7 +124,8 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
                 stream: false,
                 temperature: request.temperature ?? config.temperature,
                 topP: request.topP ?? config.topP,
-                maxTokens: request.maxTokens ?? config.maxTokens
+                maxTokens: request.maxTokens ?? config.maxTokens,
+                reasoningEffort: request.reasoningEffort
             )
         )
 
@@ -166,7 +167,8 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
                             stream: true,
                             temperature: request.temperature ?? config.temperature,
                             topP: request.topP ?? config.topP,
-                            maxTokens: request.maxTokens ?? config.maxTokens
+                            maxTokens: request.maxTokens ?? config.maxTokens,
+                            reasoningEffort: request.reasoningEffort
                         )
                     )
 
@@ -315,6 +317,9 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
         let temperature: Double?
         let topP: Double?
         let maxTokens: Int?
+        /// 推理强度覆盖。`"none"` 会让推理模型跳过思考段——实测同一句翻译
+        /// 24.8s → 1.4s（见 `LLMRequest.reasoningEffort`）。nil 时不发该字段。
+        let reasoningEffort: String?
 
         struct Message: Encodable {
             let role: String

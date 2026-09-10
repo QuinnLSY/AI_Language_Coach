@@ -1,0 +1,10 @@
+Translate the text below into {target_language}.
+
+Rules:
+- Output the translation only. No quotes, no notes, no explanation, no repetition of the original.
+- Keep the original tone and line breaks.
+- Preserve the meaning exactly: do not add, drop or summarise anything.
+- Keep proper nouns and code-like tokens as they are.
+
+Text:
+{text}

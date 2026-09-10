@@ -54,11 +54,27 @@ public struct ChatView: View {
     var voiceTranscript: String? = nil
     /// 对话模型被关闭时的提示（非 nil 时输入框上方常驻提示并禁用发送）。
     var modelStoppedNotice: String? = nil
+    /// 输入框为空时轮换展示的预设学员提问（数据来自资源文件）；点发送即发送当前这一条。
+    var starterQuestions: [String] = []
+    /// 取某条消息的译文（再点一次收起）。
+    var onTranslate: ((UUID) async -> Void)? = nil
+    /// 翻译失败提示（可关闭）。
+    var translationError: String? = nil
+    /// 关闭翻译失败提示。
+    var onDismissTranslationError: (() -> Void)? = nil
 
     @State private var input: String = ""
     @FocusState private var isInputFocused: Bool
     /// 本次录音开始前输入框里的内容：流式识别结果拼在它后面，绝不覆盖用户手打的字。
     @State private var voiceBase: String = ""
+    /// 当前轮换到的预设提问下标。
+    @State private var questionIndex: Int = 0
+    /// 录音中且尚未发送：只有这段时间才允许流式结果往输入框里写。
+    /// （发送后必须彻底断开，否则正在录音时发送会被下一轮流式结果原样填回来。）
+    @State private var isMergingVoice = false
+
+    /// 每条预设提问停留的秒数。
+    private let rotationInterval: Double = 3.4
 
     /// 相隔超过该时长的两条消息之间才显示时间戳。
     private let timestampGap: TimeInterval = 5 * 60
@@ -82,7 +98,11 @@ public struct ChatView: View {
                 onOpenScenarios: (() -> Void)? = nil,
                 onEndScenario: (() -> Void)? = nil,
                 voiceTranscript: String? = nil,
-                modelStoppedNotice: String? = nil) {
+                modelStoppedNotice: String? = nil,
+                starterQuestions: [String] = [],
+                onTranslate: ((UUID) async -> Void)? = nil,
+                translationError: String? = nil,
+                onDismissTranslationError: (() -> Void)? = nil) {
         self.chat = chat
         self.modelName = modelName
         self.health = health
@@ -107,11 +127,16 @@ public struct ChatView: View {
         self.scenario = scenario
         self.onOpenScenarios = onOpenScenarios
         self.onEndScenario = onEndScenario
-        // ⚠️ 这两个必须显式赋值：属性声明处有默认值 `= nil`，
-        // 手写 init 漏掉它们**不会编译报错**，而是静默保持 nil
-        // → 表现为「模型关闭提示条不出现」+「语音流式结果写不进输入框」。
+        // ⚠️ 下面这批必须显式赋值：属性声明处有默认值（`= nil` / `= []`），
+        // 手写 init 漏掉它们**不会编译报错**，而是静默保持默认值
+        // → 表现为「模型关闭提示条不出现」「语音流式结果写不进输入框」
+        //   「预设提问不轮换」「翻译按钮点了没反应」。
         self.voiceTranscript = voiceTranscript
         self.modelStoppedNotice = modelStoppedNotice
+        self.starterQuestions = starterQuestions
+        self.onTranslate = onTranslate
+        self.translationError = translationError
+        self.onDismissTranslationError = onDismissTranslationError
     }
 
     public var body: some View {
@@ -127,6 +152,7 @@ public struct ChatView: View {
                 modelStoppedBanner(modelStoppedNotice)
             }
             voiceErrorBanner
+            translationErrorBanner
             inputBar
             contextStrip
         }
@@ -140,9 +166,22 @@ public struct ChatView: View {
         // 流式语音输入：录音期间识别结果实时写入输入框（只替换「本次语音」那一段，
         // 用户手打的内容原样保留）。
         .onChange(of: voiceTranscript) { _, text in
-            guard let text, isRecording else { return }
+            guard let text, isRecording, isMergingVoice else { return }
             input = Self.mergedInput(base: voiceBase, voice: text)
         }
+        // 预设提问轮换：只在输入框为空、且没有正在等回复时滚动。
+        .onReceive(Timer.publish(every: rotationInterval, on: .main, in: .common).autoconnect()) { _ in
+            guard input.isEmpty, starterQuestions.count > 1, !chat.isGenerating else { return }
+            withAnimation(.easeOut(duration: 0.45)) {
+                questionIndex = (questionIndex + 1) % starterQuestions.count
+            }
+        }
+    }
+
+    /// 当前轮换到的预设提问（没有预设时返回 nil，输入框退回普通占位）。
+    private var currentStarterQuestion: String? {
+        guard !starterQuestions.isEmpty else { return nil }
+        return starterQuestions[questionIndex % starterQuestions.count]
     }
 
     /// 把「语音识别结果」拼到「录音前已有内容」后面（纯函数，便于单测）。
@@ -416,6 +455,8 @@ public struct ChatView: View {
     private func bubble(_ message: ChatMessage) -> some View {
         let isUser = message.role == .user
         let corrections = isUser ? [] : (chat.correctionsByMessage[message.id] ?? [])
+        let translation = chat.translationsByMessage[message.id]
+        let isTranslating = chat.translatingMessageIDs.contains(message.id)
         return HStack(alignment: .bottom, spacing: 8) {
             if isUser { Spacer(minLength: 36) }
             if !isUser {
@@ -426,17 +467,35 @@ public struct ChatView: View {
                 if !isUser, let reasoning = message.reasoning, !reasoning.isEmpty {
                     ThinkingPanel(reasoning: reasoning, isStreaming: false)
                 }
-                MarkdownText(message.content, fontSize: 14, color: theme.primaryText)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(isUser ? theme.bubbleUser : theme.bubbleCoach)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .strokeBorder(theme.divider, lineWidth: 1)
-                    )
+                // 气泡本体：翻译按钮贴在气泡外侧（学员在左 / 老师在右），
+                // 这一层 HStack 用 .bottom 对齐 —— 按钮因此**始终与气泡底线齐平**，
+                // 下方再挂纠错卡或朗读按钮也不会把它拽下去。
+                HStack(alignment: .bottom, spacing: 6) {
+                    if isUser {
+                        TranslateButton(isOn: translation != nil, isLoading: isTranslating) {
+                            Task { await onTranslate?(message.id) }
+                        }
+                    }
+                    MarkdownText(message.content, fontSize: 14, color: theme.primaryText)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(isUser ? theme.bubbleUser : theme.bubbleCoach)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .strokeBorder(theme.divider, lineWidth: 1)
+                        )
+                    if !isUser {
+                        TranslateButton(isOn: translation != nil, isLoading: isTranslating) {
+                            Task { await onTranslate?(message.id) }
+                        }
+                    }
+                }
+                if let translation {
+                    translationCard(translation)
+                }
                 ForEach(corrections) { correction in
                     correctionCard(correction)
                 }
@@ -459,6 +518,71 @@ public struct ChatView: View {
             if !isUser { Spacer(minLength: 36) }
         }
         .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
+    }
+
+    /// 译文卡片：默认不显示，点翻译按钮才出现在气泡下方。
+    private func translationCard(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "quote.closing")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(theme.accent)
+            Text(text)
+                .font(.system(size: 12, design: .rounded))
+                .foregroundStyle(theme.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: 340, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(theme.surfaceAlt.opacity(0.9))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(theme.accent.opacity(0.28), lineWidth: 1)
+        )
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    /// 翻译按钮：**按需翻译**的入口。
+    ///
+    /// 译文不是生成时就一起产出的 —— 那会让每条回复的 token 与延迟翻倍，
+    /// 而绝大多数气泡学员根本不会点开。这里只负责「点一下才去要译文」，
+    /// 结果有缓存，重复点开（含收起再展开）都是零成本。
+    private struct TranslateButton: View {
+        @Environment(\.forestTheme) private var theme
+
+        let isOn: Bool
+        let isLoading: Bool
+        let action: () -> Void
+
+        var body: some View {
+            Button {
+                action()
+            } label: {
+                Group {
+                    if isLoading {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .controlSize(.mini)
+                            .scaleEffect(0.6)
+                            .frame(width: 12, height: 12)
+                            .tint(theme.accent)
+                    } else {
+                        Image(systemName: "translate")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(isOn ? theme.accent : theme.secondaryText.opacity(0.75))
+                    }
+                }
+                .frame(width: 20, height: 20)
+                .background(Circle().fill(isOn ? theme.accent.opacity(0.16) : Color.clear))
+            }
+            .buttonStyle(.plain)
+            .disabled(isLoading)
+            .help(isOn ? "收起翻译" : "翻译成中文")
+        }
     }
 
     /// 「改一改」纠错卡片：原句 → 改正 + 一句话说明。
@@ -690,11 +814,75 @@ public struct ChatView: View {
         }
     }
 
+    /// 翻译失败提示（贴在输入框上方，可关闭）。
+    @ViewBuilder
+    private var translationErrorBanner: some View {
+        if let translationError {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+                Text(translationError)
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button {
+                    onDismissTranslationError?()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .help("关闭提示")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.orange.opacity(0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.orange.opacity(0.35), lineWidth: 1)
+            )
+            .padding(.horizontal, 18)
+            .padding(.top, 10)
+            .transition(.opacity)
+        }
+    }
+
     private var inputBar: some View {
         HStack(spacing: 10) {
             micButton
 
-            TextField("用英语说点什么…", text: $input)
+            inputField
+
+            Button {
+                chat.isGenerating ? chat.cancel() : send()
+            } label: {
+                Image(systemName: chat.isGenerating ? "stop.fill" : "paperplane.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 38)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(chat.isGenerating ? Color.red.opacity(0.85) : theme.accent)
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(chat.isGenerating ? false : !canSend)
+            .help(chat.isGenerating ? "停止" : (modelStoppedNotice != nil ? "请先启动对话模型" : "发送"))
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 12)
+    }
+
+    /// 输入框：空着的时候用浅灰字**轮换**展示预设提问（点发送即发送当前这一条）。
+    private var inputField: some View {
+        ZStack(alignment: .leading) {
+            TextField("", text: $input)
                 .textFieldStyle(.plain)
                 .font(.system(size: 14, design: .rounded))
                 .foregroundStyle(theme.primaryText)
@@ -711,26 +899,37 @@ public struct ChatView: View {
                 .focused($isInputFocused)
                 .onSubmit { send() }
 
-            Button {
-                chat.isGenerating ? chat.cancel() : send()
-            } label: {
-                Image(systemName: chat.isGenerating ? "stop.fill" : "paperplane.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 38)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(chat.isGenerating ? Color.red.opacity(0.85) : theme.accent)
-                    )
+            if input.isEmpty, let hint = currentStarterQuestion {
+                rollingQuestion(hint)
+                    .padding(.leading, 14)
+                    .padding(.trailing, 20)
+                    .allowsHitTesting(false)
             }
-            .buttonStyle(.plain)
-            .disabled(chat.isGenerating
-                      ? false
-                      : (input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || modelStoppedNotice != nil))
-            .help(chat.isGenerating ? "停止" : (modelStoppedNotice != nil ? "请先启动对话模型" : "发送"))
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 12)
+        .animation(.easeOut(duration: 0.45), value: questionIndex)
+    }
+
+    /// 上下滚动的预设提问：新的一条从下方滚上来，旧的一条往上滚出去。
+    private func rollingQuestion(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 14, design: .rounded))
+            .foregroundStyle(theme.secondaryText.opacity(0.62))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .id(text)
+            .frame(height: 20)
+            .clipped()
+            .transition(.asymmetric(
+                insertion: .move(edge: .bottom).combined(with: .opacity),
+                removal: .move(edge: .top).combined(with: .opacity)
+            ))
+    }
+
+    /// 能不能发送：模型被关闭时一律不行；否则「有手打内容」或「有预设提问」都行。
+    private var canSend: Bool {
+        guard modelStoppedNotice == nil else { return false }
+        if !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        return currentStarterQuestion != nil
     }
 
     /// 麦克风按钮：点击说话 → 录音期间流式出字 → 再点识别并纠正拼写后定稿。
@@ -738,6 +937,7 @@ public struct ChatView: View {
         Button {
             Task { @MainActor in
                 if isRecording {
+                    isMergingVoice = false
                     if let text = await onMicStop?(), !text.isEmpty {
                         input = Self.mergedInput(base: voiceBase, voice: text)
                     }
@@ -747,6 +947,7 @@ public struct ChatView: View {
                 } else {
                     // 记住录音前的输入，流式结果只替换「本次语音」这一段
                     voiceBase = input
+                    isMergingVoice = true
                     await onMicStart?()
                 }
             }
@@ -821,8 +1022,15 @@ public struct ChatView: View {
     private func send() {
         // 对话模型被关闭时，输入不丢、也不发出去；用户按提示启动模型即可。
         guard modelStoppedNotice == nil else { return }
-        let text = input
+        let typed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 空着点发送 = 发送当前轮换到的预设提问（浅灰那条）。
+        let text = typed.isEmpty ? (currentStarterQuestion ?? "") : typed
+        guard !text.isEmpty else { return }
+        // 手打与语音一视同仁：发出去后输入框彻底清空。
+        // 同时断开语音回流 —— 否则「还录着音就点发送」时，下一轮流式结果会把内容原样填回来。
         input = ""
+        voiceBase = ""
+        isMergingVoice = false
         chat.send(text)
         isInputFocused = true
     }

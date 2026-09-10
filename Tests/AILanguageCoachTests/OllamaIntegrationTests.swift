@@ -51,8 +51,62 @@ final class OllamaIntegrationTests: XCTestCase {
         XCTAssertEqual(response.model, config.model)
     }
 
-    func testStreamAgainstRealRuntime() async throws {
+    /// 气泡翻译：真实 runtime 下 `translate.txt` 提示词必须产出**中文译文**，
+    /// 且经 `TranslationRule` 清理后不残留「Translation:」这类前缀或解释文字。
+    func testTranslationPromptProducesChineseAgainstRealRuntime() async throws {
         let (adapter, config) = try await makeAdapter()
+        try await requireRuntime(adapter)
+
+        let request = LLMRequest(
+            messages: [LLMMessage(role: .system, content: PromptBuilder.translationPrompt(
+                text: "Hello, how are you today? I would like a cup of coffee.",
+                targetLanguage: "Chinese"
+            ))],
+            model: config.model,
+            temperature: 0,
+            maxTokens: 512,
+            streaming: false
+        )
+        let response = try await adapter.generate(request)
+        let cleaned = TranslationRule.clean(response.text)
+        XCTAssertFalse(cleaned.isEmpty, "翻译不得为空")
+        let hasCJK = cleaned.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) }
+        XCTAssertTrue(hasCJK, "译文应当是中文：\(cleaned)")
+        XCTAssertFalse(cleaned.lowercased().contains("translation:"), "不得残留说明前缀：\(cleaned)")
+    }
+
+    /// `reasoningEffort = "none"` 必须真的让推理模型跳过思考段。
+    ///
+    /// 回归背景：翻译请求原先不关思考，qwen3:8b 会先吐 ~1600 字符思考，
+    /// 同一句翻译 24.8s（冷加载/显存紧张时直接顶到 120s 超时）。
+    func testNoThinkingEffortSuppressesReasoningAgainstRealRuntime() async throws {
+        let (adapter, config) = try await makeAdapter()
+        try await requireRuntime(adapter)
+
+        let request = LLMRequest(
+            messages: [LLMMessage(role: .system, content: PromptBuilder.translationPrompt(
+                text: "Hi there! I'm happy to help. What's on your mind?",
+                targetLanguage: "zh-CN"
+            ))],
+            model: config.model,
+            temperature: 0,
+            maxTokens: 512,
+            streaming: false,
+            reasoningEffort: LLMRequest.noThinkingEffort
+        )
+        let started = Date()
+        let response = try await adapter.generate(request)
+        let elapsed = Date().timeIntervalSince(started)
+
+        let reasoning = (response.reasoning ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertTrue(reasoning.isEmpty || reasoning.count < 200,
+                      "关闭思考后不应产出一大段推理（实测 \(reasoning.count) 字符）：\(reasoning.prefix(200))")
+        let cleaned = TranslationRule.clean(response.text)
+        XCTAssertFalse(cleaned.isEmpty, "关掉思考后译文必须仍然拿得到")
+        print("[integration] 关思考翻译耗时 \(String(format: "%.1f", elapsed))s，思考 \(reasoning.count) 字符")
+    }
+
+    func testStreamAgainstRealRuntime() async throws {        let (adapter, config) = try await makeAdapter()
         try await requireRuntime(adapter)
 
         let stream = adapter.stream(

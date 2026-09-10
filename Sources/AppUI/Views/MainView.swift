@@ -73,6 +73,15 @@ public struct MainView: View {
                     scenariosOverlay
                 }
 
+                // 模型启停结果：顶部最前方，向下弹入 → 数秒后向上收起
+                if let toast = state.modelToast {
+                    ModelToastView(toast: toast) { state.dismissModelToast() }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .padding(.top, 18)
+                        .zIndex(50)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
                 // 情景结算提示（星星入账 / 通关）——浮在最上层，数秒后自动消失
                 if let reward = state.lastReward {
                     RewardToast(reward: reward) { state.dismissReward() }
@@ -142,6 +151,17 @@ public struct MainView: View {
         .onChange(of: colorScheme) { _, newValue in
             state.systemIsDark = (newValue == .dark)
         }
+        // 截图/验证辅助：--translate-last 等老师开口后，自动翻译最后一条消息（验证气泡翻译）
+        .task {
+            guard CommandLine.arguments.contains("--translate-last") else { return }
+            // 等首条消息出现且生成结束（老师主动打招呼需要几秒到几十秒）。
+            for _ in 0..<60 where state.chat.messages.isEmpty || state.chat.isGenerating {
+                try? await Task.sleep(for: .seconds(2))
+            }
+            guard !state.chat.messages.isEmpty else { return }
+            guard let last = state.chat.messages.last else { return }
+            await state.translateMessage(last.id)
+        }
     }
 
     // MARK: - 宽度分配
@@ -186,7 +206,11 @@ public struct MainView: View {
                     onOpenScenarios: { Task { await state.openScenarios() } },
                     onEndScenario: { Task { await state.endScenario() } },
                     voiceTranscript: state.voiceTranscript,
-                    modelStoppedNotice: state.llmStoppedNotice
+                    modelStoppedNotice: state.llmStoppedNotice,
+                    starterQuestions: state.starterQuestions,
+                    onTranslate: { id in await state.translateMessage(id) },
+                    translationError: state.translationNotice,
+                    onDismissTranslationError: { state.clearTranslationNotice() }
                 )
             }
         }

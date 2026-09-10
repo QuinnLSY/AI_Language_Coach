@@ -26,6 +26,12 @@ public final class ChatService {
     public private(set) var scenarioProgress: ScenarioProgress?
     /// 本会话按消息记录的纠错（UI 在气泡下方展示「改一改」卡片）。
     public private(set) var correctionsByMessage: [UUID: [GrammarCorrection]] = [:]
+    /// 已取回的译文（messageID → 译文）。**默认不展示**，点翻译按钮才出现。
+    public private(set) var translationsByMessage: [UUID: String] = [:]
+    /// 正在取译文的消息（按钮转圈）。
+    public private(set) var translatingMessageIDs: Set<UUID> = []
+    /// 翻译失败提示（可关闭）。
+    public private(set) var translationError: String?
     /// 本会话累计纠错条数。
     public var correctionCount: Int { correctionsByMessage.values.reduce(0) { $0 + $1.count } }
     /// 上下文占用估算（token）：流式响应通常不回传 usage，用字符数近似
@@ -41,6 +47,10 @@ public final class ChatService {
     /// 会话是否已落库。**启动时不建空会话**——否则「最近会话」永远是新会话，
     /// 上次的练习记录与情景就再也恢复不回来了；首条消息 / 首次进情景时才建行。
     private var didPersistSession = false
+    /// 本次运行是否已经由老师打过招呼（每次打开应用只开一次场）。
+    private var didGreetThisLaunch = false
+    /// 当前正在生成的是开场招呼（学员抢话时可以直接撤掉）。
+    private var isGreeting = false
 
     public init(services: CoachServices) {
         self.services = services
@@ -49,7 +59,10 @@ public final class ChatService {
 
     public func send(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !isGenerating else { return }
+        guard !trimmed.isEmpty else { return }
+        // 老师正在打招呼时学员抢话：先把招呼撤掉，绝不能让这句话石沉大海。
+        if isGreeting { cancel() }
+        guard !isGenerating else { return }
         let message = ChatMessage(role: .user, content: trimmed)
         messages.append(message)
         persist(message)
@@ -144,22 +157,31 @@ public final class ChatService {
         scenarioProgress = nil
         persistScenarioBinding(nil)
         errorMessage = nil
+        translationsByMessage.removeAll()
+        translatingMessageIDs.removeAll()
+        translationError = nil
     }
 
     // MARK: - 内部
 
-    private func generate() async {
-        defer { isGenerating = false }
+    /// 一次生成所需的上下文（Provider 名 / 模型 / 产品配置）。
+    private struct TeacherContext {
+        let configuration: AppConfiguration
+        let providerName: String?
+        let model: String?
+    }
 
+    /// 生成前的统一就绪检查：模型没被关闭 + Provider 已装配（用户手速快于启动时自己补上）。
+    /// 不就绪时已经把可读的错误写进 `errorMessage` 并返回 nil。
+    private func resolveTeacherContext() async -> TeacherContext? {
         let configuration = await services.configuration
-        let providerConfig = configuration.resolvedProvider(for: .llm)
-        let providerName = providerConfig?.userFacingName
+        let providerName = configuration.resolvedProvider(for: .llm)?.userFacingName
         let model = await services.currentLLMModel()
 
         // ① 模型被用户显式关闭 → 立刻明确告诉他怎么办，而不是假装在生成。
         if !(await services.isModelRunning(.llm)) {
             errorMessage = ModelDiagnostics.stoppedHint(providerName: providerName, model: model)
-            return
+            return nil
         }
 
         // ② 应用还没装配好 Provider 就收到了消息（用户手速快于启动）：
@@ -169,9 +191,13 @@ public final class ChatService {
             try await services.ensureLLMReady()
         } catch {
             errorMessage = ModelDiagnostics.describe(providerName: providerName, model: model, error: error)
-            return
+            return nil
         }
+        return TeacherContext(configuration: configuration, providerName: providerName, model: model)
+    }
 
+    /// 老师的人设提示词（含情景角色叠加）。
+    private func systemPrompt(for configuration: AppConfiguration) -> String {
         var systemPrompt = PromptBuilder.teacherSystemPrompt(
             learningLanguage: profile.learningLanguage,
             nativeLanguage: profile.nativeLanguage,
@@ -188,19 +214,37 @@ public final class ChatService {
             )
             systemPrompt += "\n\n" + block
         }
+        return systemPrompt
+    }
 
+    private func request(context: TeacherContext, systemPrompt: String, history: [LLMMessage]) -> LLMRequest {
+        let providerConfig = context.configuration.resolvedProvider(for: .llm)
         var llmMessages = [LLMMessage(role: .system, content: systemPrompt)]
-        llmMessages.append(contentsOf: messages.map { LLMMessage(role: $0.role, content: $0.content) })
-
-        let request = LLMRequest(
+        llmMessages.append(contentsOf: history)
+        return LLMRequest(
             messages: llmMessages,
-            model: model,
+            model: context.model,
             temperature: providerConfig?.temperature,
             topP: providerConfig?.topP,
             maxTokens: providerConfig?.maxTokens,
             streaming: true
         )
+    }
 
+    private func generate() async {
+        // 被取消时**不要**顺手清掉 isGenerating：见 generateGreeting() 的同款注释。
+        defer { if !Task.isCancelled { isGenerating = false } }
+
+        guard let context = await resolveTeacherContext() else { return }
+        let configuration = context.configuration
+        let providerName = context.providerName
+        let model = context.model
+
+        let request = self.request(
+            context: context,
+            systemPrompt: systemPrompt(for: configuration),
+            history: messages.map { LLMMessage(role: $0.role, content: $0.content) }
+        )
         let tokensBefore = estimatedContextTokens
         var accumulated = ""
         var reasoning = ""
@@ -270,6 +314,111 @@ public final class ChatService {
         errorMessage = ModelDiagnostics.label(providerName: providerName, model: model)
             + " 这次没有给出回复（可能把输出额度都用在思考上了）。请再发一次，或换个模型试试。"
     }
+
+    // MARK: - 开场招呼（打开应用时老师先开口）
+
+    /// 应用打开、服务就绪后由**老师先打招呼**，开启本次学习。
+    ///
+    /// 存在的理由：以前「打开应用 → 学员立刻发第一句」，而此时 LLM Provider 可能还没装配完，
+    /// 那一句就石沉大海了。现在改成老师先开口，学员看到老师说话就知道可以开口了。
+    ///
+    /// 每次打开应用只开场一次；已在生成 / 已在情景中（情景有自己的开场白）则不插话。
+    public func greetIfNeeded() {
+        guard !didGreetThisLaunch, !isGenerating, scenarioProgress == nil else { return }
+        didGreetThisLaunch = true
+        isGreeting = true
+        isGenerating = true
+        errorMessage = nil
+        generationTask = Task { [weak self] in
+            await self?.generateGreeting()
+        }
+    }
+
+    private func generateGreeting() async {
+        defer {
+            isGreeting = false
+            // 被取消时不抢状态：「学员抢话」这条路径是 send() 先 cancel() 再起新的生成，
+            // 这里若顺手清掉 isGenerating，新消息刚点亮的「生成中」会立刻被抹掉。
+            if !Task.isCancelled { isGenerating = false }
+        }
+        guard let context = await resolveTeacherContext() else { return }
+        var request = self.request(
+            context: context,
+            systemPrompt: systemPrompt(for: context.configuration),
+            // 带上已有历史：恢复的会话里老师会自然地说「欢迎回来」，而不是重复自我介绍。
+            history: messages.map { LLMMessage(role: $0.role, content: $0.content) }
+                + [LLMMessage(role: .user,
+                              content: PromptBuilder.greetingPrompt(
+                                learningLanguage: profile.learningLanguage,
+                                nativeLanguage: profile.nativeLanguage))]
+        )
+        // 招呼很短，不需要逐 token 上屏；一次性拿回来即可。
+        request.streaming = false
+
+        let tokensBefore = estimatedContextTokens
+        guard let response = try? await services.llm.generate(request) else { return }
+        let text = Self.stripThinking(response.text).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !Task.isCancelled else { return }
+        let parsed = Self.extractCorrections(text)
+        guard !parsed.cleanText.isEmpty else { return }
+        let message = ChatMessage(role: .assistant, content: parsed.cleanText)
+        messages.append(message)
+        persist(message)
+        if !parsed.corrections.isEmpty {
+            correctionsByMessage[message.id] = parsed.corrections
+            persistCorrections(parsed.corrections)
+        }
+        DailyTokenCounter.add(max(estimatedContextTokens - tokensBefore, 0))
+    }
+
+    // MARK: - 气泡翻译（按需）
+
+    /// 取某条消息的译文；**再点一次收起**（译文默认不展示）。
+    ///
+    /// 译文不进对话历史，也不进上下文窗口 —— 翻译只在 UI 上按需展示。
+    public func translate(messageID: UUID) async {
+        guard messages.contains(where: { $0.id == messageID }) else { return }
+        if translationsByMessage[messageID] != nil {
+            translationsByMessage.removeValue(forKey: messageID)
+            return
+        }
+        guard !translatingMessageIDs.contains(messageID) else { return }
+        translatingMessageIDs.insert(messageID)
+        defer { translatingMessageIDs.remove(messageID) }
+        translationError = nil
+        let source = messages.first(where: { $0.id == messageID })?.content ?? ""
+        guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        // 模型被显式关闭时，直接给「去哪打开」的提示，而不是笼统的「未就绪」——
+        // 与对话生成（generate）保持同一套口径。
+        if !(await services.isModelRunning(.llm)) {
+            let configuration = await services.configuration
+            translationError = ModelDiagnostics.stoppedHint(
+                providerName: configuration.resolvedProvider(for: .llm)?.userFacingName,
+                model: await services.currentLLMModel()
+            )
+            return
+        }
+        do {
+            let result = try await services.translate(source, targetLanguage: profile.nativeLanguage)
+            guard !Task.isCancelled else { return }
+            guard !result.isEmpty else {
+                translationError = "没有拿到翻译结果，请再点一次翻译。"
+                return
+            }
+            translationsByMessage[messageID] = result
+        } catch {
+            guard !Task.isCancelled else { return }
+            let configuration = await services.configuration
+            translationError = ModelDiagnostics.describe(
+                providerName: configuration.resolvedProvider(for: .llm)?.userFacingName,
+                model: await services.currentLLMModel(),
+                error: error
+            )
+        }
+    }
+
+    /// 关闭翻译失败提示。
+    public func clearTranslationError() { translationError = nil }
 
     /// 无流式兜底：同样请求再走一次非流式通道，返回可用的正文（失败返回 nil）。
     private func nonStreamingFallback(_ request: LLMRequest) async -> String? {

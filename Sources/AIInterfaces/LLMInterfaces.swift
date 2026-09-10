@@ -26,6 +26,15 @@ public struct LLMRequest: Sendable {
     public var maxTokens: Int?
     public var streaming: Bool
     public var responseFormat: LLMResponseFormat
+    /// 单次请求覆盖推理强度（`none` / `low` / `medium` / `high`）。
+    ///
+    /// 用途：**确定性短任务**（翻译、拼写纠正）显式传 `"none"`。
+    /// 推理模型（qwen3:8b / deepseek-r1）默认会先吐一大段思考，实测同一句翻译
+    /// **24.8s（思考 1596 字符）→ 1.4s（无思考）**，而译文完全一致——思考在这里纯属浪费，
+    /// 冷加载或显存紧张时还会把请求顶到超时。
+    ///
+    /// nil = 不干预，由 Provider 自己的配置决定（对话/老师回复就走这条，尊重用户的推理档位）。
+    public var reasoningEffort: String?
 
     public init(
         messages: [LLMMessage],
@@ -34,7 +43,8 @@ public struct LLMRequest: Sendable {
         topP: Double? = nil,
         maxTokens: Int? = nil,
         streaming: Bool = false,
-        responseFormat: LLMResponseFormat = .text
+        responseFormat: LLMResponseFormat = .text,
+        reasoningEffort: String? = nil
     ) {
         self.messages = messages
         self.model = model
@@ -43,7 +53,15 @@ public struct LLMRequest: Sendable {
         self.maxTokens = maxTokens
         self.streaming = streaming
         self.responseFormat = responseFormat
+        self.reasoningEffort = reasoningEffort
     }
+
+    /// `reasoningEffort` 的「关掉思考」取值。
+    ///
+    /// 确定性短任务（翻译、拼写纠正）用它：推理模型（qwen3:8b / deepseek-r1）默认会先吐
+    /// 一大段思考，实测同一句翻译 **24.8s（思考 1596 字符）→ 1.4s（无思考）**，译文完全一致。
+    /// 不支持的模型会忽略该字段（实测 Mistral:7b 无副作用）。
+    public static let noThinkingEffort = "none"
 }
 
 public struct LLMUsage: Sendable, Equatable {

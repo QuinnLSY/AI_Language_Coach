@@ -112,4 +112,41 @@ public enum PromptBuilder {
         }
         return template.replacingOccurrences(of: "{sentence}", with: sentence)
     }
+
+    /// 打开应用时老师的开场白（**老师先开口**，避免学员抢在服务就绪前发第一句）。
+    /// 模板走 `Resources/Prompts/greeting.txt`，缺失时用等价内联兜底。
+    public static func greetingPrompt(learningLanguage: String, nativeLanguage: String) -> String {
+        let template: String
+        if let url = AppResourceBundle.module.url(forResource: "Prompts/greeting", withExtension: "txt"),
+           let loaded = try? String(contentsOf: url, encoding: .utf8) {
+            template = loaded
+        } else {
+            template = """
+            Open this practice session: greet the learner in {learning_language} in one or two \
+            short sentences and invite them to say something. No translations, no notes.
+            """
+        }
+        return template
+            .replacingOccurrences(of: "{learning_language}", with: learningLanguage)
+            .replacingOccurrences(of: "{native_language}", with: nativeLanguage)
+    }
+
+    /// 气泡翻译（点开才调用）。模板走 `Resources/Prompts/translate.txt`，缺失时用等价内联兜底。
+    public static func translationPrompt(text: String, targetLanguage: String) -> String {
+        let template: String
+        if let url = AppResourceBundle.module.url(forResource: "Prompts/translate", withExtension: "txt"),
+           let loaded = try? String(contentsOf: url, encoding: .utf8) {
+            template = loaded
+        } else {
+            template = """
+            Translate the text below into {target_language}. Reply with the translation only.
+
+            Text:
+            {text}
+            """
+        }
+        return template
+            .replacingOccurrences(of: "{target_language}", with: targetLanguage)
+            .replacingOccurrences(of: "{text}", with: text)
+    }
 }
