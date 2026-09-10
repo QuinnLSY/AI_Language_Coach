@@ -100,6 +100,12 @@ public final class AppState {
     public var customModelDrafts: [String: String] = [:]
     /// 中栏切换：学习记录页（false = 练习对话）。
     public var showingRecords = false
+    /// 情景选择浮层开关（应用内 overlay，随日夜主题）。
+    public var showingScenarios = false
+    /// 内置情景场景（数据来自资源文件；空 = 资源缺失，UI 给可操作提示）。
+    public private(set) var scenarios: [Scenario] = []
+    /// 是否已尝试加载过场景（用于区分「加载中」与「确实为空」）。
+    public private(set) var didLoadScenarios = false
     /// 学习记录数据（进入页面时加载）。
     public private(set) var records: [SessionSummary] = []
     public private(set) var mistakes: [GrammarCorrection] = []
@@ -637,6 +643,44 @@ public final class AppState {
 
     public func openPractice() async {
         showingRecords = false
+    }
+
+    // MARK: - 情景对话（Role Play，第 21 步）
+
+    /// 进行中的情景（nil = 普通练习）。UI 只读。
+    public var activeScenario: ScenarioProgress? { chat.scenarioProgress }
+
+    /// 打开情景选择浮层（顺手加载场景列表）。
+    public func openScenarios() async {
+        await loadScenarios()
+        showingScenarios = true
+    }
+
+    public func closeScenarios() {
+        showingScenarios = false
+    }
+
+    /// 加载内置场景（只读资源文件；失败时保持空列表，由 UI 提示）。
+    public func loadScenarios() async {
+        guard !didLoadScenarios else { return }
+        scenarios = await services.availableScenarios()
+        didLoadScenarios = true
+    }
+
+    /// 进入某个情景：切到情景对话模式、清掉记录页、老师以角色开场。
+    public func startScenario(_ scenario: Scenario) async {
+        showingRecords = false
+        showingScenarios = false
+        if product.practiceMode != .conversation {
+            product.practiceMode = .conversation
+            await persistProduct()
+        }
+        chat.startScenario(scenario)
+    }
+
+    /// 结束当前情景（对话内容保留）。
+    public func endScenario() {
+        chat.endScenario()
     }
 
     public func loadRecords() async {

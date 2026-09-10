@@ -1,0 +1,17 @@
+{
+  "id": "shopping",
+  "title": "Shopping",
+  "titleZh": "逛街购物",
+  "category": "日常",
+  "difficulty": 2,
+  "level": "A2",
+  "objective": "Buy clothes in a shop: ask for a size and colour, try something on and pay.",
+  "aiRole": "a helpful shop assistant",
+  "learnerRole": "a customer looking for clothes",
+  "opening": "Hi there! Let me know if you need any help finding something.",
+  "targetVocabulary": ["size", "discount", "try on", "fitting room", "receipt", "cash"],
+  "targetGrammar": ["comparatives (smaller, cheaper)", "Do you have ... in ...?", "How much is/are ...?"],
+  "maxTurns": 12,
+  "correctionMode": "balanced",
+  "icon": "bag.fill"
+}

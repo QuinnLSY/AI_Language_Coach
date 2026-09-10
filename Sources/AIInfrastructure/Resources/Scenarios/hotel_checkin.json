@@ -1,0 +1,17 @@
+{
+  "id": "hotel_checkin",
+  "title": "Hotel Check-in",
+  "titleZh": "酒店入住",
+  "category": "旅行",
+  "difficulty": 2,
+  "level": "A2",
+  "objective": "Check in at a hotel, confirm your booking and ask about facilities and breakfast.",
+  "aiRole": "a receptionist at the hotel front desk",
+  "learnerRole": "a guest who has just arrived with a reservation",
+  "opening": "Good afternoon, welcome to the Riverside Hotel. Do you have a reservation with us?",
+  "targetVocabulary": ["reservation", "room key", "check out", "breakfast", "extra towels", "wifi"],
+  "targetGrammar": ["I have a booking under ...", "Is there ...?", "What time does ...?"],
+  "maxTurns": 12,
+  "correctionMode": "balanced",
+  "icon": "bed.double.fill"
+}

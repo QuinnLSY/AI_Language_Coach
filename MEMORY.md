@@ -155,34 +155,40 @@ M1 Pro / 16GB：TTS 先 0.6B，benchmark 后再考虑 1.7B；优先保证 ASR+LL
 **禁止一上来就把 runtime 调用塞进 Agent。**
 **验收硬指标**：WhisperKit→其他 ASR、Qwen3→其他 LLM、Qwen3-TTS→GPT-SoVITS、Silero→其他 VAD、Ollama Embedding→MLX、发音 Pipeline A→B —— 全部替换**不动任何 Agent**；甚至 runtime 从 Ollama 换成 MLX/llama.cpp 跑同一个 Qwen3，也只改 Adapter/Provider 层。
 
-### 当前进度（2026-09-10 下午）
+### 当前进度（2026-09-10 傍晚）
 
-**Phase 0 + UI 大改版 + 第 14 步（SQLite）+ 第 17/18 步（ASR/TTS 本地）+ 第 20 步（Session 总结）已完成**；学习数据库 schema 升到 **v3**（新增 `session_reviews`）。
+**Phase 0 + UI 大改版 + 第 14 步（SQLite）+ 第 17/18 步（ASR/TTS 本地）+ 第 20 步（Session 总结）+ 第 21 步（情景对话）已完成**；学习数据库 schema 仍为 **v3**。
 
 ```
-AIServices/    新增 SessionReviewService（练习复盘：LLM 生成 JSON 总结 + heuristic 规则兜底 + 落库）
-AIInfra/       AudioPlayback 支持 0.5–3× 变速（AVAudioEngine + AVAudioUnitTimePitch，保持音高）
-AIInfra/       Prompts/session_review.txt（复盘 Prompt，版本化）
-AppUI/         RecordsView 新增「练习复盘」卡（生成按钮/新词/优点/待改进/建议）
-AppUI/         ChatView「听老师读」右侧语速胶囊（与设置页语音卡同一份配置，双向同步）；按钮点击边缘高亮
-AppUI/         ForestGroundBand：小动物气泡改为每只独立持有（bubbleTexts/stamps），最新气泡 zIndex 最大
-AppCore/       ProductConfig 新增 speechRate（SpeechRate 枚举 6 档，非法取值自动落最近档）
-Tests/         69 个测试（新增 SessionReviewTests 9 个 + 真实模型复盘集成测试），全部通过
+AIDomain/      新增 Scenario / ScenarioCorrectionMode / ScenarioProgress（情景对话领域模型）
+AIInfra/       Resources/Scenarios/*.json（7 个内置场景，数据驱动）+ ScenarioCatalog 加载器（坏文件跳过、空目录返回空）
+AIInfra/       Prompts/scenario.txt（角色扮演 Prompt，版本化）+ PromptBuilder.scenarioBlock
+AIServices/    ChatService 持有情景状态（开场白注入 / 每轮计数 / 结束复位）；CoachServices.availableScenarios
+AppUI/         ScenarioPickerView（分组卡片）；侧边栏「情景对话」入口；ChatView 场景胶囊 + 目标条
+AppUI/         ThinkingPanel：背景更透（0.42）+ 高度自适应（最多 6 行，不足按实际收窄）
+Tests/         95 个测试（新增 ScenarioTests 12 个），全部通过
 ```
 
 ### 截图验证工作流（重要，已踩坑）
 
 1. App 进程会随 shell 命令结束被杀 → **启动 + sleep + 截屏必须在同一条 Bash 命令内**（非沙箱运行）。
 2. `open` 二进制会触发 Gatekeeper 沙箱弹窗（"不允许在终端中打开文档"），且弹窗杀不掉会常驻 → **不要用 `open`**，直接 `.build/debug/AILanguageCoach &`。
-3. 系统弹窗会污染全屏截图 → 用 `screencapture -l<windowID>` 按窗口 ID 截干净画面（窗口 ID 用 swift + CGWindowListCopyWindowInfo 获取，脚本已验证）。
-4. 主题切换验证走配置文件：`.workbuddy/app-config/config.json` 的 `product.theme_mode`（snake_case！不是 themeMode）→ 改后重启进程即可，无需点 UI。
-5. `--open-settings` 启动参数可直接打开设置面板，用于动物/模型设置的截图验证。
+3. 系统弹窗会污染全屏截图 → 用 `screencapture -l<windowID>` 按窗口 ID 截干净画面（窗口 ID 用 `swift .workbuddy/tmp/wid.swift` 获取，bounds 用 `bounds.swift`）。
+4. 主题切换验证走配置文件：`.workbuddy/app-config/config.json` 的 `product.theme_mode`（snake_case！）→ 改后重启进程即可。
+   - **更省事的新办法**：`--theme night|day|system` 启动参数（只改内存、不写配置），无需碰配置文件。
+5. **启动参数（全部与 `--open-settings` 同类，仅用于截图/端到端验证）**：
+   - `--open-settings` 打开设置面板；`--open-records` 进学习记录页；`--open-scenarios` 打开情景选择面板
+   - `--scenario <id>` 启动即进入某情景；`--send "文本"` 启动后自动发一条消息；`--auto-speak` 打开自动朗读
+   - `--theme day|night|system` 临时切主题（不落盘）
+6. ⚠️ **CGEvent 合成点击（click.swift）在本机会被静默丢弃**（无辅助功能权限），osascript 点击对 SwiftUI 按钮时灵时不灵 → UI 验证以「启动参数 + 截图」为准，不要依赖点击。
 
 ### 下一步（按路线图）
 
-1. 第 15 步学习记忆继续深化：关卡进度与练习结算联动（completeLevel 已实现，待接复盘结论）。
-2. 第 21 步场景系统（Scenario System）→ 情景对话模式真正落地。
-3. 词汇本（侧边栏"词汇本"入口已留）：把复盘 new_words 沉淀为可复习的词汇表。
+1. 情景对话继续深化：场景 id 落库（sessions 表加 scenario_id，技术设计 §5.3）+ 与关卡（TreeLevel）联动。
+2. 第 15 步学习记忆继续深化：关卡进度与练习结算联动（completeLevel 已实现，待接复盘结论）。
+3. 第 22 步 Shadowing（跟读）→ 复用分句流水线 + 变速播放能力。
+4. 词汇本（侧边栏"词汇本"入口已留）：把复盘 new_words 与场景 target_vocabulary 沉淀为可复习的词汇表。
+
 
 ---
 

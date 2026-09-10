@@ -22,6 +22,8 @@ public final class ChatService {
     public var profile: LearnerProfile = LearnerProfile()
     /// 当前练习会话（持久化用）。
     public private(set) var sessionID: UUID
+    /// 进行中的情景对话（nil = 普通练习）。场景数据来自资源文件，UI 不内置。
+    public private(set) var scenarioProgress: ScenarioProgress?
     /// 本会话按消息记录的纠错（UI 在气泡下方展示「改一改」卡片）。
     public private(set) var correctionsByMessage: [UUID: [GrammarCorrection]] = [:]
     /// 本会话累计纠错条数。
@@ -52,12 +54,37 @@ public final class ChatService {
         let message = ChatMessage(role: .user, content: trimmed)
         messages.append(message)
         persist(message)
+        // 情景对话：学员每发一次言记一轮，用于给老师「还剩几轮」的收尾提示。
+        if scenarioProgress != nil { scenarioProgress?.turnsUsed += 1 }
         streamingText = ""
         errorMessage = nil
         isGenerating = true
         generationTask = Task { [weak self] in
             await self?.generate()
         }
+    }
+
+    // MARK: - 情景对话（Role Play，Implementation Plan §21）
+
+    /// 进入一个情景：老师先以角色身份开场，之后每次回复都带着场景指令。
+    /// 场景本体来自 `ScenarioCatalog`（资源文件），本层不做任何场景判断。
+    public func startScenario(_ scenario: Scenario) {
+        cancel()
+        streamingText = ""
+        streamingReasoning = ""
+        isThinking = false
+        errorMessage = nil
+        scenarioProgress = ScenarioProgress(scenario: scenario)
+        let opening = scenario.opening.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !opening.isEmpty else { return }
+        let message = ChatMessage(role: .assistant, content: opening)
+        messages.append(message)
+        persist(message)
+    }
+
+    /// 退出情景，回到普通练习（已产生的对话保留）。
+    public func endScenario() {
+        scenarioProgress = nil
     }
 
     private func persist(_ message: ChatMessage) {
@@ -86,6 +113,8 @@ public final class ChatService {
         cancel()
         messages.removeAll()
         streamingText = ""
+        streamingReasoning = ""
+        scenarioProgress = nil
         errorMessage = nil
     }
 
@@ -98,12 +127,22 @@ public final class ChatService {
         let providerConfig = configuration.resolvedProvider(for: .llm)
         let model = await services.currentLLMModel()
 
-        let systemPrompt = PromptBuilder.teacherSystemPrompt(
+        var systemPrompt = PromptBuilder.teacherSystemPrompt(
             learningLanguage: profile.learningLanguage,
             nativeLanguage: profile.nativeLanguage,
             proficiency: profile.proficiency.displayName,
             practiceMode: configuration.product.practiceMode
         )
+        // 情景对话：在老师人设之后再叠一层角色扮演指令（场景数据驱动，不写死在业务里）。
+        if let progress = scenarioProgress {
+            let block = PromptBuilder.scenarioBlock(
+                scenario: progress.scenario,
+                turnsRemaining: progress.turnsRemaining,
+                learningLanguage: profile.learningLanguage,
+                nativeLanguage: profile.nativeLanguage
+            )
+            systemPrompt += "\n\n" + block
+        }
 
         var llmMessages = [LLMMessage(role: .system, content: systemPrompt)]
         llmMessages.append(contentsOf: messages.map { LLMMessage(role: $0.role, content: $0.content) })

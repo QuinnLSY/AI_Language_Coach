@@ -1,0 +1,17 @@
+{
+  "id": "daily_small_talk",
+  "title": "Daily Small Talk",
+  "titleZh": "日常闲聊",
+  "category": "日常",
+  "difficulty": 1,
+  "level": "A1-A2",
+  "objective": "Chat naturally about your day, hobbies and weekend plans.",
+  "aiRole": "a friendly neighbour you meet on the street",
+  "learnerRole": "a learner making small talk in English",
+  "opening": "Hey, long time no see! How have you been lately?",
+  "targetVocabulary": ["weekend", "hobby", "weather", "busy", "by the way", "catch up"],
+  "targetGrammar": ["present continuous", "going to for plans", "short answers"],
+  "maxTurns": 12,
+  "correctionMode": "gentle",
+  "icon": "cup.and.saucer.fill"
+}

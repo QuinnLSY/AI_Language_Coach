@@ -74,9 +74,17 @@ public struct AppSidebar: View {
             navItem(
                 icon: "leaf.fill",
                 title: "练习",
-                isActive: !state.showingSettings && !state.showingRecords
+                isActive: !state.showingSettings && !state.showingRecords && !state.showingScenarios
             ) {
                 Task { await state.openPractice() }
+            }
+
+            navItem(
+                icon: "map.fill",
+                title: "情景对话",
+                isActive: state.showingScenarios
+            ) {
+                Task { await state.openScenarios() }
             }
 
             navItem(

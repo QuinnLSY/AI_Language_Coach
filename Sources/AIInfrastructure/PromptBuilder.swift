@@ -1,3 +1,4 @@
+import AIDomain
 import AppCore
 import Foundation
 
@@ -40,6 +41,52 @@ public enum PromptBuilder {
             .replacingOccurrences(of: "{learning_language}", with: learningLanguage)
             .replacingOccurrences(of: "{native_language}", with: nativeLanguage)
             .replacingOccurrences(of: "{proficiency}", with: proficiency)
+    }
+
+    /// 情景对话：把场景结构化配置转成给老师的角色扮演指令。
+    ///
+    /// 模板走 `Resources/Prompts/scenario.txt`（版本化，Prompt 不写在 Service / UI 里）；
+    /// 模板缺失时用等价的英文内联兜底，保证场景仍可玩。
+    public static func scenarioBlock(
+        scenario: Scenario,
+        turnsRemaining: Int,
+        learningLanguage: String,
+        nativeLanguage: String
+    ) -> String {
+        let vocabulary = scenario.targetVocabulary.isEmpty ? "(none in particular)" : scenario.targetVocabulary.joined(separator: ", ")
+        let grammar = scenario.targetGrammar.isEmpty ? "(none in particular)" : scenario.targetGrammar.joined(separator: ", ")
+        // 只剩最后一轮时明确收尾，避免模型无限拖戏。
+        let remainingNote = turnsRemaining <= 1
+            ? "This is the final turn of the scene."
+            : "There are \(turnsRemaining) learner turns left in this scene."
+        let template: String
+        if let url = Bundle.module.url(forResource: "Prompts/scenario", withExtension: "txt"),
+           let loaded = try? String(contentsOf: url, encoding: .utf8) {
+            template = loaded
+        } else {
+            template = """
+            Role play scenario
+            - Scenario: {scenario_title}
+            - You are playing: {ai_role}
+            - The learner is playing: {learner_role}
+            - Goal of the scene: {objective}
+            - Correction style: {correction_mode}
+            3. {remaining_note}
+            Stay in character and keep replies to 2-3 short sentences.
+            """
+        }
+        return template
+            .replacingOccurrences(of: "{scenario_title}", with: scenario.title)
+            .replacingOccurrences(of: "{ai_role}", with: scenario.aiRole)
+            .replacingOccurrences(of: "{learner_role}", with: scenario.learnerRole)
+            .replacingOccurrences(of: "{objective}", with: scenario.objective)
+            .replacingOccurrences(of: "{level}", with: scenario.level)
+            .replacingOccurrences(of: "{target_vocabulary}", with: vocabulary)
+            .replacingOccurrences(of: "{target_grammar}", with: grammar)
+            .replacingOccurrences(of: "{correction_mode}", with: scenario.correctionMode.instruction)
+            .replacingOccurrences(of: "{remaining_note}", with: remainingNote)
+            .replacingOccurrences(of: "{learning_language}", with: learningLanguage)
+            .replacingOccurrences(of: "{native_language}", with: nativeLanguage)
     }
 
     private static func fallbackSystemPrompt(learningLanguage: String) -> String {

@@ -539,3 +539,13 @@ Known Limitations / Unverified Assumptions / Next Recommended Task
   - 不做 codesign：本机构建无 quarantine，双击可跑；整包签名会报 "unsealed contents present in the bundle root"（资源 bundle 在根目录所致）。
   - **release 增量构建可能漏更新可执行文件**（"Build complete 0.19s" 假象）——验证行为前 `rm -rf .build/arm64-apple-macosx/release` 全量重建；且 release 二进制里 grep 不到 Swift 字符串字面量不代表没编进去，以行为验证为准。
 - **终端验证**：应用窗口 owner 名取自 CFBundleDisplayName（现为「语林 AI Language Coach」），`wid.swift / bounds.swift / activate.swift` 均已兼容中文名；**zsh 数组下标从 1 开始**（`$B[0]` 为空）；`open --args` 传参不可靠，验证用启动参数时直接运行二进制（注意：直接运行 bundle 内二进制可能出现 138pt 小窗口，`open` 正常；异常小窗口时 `defaults delete com.ailanguagecoach.app` 清 frame）。截图辅助：`--open-settings` / `--open-records`。
+- **启动参数（截图 / 端到端验证专用，全部只影响本次进程）**：
+  | 参数 | 作用 |
+  |---|---|
+  | `--open-settings` / `--open-records` / `--open-scenarios` | 启动即打开设置 / 学习记录 / 情景选择 |
+  | `--scenario <id>` | 启动即进入某个情景（id 见 `Sources/AIInfrastructure/Resources/Scenarios/`） |
+  | `--send "文本"` | 启动 1s 后自动发一条消息（端到端发消息验证） |
+  | `--auto-speak` | 启动即打开自动朗读 |
+  | `--theme day\|night\|system` | **临时**切换主题（只改内存，**不写配置文件**）——验证夜晚主题靠它，别再改 config.json |
+- ⚠️ **不要依赖合成点击做 UI 验证**：CGEvent 合成鼠标事件（`.workbuddy/tmp/click.swift`）在本机无辅助功能权限时会被**静默丢弃**，osascript 点击对 SwiftUI 按钮时灵时不灵。验证一律走「启动参数 + `screencapture -l<windowID>` 截图」+ 单测/集成测试。
+- **截图尺寸换算**：`screencapture -l` 的 PNG 是 2× 且含窗口阴影边距（约 34pt/边），不能把截图像素坐标直接当屏幕点击坐标用。

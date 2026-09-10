@@ -1,4 +1,5 @@
 import AIDomain
+import AppCore
 import AppKit
 import SwiftUI
 
@@ -55,6 +56,10 @@ public struct MainView: View {
                 if state.showingSettings {
                     settingsOverlay
                 }
+
+                if state.showingScenarios {
+                    scenariosOverlay
+                }
             }
         }
         .frame(minWidth: 1080, minHeight: 720)
@@ -63,16 +68,34 @@ public struct MainView: View {
         .preferredColorScheme(state.theme.isNight ? .dark : .light)
         .animation(.easeInOut(duration: 0.5), value: state.theme.palette)
         .animation(.easeOut(duration: 0.22), value: state.showingSettings)
+        .animation(.easeOut(duration: 0.22), value: state.showingScenarios)
         .task {
             state.systemIsDark = (colorScheme == .dark)
             await state.start()
+            await state.loadScenarios()
+            // 截图/验证辅助：--theme day|night|system 临时切换主题（**不写入配置**）
+            if let index = CommandLine.arguments.firstIndex(of: "--theme"),
+               index + 1 < CommandLine.arguments.count,
+               let mode = ThemeMode(rawValue: CommandLine.arguments[index + 1]) {
+                state.themeMode = mode
+            }
             // 截图/验证辅助：--open-settings 启动时直接打开设置面板
             if CommandLine.arguments.contains("--open-settings") {
                 state.showingSettings = true
             }
+            // 截图/验证辅助：--open-scenarios 启动时直接打开情景选择面板
+            if CommandLine.arguments.contains("--open-scenarios") {
+                state.showingScenarios = true
+            }
             // 截图/验证辅助：--open-records 启动时直接进入学习记录页
             if CommandLine.arguments.contains("--open-records") {
                 Task { await state.openRecords() }
+            }
+            // 端到端验证辅助：--scenario <id> 启动后直接进入某个情景
+            if let index = CommandLine.arguments.firstIndex(of: "--scenario"),
+               index + 1 < CommandLine.arguments.count,
+               let scenario = state.scenarios.first(where: { $0.id == CommandLine.arguments[index + 1] }) {
+                await state.startScenario(scenario)
             }
             // 端到端验证辅助：--send "文本" 启动后自动发送一条消息
             if let index = CommandLine.arguments.firstIndex(of: "--send"),
@@ -128,7 +151,10 @@ public struct MainView: View {
                     speechPhase: state.speechPhase,
                     speakingText: state.speakingText,
                     speechRate: state.speechRate,
-                    onSpeechRateChange: { rate in Task { await state.setSpeechRate(rate) } }
+                    onSpeechRateChange: { rate in Task { await state.setSpeechRate(rate) } },
+                    scenario: state.activeScenario,
+                    onOpenScenarios: { Task { await state.openScenarios() } },
+                    onEndScenario: { state.endScenario() }
                 )
             }
         }
@@ -266,6 +292,32 @@ public struct MainView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
         }
         .zIndex(20)
+    }
+
+    // MARK: - 情景选择浮层（数据驱动，随日夜主题）
+
+    private var scenariosOverlay: some View {
+        ZStack {
+            state.theme.scrim
+                .contentShape(Rectangle())
+                .onTapGesture { state.closeScenarios() }
+
+            ScenarioPickerView(state: state) { state.closeScenarios() }
+                .frame(width: 720)
+                .frame(maxHeight: 720)
+                .background(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(state.theme.panel)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .strokeBorder(state.theme.divider, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .shadow(color: state.theme.shadow, radius: 30, x: 0, y: 14)
+                .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
+        }
+        .zIndex(18)
     }
 
     // MARK: -

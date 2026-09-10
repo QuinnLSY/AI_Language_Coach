@@ -40,6 +40,12 @@ public struct ChatView: View {
     var speechRate: Double = SpeechRate.x1.rawValue
     /// 切换语速（设置页与对话区共用同一份配置，双向同步）。
     var onSpeechRateChange: ((Double) -> Void)? = nil
+    /// 进行中的情景对话（nil = 普通练习）：头部显示场景胶囊，下方显示目标条。
+    var scenario: ScenarioProgress? = nil
+    /// 打开情景选择面板。
+    var onOpenScenarios: (() -> Void)? = nil
+    /// 结束当前情景。
+    var onEndScenario: (() -> Void)? = nil
 
     @State private var input: String = ""
     @FocusState private var isInputFocused: Bool
@@ -59,7 +65,10 @@ public struct ChatView: View {
                 speechPhase: SpeechPhase = .idle,
                 speakingText: String? = nil,
                 speechRate: Double = SpeechRate.x1.rawValue,
-                onSpeechRateChange: ((Double) -> Void)? = nil) {
+                onSpeechRateChange: ((Double) -> Void)? = nil,
+                scenario: ScenarioProgress? = nil,
+                onOpenScenarios: (() -> Void)? = nil,
+                onEndScenario: (() -> Void)? = nil) {
         self.chat = chat
         self.modelName = modelName
         self.health = health
@@ -79,12 +88,19 @@ public struct ChatView: View {
         self.speakingText = speakingText
         self.speechRate = speechRate
         self.onSpeechRateChange = onSpeechRateChange
+        self.scenario = scenario
+        self.onOpenScenarios = onOpenScenarios
+        self.onEndScenario = onEndScenario
     }
 
     public var body: some View {
         VStack(spacing: 0) {
             header
             Divider().overlay(theme.divider)
+            if let scenario {
+                scenarioStrip(scenario)
+                Divider().overlay(theme.divider)
+            }
             messageArea
             inputBar
             contextStrip
@@ -115,6 +131,51 @@ public struct ChatView: View {
 
             Spacer()
 
+            if let scenario {
+                HStack(spacing: 6) {
+                    Image(systemName: scenario.scenario.icon)
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("\(scenario.scenario.titleZh) · \(scenario.turnsText)")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    if scenario.isFinalTurn {
+                        Text("收尾")
+                            .font(.system(size: 9, weight: .semibold, design: .rounded))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(theme.accent.opacity(0.22)))
+                    }
+                    Button {
+                        onEndScenario?()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                    .help("结束情景对话")
+                }
+                .foregroundStyle(theme.accent)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(theme.selection))
+            } else {
+                Button {
+                    onOpenScenarios?()
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "map.fill")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text("情景")
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(theme.secondaryText)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(theme.hover))
+                }
+                .buttonStyle(.plain)
+                .help("选择情景对话场景")
+            }
+
             if let modelName, !modelName.isEmpty {
                 Text(headerModelCaption(modelName))
                     .font(.system(size: 10, design: .rounded))
@@ -126,6 +187,51 @@ public struct ChatView: View {
         }
         .padding(.horizontal, 18)
         .frame(height: 64)
+    }
+
+    // MARK: - 情景目标条（数据来自场景本体，UI 不解释语义）
+
+    private func scenarioStrip(_ progress: ScenarioProgress) -> some View {
+        let scenario = progress.scenario
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "target")
+                .font(.system(size: 11))
+                .foregroundStyle(theme.accent)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text("你是 \(scenario.learnerRole)")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                    Text("· \(scenario.level) · 纠错\(scenario.correctionMode.displayName)")
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                if !scenario.objective.isEmpty {
+                    Text(scenario.objective)
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !scenario.targetVocabulary.isEmpty {
+                    HStack(spacing: 5) {
+                        ForEach(scenario.targetVocabulary.prefix(6), id: \.self) { word in
+                            Text(word)
+                                .font(.system(size: 9, design: .rounded))
+                                .foregroundStyle(theme.secondaryText)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(theme.surfaceAlt))
+                        }
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.selection.opacity(0.35))
     }
 
     /// 右上角胶囊：模型名 · 推理强度（如「qwen3:8b · 高」）。
@@ -611,7 +717,8 @@ public struct ChatView: View {
 // MARK: - 思考过程折叠面板
 
 /// 推理模型的思考过程：卡片内嵌面板，箭头切换展开/收起（默认展开）。
-/// 固定高度只露出最新内容（约 10 行），滚动可回看全部；60% 透明度灰色背景。
+/// 高度自适应：最多露出 6 行（超出可滚动回看全部），不足 6 行时按实际内容收窄。
+/// 背景为半透明灰（比原先更透，避免遮挡底层内容）。
 struct ThinkingPanel: View {
 
     @Environment(\.forestTheme) private var theme
@@ -620,9 +727,26 @@ struct ThinkingPanel: View {
     let isStreaming: Bool
 
     @State private var isExpanded = true
+    /// 实测正文高度（含内边距）。
+    @State private var contentHeight: CGFloat = 0
+    /// 实测「6 行」参考高度（含内边距）；未测得前用兜底值。
+    @State private var sixLineHeight: CGFloat = 0
 
-    /// 约等于 10 行的固定高度。
-    private let panelHeight: CGFloat = 150
+    /// 最多显示的行数。
+    private let maxLines = 6
+    /// 字体与内边距（正文与参考测量必须一致）。
+    private let bodyFontSize: CGFloat = 11
+    private let horizontalPadding: CGFloat = 10
+    private let bottomPadding: CGFloat = 8
+    /// 参考高度尚未测得时的兜底（约 6 行）。
+    private let fallbackPanelHeight: CGFloat = 96
+
+    /// 面板高度：内容不足 6 行按实际高度，超出则封顶 6 行并可滚动。
+    private var panelHeight: CGFloat {
+        let cap = sixLineHeight > 0 ? sixLineHeight : fallbackPanelHeight
+        guard contentHeight > 0 else { return cap }
+        return min(contentHeight, cap)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -648,11 +772,12 @@ struct ThinkingPanel: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         Text(reasoning)
-                            .font(.system(size: 11, design: .rounded))
+                            .font(.system(size: bodyFontSize, design: .rounded))
                             .foregroundStyle(theme.primaryText.opacity(0.82))
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 10)
-                            .padding(.bottom, 8)
+                            .padding(.horizontal, horizontalPadding)
+                            .padding(.bottom, bottomPadding)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
                             .id("thinking-bottom")
                     }
                     .frame(height: panelHeight)
@@ -666,9 +791,20 @@ struct ThinkingPanel: View {
                 }
             }
         }
+        .background(alignment: .topLeading) {
+            // 隐藏的 6 行参考文本：仅用于实测「6 行」高度上限（不参与布局）。
+            Text(String(repeating: "\n", count: maxLines - 1) + "M")
+                .font(.system(size: bodyFontSize, design: .rounded))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, horizontalPadding)
+                .padding(.bottom, bottomPadding)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { sixLineHeight = $0 }
+                .hidden()
+                .accessibilityHidden(true)
+        }
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.gray.opacity(0.6))
+                .fill(Color.gray.opacity(0.42))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)

@@ -22,6 +22,8 @@ public actor CoachServices {
     public private(set) var learning: LearningDatabase?
     private let config: ConfigStore
     private var llmProvider: (any LLMProvider)?
+    /// 场景目录缓存（资源文件，进程内读一次即可）。
+    private var scenarioCache: [Scenario]?
 
     public init(config: ConfigStore = .shared, llm: LLMManager = LLMManager(), databasePath: String? = nil) {
         self.config = config
@@ -352,6 +354,22 @@ public actor CoachServices {
     /// 最近的复盘列表（学习记录页展示）。
     public func recentReviews(limit: Int = 10) async -> [SessionReview] {
         await reviewer.recentReviews(limit: limit)
+    }
+
+    // MARK: - 情景对话（Role Play，第 21 步）
+
+    /// 全部内置场景（数据驱动，来自 `Resources/Scenarios/*.json`）。
+    /// 资源缺失时返回空数组，由 UI 给出可操作提示（不崩、不静默、不内置兜底场景）。
+    public func availableScenarios() -> [Scenario] {
+        if let scenarioCache { return scenarioCache }
+        let loaded = ScenarioCatalog.bundled()
+        scenarioCache = loaded
+        return loaded
+    }
+
+    /// 按 id 取场景（不存在返回 nil）。
+    public func scenario(id: String) -> Scenario? {
+        availableScenarios().first { $0.id == id }
     }
 
     // MARK: - 缓存管理（设置页）

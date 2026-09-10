@@ -1,0 +1,17 @@
+{
+  "id": "airport_checkin",
+  "title": "Airport Check-in",
+  "titleZh": "机场值机",
+  "category": "旅行",
+  "difficulty": 3,
+  "level": "A2-B1",
+  "objective": "Complete an airport check-in conversation: show your ticket, check luggage and get your boarding pass.",
+  "aiRole": "a check-in agent at the airport counter",
+  "learnerRole": "a passenger checking in for an international flight",
+  "opening": "Good morning! May I see your passport and ticket, please?",
+  "targetVocabulary": ["boarding pass", "luggage", "destination", "window seat", "departure gate", "carry-on"],
+  "targetGrammar": ["present perfect", "polite requests", "quantifiers (a piece of, two bags)"],
+  "maxTurns": 14,
+  "correctionMode": "balanced",
+  "icon": "airplane.departure"
+}

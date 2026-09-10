@@ -1,0 +1,17 @@
+{
+  "id": "restaurant",
+  "title": "Restaurant",
+  "titleZh": "餐厅点餐",
+  "category": "日常",
+  "difficulty": 1,
+  "level": "A1-A2",
+  "objective": "Order a meal and a drink, ask about the menu, and pay the bill.",
+  "aiRole": "a friendly waiter",
+  "learnerRole": "a customer at a restaurant",
+  "opening": "Good evening! Welcome to our restaurant. A table for one?",
+  "targetVocabulary": ["menu", "order", "starter", "main course", "bill", "tip"],
+  "targetGrammar": ["I'd like ...", "Could I have ...?", "Can I have the bill, please?"],
+  "maxTurns": 12,
+  "correctionMode": "balanced",
+  "icon": "fork.knife"
+}

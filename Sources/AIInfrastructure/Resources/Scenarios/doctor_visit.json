@@ -1,0 +1,17 @@
+{
+  "id": "doctor_visit",
+  "title": "Doctor Visit",
+  "titleZh": "看医生",
+  "category": "日常",
+  "difficulty": 3,
+  "level": "A2-B1",
+  "objective": "Describe your symptoms to a doctor, understand the advice and ask about medicine.",
+  "aiRole": "a kind family doctor",
+  "learnerRole": "a patient who is not feeling well",
+  "opening": "Hello, please have a seat. What seems to be the problem today?",
+  "targetVocabulary": ["symptom", "fever", "sore throat", "prescription", "medicine", "allergic"],
+  "targetGrammar": ["I've had ... for ...", "It hurts when ...", "How often should I ...?"],
+  "maxTurns": 14,
+  "correctionMode": "gentle",
+  "icon": "stethoscope"
+}
