@@ -5,14 +5,22 @@ import Foundation
 ///
 /// 变速播放走 `AVAudioEngine` + `AVAudioUnitTimePitch`：**只改快慢、不改音调**，
 /// 且支持 0.5×–3× 全区间（AVAudioPlayer.rate 只到 2× 且会变调）。
-public final class AudioPlayback: @unchecked Sendable {
+///
+/// `playAndWait` 用于「逐句合成、边播边取下一句」的流水线：调用方能精确知道一句播完，
+/// 从而在播放期间并行合成下一句；被打断（stop）时也会立即返回，不会永久挂起。
+///
+/// 并发说明：`NSLock` 只允许在同步函数里使用（Swift 6 禁止在 async 上下文持锁），
+/// 因此所有状态读写都收敛到下面的同步私有访问器。
+public final class AudioPlayback: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
 
     private let lock = NSLock()
     private var player: AVAudioPlayer?
     private var engine: AVAudioEngine?
     private var tempFileURL: URL?
+    /// 等待播放结束的挂起者；resume 后立即置空，保证只恢复一次。
+    private var finishContinuation: CheckedContinuation<Void, Never>?
 
-    public init() {}
+    public override init() { super.init() }
 
     public var isPlaying: Bool {
         lock.lock(); defer { lock.unlock() }
@@ -20,20 +28,21 @@ public final class AudioPlayback: @unchecked Sendable {
         return engine?.isRunning ?? false
     }
 
-    /// 播放 WAV 数据；播放前自动停止上一段。
-    /// - Parameter rate: 播放倍速（1 = 原速）。非 1 时启用引擎链路变速。
-    public func play(wavData: Data, rate: Float = 1.0) throws {
+    /// 播放 WAV 数据并等待播完（或被打断）；供分句流水线使用。
+    public func playAndWait(wavData: Data, rate: Float = 1.0) async throws {
         stop()
         if abs(rate - 1.0) < 0.01 {
             let player = try AVAudioPlayer(data: wavData)
+            player.delegate = self
             player.prepareToPlay()
-            lock.lock()
-            self.player = player
-            lock.unlock()
-            player.play()
+            install(player: player)
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                park(continuation)
+                player.play()
+            }
             return
         }
-        try playWithEngine(wavData: wavData, rate: rate)
+        try await playWithEngine(wavData: wavData, rate: rate)
     }
 
     public func stop() {
@@ -44,16 +53,69 @@ public final class AudioPlayback: @unchecked Sendable {
         engine = nil
         let url = tempFileURL
         tempFileURL = nil
+        let continuation = finishContinuation
+        finishContinuation = nil
         lock.unlock()
 
         runningEngine?.stop()
         if let url { try? FileManager.default.removeItem(at: url) }
+        continuation?.resume()
+    }
+
+    // MARK: - AVAudioPlayerDelegate
+
+    public func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        finishCurrent()
+    }
+
+    public func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        finishCurrent()
+    }
+
+    /// 唤醒等待者（幂等：只有第一个调用者能取到 continuation）。
+    private func finishCurrent() {
+        takeContinuation()?.resume()
+    }
+
+    // MARK: - 状态访问（同步，供 async 上下文安全调用）
+
+    private func install(player: AVAudioPlayer) {
+        lock.lock(); defer { lock.unlock() }
+        self.player = player
+    }
+
+    private func park(_ continuation: CheckedContinuation<Void, Never>) {
+        lock.lock(); defer { lock.unlock() }
+        finishContinuation = continuation
+    }
+
+    private func takeContinuation() -> CheckedContinuation<Void, Never>? {
+        lock.lock(); defer { lock.unlock() }
+        let continuation = finishContinuation
+        finishContinuation = nil
+        return continuation
+    }
+
+    private func install(engine: AVAudioEngine, url: URL) {
+        lock.lock(); defer { lock.unlock() }
+        self.engine = engine
+        self.tempFileURL = url
+    }
+
+    /// 释放指定引擎（仅当它仍是当前引擎时），返回需要删除的临时文件。
+    private func release(engine: AVAudioEngine) -> URL? {
+        lock.lock(); defer { lock.unlock() }
+        guard self.engine === engine else { return nil }
+        self.engine = nil
+        let url = tempFileURL
+        tempFileURL = nil
+        return url
     }
 
     // MARK: - 变速链路（引擎 + 时间拉伸）
 
-    /// 引擎播放：临时落盘 → AVAudioFile 读取 → 时间拉伸节点 → 输出。
-    private func playWithEngine(wavData: Data, rate: Float) throws {
+    /// 引擎播放：临时落盘 → AVAudioFile 读取 → 时间拉伸节点 → 输出，并等待整段播完。
+    private func playWithEngine(wavData: Data, rate: Float) async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("coach-tts-\(UUID().uuidString).wav")
         try wavData.write(to: url)
@@ -76,27 +138,23 @@ public final class AudioPlayback: @unchecked Sendable {
         }
         try file.read(into: buffer)
         try engine.start()
+        install(engine: engine, url: url)
 
-        lock.lock()
-        self.engine = engine
-        self.tempFileURL = url
-        lock.unlock()
-
-        node.scheduleBuffer(buffer) { [weak self] in
-            // 播完即释放引擎与临时文件（回到后台队列，内部加锁保护）。
-            DispatchQueue.global(qos: .utility).async {
-                engine.stop()
-                try? FileManager.default.removeItem(at: url)
-                guard let self else { return }
-                self.lock.lock()
-                if self.engine === engine {
-                    self.engine = nil
-                    self.tempFileURL = nil
-                }
-                self.lock.unlock()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            park(continuation)
+            node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+                self?.finishCurrent()
             }
+            node.play()
         }
-        node.play()
+        teardown(engine: engine, url: url)
+    }
+
+    /// 停引擎 + 删临时文件（幂等）。
+    private func teardown(engine: AVAudioEngine, url: URL) {
+        engine.stop()
+        try? FileManager.default.removeItem(at: url)
+        _ = release(engine: engine)
     }
 }
 

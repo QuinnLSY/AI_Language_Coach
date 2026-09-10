@@ -30,6 +30,12 @@ public struct ChatView: View {
     var onMicStop: (() async -> String?)? = nil
     /// 朗读某段教师回复。
     var onSpeakTap: ((String) -> Void)? = nil
+    /// 停止当前朗读（朗读中再点按钮 = 停）。
+    var onStopSpeak: (() -> Void)? = nil
+    /// 当前朗读相位（准备中 / 朗读中 / 空闲）。
+    var speechPhase: SpeechPhase = .idle
+    /// 正在朗读的原文：用于让对应消息的按钮显示「准备中 / 朗读中」。
+    var speakingText: String? = nil
     /// 当前教师朗读语速（倍速，1 = 正常）；nil = 不显示速度选择器。
     var speechRate: Double = SpeechRate.x1.rawValue
     /// 切换语速（设置页与对话区共用同一份配置，双向同步）。
@@ -49,6 +55,9 @@ public struct ChatView: View {
                 onMicStart: (() async -> Void)? = nil,
                 onMicStop: (() async -> String?)? = nil,
                 onSpeakTap: ((String) -> Void)? = nil,
+                onStopSpeak: (() -> Void)? = nil,
+                speechPhase: SpeechPhase = .idle,
+                speakingText: String? = nil,
                 speechRate: Double = SpeechRate.x1.rawValue,
                 onSpeechRateChange: ((Double) -> Void)? = nil) {
         self.chat = chat
@@ -65,6 +74,9 @@ public struct ChatView: View {
         self.onMicStart = onMicStart
         self.onMicStop = onMicStop
         self.onSpeakTap = onSpeakTap
+        self.onStopSpeak = onStopSpeak
+        self.speechPhase = speechPhase
+        self.speakingText = speakingText
         self.speechRate = speechRate
         self.onSpeechRateChange = onSpeechRateChange
     }
@@ -284,7 +296,10 @@ public struct ChatView: View {
                 }
                 if !isUser, let onSpeakTap {
                     HStack(spacing: 6) {
-                        SpeakButton(text: message.content, action: onSpeakTap)
+                        SpeakButton(text: message.content,
+                                    phase: speakingText == message.content ? speechPhase : .idle,
+                                    action: onSpeakTap,
+                                    onStop: onStopSpeak)
                         if onSpeechRateChange != nil {
                             SpeechRateMenu(rate: speechRate) { rate in onSpeechRateChange?(rate) }
                         }
@@ -337,28 +352,42 @@ public struct ChatView: View {
         )
     }
 
-    /// 朗读按钮：听老师念这句话（点击时边缘高亮 + 短暂变色，明确「点中了」）。
+    /// 朗读按钮：三态反馈（空闲 / 准备中 / 朗读中）。
+    ///
+    /// 本地 TTS 首句合成需要几秒，这段等待必须有可见反馈，否则用户会以为没点到；
+    /// 有了「准备中」转圈 + 「朗读中」高亮，再点一次即可停止。
     private struct SpeakButton: View {
         @Environment(\.forestTheme) private var theme
 
         let text: String
+        let phase: SpeechPhase
         let action: (String) -> Void
+        var onStop: (() -> Void)? = nil
 
         /// 按下中（按住不放）。
         @State private var isPressing = false
         /// 点中后的余辉：松开仍保持约 0.6 秒的高亮。
         @State private var didFlash = false
 
-        private var isHighlighted: Bool { isPressing || didFlash }
+        private var isActive: Bool { phase != .idle }
+        private var isHighlighted: Bool { isPressing || didFlash || isActive }
+
+        private var labelText: String {
+            switch phase {
+            case .idle: "听老师读"
+            case .preparing: "准备中…"
+            case .speaking: "朗读中"
+            }
+        }
 
         var body: some View {
             Button {
                 flash()
-                action(text)
+                if isActive { onStop?() } else { action(text) }
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: isHighlighted ? "speaker.wave.3.fill" : "speaker.wave.2.fill")
-                    Text("听老师读")
+                    icon
+                    Text(labelText)
                 }
                 .font(.system(size: 10, weight: .semibold, design: .rounded))
                 .foregroundStyle(isHighlighted ? Color.white : theme.secondaryText)
@@ -380,7 +409,25 @@ public struct ChatView: View {
                     .onEnded { _ in withAnimation(.easeOut(duration: 0.12)) { isPressing = false } }
             )
             .animation(.easeOut(duration: 0.18), value: isHighlighted)
-            .help("听老师朗读这句")
+            .help(isActive ? "点击停止朗读" : "听老师朗读这句")
+        }
+
+        @ViewBuilder
+        private var icon: some View {
+            switch phase {
+            case .idle:
+                Image(systemName: isHighlighted ? "speaker.wave.3.fill" : "speaker.wave.2.fill")
+            case .preparing:
+                // 首句正在合成：转圈表示「点了，正在准备」
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .controlSize(.mini)
+                    .scaleEffect(0.65)
+                    .frame(width: 11, height: 11)
+                    .tint(.white)
+            case .speaking:
+                Image(systemName: "speaker.wave.3.fill")
+            }
         }
 
         private func flash() {

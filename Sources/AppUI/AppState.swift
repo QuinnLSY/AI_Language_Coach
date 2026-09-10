@@ -67,6 +67,10 @@ public final class AppState {
     public private(set) var isTranscribing = false
     /// 是否正在朗读教师回复。
     public private(set) var isSpeaking = false
+    /// 朗读相位：准备中（已点中、正在合成首句）/ 朗读中（已有声音）。
+    public private(set) var speechPhase: SpeechPhase = .idle
+    /// 正在准备的朗读原文：让对应消息的按钮立刻显示「准备中」。
+    public private(set) var speakingText: String?
     /// 教师回复完成后自动朗读（设置里可关）。
     public var autoSpeak = false
     /// 当前教师音色（runtime 自报的候选 + 配置值兜底）。
@@ -201,6 +205,14 @@ public final class AppState {
 
     /// 装配语音能力。**不阻断启动**：runtime 不在线时仅展示状态。
     public func bootstrapVoice() async {
+        // 朗读相位回到主线程驱动 UI（分句流水线的「准备中/朗读中」提示）
+        await services.voice.setPhaseHandler { [weak self] phase, text in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.speechPhase = phase
+                self.speakingText = phase == .idle ? nil : text
+            }
+        }
         let health = await services.bootstrapVoice()
         asrHealth = health.asr
         ttsHealth = health.tts
@@ -252,17 +264,25 @@ public final class AppState {
         isRecording = false
     }
 
-    /// 朗读教师回复（按设置里的语速播放）。
+    /// 朗读教师回复（按设置里的语速播放）。分句流水线：首句先出声。
+    ///
+    /// 注意：曾经尝试「发消息时并行预热 TTS」，实测**有害**——LLM 与 TTS 共用 MPS，
+    /// 预热在 LLM 生成期间会被挤到显存外，实测单次预热耗时可达 185s，还反过来拖慢回复。
+    /// 因此朗读只依赖分句流水线 + 服务端自身的启动预热。
     public func speak(_ text: String) async {
+        isSpeaking = true
         await services.voice.speak(text, voice: product.teacherVoice, language: "English",
                                    rate: Float(product.speechRate))
         isSpeaking = await services.voice.isSpeaking
+        speechPhase = await services.voice.phase
         voiceError = await services.voice.lastError
     }
 
     public func stopSpeaking() async {
         await services.voice.stopSpeaking()
         isSpeaking = false
+        speechPhase = .idle
+        speakingText = nil
     }
 
     /// 设置页：切换自动朗读。

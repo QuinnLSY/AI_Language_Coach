@@ -83,6 +83,10 @@ public struct MainView: View {
                     state.chat.send(text)
                 }
             }
+            // 端到端验证辅助：--auto-speak 启动即打开自动朗读（观察分句流水线时序）
+            if CommandLine.arguments.contains("--auto-speak") {
+                await state.setAutoSpeak(true)
+            }
         }
         .onChange(of: colorScheme) { _, newValue in
             state.systemIsDark = (newValue == .dark)
@@ -120,6 +124,9 @@ public struct MainView: View {
                     onMicStart: { await state.startVoiceInput() },
                     onMicStop: { await state.finishVoiceInput() },
                     onSpeakTap: { text in Task { await state.speak(text) } },
+                    onStopSpeak: { Task { await state.stopSpeaking() } },
+                    speechPhase: state.speechPhase,
+                    speakingText: state.speakingText,
                     speechRate: state.speechRate,
                     onSpeechRateChange: { rate in Task { await state.setSpeechRate(rate) } }
                 )
