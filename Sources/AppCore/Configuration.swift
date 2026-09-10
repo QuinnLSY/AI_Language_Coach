@@ -159,6 +159,10 @@ public struct ProductConfig: Sendable, Equatable {
     public var animalBubbles: Bool
     /// 小动物自由活动（游走/跳/摇/飞枝）。夜晚 UI 层自动停，配置值不变。
     public var animalActivity: Bool
+    /// 小动物活动频率（0...1，0 = 安静，1 = 最活跃）。仅活动开启时生效。
+    public var animalActivityFrequency: Double
+    /// 音色切换时自动试听（设置里小喇叭控制，默认开）。
+    public var voicePreview: Bool
 
     public init(
         learningLanguage: String = "en-US",
@@ -172,7 +176,9 @@ public struct ProductConfig: Sendable, Equatable {
         activeProviders: [String: String] = [:],
         teacherBubbles: Bool = true,
         animalBubbles: Bool = true,
-        animalActivity: Bool = true
+        animalActivity: Bool = true,
+        animalActivityFrequency: Double = 0.5,
+        voicePreview: Bool = true
     ) {
         self.learningLanguage = learningLanguage
         self.nativeLanguage = nativeLanguage
@@ -186,6 +192,8 @@ public struct ProductConfig: Sendable, Equatable {
         self.teacherBubbles = teacherBubbles
         self.animalBubbles = animalBubbles
         self.animalActivity = animalActivity
+        self.animalActivityFrequency = min(max(animalActivityFrequency, 0), 1)
+        self.voicePreview = voicePreview
     }
 
     public func selectedModel(for kind: AIProviderKind) -> String? { selectedModels[kind.rawValue] }
@@ -206,6 +214,7 @@ extension ProductConfig: Codable {
         case learningLanguage, nativeLanguage, teacherVoice, practiceMode, themeMode
         case selectedModels, teacherAnimal, studentAnimal, activeProviders
         case teacherBubbles, animalBubbles, animalActivity
+        case animalActivityFrequency, voicePreview
     }
 
     public init(from decoder: Decoder) throws {
@@ -222,6 +231,8 @@ extension ProductConfig: Codable {
         teacherBubbles = try container.decodeIfPresent(Bool.self, forKey: .teacherBubbles) ?? true
         animalBubbles = try container.decodeIfPresent(Bool.self, forKey: .animalBubbles) ?? true
         animalActivity = try container.decodeIfPresent(Bool.self, forKey: .animalActivity) ?? true
+        animalActivityFrequency = try container.decodeIfPresent(Double.self, forKey: .animalActivityFrequency) ?? 0.5
+        voicePreview = try container.decodeIfPresent(Bool.self, forKey: .voicePreview) ?? true
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -238,6 +249,8 @@ extension ProductConfig: Codable {
         try container.encode(teacherBubbles, forKey: .teacherBubbles)
         try container.encode(animalBubbles, forKey: .animalBubbles)
         try container.encode(animalActivity, forKey: .animalActivity)
+        try container.encode(animalActivityFrequency, forKey: .animalActivityFrequency)
+        try container.encode(voicePreview, forKey: .voicePreview)
     }
 }
 

@@ -137,10 +137,11 @@ public actor CoachServices {
     }
 
     /// 校验云端 API Key 并拉取可用模型（不落盘，仅探测）。
-    public func fetchRemoteModels(providerID: String, apiKey: String) async throws -> [DiscoveredModel] {
+    /// 各厂商均为 OpenAI 兼容协议，发现流程对任意能力（llm/asr/tts/…）通用。
+    public func fetchRemoteModels(providerID: String, apiKey: String, kind: AIProviderKind = .llm) async throws -> [DiscoveredModel] {
         let configuration = await config.current
-        guard var providerConfig = configuration.providers.first(where: { $0.id == providerID && $0.kind == .llm }) else {
-            throw AppError.configuration("找不到 LLM Provider：\(providerID)")
+        guard var providerConfig = configuration.providers.first(where: { $0.id == providerID && $0.kind == kind }) else {
+            throw AppError.configuration("找不到 Provider：\(providerID)")
         }
         providerConfig.apiKey = apiKey
         let provider = RemoteLLMAdapter(providerID: providerConfig.id)
@@ -148,17 +149,51 @@ public actor CoachServices {
         return try await provider.discoverModels()
     }
 
-    /// 保存云端 Provider 的 API Key / 模型 / 推理强度，并激活 + 重装配。
-    public func applyRemoteLLM(providerID: String, apiKey: String, model: String, reasoningEffort: String?) async throws {
+    /// 保存云端 Provider 的 API Key / 模型 / 推理强度，并激活 + 重装配（任意能力通用）。
+    public func applyRemoteProvider(providerID: String, apiKey: String, model: String,
+                                    reasoningEffort: String? = nil, kind: AIProviderKind = .llm) async throws {
         let configuration = await config.current
-        guard var provider = configuration.providers.first(where: { $0.id == providerID && $0.kind == .llm }) else {
-            throw AppError.configuration("找不到 LLM Provider：\(providerID)")
+        guard var provider = configuration.providers.first(where: { $0.id == providerID && $0.kind == kind }) else {
+            throw AppError.configuration("找不到 Provider：\(providerID)")
         }
         provider.apiKey = apiKey
         provider.model = model
         provider.reasoningEffort = reasoningEffort
         try await config.updateProvider(provider)
-        try await switchLLMProvider(providerID)
+        // 激活该能力的这个 Provider（同类其余全部停用）
+        var product = configuration.product
+        for var p in configuration.providers where p.kind == kind {
+            p.enabled = p.id == providerID
+            try await config.updateProvider(p)
+        }
+        product.activateProvider(providerID, for: kind)
+        product.selectModel(model, for: kind)
+        try await config.updateProduct(product)
+        await rebootstrap(kind: kind)
+    }
+
+    /// 按能力重装配（本地模型切换 / 云端激活后调用）。
+    public func rebootstrap(kind: AIProviderKind) async {
+        let configuration = await config.current
+        switch kind {
+        case .llm:
+            try? await bootstrapLLM()
+        case .asr, .tts:
+            _ = await bootstrapVoice()
+        default:
+            break // vad / embedding / pronunciation V1 尚无真实 runtime
+        }
+    }
+
+    /// 设置某能力当前使用的模型（本地检测选择 / 手动填写共用），并重装配。
+    public func setCapabilityModel(_ kind: AIProviderKind, model: String) async throws {
+        let configuration = await config.current
+        try await config.selectModel(model, for: kind)
+        if var provider = configuration.resolvedProvider(for: kind) {
+            provider.model = model
+            try await config.updateProvider(provider)
+        }
+        await rebootstrap(kind: kind)
     }
 
     /// 当前生效 LLM 的上下文窗口（token）。nil = 未知。

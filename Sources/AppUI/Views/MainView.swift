@@ -186,6 +186,7 @@ public struct MainView: View {
                     theme: state.theme,
                     bubblesAllowed: state.animalBubblesEnabled,
                     activityAllowed: state.animalActivityEffective,
+                    activityFrequency: state.animalActivityFrequency,
                     onActivityToggle: {
                         Task { await state.setAnimalActivity(!state.animalActivityEnabled) }
                     }

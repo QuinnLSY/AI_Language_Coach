@@ -274,8 +274,27 @@ struct ForestGroundBand: View {
     var bubblesAllowed: Bool = true
     /// 实际生效的活动开关（配置 && 白天）。夜晚自动安静。
     var activityAllowed: Bool = true
+    /// 活动频率（0...1）：值越大动作间隔越短。
+    var activityFrequency: Double = 0.5
     /// 右下角表情按钮回调（与设置里的开关联动）。
     var onActivityToggle: (() -> Void)? = nil
+
+    /// 离场告别语（轮换时随机抽一条）。
+    static let leavePhrases = [
+        "我先回家吃点心啦～",
+        "妈妈叫我回家吃饭！",
+        "林子那边好像有好玩的，我去瞧瞧～",
+        "拜拜，明天再来找你们玩！",
+        "咦，那边的蘑菇好像发芽了，我去看看！",
+    ]
+    /// 进场打招呼语（轮换时随机抽一条）。
+    static let greetPhrases = [
+        "嗨～我来了！",
+        "你们好呀，我是新搬来的邻居！",
+        "嘿！一起玩吗？",
+        "刚才在路上捡到一个新单词，分你们一半！",
+        "大家好，这里的草真香呀～",
+    ]
 
     /// 当前气泡归属（点击或自发动作）——气泡统一画在带子顶层，永远不被遮挡。
     @State private var speakingIndex: Int?
@@ -288,6 +307,10 @@ struct ForestGroundBand: View {
     /// 动作触发器（父级递增，LivelyAnimal 变化即执行）。
     @State private var actionTicks: [Int] = Array(repeating: 0, count: Self.maxResidents)
     @State private var actionKinds: [Int] = Array(repeating: 0, count: Self.maxResidents)
+    /// 各槽位的物种（轮换：随机离开/进入）。空时用伪随机初始顺序兜底。
+    @State private var kinds: [AnimalKind] = []
+    /// 各槽位朝向（游走时按移动方向翻转）。
+    @State private var facings: [CGFloat] = []
 
     private static let maxResidents = 8
     // 各类元素的**上限**：始终按上限创建视图，靠透明度控制显隐。
@@ -403,10 +426,19 @@ struct ForestGroundBand: View {
             .frame(width: width, height: height, alignment: .bottomLeading)
             // 档位切换时让位置/大小平滑过渡，而不是瞬移
             .animation(.easeOut(duration: 0.18), value: qw)
-            // 活动编排（宽度或活动开关变化时重启循环，取最新几何与开关值）
-            .task(id: "\(qw)-\(activityAllowed)-\(theme.isNight)") { await orchestrateLife(count: count, span: span, inset: inset,
-                                                   groundLine: groundLine, quantizedWidth: qw,
-                                                   width: width, order: order) }
+            // 初始化物种/朝向状态（轮换的基础）
+            .onAppear { ensureResidents(count: count, order: order) }
+            .onChange(of: count) { _, newCount in ensureResidents(count: newCount, order: order) }
+            // 活动编排（宽度或活动开关/频率变化时重启循环，取最新几何与开关值）
+            .task(id: "\(qw)-\(activityAllowed)-\(activityFrequency)-\(theme.isNight)") {
+                async let life: () = orchestrateLife(count: count, span: span, inset: inset,
+                                                     groundLine: groundLine, quantizedWidth: qw,
+                                                     width: width, order: order)
+                async let rotation: () = orchestrateRotation(count: count, span: span, inset: inset,
+                                                             groundLine: groundLine, quantizedWidth: qw,
+                                                             order: order)
+                _ = await (life, rotation)
+            }
             // 气泡自动收起（3 秒），被新气泡打断时任务自动重启
             .task(id: bubbleTick) {
                 guard speakingIndex != nil else { return }
@@ -439,8 +471,10 @@ struct ForestGroundBand: View {
                                  order: [AnimalKind]) async {
         // 个体错峰启动，避免整排动物同时动作
         try? await Task.sleep(for: .seconds(Double.random(in: 3...6)))
+        // 动作间隔由活动频率决定：0 → ~12s，1 → ~4s（再叠加随机抖动）
+        let interval = (12 - activityFrequency * 8) * Double.random(in: 0.8...1.25)
         while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(Double.random(in: 5...9)))
+            try? await Task.sleep(for: .seconds(interval))
             guard !Task.isCancelled, activityAllowed, !theme.isNight else { continue }
             guard count > 0 else { continue }
             let index = Int.random(in: 0..<count)
@@ -492,7 +526,7 @@ struct ForestGroundBand: View {
         actionTicks[index] += 1
     }
 
-    /// 地面游走：在草地范围内累计位移（走到哪停在哪），不会走出草坡。
+    /// 地面游走：在草地范围内累计位移（走到哪停在哪），跳动前进，不会走出草坡。
     private func wander(_ index: Int, count: Int, span: CGFloat, inset: CGFloat,
                         groundLine: CGFloat, quantizedWidth: CGFloat) {
         let home = homePosition(index: index, count: count, span: span, inset: inset,
@@ -503,9 +537,11 @@ struct ForestGroundBand: View {
         let slackRight = (inset + span + inset * 0.45) - home.x
         let nx = min(max(current.width + CGFloat.random(in: -24...24), -slackLeft), slackRight)
         let ny = min(max(current.height + CGFloat.random(in: -16...6), -20), 7)
-        withAnimation(.easeInOut(duration: 0.8)) {
-            offsets[index] = CGSize(width: nx, height: ny)
+        // 按移动方向转身
+        if facings.indices.contains(index), abs(nx - current.width) > 2 {
+            facings[index] = nx > current.width ? 1 : -1
         }
+        Task { await hopTo(index, target: CGSize(width: nx, height: ny), steps: 3, hopHeight: 7) }
     }
 
     /// 枝桠位置（相对树干中心对称两根）。
@@ -640,7 +676,8 @@ struct ForestGroundBand: View {
         let visible = index < visibleCount
         let home = homePosition(index: index, count: visibleCount, span: span, inset: inset,
                                 groundLine: groundLine, quantizedWidth: quantizedWidth)
-        let facing: CGFloat = pr(index, 3) > 0.5 ? 1 : -1
+        let facing = facingAt(index: index, fallback: kind)
+        let currentKind = kindAt(index: index, fallback: kind)
 
         return ZStack {
             // 脚底阴影（落到脚部而不是身体中心；鸟在枝上时收起）
@@ -652,7 +689,7 @@ struct ForestGroundBand: View {
             }
 
             LivelyAnimal(
-                kind: kind,
+                kind: currentKind,
                 isSleeping: theme.isNight,
                 size: home.size,
                 facing: facing,
@@ -669,19 +706,126 @@ struct ForestGroundBand: View {
         .animation(.easeOut(duration: 0.2), value: visibleCount)
     }
 
+    // MARK: 物种轮换（随机离开 → 新邻居进入）
+
+    /// 初始化/对齐各槽位的物种与朝向状态（数量或首次出现时调用）。
+    private func ensureResidents(count: Int, order: [AnimalKind]) {
+        guard kinds.count != Self.maxResidents || facings.count != Self.maxResidents else { return }
+        if kinds.isEmpty {
+            kinds = (0..<Self.maxResidents).map { order[$0 % order.count] }
+        } else {
+            kinds = (0..<Self.maxResidents).map { kinds.indices.contains($0) ? kinds[$0] : order[$0 % order.count] }
+        }
+        if facings.isEmpty {
+            facings = (0..<Self.maxResidents).map { pr($0, 3) > 0.5 ? 1 : -1 }
+        } else {
+            facings = (0..<Self.maxResidents).map { facings.indices.contains($0) ? facings[$0] : 1 }
+        }
+    }
+
+    private func kindAt(index: Int, fallback: AnimalKind) -> AnimalKind {
+        kinds.indices.contains(index) ? kinds[index] : fallback
+    }
+
+    private func facingAt(index: Int, fallback: AnimalKind) -> CGFloat {
+        facings.indices.contains(index) ? facings[index] : 1
+    }
+
+    /// 轮换编排：随机间隔让一只小动物告别离开，随后一只新邻居进场打招呼。
+    private func orchestrateRotation(count: Int, span: CGFloat, inset: CGFloat,
+                                     groundLine: CGFloat, quantizedWidth: CGFloat,
+                                     order: [AnimalKind]) async {
+        // 轮换节奏比日常动作慢得多：25~55 秒一次（频率越高越勤快）
+        let base = 55 - activityFrequency * 30
+        try? await Task.sleep(for: .seconds(base * Double.random(in: 0.9...1.2)))
+        while !Task.isCancelled {
+            // 轮换属于「活动」：开关关闭或入夜时静默等待
+            guard activityAllowed, !theme.isNight else {
+                try? await Task.sleep(for: .seconds(5))
+                continue
+            }
+            guard count > 0 else { continue }
+            let index = Int.random(in: 0..<count)
+
+            // ① 告别气泡（气泡开关关闭时静默离开）
+            if bubblesAllowed {
+                requestRawBubble(index, pool: Self.leavePhrases)
+                try? await Task.sleep(for: .seconds(2.6))
+            }
+            guard !Task.isCancelled else { return }
+
+            // ② 沿地面走出画面（朝最近一侧边缘小跳离场）
+            let home = homePosition(index: index, count: count, span: span, inset: inset,
+                                    groundLine: groundLine, quantizedWidth: quantizedWidth)
+            let current = offsets[index]
+            let bandCenter = inset + span / 2
+            let exitLeft = home.x + current.width < bandCenter
+            let exitX = exitLeft ? -(inset + 40) : (inset + span + 40) - home.x
+            if facings.indices.contains(index) { facings[index] = exitLeft ? -1 : 1 }
+            await hopTo(index, target: CGSize(width: exitX, height: current.height),
+                        steps: 4, hopHeight: 9)
+            try? await Task.sleep(for: .seconds(0.35))
+            guard !Task.isCancelled else { return }
+
+            // ③ 换物种、瞬移回进场边缘、走进来
+            let pool = AnimalKind.allCases.filter { $0 != kindAt(index: index, fallback: order.first ?? .fox) }
+            let newKind = pool.randomElement() ?? .rabbit
+            if kinds.indices.contains(index) { kinds[index] = newKind }
+            let enterLeft = exitLeft
+            let enterX = enterLeft ? -(inset + 40) : (inset + span + 40) - home.x
+            if offsets.indices.contains(index) {
+                offsets[index] = CGSize(width: enterX, height: current.height)
+            }
+            try? await Task.sleep(for: .seconds(0.15))
+            await hopTo(index, target: CGSize(width: 0, height: current.height),
+                        steps: 6, hopHeight: 8)
+
+            // ④ 打招呼气泡
+            if bubblesAllowed {
+                requestRawBubble(index, pool: Self.greetPhrases)
+            }
+            try? await Task.sleep(for: .seconds(base * Double.random(in: 0.85...1.3)))
+        }
+    }
+
+    /// 多段小跳从当前位置移动到目标位移（跳动前进，而不是平移）。
+    @discardableResult
+    private func hopTo(_ index: Int, target: CGSize, steps: Int, hopHeight: CGFloat) async {
+        guard offsets.indices.contains(index) else { return }
+        let start = offsets[index]
+        for step in 1...max(1, steps) {
+            guard !Task.isCancelled else { return }
+            let t = Double(step) / Double(steps)
+            let x = start.width + (target.width - start.width) * t
+            let y = start.height + (target.height - start.height) * t
+            // 起跳：横移一段 + 向上抬起
+            withAnimation(.spring(response: 0.20, dampingFraction: 0.6)) {
+                offsets[index] = CGSize(width: x, height: y - hopHeight)
+            }
+            try? await Task.sleep(for: .seconds(0.17))
+            // 落地
+            withAnimation(.spring(response: 0.16, dampingFraction: 0.7)) {
+                offsets[index] = CGSize(width: x, height: y)
+            }
+            try? await Task.sleep(for: .seconds(0.13))
+        }
+    }
+
+    /// 轮换专用冒泡（不走物种文案池，直接给文案）。
+    private func requestRawBubble(_ index: Int, pool: [String]) {
+        guard !pool.isEmpty else { return }
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            speakingIndex = index
+            bubbleText = pool.randomElement()
+        }
+        bubbleTick += 1
+    }
+
     /// 请求冒泡（点击或自发动作统一入口）：顶层展示，3 秒后自动收起。
     private func requestBubble(_ index: Int) {
         guard bubblesAllowed else { return }
-        // 物种顺序必须与绘制侧一致（同一套伪随机）
-        let kind = speciesOrder()[index % AnimalKind.allCases.count]
-        guard !kind.phrases.isEmpty else { return }
-        let current = speakingIndex == index ? bubbleText : nil
-        let pool = kind.phrases.filter { $0 != current }
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-            speakingIndex = index
-            bubbleText = pool.randomElement() ?? kind.phrases[0]
-        }
-        bubbleTick += 1
+        let kind = kindAt(index: index, fallback: AnimalKind.allCases[index % AnimalKind.allCases.count])
+        requestRawBubble(index, pool: kind.phrases)
     }
 
     // MARK: 右下角活动开关（与设置联动）

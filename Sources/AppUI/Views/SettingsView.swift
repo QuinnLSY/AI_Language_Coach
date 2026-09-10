@@ -59,6 +59,7 @@ public struct SettingsView: View {
                     partnerCard
                     forestCompanionsCard
                     modelCard
+                    voiceModelCenterCard
                     voiceCard
                     learningCard
                     cacheCard
@@ -274,11 +275,42 @@ public struct SettingsView: View {
                 ))
                 .font(.system(size: 13, design: .rounded))
 
-                Text("关闭活动时，小动物们会回到初始位置排排站好（成长之树右下角有同步的表情开关）。夜晚它们会自动安静下来。以上开关全局记忆，下次打开应用自动延续。")
+                // 活动频率滑条：关闭活动时置灰不可拖
+                HStack(spacing: 10) {
+                    Text("移动频率")
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundStyle(state.animalActivityEnabled ? theme.primaryText : theme.secondaryText)
+                    Slider(
+                        value: Binding(
+                            get: { state.animalActivityFrequency },
+                            set: { value in Task { await state.setAnimalActivityFrequency(value) } }
+                        ),
+                        in: 0...1
+                    )
+                    .disabled(!state.animalActivityEnabled)
+                    Text(state.animalActivityEnabled ? frequencyLabel : "—")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                        .frame(width: 52, alignment: .trailing)
+                        .monospacedDigit()
+                }
+                .padding(.leading, 20)
+                .opacity(state.animalActivityEnabled ? 1 : 0.45)
+
+                Text("关闭活动时，小动物们会回到初始位置排排站好（成长之树右下角有同步的表情开关）。夜晚它们会自动安静下来。小动物们还会不定时告别离开、换新邻居进场。以上开关全局记忆，下次打开应用自动延续。")
                     .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
             }
         }
+    }
+
+    /// 频率滑条的展示文案。
+    private var frequencyLabel: String {
+        let value = state.animalActivityFrequency
+        if value < 0.25 { return "悠闲" }
+        if value < 0.55 { return "正常" }
+        if value < 0.8 { return "活泼" }
+        return "撒欢"
     }
 
     // MARK: - 模型提供商（本地 / 云端并存，二选一生效）
@@ -486,6 +518,222 @@ public struct SettingsView: View {
         return models.first?.id ?? ""
     }
 
+    // MARK: - 模型管理中心（ASR/TTS/VAD/Embedding/Pronunciation，本地检测 + 外部模型）
+
+    private var voiceModelCenterCard: some View {
+        card(title: "模型管理中心", systemImage: "shippingbox.fill") {
+            VStack(alignment: .leading, spacing: 14) {
+                let kinds: [AIProviderKind] = [.asr, .tts, .vad, .embedding, .pronunciation]
+                ForEach(kinds) { kind in
+                    if let info = state.capabilityInfos[kind] {
+                        capabilitySection(info)
+                        if kind != .pronunciation { Divider().overlay(theme.divider.opacity(0.6)) }
+                    }
+                }
+
+                deploymentTips
+            }
+        }
+        .task { await state.refreshCapabilityInfos() }
+    }
+
+    /// 单个能力的模型区块：当前模型/来源 → 本地检测选择 → 手动填写 → 外部模型。
+    @ViewBuilder
+    private func capabilitySection(_ info: CapabilityModelInfo) -> some View {
+        let kind = info.kind
+        VStack(alignment: .leading, spacing: 9) {
+            // ① 当前模型 + 来源 + 状态
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Circle()
+                    .fill(info.healthOK ? Color.green : (info.currentModel == nil ? Color.gray : Color.orange))
+                    .frame(width: 8, height: 8)
+                Text(kind.displayName)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                Spacer()
+                Text(info.healthText)
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+            }
+            Text("当前：\(info.currentModel ?? "未配置")")
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(theme.primaryText)
+            Text(info.sourceDescription)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(theme.secondaryText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .help(info.sourceDescription)
+
+            // ② 本地检测模型选择
+            if !info.localModels.isEmpty {
+                HStack(spacing: 8) {
+                    Image(systemName: "folder.badge.gearshape")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.accent)
+                    Picker("本地模型", selection: Binding(
+                        get: { info.currentModel ?? info.localModels[0].name },
+                        set: { name in Task { await state.selectLocalModel(kind, name: name) } }
+                    )) {
+                        ForEach(info.localModels) { model in
+                            Text(model.name).tag(model.name)
+                        }
+                    }
+                    .labelsHidden()
+                    Spacer()
+                    Button {
+                        Task { await state.refreshCapabilityInfos() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.plain)
+                    .help("重新扫描 ~/AI_Models")
+                }
+            }
+
+            // ③ 手动填写
+            HStack(spacing: 8) {
+                TextField("手动填写模型名", text: Binding(
+                    get: { state.customModelDrafts[kind.rawValue] ?? "" },
+                    set: { state.customModelDrafts[kind.rawValue] = $0 }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12, design: .rounded))
+                Button("应用") {
+                    Task { await state.applyCustomModel(kind, name: state.customModelDrafts[kind.rawValue] ?? "") }
+                }
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .disabled((state.customModelDrafts[kind.rawValue] ?? "").trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+
+            // ④ 外部模型（各厂商统一入口：填 Key → 拉取 → 选择）
+            externalModelSection(kind: kind)
+        }
+    }
+
+    /// 外部模型折叠区（与 LLM 云端一致的流程）。
+    @ViewBuilder
+    private func externalModelSection(kind: AIProviderKind) -> some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 9) {
+                let options = state.externalProviderCache[kind.rawValue] ?? []
+                if options.isEmpty {
+                    Text("该能力暂未配置外部供应商。")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                } else {
+                    // 供应商标签
+                    HStack(spacing: 8) {
+                        ForEach(options, id: \.id) { option in
+                            let selected = state.externalSelectedProvider[kind.rawValue] == option.id
+                            Button {
+                                state.externalSelectedProvider[kind.rawValue] = option.id
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "cloud.fill").font(.system(size: 9))
+                                    Text(option.name).font(.system(size: 12, weight: .semibold, design: .rounded))
+                                }
+                                .foregroundStyle(selected ? Color.white : theme.primaryText)
+                                .padding(.horizontal, 11)
+                                .frame(height: 26)
+                                .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(selected ? theme.accent : theme.surfaceAlt))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Spacer()
+                    }
+
+                    if let providerID = state.externalSelectedProvider[kind.rawValue] {
+                        // Key + 验证
+                        HStack(spacing: 8) {
+                            SecureField("API Key", text: Binding(
+                                get: { state.externalKeyDrafts[providerID] ?? "" },
+                                set: { state.externalKeyDrafts[providerID] = $0 }
+                            ))
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 12, design: .rounded))
+                            Button {
+                                Task { await state.fetchExternalModels(kind: kind, providerID: providerID) }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    if state.isFetchingExternal {
+                                        ProgressView().controlSize(.small)
+                                    } else {
+                                        Image(systemName: "key.horizontal")
+                                    }
+                                    Text("验证并获取模型")
+                                }
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(state.isFetchingExternal)
+                        }
+
+                        // 模型列表
+                        let models = state.externalModels[providerID] ?? []
+                        if !models.isEmpty {
+                            Picker("选择模型", selection: Binding(
+                                get: { state.capabilityInfos[kind]?.currentModel ?? models[0].id },
+                                set: { model in Task { await state.applyExternalModel(kind, providerID: providerID, model: model) } }
+                            )) {
+                                ForEach(models) { model in
+                                    Text(model.name).tag(model.id)
+                                }
+                            }
+                            .labelsHidden()
+                        }
+
+                        if let message = state.externalMessages[providerID] {
+                            Text(message)
+                                .font(.system(size: 11, design: .rounded))
+                                .foregroundStyle(message.contains("成功") || message.contains("已启用") ? .green : .orange)
+                        }
+                    }
+                }
+            }
+            .padding(.top, 4)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "cloud")
+                    .font(.system(size: 11))
+                Text("外部模型")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(theme.secondaryText)
+        }
+        .task {
+            if state.externalProviderCache[kind.rawValue] == nil {
+                state.externalProviderCache[kind.rawValue] = await state.remoteProviderOptions(for: kind)
+                if state.externalSelectedProvider[kind.rawValue] == nil {
+                    state.externalSelectedProvider[kind.rawValue] = state.externalProviderCache[kind.rawValue]?.first?.id
+                }
+            }
+        }
+    }
+
+    /// 本地模型部署指导。
+    private var deploymentTips: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 5) {
+                Image(systemName: "lightbulb.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(hex: 0xF7B32B))
+                Text("如何让应用自动识别新的本地模型")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+            }
+            Text("把模型统一放在 ~/AI_Models/ 对应模块目录下即可：\n• 语音识别 (asr)：模型文件放入 ~/AI_Models/asr/models/（如 ggml-*.bin）\n• 教师语音 (tts)：每个模型一个文件夹放入 ~/AI_Models/tts/\n• 说话检测 (vad) / 记忆索引 (embedding) / 发音评测 (pronunciation)：每个模型一个文件夹放入对应目录\n放好后点击各能力区块的刷新按钮（↻），应用会自动检测并列出可选。云端模型请展开「外部模型」填写 API Key 接入。")
+                .font(.system(size: 11, design: .rounded))
+                .foregroundStyle(theme.secondaryText)
+                .lineSpacing(3)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.surfaceAlt.opacity(0.6)))
+    }
+
     // MARK: - 语音（说话 + 教师朗读）
 
     private var voiceCard: some View {
@@ -511,26 +759,41 @@ public struct SettingsView: View {
                         .foregroundStyle(.orange)
                 }
 
-                // 本地语音模型（runtime 自报：模型 + 运行设备）
-                if let runtimeInfo = state.ttsRuntimeInfo {
-                    HStack(spacing: 6) {
-                        Image(systemName: "cpu")
-                            .font(.system(size: 11))
-                            .foregroundStyle(theme.accent)
-                        Text("本地语音模型：\(runtimeInfo)")
-                            .font(.system(size: 12, design: .rounded))
-                            .foregroundStyle(theme.primaryText)
+                // 教师音色 + 自动试听小喇叭
+                HStack(spacing: 10) {
+                    Picker("老师的声音", selection: Binding(
+                        get: { state.teacherVoice },
+                        set: { voice in Task { await state.setVoice(voice) } }
+                    )) {
+                        ForEach(state.availableVoices, id: \.self) { voice in
+                            Text(voice.capitalized).tag(voice)
+                        }
                     }
-                }
 
-                // 教师音色
-                Picker("老师的声音", selection: Binding(
-                    get: { state.teacherVoice },
-                    set: { voice in Task { await state.setVoice(voice) } }
-                )) {
-                    ForEach(state.availableVoices, id: \.self) { voice in
-                        Text(voice.capitalized).tag(voice)
+                    // 小喇叭：开启后切换音色自动试听
+                    Button {
+                        Task { await state.setVoicePreview(!state.voicePreviewEnabled) }
+                    } label: {
+                        Image(systemName: state.voicePreviewEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(state.voicePreviewEnabled ? theme.accent : theme.secondaryText)
+                            .frame(width: 28, height: 28)
+                            .background(Circle().fill(theme.surfaceAlt))
+                            .overlay(Circle().strokeBorder(state.voicePreviewEnabled ? theme.accent.opacity(0.4) : theme.divider, lineWidth: 1))
                     }
+                    .buttonStyle(.plain)
+                    .help(state.voicePreviewEnabled ? "自动试听已开启：切换音色即朗读示例（点此关闭）" : "自动试听已关闭（点此开启，切换音色即朗读示例）")
+
+                    // 立即试听
+                    Button {
+                        Task { await state.speak("Nice to meet you!") }
+                    } label: {
+                        Image(systemName: "play.circle")
+                            .font(.system(size: 14))
+                            .foregroundStyle(theme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .help("立即试听当前音色")
                 }
 
                 // 自动朗读

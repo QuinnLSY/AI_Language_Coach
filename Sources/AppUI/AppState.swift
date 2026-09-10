@@ -6,6 +6,19 @@ import Foundation
 import Observation
 import SwiftUI
 
+/// 一个能力（ASR/TTS/VAD/Embedding/Pronunciation）当前模型情况的 UI 快照。
+public struct CapabilityModelInfo: Sendable, Equatable {
+    public let kind: AIProviderKind
+    public let healthOK: Bool
+    public let healthText: String
+    /// 当前选中的模型名（可能来自 runtime 自报或配置）。
+    public let currentModel: String?
+    /// 来源描述（如「本地 · /Users/…/ggml-small.en.bin」或「DeepSeek 提供的云端模型」）。
+    public let sourceDescription: String
+    /// ~/AI_Models 下自动检测到的本地模型。
+    public let localModels: [LocalModel]
+}
+
 /// UI 唯一状态源。**只依赖 Application Services，不碰 Provider / HTTP / SQL。**
 @MainActor
 @Observable
@@ -65,6 +78,22 @@ public final class AppState {
     /// 语音服务健康状态。
     public private(set) var asrHealth: ProviderHealth = .configurationInvalid(reason: "尚未初始化")
     public private(set) var ttsHealth: ProviderHealth = .configurationInvalid(reason: "尚未初始化")
+    // MARK: 模型管理中心（本地检测 ~/AI_Models + 外部模型统一入口）
+    /// 每个能力的模型信息（当前模型/来源/本地检测列表）。
+    public private(set) var capabilityInfos: [AIProviderKind: CapabilityModelInfo] = [:]
+    /// 外部模型 API Key 草稿（providerID -> key）。
+    public var externalKeyDrafts: [String: String] = [:]
+    /// 外部模型探测结果（providerID -> models）。
+    public private(set) var externalModels: [String: [DiscoveredModel]] = [:]
+    /// 每个能力当前展开的外部 Provider 标签。
+    public var externalSelectedProvider: [String: String] = [:]
+    /// 外部 Provider 候选缓存（kind -> options，设置页打开时拉一次）。
+    public var externalProviderCache: [String: [(id: String, name: String)]] = [:]
+    public private(set) var isFetchingExternal = false
+    /// 外部模型操作结果消息（providerID -> message）。
+    public var externalMessages: [String: String] = [:]
+    /// 手动填写模型名草稿（kind -> name）。
+    public var customModelDrafts: [String: String] = [:]
     /// 中栏切换：学习记录页（false = 练习对话）。
     public var showingRecords = false
     /// 学习记录数据（进入页面时加载）。
@@ -96,6 +125,10 @@ public final class AppState {
     public var teacherBubblesEnabled: Bool { product.teacherBubbles }
     public var animalBubblesEnabled: Bool { product.animalBubbles }
     public var animalActivityEnabled: Bool { product.animalActivity }
+    /// 活动频率（0...1）。
+    public var animalActivityFrequency: Double { product.animalActivityFrequency }
+    /// 音色切换自动试听开关。
+    public var voicePreviewEnabled: Bool { product.voicePreview }
     /// 实际生效的活动开关：配置开 && 非夜晚（夜晚自动安静）。
     public var animalActivityEffective: Bool { product.animalActivity && !theme.isNight }
 
@@ -223,16 +256,20 @@ public final class AppState {
         isSpeaking = false
     }
 
-    /// 设置页：切换音色。
-    public func setVoice(_ voice: String) async {
-        product.teacherVoice = voice
-        await persistProduct()
-    }
-
     /// 设置页：切换自动朗读。
     public func setAutoSpeak(_ enabled: Bool) async {
         autoSpeak = enabled
         if !enabled { await stopSpeaking() }
+    }
+
+    /// 音色切换时自动试听一句短示例（受设置开关控制）。
+    public func setVoice(_ voice: String) async {
+        product.teacherVoice = voice
+        await persistProduct()
+        if product.voicePreview {
+            await services.voice.speak("Nice to meet you!", voice: voice, language: "English")
+            voiceError = await services.voice.lastError
+        }
     }
 
     public func refreshStatus() async {
@@ -256,6 +293,126 @@ public final class AppState {
         // 关键：同步本地 product 缓存。否则切换 Provider 后，任何一次 persistProduct
         // 都会用旧缓存回写配置，把 activeProviders/apiKey 决策抹掉（重启回到 qwen3 的根源）。
         product = await services.configuration.product
+    }
+
+    // MARK: - 模型管理中心（本地检测 + 外部模型）
+
+    /// 刷新各能力的模型信息快照（设置页打开 / 检测按钮时调用）。
+    public func refreshCapabilityInfos() async {
+        let configuration = await services.configuration
+        var result: [AIProviderKind: CapabilityModelInfo] = [:]
+        for kind in [AIProviderKind.asr, .tts, .vad, .embedding, .pronunciation] {
+            let provider = configuration.resolvedProvider(for: kind)
+            let localModels = LocalModelScanner.scan(kind: kind)
+
+            let healthOK: Bool
+            let healthText: String
+            switch kind {
+            case .asr: healthOK = asrHealth.isUsable; healthText = asrHealth.userFacingDescription
+            case .tts: healthOK = ttsHealth.isUsable; healthText = ttsHealth.userFacingDescription
+            default:
+                // VAD / Embedding / Pronunciation V1 尚无独立 runtime，如配置了本地 Provider 才有意义
+                healthOK = false
+                healthText = provider?.runtime == .externalLocalRuntime ? "等待接入" : "内置模拟"
+            }
+
+            let current = product.selectedModel(for: kind) ?? provider?.model
+            let source: String
+            switch provider?.runtime {
+            case .remoteAPI:
+                source = "\(provider?.userFacingName ?? "云端") 提供的云端模型"
+            case .externalLocalRuntime:
+                if let current, let path = LocalModelScanner.path(of: current, kind: kind) {
+                    source = "本地 · \(path)"
+                } else if let endpoint = provider?.endpoint {
+                    source = "本地服务 · \(endpoint)"
+                } else {
+                    source = "本地模型"
+                }
+            default:
+                source = provider == nil ? "未配置" : "内置模拟（无需配置）"
+            }
+
+            result[kind] = CapabilityModelInfo(
+                kind: kind,
+                healthOK: healthOK,
+                healthText: healthText,
+                currentModel: current,
+                sourceDescription: source,
+                localModels: localModels
+            )
+        }
+        capabilityInfos = result
+    }
+
+    /// 选择本地检测到的模型（~/AI_Models）并重装配。
+    public func selectLocalModel(_ kind: AIProviderKind, name: String) async {
+        do {
+            try await services.setCapabilityModel(kind, model: name)
+            bootMessage = nil
+        } catch {
+            bootMessage = error.localizedDescription
+        }
+        await refreshCapabilityInfos()
+    }
+
+    /// 手动填写模型名并应用。
+    public func applyCustomModel(_ kind: AIProviderKind, name: String) async {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        await selectLocalModel(kind, name: trimmed)
+        customModelDrafts[kind.rawValue] = ""
+    }
+
+    /// 某能力配置里的外部 Provider 候选（id + 展示名）。
+    public func remoteProviderOptions(for kind: AIProviderKind) async -> [(id: String, name: String)] {
+        let configuration = await services.configuration
+        return configuration.providers
+            .filter { $0.kind == kind && $0.runtime == .remoteAPI }
+            .map { ($0.id, $0.userFacingName) }
+    }
+
+    /// 外部模型：校验 API Key 并拉取模型列表（不落盘）。
+    public func fetchExternalModels(kind: AIProviderKind, providerID: String) async {
+        let apiKey = await resolvedExternalAPIKey(providerID: providerID)
+        guard !apiKey.isEmpty else {
+            externalMessages[providerID] = "请先填写 API Key"
+            return
+        }
+        isFetchingExternal = true
+        externalMessages[providerID] = nil
+        do {
+            let models = try await services.fetchRemoteModels(providerID: providerID, apiKey: apiKey, kind: kind)
+            externalModels[providerID] = models.filter { !$0.isEmbeddingOnly }
+            externalMessages[providerID] = "验证成功，获取到 \(models.count) 个模型"
+        } catch {
+            externalMessages[providerID] = error.localizedDescription
+        }
+        isFetchingExternal = false
+    }
+
+    /// 外部模型：保存 Key/模型并激活该 Provider。
+    public func applyExternalModel(_ kind: AIProviderKind, providerID: String, model: String) async {
+        let apiKey = await resolvedExternalAPIKey(providerID: providerID)
+        guard !apiKey.isEmpty else {
+            externalMessages[providerID] = "请先填写 API Key"
+            return
+        }
+        do {
+            try await services.applyRemoteProvider(providerID: providerID, apiKey: apiKey, model: model, kind: kind)
+            externalMessages[providerID] = "已启用 \(model)"
+            if kind == .asr || kind == .tts { await bootstrapVoice() }
+        } catch {
+            externalMessages[providerID] = error.localizedDescription
+        }
+        await refreshCapabilityInfos()
+    }
+
+    private func resolvedExternalAPIKey(providerID: String) async -> String {
+        let draft = externalKeyDrafts[providerID] ?? ""
+        if !draft.trimmingCharacters(in: .whitespaces).isEmpty { return draft }
+        let configuration = await services.configuration
+        return configuration.providers.first { $0.id == providerID }?.apiKey ?? ""
     }
 
     // MARK: - 模型 Provider（本地 / 云端切换）
@@ -314,11 +471,12 @@ public final class AppState {
             return
         }
         do {
-            try await services.applyRemoteLLM(
+            try await services.applyRemoteProvider(
                 providerID: selectedProviderID,
                 apiKey: apiKey,
                 model: model,
-                reasoningEffort: reasoningEffortDraft
+                reasoningEffort: reasoningEffortDraft,
+                kind: .llm
             )
             bootMessage = nil
             remoteMessage = "已启用云端模型 \(model)"
@@ -407,6 +565,16 @@ public final class AppState {
 
     public func setAnimalActivity(_ enabled: Bool) async {
         product.animalActivity = enabled
+        await persistProduct()
+    }
+
+    public func setAnimalActivityFrequency(_ value: Double) async {
+        product.animalActivityFrequency = min(max(value, 0), 1)
+        await persistProduct()
+    }
+
+    public func setVoicePreview(_ enabled: Bool) async {
+        product.voicePreview = enabled
         await persistProduct()
     }
 
