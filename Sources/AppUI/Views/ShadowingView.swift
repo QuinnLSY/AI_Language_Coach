@@ -25,9 +25,12 @@ public struct ShadowingView: View {
                         progressRow
                         drillCard
                         actionRow
-                        if let comparison = state.shadowingComparison {
-                            resultCard(comparison)
+                    if let comparison = state.shadowingComparison {
+                        resultCard(comparison)
+                        if let pronunciation = state.shadowingPronunciation {
+                            pronunciationCard(pronunciation)
                         }
+                    }
                     } else {
                         emptyHint
                     }
@@ -58,10 +61,15 @@ public struct ShadowingView: View {
             }
             Spacer(minLength: 0)
             if state.shadowingStats.attempts > 0 {
-                Text("练了 \(state.shadowingStats.attempts) 次 · 最佳 \(percent(state.shadowingStats.bestAccuracy))")
-                    .font(.system(size: 11, design: .rounded))
-                    .foregroundStyle(theme.secondaryText)
-                    .monospacedDigit()
+                HStack(spacing: 4) {
+                    Text("练了 \(state.shadowingStats.attempts) 次 · 最佳 \(percent(state.shadowingStats.bestAccuracy))")
+                    if let best = state.shadowingStats.bestPronunciation {
+                        Text("· 发音最佳 \(Int(best.rounded())) 分")
+                    }
+                }
+                .font(.system(size: 11, design: .rounded))
+                .foregroundStyle(theme.secondaryText)
+                .monospacedDigit()
             }
             Button {
                 Task { await state.loadShadowing() }
@@ -332,6 +340,103 @@ public struct ShadowingView: View {
         case .keepGoing: .orange
         case .retry: .red
         }
+    }
+
+    // MARK: - 发音评测（第 23 步 Pronunciation）
+
+    /// 发音评测卡：总分 + 各维度条 + 度量明细 + 针对性建议。
+    /// 数据全部来自 `PronunciationReport`（录音里量出来的物理量），页面不做任何计算。
+    private func pronunciationCard(_ report: PronunciationReport) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("发音评测")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                if !report.metrics.hasSpeech {
+                    Text("这次没量到足够的语音，仅供参考")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                Spacer(minLength: 0)
+                HStack(spacing: 4) {
+                    Image(systemName: report.verdict.symbol)
+                        .font(.system(size: 11))
+                    Text(report.verdict.displayName)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                }
+                .foregroundStyle(scoreColor(report.overall))
+                Text("\(report.overallPercent)")
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .foregroundStyle(scoreColor(report.overall))
+                    .monospacedDigit()
+            }
+
+            VStack(spacing: 12) {
+                ForEach(report.lines) { line in
+                    dimensionRow(line)
+                }
+            }
+
+            ForEach(report.tips, id: \.self) { tip in
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "lightbulb.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(theme.accent)
+                        .padding(.top, 2)
+                    Text(tip)
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(theme.surface)
+                .shadow(color: theme.shadow, radius: 10, x: 0, y: 4)
+        )
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
+    private func dimensionRow(_ line: PronunciationScoreLine) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                Text(line.dimension.displayName)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                Spacer(minLength: 8)
+                Text(line.detail)
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text("\(Int(line.score.rounded()))")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(scoreColor(line.score))
+                    .monospacedDigit()
+                    .frame(width: 28, alignment: .trailing)
+            }
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(theme.divider.opacity(0.6))
+                    Capsule()
+                        .fill(scoreColor(line.score))
+                        .frame(width: max(6, proxy.size.width * line.score / 100))
+                }
+            }
+            .frame(height: 6)
+        }
+    }
+
+    /// 分数配色：越高越绿，与逐词反馈的红/绿语义一致。
+    private func scoreColor(_ score: Double) -> Color {
+        if score >= 85 { return .green }
+        if score >= 70 { return theme.accent }
+        if score >= 55 { return .orange }
+        return .red
     }
 
     // MARK: - 空态 / 提示

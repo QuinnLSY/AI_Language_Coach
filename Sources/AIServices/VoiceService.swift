@@ -282,6 +282,9 @@ public actor VoiceService {
     /// 手上是否有可回放的录音。
     public var hasRecording: Bool { !lastRecording.isEmpty }
 
+    /// 最近一次录音的采样率（发音评测要把采样数换算成秒）。
+    public var recordingSampleRate: Double { MicrophoneRecorder.sampleRate }
+
     /// 回放最近一次录音。空录音时抛 `notInitialized`（由调用方转成可读文案）。
     public func replayLastRecording(rate: Float = 1.0) async throws {
         guard !lastRecording.isEmpty else { throw AIProviderError.notInitialized }

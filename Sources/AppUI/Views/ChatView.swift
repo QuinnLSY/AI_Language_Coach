@@ -2,6 +2,7 @@ import AIDomain
 import AIInterfaces
 import AIServices
 import AppCore
+import AppKit
 import SwiftUI
 
 public struct ChatView: View {
@@ -526,18 +527,19 @@ public struct ChatView: View {
     /// 学员气泡靠左 → 译文靠右；老师气泡靠右 → 译文靠左。两侧因此永不重叠，
     /// 一眼就能分出这句话是谁说的。
     private func translationCard(_ text: String, isUser: Bool) -> some View {
-        HStack(alignment: .top, spacing: 6) {
+        HStack(alignment: .top, spacing: Self.translationMarkGap) {
             if isUser {
                 translationText(text)
-                translationMark
+                translationMark(isUser: isUser)
             } else {
-                translationMark
+                translationMark(isUser: isUser)
                 translationText(text)
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, Self.translationPadding)
         .padding(.vertical, 8)
-        .frame(maxWidth: 340, alignment: isUser ? .trailing : .leading)
+        // 宽度收紧到「文字实际占宽」：短句就是一条小卡片，而不是撑满的长条。
+        .frame(width: Self.translationCardWidth(for: text), alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(theme.surfaceAlt.opacity(0.9))
@@ -546,15 +548,17 @@ public struct ChatView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(theme.accent.opacity(0.28), lineWidth: 1)
         )
-        // 卡片按内容自适应宽度，再整体贴到与气泡相反的一侧。
+        // 卡片贴到与气泡相反的一侧。
         .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
-    private var translationMark: some View {
-        Image(systemName: "quote.closing")
+    /// 引号方向跟着卡片走：老师在**左**用左引号，学员在**右**用右引号。
+    private func translationMark(isUser: Bool) -> some View {
+        Image(systemName: isUser ? "quote.closing" : "quote.opening")
             .font(.system(size: 9, weight: .semibold))
             .foregroundStyle(theme.accent)
+            .padding(.top, 2)
     }
 
     private func translationText(_ text: String) -> some View {
@@ -562,6 +566,47 @@ public struct ChatView: View {
             .font(.system(size: 12, design: .rounded))
             .foregroundStyle(theme.primaryText)
             .fixedSize(horizontal: false, vertical: true)
+    }
+
+    // MARK: - 译文卡片宽度（纯度量，可单测）
+
+    /// 译文卡片左右内边距。
+    nonisolated static let translationPadding: CGFloat = 12
+    /// 引号图标与文字之间的间距。
+    nonisolated static let translationMarkGap: CGFloat = 6
+    /// 引号图标占宽（SF Symbol 9pt semibold 实测 13pt，取 14 留 1pt 余量）。
+    nonisolated static let translationMarkWidth: CGFloat = 14
+    /// 卡片最大宽度：超过则换行。
+    nonisolated static let translationCardMaxWidth: CGFloat = 320
+    /// 正文可用宽度上限 = 卡片上限 − 内边距 − 引号 − 间距。
+    nonisolated static var translationTextMaxWidth: CGFloat {
+        translationCardMaxWidth - translationPadding * 2 - translationMarkWidth - translationMarkGap
+    }
+
+    /// 卡片宽度 = 文字自然宽度 + 卡片装饰宽度（内边距 / 引号 / 间距）。
+    ///
+    /// 为什么要手工量：SwiftUI 里 `Text` 是**弹性**的，放进 `frame(maxWidth:)` 会被撑到上限，
+    /// 而译文多是短句，撑满后卡片比文字长出一大截（「太多空余」）。这里按单行自然宽度收紧，
+    /// 只有超长句才回落到上限换行。
+    nonisolated static func translationCardWidth(for text: String) -> CGFloat {
+        let chrome = translationPadding * 2 + translationMarkWidth + translationMarkGap
+        return translationNaturalWidth(for: text, maxWidth: translationTextMaxWidth) + chrome
+    }
+
+    /// 单行自然宽度（与渲染字体一致：系统圆体 12pt），上限截断。
+    ///
+    /// 实测 NSString 量出 149pt 的句子，SwiftUI `Text` 实渲染 155pt（约 +4%）——
+    /// 不留这个系数，卡片就会比量宽早一行换行。量宽偏大最多多 4pt 空隙，看不出来；
+    /// 偏小则当场换行，所以系数必须留。
+    nonisolated static func translationNaturalWidth(for text: String, maxWidth: CGFloat) -> CGFloat {
+        let base = NSFont.systemFont(ofSize: 12)
+        let descriptor = base.fontDescriptor.withDesign(.rounded) ?? base.fontDescriptor
+        let font = NSFont(descriptor: descriptor, size: 12) ?? base
+        let widest = text
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { ($0 as NSString).size(withAttributes: [.font: font]).width }
+            .max() ?? 0
+        return min(ceil(widest * 1.04) + 4, maxWidth)
     }
 
     /// 翻译按钮：**按需翻译**的入口。

@@ -13,7 +13,8 @@ public actor LearningDatabase {
     /// v3：新增 session_reviews（练习复盘）。
     /// v4：sessions 增加 scenario_id 列（情景练习落库，重启后能接着练）。
     /// v5：新增 shadowing_attempts（跟读记录：参考句 / 学员实际说的 / 匹配率）。
-    public static let schemaVersion = 5
+    /// v6：shadowing_attempts 增加 pronunciation 列（发音评测报告 JSON，第 23 步）。
+    public static let schemaVersion = 6
 
     /// 测试用内存库。
     public static func inMemory() throws -> LearningDatabase {
@@ -122,6 +123,10 @@ public actor LearningDatabase {
         )
         """)
         try db.run("CREATE INDEX IF NOT EXISTS idx_shadowing_created ON shadowing_attempts(created_at DESC)")
+
+        // v5 → v6：跟读记录补发音评测列（第 23 步 Pronunciation）。
+        // 报告是结构化的只读结果，JSON 一列足够；旧行为 NULL = 当时没有音频。
+        try? db.run("ALTER TABLE shadowing_attempts ADD COLUMN pronunciation TEXT")
 
         try db.setSchemaVersion(Self.schemaVersion)
     }
@@ -488,12 +493,13 @@ public actor LearningDatabase {
     // MARK: - 跟读记录（第 22 步 Shadowing）
 
     /// 记一次跟读（评测完成后写入；跟读不挂在对话会话上，故无 session 外键）。
+    /// 发音报告（第 23 步）随行保存为 JSON。
     public func appendShadowingAttempt(_ attempt: ShadowingAttempt) throws {
         try db.run(
             """
             INSERT OR REPLACE INTO shadowing_attempts
-                (id, drill_id, reference, recognized, accuracy, created_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                (id, drill_id, reference, recognized, accuracy, pronunciation, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
             """,
             [
                 .text(attempt.id.uuidString),
@@ -501,6 +507,7 @@ public actor LearningDatabase {
                 .text(attempt.referenceText),
                 .text(attempt.recognizedText),
                 .real(attempt.accuracy),
+                attempt.pronunciation.map(Self.encodeJSON) ?? .null,
                 .real(attempt.createdAt.timeIntervalSince1970),
             ]
         )
@@ -510,7 +517,7 @@ public actor LearningDatabase {
     public func recentShadowingAttempts(limit: Int = 50) throws -> [ShadowingAttempt] {
         try db.query(
             """
-            SELECT id, drill_id, reference, recognized, accuracy, created_at
+            SELECT id, drill_id, reference, recognized, accuracy, pronunciation, created_at
             FROM shadowing_attempts ORDER BY created_at DESC LIMIT ?1
             """,
             [.int(limit)]
@@ -518,11 +525,12 @@ public actor LearningDatabase {
             guard let idText = row.string(0), let id = UUID(uuidString: idText),
                   let drillID = row.string(1), let reference = row.string(2),
                   let recognized = row.string(3), let accuracy = row.double(4),
-                  let created = row.double(5)
+                  let created = row.double(6)
             else { return nil }
             return ShadowingAttempt(
                 id: id, drillID: drillID, referenceText: reference,
                 recognizedText: recognized, accuracy: accuracy,
+                pronunciation: Self.decodeJSON(row.string(5)),
                 createdAt: Date(timeIntervalSince1970: created)
             )
         }.compactMap { $0 }
@@ -532,6 +540,18 @@ public actor LearningDatabase {
     private static func encodeList(_ items: [String]) -> String {
         let data = (try? JSONEncoder().encode(items)) ?? Data("[]".utf8)
         return String(data: data, encoding: .utf8) ?? "[]"
+    }
+
+    /// 结构化结果（如发音报告）以 JSON 存列；解码失败按缺失处理，不让坏数据弄崩读取。
+    static func encodeJSON<T: Encodable>(_ value: T) -> SQLiteValue {
+        guard let data = try? JSONEncoder().encode(value) else { return .null }
+        guard let text = String(data: data, encoding: .utf8) else { return .null }
+        return .text(text)
+    }
+
+    static func decodeJSON<T: Decodable>(_ text: String?, as type: T.Type = T.self) -> T? {
+        guard let text, let data = text.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(T.self, from: data)
     }
 
     private static func decodeList(_ text: String?) -> [String] {

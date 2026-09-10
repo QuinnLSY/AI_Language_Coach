@@ -143,6 +143,8 @@ public final class AppState {
     public private(set) var shadowingIndex = 0
     /// 最近一次评测结果（nil = 这一句还没评过）。
     public private(set) var shadowingComparison: ShadowingComparison?
+    /// 最近一次发音评测（第 23 步；nil = 没录到音频 / 还没评）。
+    public private(set) var shadowingPronunciation: PronunciationReport?
     /// 跟读汇总（次数 / 最佳 / 平均 / 最近）。
     public private(set) var shadowingStats: ShadowingStats = .empty
     /// 正在跟读录音。
@@ -885,6 +887,7 @@ public final class AppState {
         guard !shadowingDrills.isEmpty else { return }
         shadowingIndex = (shadowingIndex + 1) % shadowingDrills.count
         shadowingComparison = nil
+        shadowingPronunciation = nil
         shadowingNotice = nil
         voiceTranscript = nil
     }
@@ -923,6 +926,7 @@ public final class AppState {
         }
         shadowingNotice = nil
         shadowingComparison = nil
+        shadowingPronunciation = nil
         voiceTranscript = nil
         // 录音前先停掉示范，避免麦克风把老师的声音也录进去。
         await services.shadowing.stopAudio()
@@ -931,7 +935,7 @@ public final class AppState {
         if let error = await services.shadowing.lastError() { shadowingNotice = error }
     }
 
-    /// 停止录音 → **原始**识别（不做拼写纠正）→ 逐词对齐评测 → 落库。
+    /// 停止录音 → **原始**识别（不做拼写纠正）→ 逐词对齐 + 发音评测 → 落库。
     public func finishShadowingRecording() async {
         guard let drill = currentShadowingDrill else { return }
         isShadowingRecording = false
@@ -943,7 +947,9 @@ public final class AppState {
             shadowingNotice = await services.shadowing.lastError() ?? "没有听清，凑近麦克风再说一次"
             return
         }
-        shadowingComparison = await services.shadowing.evaluate(drill: drill, recognized: recognized)
+        let result = await services.shadowing.evaluate(drill: drill, recognized: recognized)
+        shadowingComparison = result.comparison
+        shadowingPronunciation = result.pronunciation
         await refreshShadowingStats()
     }
 
@@ -971,11 +977,52 @@ public final class AppState {
 
     public func dismissShadowingNotice() { shadowingNotice = nil }
 
-    /// 截图/验证辅助：拿一段文本直接走**同一个纯函数**评测器，预览反馈界面。
+    /// 截图/验证辅助：拿一段文本直接走**同一条评测链路**，预览反馈界面。
     /// 不录麦克风、不落库 —— 只为了在无法合成点击的环境里验证渲染。
-    func previewShadowingResult(_ recognized: String) {
+    ///
+    /// 发音评测（第 23 步）需要原始音频才能量出语速 / 停顿 / 音高；
+    /// 这里按参考句的词数合成一段「演示波形」（有起伏、有换气）驱动同一套纯函数，
+    /// 让发音卡片也能端到端渲染。真实录音走的完全是同一条链路。
+    func previewShadowingResult(_ recognized: String) async {
         guard let drill = currentShadowingDrill else { return }
-        shadowingComparison = ShadowingScorer.compare(reference: drill.text, recognized: recognized)
+        let comparison = ShadowingScorer.compare(reference: drill.text, recognized: recognized)
+        shadowingComparison = comparison
+        shadowingPronunciation = await services.pronunciation.report(
+            reference: drill.text,
+            recognized: recognized,
+            samples: Self.demoWaveform(for: drill.text),
+            sampleRate: 16_000,
+            comparison: comparison
+        )
+    }
+
+    /// 合成一段「像人说话」的演示波形：每个参考词一段带包络的浊音（基频句内起伏、
+    /// 音量轻重交替），词间小间隙、句中一次换气。**确定性**（不用随机数），
+    /// 同一句每次合成结果一致，评测分数因此可复现。
+    nonisolated private static func demoWaveform(for text: String, sampleRate: Double = 16_000) -> [Float] {
+        let words = ShadowingScorer.words(text)
+        guard !words.isEmpty else { return [] }
+        var samples: [Float] = Array(repeating: 0, count: Int(0.35 * sampleRate))
+        for (index, _) in words.enumerated() {
+            // 词长 0.38~0.50 秒（伪随机但确定）→ 折算约每分钟 135 词，落在理想语速带。
+            let duration = 0.38 + Double((index * 7) % 5) * 0.03
+            let count = Int(duration * sampleRate)
+            // 基频 125~179Hz 循环上抬，让音高有起伏可测。
+            let f0 = 125.0 + Double(index % 4) * 18.0
+            // 轻重交替：重音节奏的代理量才有东西可量。
+            let amplitude = index % 2 == 0 ? 0.55 : 0.85
+            for position in 0..<count {
+                let t = Double(position) / sampleRate
+                let envelope = sin(.pi * Double(position) / Double(count))
+                let vibrato = 1.0 + 0.03 * sin(2 * .pi * 5 * t)
+                samples.append(Float(amplitude * envelope * sin(2 * .pi * f0 * vibrato * t)))
+            }
+            // 词间小间隙；句子过半处插一次 0.42 秒的换气（触发「停顿」维度）。
+            let breathing = index == words.count / 2 && words.count >= 5
+            samples.append(contentsOf: Array(repeating: Float(0), count: Int((breathing ? 0.42 : 0.06) * sampleRate)))
+        }
+        samples.append(contentsOf: Array(repeating: 0, count: Int(0.4 * sampleRate)))
+        return samples
     }
 
     // MARK: - 情景对话（Role Play，第 21 步）

@@ -157,7 +157,7 @@ M1 Pro / 16GB：TTS 先 0.6B，benchmark 后再考虑 1.7B；优先保证 ASR+LL
 
 ### 当前进度（2026-09-10 傍晚·2）
 
-**Phase 0 + UI 大改版 + 第 14 步（SQLite）+ 第 17/18 步（ASR/TTS 本地）+ 第 20 步（Session 总结）+ 第 21 步（情景对话）+ 情景落库与关卡联动 + 第 22 步（跟读 Shadowing）已完成**；学习数据库 schema 升到 **v5**。
+**Phase 0 + UI 大改版 + 第 14 步（SQLite）+ 第 17/18 步（ASR/TTS 本地）+ 第 20 步（Session 总结）+ 第 21 步（情景对话）+ 情景落库与关卡联动 + 第 22 步（跟读 Shadowing）+ 第 23 步（发音评测 Pronunciation）已完成**；学习数据库 schema 升到 **v6**。
 
 ```
 AIDomain/       Scenario 增补 isComplete / completion / ScenarioRewardRule（星级·累计加星·结算文案，纯函数）
@@ -264,13 +264,30 @@ Tests/           ShadowingTests 20 个 + v4→v5 迁移用例（总 **204/204**�
 2. **多说词不扣分**。匹配率 = 命中词数 / **参考句**词数；学员多说的词只标橙提示，
    不参与扣分（否则「多说一句寒暄」会被当成错误）。
 
+### 第 23 步 发音评测（Pronunciation）（2026-09-10 深夜）
+
+```
+AIDomain/        Pronunciation.swift：SpeechAnalyzer（能量分帧/语音段/停顿/自相关 F0→半音/音量起伏）
+                 + PronunciationScorer（七维加权：词准0.30/音准0.20*/流利0.15/语速0.15/停顿0.10/重音0.05/语调0.05）
+                 *音准维可缺席，权重按可用维度自动归一 —— Plan §23 硬要求：首版不依赖任何单一发音模型
+AIServices/      PronunciationService（编排 + 可插拔 PronunciationProvider 音素模型）
+AIInfra/         LearningDatabase v6：shadowing_attempts + pronunciation 列（报告 JSON 落库）
+AIServices/      ShadowingService.evaluate → ShadowingResult（对齐 + 发音一起返回；录音 finishRecording 时截存）
+AppUI/           ShadowingView 发音卡（总分/维度条/明细/建议）；顶栏「发音最佳 N 分」
+Tests/           PronunciationTests 18 个（合成波形脱机可测；总 222/222）
+```
+
+细则：语速只对 ≥4 词、≥1.2s 的音频算 WPM（理想 110–170）；停顿按「每 4 秒允许一次换气」；
+**能量阈值封顶峰值 20%**（连续说话没有静音参考，噪声底×3 会把整段判成静音——单测抓出的真 bug）；
+建议必须点名数字（「语速偏慢（每分钟 96 词）…」），不写「多加练习」式空话。
+
 ### 下一步（按路线图）
 
 1. **词汇本**（侧边栏入口已留、仍 `soon`）：把复盘 `new_words` / 场景 `target_vocabulary` / 跟读素材
    沉淀成可复习的词汇表（第 24 步）。
-2. **第 23 步 发音评测**（V1.1）：现在跟读只有**文本层**匹配（音准、重音、语调都没评），
-   下一步在逐词对齐之上接 forced alignment + 声学评分。
-3. 跟读可继续加：降速示范（0.75×）对照、按主题筛选素材、结果并入学习记录页。
+2. 发音评测可继续加：接入真音素模型（`PronunciationProvider` 插槽已留）、降速示范（0.75×）对照、
+   评测结果并入学习记录页与 Session 总结（第 20 步的 summary 可吃 `pronunciation.overall`）。
+3. 跟读可继续加：按主题筛选素材、句子跟读难度自适应推荐。
 4. 关卡绑定表只绑了 l1–l5（打招呼/自我介绍/点咖啡/过去时/问路）；
    医生、酒店两个场景仅从「情景对话」入口进入，待内容补齐后再绑。
 

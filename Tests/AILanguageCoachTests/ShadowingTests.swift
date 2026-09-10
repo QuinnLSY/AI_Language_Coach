@@ -116,7 +116,7 @@ final class ShadowingTests: XCTestCase {
     // MARK: - 统计 / 记录
 
     func testStatsFromAttempts() {
-        let attempts = [
+        var attempts = [
             attempt(accuracy: 0.9, minutesAgo: 0),
             attempt(accuracy: 0.5, minutesAgo: 5),
             attempt(accuracy: 0.7, minutesAgo: 10),
@@ -126,7 +126,15 @@ final class ShadowingTests: XCTestCase {
         XCTAssertEqual(stats.bestAccuracy, 0.9, accuracy: 0.0001)
         XCTAssertEqual(stats.averageAccuracy, 0.7, accuracy: 0.0001)
         XCTAssertEqual(stats.lastAccuracy ?? -1, 0.9, accuracy: 0.0001)
+        XCTAssertNil(stats.bestPronunciation, "没有发音报告时不该编出一个分数")
         XCTAssertEqual(ShadowingStats.from([]), .empty)
+
+        // 带发音报告的记录：只有带报告的行才计入发音统计。
+        attempts[0].pronunciation = report(overall: 88)
+        attempts[1].pronunciation = report(overall: 72)
+        let withPronunciation = ShadowingStats.from(attempts)
+        XCTAssertEqual(withPronunciation.bestPronunciation ?? 0, 88, accuracy: 0.0001)
+        XCTAssertEqual(withPronunciation.averagePronunciation ?? 0, 80, accuracy: 0.0001)
     }
 
     func testAttemptClampsAccuracy() {
@@ -192,15 +200,16 @@ final class ShadowingTests: XCTestCase {
         XCTAssertEqual(drills.map(\.difficulty), drills.map(\.difficulty).sorted(), "素材按难度升序")
     }
 
-    // MARK: - 落库（schema v5）
+    // MARK: - 落库（schema v6）
 
     func testDatabaseStoresAndReturnsAttemptsNewestFirst() async throws {
         let database = try LearningDatabase.inMemory()
         let version = try await database.schemaVersion()
-        XCTAssertEqual(version, 5, "跟读表属于 schema v5")
+        XCTAssertEqual(version, 6, "发音评测列属于 schema v6")
 
         let older = attempt(accuracy: 0.4, minutesAgo: 30)
-        let newer = attempt(accuracy: 0.8, minutesAgo: 0)
+        var newer = attempt(accuracy: 0.8, minutesAgo: 0)
+        newer.pronunciation = report(overall: 76)
         try await database.appendShadowingAttempt(older)
         try await database.appendShadowingAttempt(newer)
 
@@ -208,6 +217,8 @@ final class ShadowingTests: XCTestCase {
         XCTAssertEqual(loaded.map(\.id), [newer.id, older.id], "最近记录在前")
         XCTAssertEqual(loaded.first?.referenceText, newer.referenceText)
         XCTAssertEqual(loaded.first?.accuracy ?? 0, 0.8, accuracy: 0.0001)
+        XCTAssertEqual(loaded.first?.pronunciation?.overall ?? 0, 76, accuracy: 0.0001, "发音报告应随行往返")
+        XCTAssertNil(loaded.last?.pronunciation, "旧行没有报告")
         let limited = try await database.recentShadowingAttempts(limit: 1)
         XCTAssertEqual(limited.count, 1)
     }
@@ -220,8 +231,9 @@ final class ShadowingTests: XCTestCase {
         let drills = await service.drills()
         let drill = try XCTUnwrap(drills.first)
 
-        let comparison = await service.evaluate(drill: drill, recognized: drill.text)
-        XCTAssertEqual(comparison.accuracy, 1.0, accuracy: 0.0001, "照读原文应当满分")
+        let result = await service.evaluate(drill: drill, recognized: drill.text)
+        XCTAssertEqual(result.comparison.accuracy, 1.0, accuracy: 0.0001, "照读原文应当满分")
+        XCTAssertNil(result.pronunciation, "没有录到音频时不算发音，不硬编分数")
 
         let stats = await service.stats()
         XCTAssertEqual(stats.attempts, 1)
@@ -235,8 +247,9 @@ final class ShadowingTests: XCTestCase {
     func testServiceWithoutDatabaseStillEvaluates() async throws {
         let service = ShadowingService(voice: VoiceService(), learning: nil)
         let drill = ShadowingDrill(id: "x", text: "Hello there, friend")
-        let comparison = await service.evaluate(drill: drill, recognized: "Hello there")
-        XCTAssertEqual(comparison.accuracy, 2.0 / 3.0, accuracy: 0.0001)
+        let result = await service.evaluate(drill: drill, recognized: "Hello there")
+        XCTAssertEqual(result.comparison.accuracy, 2.0 / 3.0, accuracy: 0.0001)
+        XCTAssertNil(result.pronunciation)
         let attempts = await service.recentAttempts()
         XCTAssertTrue(attempts.isEmpty, "没有数据库时只评测不落库，不崩")
         let stats = await service.stats()
@@ -261,8 +274,9 @@ final class ShadowingTests: XCTestCase {
         XCTAssertNotNil(state.currentShadowingDrill)
         XCTAssertEqual(state.shadowingStats.attempts, 0)
 
-        state.previewShadowingResult("totally different words here")
+        await state.previewShadowingResult("totally different words here")
         XCTAssertNotNil(state.shadowingComparison)
+        XCTAssertNotNil(state.shadowingPronunciation, "预览用演示波形驱动同一条发音链路")
         XCTAssertEqual(state.shadowingStats.attempts, 0, "预览走纯函数，不写库")
 
         let first = state.currentShadowingDrill?.id
@@ -280,6 +294,20 @@ final class ShadowingTests: XCTestCase {
             recognizedText: "I like coffee",
             accuracy: accuracy,
             createdAt: Date().addingTimeInterval(-minutesAgo * 60)
+        )
+    }
+
+    /// 最小可用的发音报告（评测逻辑本身由 PronunciationTests 覆盖）。
+    private func report(overall: Double) -> PronunciationReport {
+        PronunciationReport(
+            referenceText: "I like coffee",
+            recognizedText: "I like coffee",
+            overall: overall,
+            verdict: PronunciationScorer.verdict(for: overall),
+            lines: [],
+            metrics: .empty,
+            weakest: nil,
+            tips: []
         )
     }
 

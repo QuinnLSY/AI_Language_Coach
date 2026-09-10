@@ -190,10 +190,10 @@ final class LearningDatabaseTests: XCTestCase {
         XCTAssertEqual(boundScenario, "shopping")
     }
 
-    func testSchemaVersionIsFive() async throws {
+    func testSchemaVersionIsSix() async throws {
         let db = try makeDB()
         let version = try await db.schemaVersion()
-        XCTAssertEqual(version, 5)
+        XCTAssertEqual(version, 6)
     }
 
     /// 迁移：旧版本每次启动都会建空会话，导致「最近会话」恢复不回来 —— v4 迁移要清掉它们。
@@ -234,10 +234,10 @@ final class LearningDatabaseTests: XCTestCase {
         XCTAssertEqual(sessions.count, 1, "空会话是历史包袱，应在迁移时清掉")
         XCTAssertEqual(sessions.first?.sessionID, used.id)
         let version = try await db.schemaVersion()
-        XCTAssertEqual(version, 5)
+        XCTAssertEqual(version, 6)
     }
 
-    /// 迁移：v4 旧库升级到 v5 时必须补上跟读记录表（旧库根本没有这张表，
+    /// 迁移：v4 旧库升级到 v5/v6 时必须补上跟读记录表（旧库根本没有这张表，
     /// 不补的话点「跟读」写记录会静默失败）。
     func testMigrationAddsShadowingTable() async throws {
         let url = FileManager.default.temporaryDirectory
@@ -256,7 +256,7 @@ final class LearningDatabaseTests: XCTestCase {
 
         let db = try LearningDatabase(path: url.path)
         let version = try await db.schemaVersion()
-        XCTAssertEqual(version, 5)
+        XCTAssertEqual(version, 6)
 
         try await db.appendShadowingAttempt(ShadowingAttempt(
             drillID: "d", referenceText: "a b c", recognizedText: "a b", accuracy: 2.0 / 3.0

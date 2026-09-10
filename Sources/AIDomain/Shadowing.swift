@@ -173,13 +173,15 @@ public struct ShadowingComparison: Sendable, Equatable {
     public var accuracyPercent: Int { Int((accuracy * 100).rounded()) }
 }
 
-/// 一次跟读记录（落库）。
+/// 一次跟读记录（落库）。发音评测（第 23 步）录到音频时一并保存报告。
 public struct ShadowingAttempt: Sendable, Equatable, Identifiable {
     public var id: UUID
     public var drillID: String
     public var referenceText: String
     public var recognizedText: String
     public var accuracy: Double
+    /// 发音评测报告（nil = 那次没有可用音频，比如纯文本预览）。
+    public var pronunciation: PronunciationReport?
     public var createdAt: Date
 
     public init(
@@ -188,6 +190,7 @@ public struct ShadowingAttempt: Sendable, Equatable, Identifiable {
         referenceText: String,
         recognizedText: String,
         accuracy: Double,
+        pronunciation: PronunciationReport? = nil,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -195,7 +198,19 @@ public struct ShadowingAttempt: Sendable, Equatable, Identifiable {
         self.referenceText = referenceText
         self.recognizedText = recognizedText
         self.accuracy = min(max(accuracy, 0), 1)
+        self.pronunciation = pronunciation
         self.createdAt = createdAt
+    }
+}
+
+/// 一次跟读的完整结果：文本对齐 +（录到音频时的）发音评测。
+public struct ShadowingResult: Sendable, Equatable {
+    public var comparison: ShadowingComparison
+    public var pronunciation: PronunciationReport?
+
+    public init(comparison: ShadowingComparison, pronunciation: PronunciationReport? = nil) {
+        self.comparison = comparison
+        self.pronunciation = pronunciation
     }
 }
 
@@ -206,12 +221,24 @@ public struct ShadowingStats: Sendable, Equatable {
     public var averageAccuracy: Double
     /// 最近一次匹配率（无记录为 nil）。
     public var lastAccuracy: Double?
+    /// 发音总分（0...100）：历史最佳 / 平均。只有带音频的记录才计入。
+    public var bestPronunciation: Double?
+    public var averagePronunciation: Double?
 
-    public init(attempts: Int, bestAccuracy: Double, averageAccuracy: Double, lastAccuracy: Double?) {
+    public init(
+        attempts: Int,
+        bestAccuracy: Double,
+        averageAccuracy: Double,
+        lastAccuracy: Double?,
+        bestPronunciation: Double? = nil,
+        averagePronunciation: Double? = nil
+    ) {
         self.attempts = attempts
         self.bestAccuracy = bestAccuracy
         self.averageAccuracy = averageAccuracy
         self.lastAccuracy = lastAccuracy
+        self.bestPronunciation = bestPronunciation
+        self.averagePronunciation = averagePronunciation
     }
 
     public static let empty = ShadowingStats(attempts: 0, bestAccuracy: 0, averageAccuracy: 0, lastAccuracy: nil)
@@ -220,11 +247,14 @@ public struct ShadowingStats: Sendable, Equatable {
     public static func from(_ attempts: [ShadowingAttempt]) -> ShadowingStats {
         guard !attempts.isEmpty else { return .empty }
         let values = attempts.map(\.accuracy)
+        let scores = attempts.compactMap(\.pronunciation).map(\.overall)
         return ShadowingStats(
             attempts: attempts.count,
             bestAccuracy: values.max() ?? 0,
             averageAccuracy: values.reduce(0, +) / Double(values.count),
-            lastAccuracy: attempts.first?.accuracy
+            lastAccuracy: attempts.first?.accuracy,
+            bestPronunciation: scores.max(),
+            averagePronunciation: scores.isEmpty ? nil : scores.reduce(0, +) / Double(scores.count)
         )
     }
 }
