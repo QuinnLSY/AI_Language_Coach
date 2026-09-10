@@ -155,29 +155,20 @@ M1 Pro / 16GB：TTS 先 0.6B，benchmark 后再考虑 1.7B；优先保证 ASR+LL
 **禁止一上来就把 runtime 调用塞进 Agent。**
 **验收硬指标**：WhisperKit→其他 ASR、Qwen3→其他 LLM、Qwen3-TTS→GPT-SoVITS、Silero→其他 VAD、Ollama Embedding→MLX、发音 Pipeline A→B —— 全部替换**不动任何 Agent**；甚至 runtime 从 Ollama 换成 MLX/llama.cpp 跑同一个 Qwen3，也只改 Adapter/Provider 层。
 
-### 当前进度（2026-09-09 下午）
+### 当前进度（2026-09-10 下午）
 
-**Phase 0 + UI 大改版 + 第 14 步（SQLite 数据库）已完成**。
+**Phase 0 + UI 大改版 + 第 14 步（SQLite）+ 第 17/18 步（ASR/TTS 本地）+ 第 20 步（Session 总结）已完成**；学习数据库 schema 升到 **v3**（新增 `session_reviews`）。
 
 ```
-Sources/
-  AppCore/            日志(LogBus)/错误/配置模型（ThemeMode·PracticeMode·ProviderConfig·ProductConfig）
-  AIDomain/           ChatMessage·ChatSession·LearnerProfile·TreeLevel·LearnerProgress(+seed种子关卡)·SessionSummary
-  AIInterfaces/       AIProvider 基契约 + 六能力协议 + LLM 传输模型 + AIProviderError(14 case)
-  AIInfrastructure/   ConfigStore·AppPaths·SQLiteDatabase(系统libsqlite3)·LearningDatabase(levels/sessions/messages/corrections)·HTTPClient·PromptBuilder
-  AIProviders/        MockProviders×6 + OllamaLLMAdapter（已对 deepseek-r1:7b 真机验证，含 reasoning 解析）
-  AIServices/         LLMManager·CoachServices(装配/模型发现/进度读写/会话持久化)·ChatService(流式/取消/思考态/消息落库)
-  AppUI/              ForestTheme·AppLogo·Animals(8物种独立绘制：狐狸/熊猫/老虎/猫头鹰/兔子/熊/松鼠/刺猬)·AppSidebar(可收拉)·ForestSky·TreeCanvas·ChatView·SettingsView·MainView
-  AppMain/            SwiftUI 入口（--open-settings 启动参数用于截图验证）
-Tests/                21 个测试全部通过（含 5 个内存库 DB 测试 + 真实 Ollama 集成测试）
+AIServices/    新增 SessionReviewService（练习复盘：LLM 生成 JSON 总结 + heuristic 规则兜底 + 落库）
+AIInfra/       AudioPlayback 支持 0.5–3× 变速（AVAudioEngine + AVAudioUnitTimePitch，保持音高）
+AIInfra/       Prompts/session_review.txt（复盘 Prompt，版本化）
+AppUI/         RecordsView 新增「练习复盘」卡（生成按钮/新词/优点/待改进/建议）
+AppUI/         ChatView「听老师读」右侧语速胶囊（与设置页语音卡同一份配置，双向同步）；按钮点击边缘高亮
+AppUI/         ForestGroundBand：小动物气泡改为每只独立持有（bubbleTexts/stamps），最新气泡 zIndex 最大
+AppCore/       ProductConfig 新增 speechRate（SpeechRate 枚举 6 档，非法取值自动落最近档）
+Tests/         69 个测试（新增 SessionReviewTests 9 个 + 真实模型复盘集成测试），全部通过
 ```
-
-**2026-09-09 下午 UI 大改版（用户验收通过）**：
-- 布局三栏：**左 = 可收拉侧边栏**（logo/名称"语林"/设置/日夜切换/未来全局功能入口/收拉按钮）；**中 = 对话**；**右 = 成长之树关卡画布**。
-- 设置改为**应用内浮层面板**：头部带关闭按钮（X + Esc 快捷键）+ 日夜快捷切换；点遮罩也可关闭。
-- **日夜切换为全局**：根视图 `.preferredColorScheme` 跟随 + 所有组件从 `ForestTheme` 语义色取色（新增 `scrim/panel/selection/hover`）；设置面板同步切换。
-- 8 种动物**按物种独立绘制**（耳朵/口鼻/尾巴/纹样各有特征），夜晚闭眼 + Zzz。
-- 学习数据库已接线：进度启动时从 DB 加载（首次写种子），会话/消息实时落库（`.workbuddy/app-config/learning.db`，WAL 模式）。
 
 ### 截图验证工作流（重要，已踩坑）
 
@@ -189,9 +180,9 @@ Tests/                21 个测试全部通过（含 5 个内存库 DB 测试 + 
 
 ### 下一步（按路线图）
 
-1. 第 15 步 学习记忆：Session 总结、纠错记录（corrections 表已建）、词汇积累。
-2. 第 17 步 ASR（WhisperKit）→ 语音输入；第 18 步 TTS（Qwen3-TTS 0.6B）→ 教师语音。
-3. 关卡进度与真实学习数据联动（completeLevel 已实现，待接练习结算）。
+1. 第 15 步学习记忆继续深化：关卡进度与练习结算联动（completeLevel 已实现，待接复盘结论）。
+2. 第 21 步场景系统（Scenario System）→ 情景对话模式真正落地。
+3. 词汇本（侧边栏"词汇本"入口已留）：把复盘 new_words 沉淀为可复习的词汇表。
 
 ---
 

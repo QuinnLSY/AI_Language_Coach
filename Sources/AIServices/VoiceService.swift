@@ -81,7 +81,8 @@ public actor VoiceService {
     // MARK: - 朗读（听）
 
     /// 朗读文本。空文本直接忽略；合成中重复点击会被忽略（runtime 不允许并发推理）。
-    public func speak(_ text: String, voice: String, language: String = "English") async {
+    /// - Parameter rate: 播放倍速（1 = 原速，由设置里的语速决定）。
+    public func speak(_ text: String, voice: String, language: String = "English", rate: Float = 1.0) async {
         let trimmed = Self.cleanForSpeech(text)
         guard !trimmed.isEmpty else { return }
         guard !isSpeaking else { return }
@@ -91,7 +92,7 @@ public actor VoiceService {
             let result = try await tts.synthesize(
                 TTSRequest(text: trimmed, voice: voice, language: language)
             )
-            try playback.play(wavData: Self.wavData(for: result))
+            try playback.play(wavData: Self.wavData(for: result), rate: rate)
             lastError = nil
         } catch {
             lastError = Self.describe(error)

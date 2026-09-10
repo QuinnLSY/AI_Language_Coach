@@ -58,6 +58,28 @@ public enum AIProviderKind: String, Codable, Sendable, CaseIterable, Identifiabl
     }
 }
 
+/// 教师朗读语速（播放倍速）。**保持音高不变**，只是快放/慢放。
+public enum SpeechRate: Double, Codable, Sendable, CaseIterable, Identifiable {
+    case x0_5 = 0.5
+    case x1 = 1.0
+    case x1_5 = 1.5
+    case x2 = 2.0
+    case x2_5 = 2.5
+    case x3 = 3.0
+
+    public var id: Double { rawValue }
+
+    /// 「1×」「1.5×」——整数不带小数点，看着干净。
+    public var label: String {
+        rawValue == rawValue.rounded() ? "\(Int(rawValue))×" : "\(rawValue)×"
+    }
+
+    /// 把任意取值落到最接近的档位（配置文件被手改时也能自愈）。
+    public static func nearest(to value: Double) -> SpeechRate {
+        allCases.min { abs($0.rawValue - value) < abs($1.rawValue - value) } ?? .x1
+    }
+}
+
 public enum RuntimeKind: String, Codable, Sendable, CaseIterable {
     case embedded
     case ollama
@@ -163,6 +185,8 @@ public struct ProductConfig: Sendable, Equatable {
     public var animalActivityFrequency: Double
     /// 音色切换时自动试听（设置里小喇叭控制，默认开）。
     public var voicePreview: Bool
+    /// 教师朗读语速（1 = 正常）。可选档位见 `SpeechRate`，非法取值落回 1。
+    public var speechRate: Double
 
     public init(
         learningLanguage: String = "en-US",
@@ -178,7 +202,8 @@ public struct ProductConfig: Sendable, Equatable {
         animalBubbles: Bool = true,
         animalActivity: Bool = true,
         animalActivityFrequency: Double = 0.5,
-        voicePreview: Bool = true
+        voicePreview: Bool = true,
+        speechRate: Double = SpeechRate.x1.rawValue
     ) {
         self.learningLanguage = learningLanguage
         self.nativeLanguage = nativeLanguage
@@ -194,6 +219,7 @@ public struct ProductConfig: Sendable, Equatable {
         self.animalActivity = animalActivity
         self.animalActivityFrequency = min(max(animalActivityFrequency, 0), 1)
         self.voicePreview = voicePreview
+        self.speechRate = SpeechRate.nearest(to: speechRate).rawValue
     }
 
     public func selectedModel(for kind: AIProviderKind) -> String? { selectedModels[kind.rawValue] }
@@ -214,7 +240,7 @@ extension ProductConfig: Codable {
         case learningLanguage, nativeLanguage, teacherVoice, practiceMode, themeMode
         case selectedModels, teacherAnimal, studentAnimal, activeProviders
         case teacherBubbles, animalBubbles, animalActivity
-        case animalActivityFrequency, voicePreview
+        case animalActivityFrequency, voicePreview, speechRate
     }
 
     public init(from decoder: Decoder) throws {
@@ -233,6 +259,9 @@ extension ProductConfig: Codable {
         animalActivity = try container.decodeIfPresent(Bool.self, forKey: .animalActivity) ?? true
         animalActivityFrequency = try container.decodeIfPresent(Double.self, forKey: .animalActivityFrequency) ?? 0.5
         voicePreview = try container.decodeIfPresent(Bool.self, forKey: .voicePreview) ?? true
+        speechRate = SpeechRate.nearest(
+            to: try container.decodeIfPresent(Double.self, forKey: .speechRate) ?? SpeechRate.x1.rawValue
+        ).rawValue
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -251,6 +280,7 @@ extension ProductConfig: Codable {
         try container.encode(animalActivity, forKey: .animalActivity)
         try container.encode(animalActivityFrequency, forKey: .animalActivityFrequency)
         try container.encode(voicePreview, forKey: .voicePreview)
+        try container.encode(speechRate, forKey: .speechRate)
     }
 }
 

@@ -50,20 +50,39 @@ final class ModelCenterTests: XCTestCase {
         let decoded = try JSONDecoder().decode(ProductConfig.self, from: Data(legacy.utf8))
         XCTAssertTrue(decoded.animalActivityFrequency > 0)
         XCTAssertTrue(decoded.voicePreview)
+        XCTAssertEqual(decoded.speechRate, 1.0, accuracy: 0.0001)
 
         // 新字段编解码往返
         var product = ProductConfig()
         product.animalActivityFrequency = 0.85
         product.voicePreview = false
+        product.speechRate = 2.5
         let data = try JSONEncoder().encode(product)
         let back = try JSONDecoder().decode(ProductConfig.self, from: data)
         XCTAssertEqual(back.animalActivityFrequency, 0.85, accuracy: 0.0001)
         XCTAssertFalse(back.voicePreview)
+        XCTAssertEqual(back.speechRate, 2.5, accuracy: 0.0001)
     }
 
     func testActivityFrequencyClamped() {
         // init 时钳制到 0...1（运行中修改由 AppState.setAnimalActivityFrequency 负责钳制）
         XCTAssertEqual(ProductConfig(animalActivityFrequency: 5).animalActivityFrequency, 1)
         XCTAssertEqual(ProductConfig(animalActivityFrequency: -2).animalActivityFrequency, 0)
+    }
+
+    // MARK: 朗读语速
+
+    func testSpeechRateFallsBackToNearestOption() {
+        XCTAssertEqual(SpeechRate.nearest(to: 0.4), .x0_5)
+        XCTAssertEqual(SpeechRate.nearest(to: 1.2), .x1)
+        XCTAssertEqual(SpeechRate.nearest(to: 1.4), .x1_5)
+        XCTAssertEqual(SpeechRate.nearest(to: 9), .x3)
+        // 配置里的非法取值自愈到最近档位
+        XCTAssertEqual(ProductConfig(speechRate: 1.7).speechRate, 1.5, accuracy: 0.0001)
+        XCTAssertEqual(ProductConfig(speechRate: 0).speechRate, 0.5, accuracy: 0.0001)
+        // 六档可选
+        XCTAssertEqual(SpeechRate.allCases.map(\.rawValue), [0.5, 1, 1.5, 2, 2.5, 3])
+        XCTAssertEqual(SpeechRate.x1.label, "1×")
+        XCTAssertEqual(SpeechRate.x1_5.label, "1.5×")
     }
 }

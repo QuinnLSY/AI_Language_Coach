@@ -15,6 +15,8 @@ public actor CoachServices {
     public let tts: TTSManager
     /// 语音能力（录音/识别/朗读）——UI 只认它。
     public let voice: VoiceService
+    /// 练习复盘（学习记忆：一次练习 → 一份结构化总结）。
+    private let reviewer: SessionReviewService
 
     /// 学习数据库。打开失败时为 nil（功能降级为不持久化，不影响对话）。
     public private(set) var learning: LearningDatabase?
@@ -28,7 +30,9 @@ public actor CoachServices {
         self.tts = TTSManager()
         self.voice = VoiceService(asr: self.asr, tts: self.tts)
         let path = databasePath ?? LearningDatabase.defaultURL().path
-        self.learning = try? LearningDatabase(path: path)
+        let database = try? LearningDatabase(path: path)
+        self.learning = database
+        self.reviewer = SessionReviewService(llm: self.llm, learning: database)
         if self.learning == nil {
             AppLog.warning("学习数据库打开失败，持久化已降级关闭: \(path)", category: "database")
         }
@@ -302,6 +306,52 @@ public actor CoachServices {
     public func sessionSummary(id: UUID) async -> SessionSummary? {
         guard let learning else { return nil }
         return try? await learning.sessionSummary(id: id)
+    }
+
+    // MARK: - 练习复盘（学习记忆）
+
+    /// 会话时长（秒）：会话首条消息 → 现在。流水为空时为 0。
+    public func sessionDuration(sessionID: UUID) async -> TimeInterval {
+        guard let summary = await sessionSummary(id: sessionID) else { return 0 }
+        return max(Date().timeIntervalSince(summary.startedAt), 0)
+    }
+
+    /// 生成一次练习复盘并落库（模型不可用时自动退化为规则总结）。
+    public func makeSessionReview(
+        sessionID: UUID,
+        messages: [ChatMessage],
+        corrections: [GrammarCorrection],
+        duration: TimeInterval,
+        proficiency: String = "beginner"
+    ) async -> SessionReview {
+        let configuration = await config.current
+        let provider = configuration.resolvedProvider(for: .llm)
+        let options = SessionReviewService.ReviewOptions(
+            model: await currentLLMModel(),
+            temperature: provider?.temperature,
+            // 复盘是短 JSON：推理模型会吞掉预算，给足上限（配置优先）。
+            maxTokens: provider?.maxTokens,
+            learningLanguage: configuration.product.learningLanguage,
+            nativeLanguage: configuration.product.nativeLanguage,
+            proficiency: proficiency
+        )
+        return await reviewer.makeReview(
+            sessionID: sessionID,
+            messages: messages,
+            corrections: corrections,
+            duration: duration,
+            options: options
+        )
+    }
+
+    /// 某会话已有的复盘（未生成则 nil）。
+    public func sessionReview(sessionID: UUID) async -> SessionReview? {
+        await reviewer.review(sessionID: sessionID)
+    }
+
+    /// 最近的复盘列表（学习记录页展示）。
+    public func recentReviews(limit: Int = 10) async -> [SessionReview] {
+        await reviewer.recentReviews(limit: limit)
     }
 
     // MARK: - 缓存管理（设置页）

@@ -119,7 +119,9 @@ public struct MainView: View {
                     autoSpeak: state.autoSpeak,
                     onMicStart: { await state.startVoiceInput() },
                     onMicStop: { await state.finishVoiceInput() },
-                    onSpeakTap: { text in Task { await state.speak(text) } }
+                    onSpeakTap: { text in Task { await state.speak(text) } },
+                    speechRate: state.speechRate,
+                    onSpeechRateChange: { rate in Task { await state.setSpeechRate(rate) } }
                 )
             }
         }

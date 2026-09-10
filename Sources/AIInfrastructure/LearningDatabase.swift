@@ -10,7 +10,7 @@ public actor LearningDatabase {
     private let db: SQLiteDatabase
 
     /// v2：messages 增加 reasoning 列（推理模型思考过程持久化）。
-    public static let schemaVersion = 2
+    public static let schemaVersion = 3
 
     /// 测试用内存库。
     public static func inMemory() throws -> LearningDatabase {
@@ -82,6 +82,25 @@ public actor LearningDatabase {
 
         // v1 → v2：给已存在的 messages 表补 reasoning 列（列已存在时报错属预期，忽略）。
         try? db.run("ALTER TABLE messages ADD COLUMN reasoning TEXT")
+
+        // v2 → v3：练习复盘（学习记忆）。
+        try db.run("""
+        CREATE TABLE IF NOT EXISTS session_reviews (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            duration REAL NOT NULL DEFAULT 0,
+            message_count INTEGER NOT NULL DEFAULT 0,
+            correction_count INTEGER NOT NULL DEFAULT 0,
+            headline TEXT NOT NULL DEFAULT '',
+            new_words TEXT NOT NULL DEFAULT '[]',
+            strengths TEXT NOT NULL DEFAULT '[]',
+            improvements TEXT NOT NULL DEFAULT '[]',
+            suggestion TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT 'llm'
+        )
+        """)
+        try db.run("CREATE INDEX IF NOT EXISTS idx_reviews_session ON session_reviews(session_id)")
 
         try db.setSchemaVersion(Self.schemaVersion)
     }
@@ -308,6 +327,91 @@ public actor LearningDatabase {
             newStars: 0,
             corrections: try corrections(sessionID: sessionID)
         )
+    }
+
+    // MARK: - 练习复盘（学习记忆：把一次练习沉淀成可回看的总结）
+
+    /// 写入/覆盖一次复盘（同 id 覆盖，按会话保留最新一份）。
+    public func saveReview(_ review: SessionReview) throws {
+        try db.run(
+            """
+            INSERT OR REPLACE INTO session_reviews
+                (id, session_id, created_at, duration, message_count, correction_count,
+                 headline, new_words, strengths, improvements, suggestion, source)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+            """,
+            [
+                .text(review.id.uuidString),
+                .text(review.sessionID.uuidString),
+                .real(review.createdAt.timeIntervalSince1970),
+                .real(review.duration),
+                .int(review.messageCount),
+                .int(review.correctionCount),
+                .text(review.headline),
+                .text(Self.encodeList(review.newWords)),
+                .text(Self.encodeList(review.strengths)),
+                .text(Self.encodeList(review.improvements)),
+                .text(review.suggestion),
+                .text(review.source.rawValue),
+            ]
+        )
+    }
+
+    /// 某会话最新一份复盘。
+    public func review(sessionID: UUID) throws -> SessionReview? {
+        try db.query(
+            """
+            SELECT id, session_id, created_at, duration, message_count, correction_count,
+                   headline, new_words, strengths, improvements, suggestion, source
+            FROM session_reviews WHERE session_id = ?1
+            ORDER BY created_at DESC LIMIT 1
+            """,
+            [.text(sessionID.uuidString)]
+        ) { row in Self.review(from: row) }.compactMap { $0 }.first
+    }
+
+    /// 最近的复盘（跨会话，学习记录页展示）。
+    public func recentReviews(limit: Int = 10) throws -> [SessionReview] {
+        try db.query(
+            """
+            SELECT id, session_id, created_at, duration, message_count, correction_count,
+                   headline, new_words, strengths, improvements, suggestion, source
+            FROM session_reviews ORDER BY created_at DESC LIMIT ?1
+            """,
+            [.int(limit)]
+        ) { row in Self.review(from: row) }.compactMap { $0 }
+    }
+
+    private static func review(from row: SQLiteRow) -> SessionReview? {
+        guard let idText = row.string(0), let id = UUID(uuidString: idText),
+              let sessionText = row.string(1), let sessionID = UUID(uuidString: sessionText),
+              let created = row.double(2)
+        else { return nil }
+        return SessionReview(
+            id: id,
+            sessionID: sessionID,
+            createdAt: Date(timeIntervalSince1970: created),
+            duration: row.double(3) ?? 0,
+            messageCount: row.int(4) ?? 0,
+            correctionCount: row.int(5) ?? 0,
+            headline: row.string(6) ?? "",
+            newWords: decodeList(row.string(7)),
+            strengths: decodeList(row.string(8)),
+            improvements: decodeList(row.string(9)),
+            suggestion: row.string(10) ?? "",
+            source: SessionReview.Source(rawValue: row.string(11) ?? "llm") ?? .llm
+        )
+    }
+
+    /// 字符串列表以 JSON 数组存列（短列表，JSON 足够且可读）。
+    private static func encodeList(_ items: [String]) -> String {
+        let data = (try? JSONEncoder().encode(items)) ?? Data("[]".utf8)
+        return String(data: data, encoding: .utf8) ?? "[]"
+    }
+
+    private static func decodeList(_ text: String?) -> [String] {
+        guard let text, let data = text.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([String].self, from: data)) ?? []
     }
 
     private static func correction(from row: SQLiteRow) -> GrammarCorrection {

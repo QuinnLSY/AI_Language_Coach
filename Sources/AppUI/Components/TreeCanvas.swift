@@ -296,10 +296,11 @@ struct ForestGroundBand: View {
         "大家好，这里的草真香呀～",
     ]
 
-    /// 当前气泡归属（点击或自发动作）——气泡统一画在带子顶层，永远不被遮挡。
-    @State private var speakingIndex: Int?
-    @State private var bubbleText: String?
-    @State private var bubbleTick = 0
+    /// 每只小动物**独立拥有**一个气泡：`bubbleTexts[i]` 是槽位 i 当前的话（nil = 没在说话）。
+    /// 多个气泡可以同时存在；`bubbleStamps[i]` 记录出现序号，序号越大画得越上层（最新出现的永远在最上方）。
+    @State private var bubbleTexts: [String?] = Array(repeating: nil, count: Self.maxResidents)
+    @State private var bubbleStamps: [Int] = Array(repeating: 0, count: Self.maxResidents)
+    @State private var bubbleCounter = 0
     /// 各居民的**持续位移**：游走后停在新位置，不回原位。
     @State private var offsets: [CGSize] = Array(repeating: .zero, count: Self.maxResidents)
     /// 鸟类是否正栖在枝桠上。
@@ -408,19 +409,22 @@ struct ForestGroundBand: View {
                     )
                 }
 
-                // 气泡顶层：永远画在所有居民之上（最新出现的气泡不被任何气泡/动物遮挡）
-                if let speaker = speakingIndex, speaker < count, let text = bubbleText {
-                    let home = homePosition(index: speaker, count: count, span: span,
-                                            inset: inset, groundLine: groundLine, quantizedWidth: qw)
-                    SpeechBubble(text: text, maxWidth: 150)
-                        .fixedSize()
-                        .position(
-                            x: home.x + offsets[speaker].width,
-                            y: home.y + offsets[speaker].height - home.size * 0.78
-                        )
-                        .transition(.opacity.combined(with: .scale(scale: 0.55, anchor: .bottom)))
-                        .zIndex(999)
-                        .allowsHitTesting(false)
+                // 气泡层：每只小动物一份，统一画在所有居民之上。
+                // 层级由出现序号决定 —— 最新出现的气泡 zIndex 最大，不会被任何动物或其他气泡遮挡。
+                ForEach(0..<Self.maxResidents, id: \.self) { i in
+                    if i < count, let text = bubbleTexts[i] {
+                        let home = homePosition(index: i, count: count, span: span,
+                                                inset: inset, groundLine: groundLine, quantizedWidth: qw)
+                        SpeechBubble(text: text, maxWidth: 150)
+                            .fixedSize()
+                            .position(
+                                x: home.x + offsets[i].width,
+                                y: home.y + offsets[i].height - home.size * 0.78
+                            )
+                            .transition(.opacity.combined(with: .scale(scale: 0.55, anchor: .bottom)))
+                            .zIndex(Double(1000 + bubbleStamps[i]))
+                            .allowsHitTesting(false)
+                    }
                 }
             }
             .frame(width: width, height: height, alignment: .bottomLeading)
@@ -438,16 +442,6 @@ struct ForestGroundBand: View {
                                                              groundLine: groundLine, quantizedWidth: qw,
                                                              order: order)
                 _ = await (life, rotation)
-            }
-            // 气泡自动收起（3 秒），被新气泡打断时任务自动重启
-            .task(id: bubbleTick) {
-                guard speakingIndex != nil else { return }
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                guard !Task.isCancelled else { return }
-                withAnimation(.easeOut(duration: 0.25)) {
-                    speakingIndex = nil
-                    bubbleText = nil
-                }
             }
             // 关闭活动（设置开关或入夜）：全体回家排排站好（带过渡动画）
             .onChange(of: activityAllowed) { _, allowed in
@@ -602,9 +596,14 @@ struct ForestGroundBand: View {
                 offsets[i] = .zero
                 perched[i] = false
             }
-            speakingIndex = nil
-            bubbleText = nil
+            clearAllBubbles()
         }
+    }
+
+    /// 收起所有小动物的气泡（各自独立，互不干扰）。
+    private func clearAllBubbles() {
+        bubbleCounter += 1     // 作废所有在飞的自动收起任务
+        for i in bubbleTexts.indices { bubbleTexts[i] = nil }
     }
 
     // MARK: 花草
@@ -812,13 +811,22 @@ struct ForestGroundBand: View {
     }
 
     /// 轮换专用冒泡（不走物种文案池，直接给文案）。
+    /// 每个小动物持有自己的气泡：新气泡只覆盖**自己**那一句，其他动物的话照常挂着；
+    /// 出现序号递增 → 最新出现的画在最上层；3 秒后各自独立收起。
     private func requestRawBubble(_ index: Int, pool: [String]) {
-        guard !pool.isEmpty else { return }
+        guard !pool.isEmpty, bubbleTexts.indices.contains(index) else { return }
+        bubbleCounter += 1
+        let stamp = bubbleCounter
         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-            speakingIndex = index
-            bubbleText = pool.randomElement()
+            bubbleStamps[index] = stamp
+            bubbleTexts[index] = pool.randomElement()
         }
-        bubbleTick += 1
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            // 期间这只小动物又说了新话（或全体收声）→ 本次收起作废
+            guard bubbleStamps.indices.contains(index), bubbleStamps[index] == stamp else { return }
+            withAnimation(.easeOut(duration: 0.25)) { bubbleTexts[index] = nil }
+        }
     }
 
     /// 请求冒泡（点击或自发动作统一入口）：顶层展示，3 秒后自动收起。

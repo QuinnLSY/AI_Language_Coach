@@ -796,6 +796,38 @@ public struct SettingsView: View {
                     .help("立即试听当前音色")
                 }
 
+                // 朗读语速：与对话区「听老师读」右侧的选择器共用同一份配置
+                HStack(spacing: 10) {
+                    Text("朗读语速")
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                    HStack(spacing: 6) {
+                        ForEach(SpeechRate.allCases) { option in
+                            Button {
+                                Task { await state.setSpeechRate(option.rawValue) }
+                            } label: {
+                                Text(option.label)
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(isSelected(rate: option) ? Color.white : theme.primaryText)
+                                    .padding(.horizontal, 10)
+                                    .frame(height: 26)
+                                    .background(
+                                        Capsule().fill(isSelected(rate: option) ? theme.accent : theme.surfaceAlt)
+                                    )
+                                    .overlay(
+                                        Capsule().strokeBorder(
+                                            isSelected(rate: option) ? theme.accent : theme.divider,
+                                            lineWidth: 1
+                                        )
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .help("以 \(option.label) 语速朗读")
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+
                 // 自动朗读
                 Toggle("老师回复后自动朗读", isOn: Binding(
                     get: { state.autoSpeak },
@@ -803,11 +835,16 @@ public struct SettingsView: View {
                 ))
                 .font(.system(size: 13, design: .rounded))
 
-                Text("在聊天框点 🎤 说话，松开后文字会填进输入框；每条老师回复下方可点「听老师读」。语音完全在本地处理。")
+                Text("在聊天框点 🎤 说话，松开后文字会填进输入框；每条老师回复下方可点「听老师读」，右侧小胶囊可切换朗读语速（只改快慢、不变音调）。语音完全在本地处理。")
                     .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
             }
         }
+    }
+
+    /// 语速档位是否当前选中（浮点比较留容差）。
+    private func isSelected(rate: SpeechRate) -> Bool {
+        abs(rate.rawValue - state.speechRate) < 0.01
     }
 
     private func voiceStatusDot(_ title: String, _ health: ProviderHealth) -> some View {

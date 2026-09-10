@@ -99,6 +99,12 @@ public final class AppState {
     /// 学习记录数据（进入页面时加载）。
     public private(set) var records: [SessionSummary] = []
     public private(set) var mistakes: [GrammarCorrection] = []
+    /// 练习复盘：最新一份（本次会话或最近一次）。nil = 还没生成过。
+    public private(set) var latestReview: SessionReview?
+    /// 历史复盘（学习记录页可回看）。
+    public private(set) var reviews: [SessionReview] = []
+    /// 是否正在生成复盘（按钮 loading）。
+    public private(set) var isGeneratingReview = false
     /// 数据目录缓存快照（设置页「缓存管理」卡片）。
     public private(set) var cacheSnapshot: CacheSnapshot = .empty
     /// 上一次清理释放的字节数（展示用，0 = 无）。
@@ -129,6 +135,8 @@ public final class AppState {
     public var animalActivityFrequency: Double { product.animalActivityFrequency }
     /// 音色切换自动试听开关。
     public var voicePreviewEnabled: Bool { product.voicePreview }
+    /// 教师朗读语速（倍速，1 = 正常）。
+    public var speechRate: Double { product.speechRate }
     /// 实际生效的活动开关：配置开 && 非夜晚（夜晚自动安静）。
     public var animalActivityEffective: Bool { product.animalActivity && !theme.isNight }
 
@@ -244,9 +252,10 @@ public final class AppState {
         isRecording = false
     }
 
-    /// 朗读教师回复。
+    /// 朗读教师回复（按设置里的语速播放）。
     public func speak(_ text: String) async {
-        await services.voice.speak(text, voice: product.teacherVoice, language: "English")
+        await services.voice.speak(text, voice: product.teacherVoice, language: "English",
+                                   rate: Float(product.speechRate))
         isSpeaking = await services.voice.isSpeaking
         voiceError = await services.voice.lastError
     }
@@ -267,7 +276,8 @@ public final class AppState {
         product.teacherVoice = voice
         await persistProduct()
         if product.voicePreview {
-            await services.voice.speak("Nice to meet you!", voice: voice, language: "English")
+            await services.voice.speak("Nice to meet you!", voice: voice, language: "English",
+                                       rate: Float(product.speechRate))
             voiceError = await services.voice.lastError
         }
     }
@@ -578,6 +588,14 @@ public final class AppState {
         await persistProduct()
     }
 
+    /// 教师朗读语速：落到最接近的可选档位（设置与对话区两处共用同一份配置）。
+    public func setSpeechRate(_ value: Double) async {
+        let rate = SpeechRate.nearest(to: value)
+        guard rate.rawValue != product.speechRate else { return }
+        product.speechRate = rate.rawValue
+        await persistProduct()
+    }
+
     // MARK: - 伙伴形象
 
     public func setTeacherAnimal(_ kind: AnimalKind) async {
@@ -604,6 +622,33 @@ public final class AppState {
     public func loadRecords() async {
         records = await services.recentSessions(limit: 20)
         mistakes = await services.recentCorrections(limit: 50)
+        await loadReviews()
+    }
+
+    public func loadReviews() async {
+        reviews = await services.recentReviews(limit: 10)
+        if let first = reviews.first {
+            latestReview = first
+        } else {
+            latestReview = await services.sessionReview(sessionID: chat.sessionID)
+        }
+    }
+
+    /// 生成本次练习的复盘总结（本地模型完成，失败时自动给规则版总结）。
+    public func generateSessionReview() async {
+        guard !isGeneratingReview else { return }
+        isGeneratingReview = true
+        defer { isGeneratingReview = false }
+        let duration = await services.sessionDuration(sessionID: chat.sessionID)
+        let corrections = chat.correctionsByMessage.values.flatMap { $0 }
+        let review = await services.makeSessionReview(
+            sessionID: chat.sessionID,
+            messages: chat.messages,
+            corrections: corrections,
+            duration: duration
+        )
+        latestReview = review
+        reviews = await services.recentReviews(limit: 10)
     }
 
     // MARK: - 缓存管理

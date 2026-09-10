@@ -19,6 +19,7 @@ public struct RecordsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     statsRow
+                    reviewCard
                     mistakesCard
                     sessionsCard
                 }
@@ -92,6 +93,137 @@ public struct RecordsView: View {
                 .fill(theme.surface)
                 .shadow(color: theme.shadow, radius: 8, x: 0, y: 3)
         )
+    }
+
+    // MARK: - 练习复盘（学习记忆：一次练习沉淀一份总结）
+
+    private var reviewCard: some View {
+        card(title: "练习复盘", systemImage: "sparkles") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    if state.isGeneratingReview {
+                        ProgressView().controlSize(.small)
+                        Text("老师正在回看这次练习…")
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                    Spacer(minLength: 0)
+                    Button {
+                        Task { await state.generateSessionReview() }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "wand.and.stars")
+                            Text(state.latestReview == nil ? "生成本次复盘" : "重新生成")
+                        }
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .frame(height: 28)
+                        .background(Capsule().fill(theme.accent))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(state.isGeneratingReview || state.chat.messages.isEmpty)
+                    .help(state.chat.messages.isEmpty ? "先和老师聊几句，再来复盘" : "让本地模型回看这次练习并生成总结")
+                }
+
+                if let review = state.latestReview {
+                    reviewBody(review)
+                } else {
+                    emptyHint("还没有复盘。聊上几句后点「生成本次复盘」，老师会告诉你做得好的地方和下次该练什么。")
+                }
+            }
+        }
+    }
+
+    private func reviewBody(_ review: SessionReview) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // 一句话总结 + 时长/轮次
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "quote.bubble.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.accent)
+                Text(review.headline)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                Spacer(minLength: 0)
+            }
+            Text("\(review.durationText) · \(review.messageCount) 轮对话 · \(review.correctionCount) 处批注")
+                .font(.system(size: 11, design: .rounded))
+                .foregroundStyle(theme.secondaryText)
+                .monospacedDigit()
+
+            if !review.newWords.isEmpty {
+                reviewSection("值得记住", systemImage: "textformat.abc", tint: Color(hex: 0x6FB1FC)) {
+                    WrappingChips(items: review.newWords, tint: Color(hex: 0x6FB1FC))
+                }
+            }
+            if !review.strengths.isEmpty {
+                reviewSection("做得好", systemImage: "hand.thumbsup.fill", tint: Color(hex: 0x8FD694)) {
+                    bulletList(review.strengths)
+                }
+            }
+            if !review.improvements.isEmpty {
+                reviewSection("再练练", systemImage: "arrow.up.and.down.text.horizontal", tint: Color(hex: 0xF7B32B)) {
+                    bulletList(review.improvements)
+                }
+            }
+            if !review.suggestion.isEmpty {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "lightbulb.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(hex: 0xF7B32B))
+                    Text(review.suggestion)
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                    Spacer(minLength: 0)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(hex: 0xF7B32B).opacity(0.12))
+                )
+            }
+
+            if review.source == .heuristic {
+                Text("本地模型暂不可用，以上为基础统计总结。")
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+            }
+        }
+    }
+
+    private func reviewSection<Content: View>(_ title: String, systemImage: String, tint: Color,
+                                              @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 5) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 10))
+                    .foregroundStyle(tint)
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+            }
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func bulletList(_ items: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(items.indices, id: \.self) { index in
+                HStack(alignment: .top, spacing: 6) {
+                    Circle()
+                        .fill(theme.secondaryText.opacity(0.6))
+                        .frame(width: 4, height: 4)
+                        .padding(.top, 5)
+                    Text(items[index])
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                    Spacer(minLength: 0)
+                }
+            }
+        }
     }
 
     // MARK: - 错题本
@@ -207,6 +339,7 @@ public struct RecordsView: View {
     }
 
     private func card<Content: View>(title: String, systemImage: String, @ViewBuilder content: () -> Content) -> some View {
+
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: systemImage)
@@ -224,5 +357,25 @@ public struct RecordsView: View {
                 .fill(theme.surface)
                 .shadow(color: theme.shadow, radius: 8, x: 0, y: 3)
         )
+    }
+}
+
+// MARK: - 小标签自动换行（新词/短语展示）
+
+private struct WrappingChips: View {
+    let items: [String]
+    let tint: Color
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 74), spacing: 6)], alignment: .leading, spacing: 6) {
+            ForEach(items, id: \.self) { item in
+                Text(item)
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(tint)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(tint.opacity(0.14)))
+            }
+        }
     }
 }

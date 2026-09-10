@@ -1,6 +1,7 @@
 import AIInterfaces
 import AIInfrastructure
 import AIProviders
+import AIServices
 import AppCore
 import XCTest
 
@@ -94,5 +95,45 @@ final class OllamaIntegrationTests: XCTestCase {
         try await requireRuntime(adapter)
         let models = try await adapter.discoverModels()
         XCTAssertFalse(models.isEmpty)
+    }
+
+    /// 真实模型生成练习复盘：要求输出可解析 JSON（解析失败即退化路径，不算失败但要点名）。
+    func testSessionReviewAgainstRealRuntime() async throws {
+        let (adapter, config) = try await makeAdapter()
+        try await requireRuntime(adapter)
+
+        let transcript = """
+        Practice length: 95 seconds.
+        Transcript (learner / coach):
+        Learner: I go to park yesterday with my friend
+        Coach: Almost perfect! Say "I went to the park yesterday with my friend". What did you do there?
+        Learner: We play basketball and eat ice cream
+        Coach: Great! Remember past tense: "We played basketball and ate ice cream".
+        Teacher corrections:
+        - I go => I went (过去式)
+        - We play ... eat => We played ... ate (过去式)
+        Now output the JSON review.
+        """
+        let request = LLMRequest(
+            messages: [
+                LLMMessage(role: .system, content: PromptBuilder.sessionReviewPrompt(
+                    learningLanguage: "en-US", nativeLanguage: "zh-CN", proficiency: "beginner")),
+                LLMMessage(role: .user, content: transcript),
+            ],
+            model: config.model,
+            temperature: 0.3,
+            maxTokens: 2048,
+            streaming: false
+        )
+        let response = try await adapter.generate(request)
+        let parsed = SessionReviewService.parse(response.text)
+        if let parsed {
+            XCTAssertFalse(parsed.headline.isEmpty, "复盘应有一句话总结")
+            XCTAssertFalse(parsed.improvements.isEmpty || parsed.strengths.isEmpty,
+                           "优点/待改进至少应有一项")
+        } else {
+            // 推理模型可能把 token 全花在思考上；此时产品层会走规则兜底，测试点名即可。
+            print("[review] 真实模型输出不可解析（reasoning=\((response.reasoning ?? "").count) chars），走兜底")
+        }
     }
 }

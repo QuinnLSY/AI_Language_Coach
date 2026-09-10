@@ -208,6 +208,78 @@ public struct SessionSummary: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - 练习复盘（Session Review）
+
+/// 一次练习结束后生成的学习复盘（Implementation Plan §25 / 学习记忆）。
+/// 由 Application Service 依据会话流水 + 老师批注生成，落本地库，**不上传**。
+public struct SessionReview: Codable, Sendable, Equatable, Identifiable {
+    public let id: UUID
+    public var sessionID: UUID
+    public var createdAt: Date
+    /// 本次练习时长（秒）。
+    public var duration: TimeInterval
+    public var messageCount: Int
+    public var correctionCount: Int
+    /// 一句话总结（母语）。
+    public var headline: String
+    /// 本次出现/值得记住的表达（学习语言）。
+    public var newWords: [String]
+    /// 做得好的地方（母语，1–3 条）。
+    public var strengths: [String]
+    /// 还需要改进的地方（母语，1–3 条）。
+    public var improvements: [String]
+    /// 下次练习建议（母语，一句）。
+    public var suggestion: String
+
+    /// 生成方式：LLM 生成 / 模型不可用时的规则兜底。
+    public enum Source: String, Codable, Sendable {
+        case llm
+        case heuristic
+    }
+
+    public var source: Source
+
+    public init(
+        id: UUID = UUID(),
+        sessionID: UUID,
+        createdAt: Date = Date(),
+        duration: TimeInterval = 0,
+        messageCount: Int = 0,
+        correctionCount: Int = 0,
+        headline: String = "",
+        newWords: [String] = [],
+        strengths: [String] = [],
+        improvements: [String] = [],
+        suggestion: String = "",
+        source: Source = .llm
+    ) {
+        self.id = id
+        self.sessionID = sessionID
+        self.createdAt = createdAt
+        self.duration = duration
+        self.messageCount = messageCount
+        self.correctionCount = correctionCount
+        self.headline = headline
+        self.newWords = newWords
+        self.strengths = strengths
+        self.improvements = improvements
+        self.suggestion = suggestion
+        self.source = source
+    }
+
+    /// 时长文案：「3 分 20 秒」/「48 秒」。
+    public var durationText: String {
+        let seconds = max(Int(duration), 0)
+        if seconds < 60 { return "\(seconds) 秒" }
+        return String(format: "%d 分 %d 秒", seconds / 60, seconds % 60)
+    }
+
+    /// 内容是否为空（无有效复盘信息时 UI 不展示）。
+    public var isEmpty: Bool {
+        headline.isEmpty && newWords.isEmpty && strengths.isEmpty && improvements.isEmpty && suggestion.isEmpty
+    }
+}
+
 // MARK: - 会话
 
 public struct ChatSession: Codable, Sendable, Equatable, Identifiable {

@@ -30,6 +30,10 @@ public struct ChatView: View {
     var onMicStop: (() async -> String?)? = nil
     /// 朗读某段教师回复。
     var onSpeakTap: ((String) -> Void)? = nil
+    /// 当前教师朗读语速（倍速，1 = 正常）；nil = 不显示速度选择器。
+    var speechRate: Double = SpeechRate.x1.rawValue
+    /// 切换语速（设置页与对话区共用同一份配置，双向同步）。
+    var onSpeechRateChange: ((Double) -> Void)? = nil
 
     @State private var input: String = ""
     @FocusState private var isInputFocused: Bool
@@ -44,7 +48,9 @@ public struct ChatView: View {
                 autoSpeak: Bool = false,
                 onMicStart: (() async -> Void)? = nil,
                 onMicStop: (() async -> String?)? = nil,
-                onSpeakTap: ((String) -> Void)? = nil) {
+                onSpeakTap: ((String) -> Void)? = nil,
+                speechRate: Double = SpeechRate.x1.rawValue,
+                onSpeechRateChange: ((Double) -> Void)? = nil) {
         self.chat = chat
         self.modelName = modelName
         self.health = health
@@ -59,6 +65,8 @@ public struct ChatView: View {
         self.onMicStart = onMicStart
         self.onMicStop = onMicStop
         self.onSpeakTap = onSpeakTap
+        self.speechRate = speechRate
+        self.onSpeechRateChange = onSpeechRateChange
     }
 
     public var body: some View {
@@ -275,7 +283,13 @@ public struct ChatView: View {
                     correctionCard(correction)
                 }
                 if !isUser, let onSpeakTap {
-                    speakButton(message.content, action: onSpeakTap)
+                    HStack(spacing: 6) {
+                        SpeakButton(text: message.content, action: onSpeakTap)
+                        if onSpeechRateChange != nil {
+                            SpeechRateMenu(rate: speechRate) { rate in onSpeechRateChange?(rate) }
+                        }
+                        Spacer(minLength: 0)
+                    }
                 }
             }
             if isUser {
@@ -323,23 +337,96 @@ public struct ChatView: View {
         )
     }
 
-    /// 朗读按钮：听老师念这句话。
-    private func speakButton(_ text: String, action: @escaping (String) -> Void) -> some View {
-        Button {
-            action(text)
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "speaker.wave.2.fill")
-                Text("听老师读")
+    /// 朗读按钮：听老师念这句话（点击时边缘高亮 + 短暂变色，明确「点中了」）。
+    private struct SpeakButton: View {
+        @Environment(\.forestTheme) private var theme
+
+        let text: String
+        let action: (String) -> Void
+
+        /// 按下中（按住不放）。
+        @State private var isPressing = false
+        /// 点中后的余辉：松开仍保持约 0.6 秒的高亮。
+        @State private var didFlash = false
+
+        private var isHighlighted: Bool { isPressing || didFlash }
+
+        var body: some View {
+            Button {
+                flash()
+                action(text)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: isHighlighted ? "speaker.wave.3.fill" : "speaker.wave.2.fill")
+                    Text("听老师读")
+                }
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(isHighlighted ? Color.white : theme.secondaryText)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule().fill(isHighlighted ? theme.accent : theme.surfaceAlt)
+                )
+                .overlay(
+                    Capsule().strokeBorder(theme.accent, lineWidth: isHighlighted ? 2 : 0)
+                )
+                .scaleEffect(isPressing ? 0.94 : 1)
             }
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
-            .foregroundStyle(theme.secondaryText)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Capsule().fill(theme.surfaceAlt))
+            .buttonStyle(.plain)
+            // 按住期间即高亮（simultaneous 不吞掉点击）
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in withAnimation(.easeOut(duration: 0.1)) { isPressing = true } }
+                    .onEnded { _ in withAnimation(.easeOut(duration: 0.12)) { isPressing = false } }
+            )
+            .animation(.easeOut(duration: 0.18), value: isHighlighted)
+            .help("听老师朗读这句")
         }
-        .buttonStyle(.plain)
-        .help("听老师朗读这句")
+
+        private func flash() {
+            withAnimation(.easeOut(duration: 0.1)) { didFlash = true }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(0.6))
+                withAnimation(.easeOut(duration: 0.25)) { didFlash = false }
+            }
+        }
+    }
+
+    /// 语速选择：样式与「听老师读」一致的小胶囊，点开即选倍速。
+    private struct SpeechRateMenu: View {
+        @Environment(\.forestTheme) private var theme
+
+        let rate: Double
+        let onSelect: (Double) -> Void
+
+        var body: some View {
+            Menu {
+                ForEach(SpeechRate.allCases) { option in
+                    Button {
+                        onSelect(option.rawValue)
+                    } label: {
+                        if abs(option.rawValue - rate) < 0.01 {
+                            Label(option.label, systemImage: "checkmark")
+                        } else {
+                            Text(option.label)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "speedometer")
+                    Text(SpeechRate.nearest(to: rate).label)
+                }
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(theme.secondaryText)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(theme.surfaceAlt))
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("教师朗读语速（当前 \(SpeechRate.nearest(to: rate).label)）")
+        }
     }
 
     // MARK: - 输入区
