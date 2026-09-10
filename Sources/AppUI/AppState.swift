@@ -121,6 +121,16 @@ public final class AppState {
     public private(set) var cacheFreedBytes: Int64 = 0
     /// 情景结算奖励提示（nil = 不显示）。UI 展示数秒后自动消失。
     public private(set) var lastReward: ScenarioReward?
+    // MARK: 模型启停（设置页「启动 / 关闭」）
+    /// 各能力模型是否处于启动态。**应用打开时全部为启动**（不持久化关闭状态）。
+    public private(set) var modelRunStates: [AIProviderKind: Bool] = [:]
+    /// 正在切换启停的能力（按钮 loading）。
+    public private(set) var modelSwitching: Set<AIProviderKind> = []
+    /// 启停操作结果提示（成功或失败），设置页展示。
+    public var modelMessage: String?
+    // MARK: 语音流式输入
+    /// 录音过程中实时识别出的文本（nil = 未在录音）。UI 把它写进输入框。
+    public private(set) var voiceTranscript: String?
 
     /// 产品配置缓存（Sendable，可在 MainActor 直接修改后整体回写）。
     private var product: ProductConfig = ProductConfig()
@@ -131,6 +141,15 @@ public final class AppState {
         let services = CoachServices()
         self.services = services
         self.chat = ChatService(services: services)
+        // 应用打开时，所有模型默认为「启动」。
+        var states: [AIProviderKind: Bool] = [:]
+        for kind in AIProviderKind.allCases { states[kind] = true }
+        self.modelRunStates = states
+    }
+
+    /// 某能力模型当前是否启动（默认启动）。
+    public func isModelRunning(_ kind: AIProviderKind) -> Bool {
+        modelRunStates[kind] ?? true
     }
 
     public var theme: ForestTheme {
@@ -153,6 +172,12 @@ public final class AppState {
     public var speechRate: Double { product.speechRate }
     /// 实际生效的活动开关：配置开 && 非夜晚（夜晚自动安静）。
     public var animalActivityEffective: Bool { product.animalActivity && !theme.isNight }
+
+    /// 设置页「小动物自由活动」开关的显示值（纯函数，便于单测）：
+    /// 夜晚一律显示为未勾选（小动物都睡了），**但不动用户白天保存的配置**，切回白天即恢复。
+    nonisolated public static func animalActivityToggleValue(enabled: Bool, isNight: Bool) -> Bool {
+        isNight ? false : enabled
+    }
 
     /// 老师形象（侧边栏底部 + 聊天区 AI 头像）。
     public var teacherAnimalKind: AnimalKind {
@@ -204,7 +229,51 @@ public final class AppState {
         await bootstrapVoice()
         await refreshStatus()
         refreshTodayTokens()
+        modelRunStates = await services.modelRunStates()
         isBooting = false
+    }
+
+    // MARK: - 模型启停（设置页「启动 / 关闭」）
+
+    /// 启动 / 关闭某能力的模型。
+    ///
+    /// - 本地模型：真的把后台服务拉起 / 停掉（Ollama 载入或卸载模型；语音服务执行配置里的启停命令）。
+    /// - 云端 / 内置模型：只做应用层面的开关（外部服务无法被本应用终止）。
+    public func setModelRunning(_ kind: AIProviderKind, running: Bool) async {
+        guard !modelSwitching.contains(kind) else { return }
+        modelSwitching.insert(kind)
+        defer { modelSwitching.remove(kind) }
+        let label = await services.modelLabel(for: kind)
+        do {
+            modelMessage = try await services.setModelRunning(kind, running: running)
+        } catch {
+            modelMessage = ModelDiagnostics.describe(label: label, error: error)
+        }
+        modelRunStates = await services.modelRunStates()
+        await refreshStatus()
+        if kind == .asr || kind == .tts { await bootstrapVoice() }
+        await refreshCapabilityInfos()
+    }
+
+    /// 清掉启停提示。
+    public func clearModelMessage() { modelMessage = nil }
+
+    /// 生效 LLM 的「已就绪 / 连接失败」文案（**带上模型名**，用户一眼知道是哪个模型）。
+    public var llmHealthDescription: String {
+        ModelDiagnostics.describe(
+            providerName: activeProvider?.userFacingName,
+            model: currentModelName,
+            health: health
+        )
+    }
+
+    /// 对话模型被关闭时的提示（nil = 正常可对话）。对话区常驻展示。
+    public var llmStoppedNotice: String? {
+        guard !isModelRunning(.llm) else { return nil }
+        return ModelDiagnostics.stoppedHint(
+            providerName: activeProvider?.userFacingName,
+            model: currentModelName
+        )
     }
 
     /// 刷新今日 token 用量（每次回复完成 / 打开侧边栏时调用）。
@@ -222,6 +291,12 @@ public final class AppState {
                 guard let self else { return }
                 self.speechPhase = phase
                 self.speakingText = phase == .idle ? nil : text
+            }
+        }
+        // 流式识别：录音期间不断把「当前听到的整句」送回主线程，UI 实时写进输入框。
+        await services.voice.setPartialHandler { [weak self] text in
+            Task { @MainActor [weak self] in
+                self?.voiceTranscript = text
             }
         }
         let health = await services.bootstrapVoice()
@@ -249,31 +324,44 @@ public final class AppState {
         }
     }
 
-    /// 点击麦克风：开始录音。
+    /// 点击麦克风：开始录音（录音期间流式把识别结果送到 `voiceTranscript`）。
     public func startVoiceInput() async {
         guard !isRecording else { return }
+        // 语音识别模型被关闭 → 别装成在录音，直接说清楚怎么打开。
+        guard isModelRunning(.asr) else {
+            voiceError = "\(await services.modelLabel(for: .asr)) 已关闭，请在设置里点绿色的「启动」后再用语音输入。"
+            return
+        }
         voiceError = nil
         isSpeaking = false
+        voiceTranscript = nil
         await services.voice.stopSpeaking()
+        await services.voice.setPartialLanguage("English")
         await services.voice.startRecording()
         let state = await services.voice.isRecording
         isRecording = state
         if let error = await services.voice.lastError { voiceError = error }
     }
 
-    /// 再次点击：停止录音 → 识别 → 填入输入框（由调用方接收文本）。
+    /// 再次点击：停止录音 → 识别 → 纠正拼写 → 填入输入框（由调用方接收文本）。
+    ///
+    /// **拼写纠正只在这里发生**：手打的文字一个都不改。
     public func finishVoiceInput() async -> String? {
         guard isRecording else { return nil }
-        let text = await services.voice.stopRecordingAndTranscribe(language: "English")
+        let recognized = await services.voice.stopRecordingAndTranscribe(language: "English")
         isRecording = false
         isTranscribing = await services.voice.isTranscribing
         voiceError = await services.voice.lastError
-        return text
+        voiceTranscript = nil
+        guard let recognized, !recognized.isEmpty else { return nil }
+        let corrected = await services.correctSpelling(recognized)
+        return corrected.isEmpty ? recognized : corrected
     }
 
     public func cancelVoiceInput() async {
         await services.voice.cancelRecording()
         isRecording = false
+        voiceTranscript = nil
     }
 
     /// 关闭对话区的语音错误提示。
@@ -287,6 +375,11 @@ public final class AppState {
     /// 预热在 LLM 生成期间会被挤到显存外，实测单次预热耗时可达 185s，还反过来拖慢回复。
     /// 因此朗读只依赖分句流水线 + 服务端自身的启动预热。
     public func speak(_ text: String) async {
+        // 教师语音模型被关闭 → 明确提示，而不是静默无声。
+        guard isModelRunning(.tts) else {
+            voiceError = "\(await services.modelLabel(for: .tts)) 已关闭，请在设置里点绿色的「启动」后再朗读。"
+            return
+        }
         isSpeaking = true
         await services.voice.speak(text, voice: product.teacherVoice, language: "English",
                                    rate: Float(product.speechRate))
@@ -355,8 +448,20 @@ public final class AppState {
             let healthOK: Bool
             let healthText: String
             switch kind {
-            case .asr: healthOK = asrHealth.isUsable; healthText = asrHealth.userFacingDescription
-            case .tts: healthOK = ttsHealth.isUsable; healthText = ttsHealth.userFacingDescription
+            case .asr:
+                healthOK = asrHealth.isUsable
+                healthText = ModelDiagnostics.describe(
+                    providerName: provider?.userFacingName,
+                    model: product.selectedModel(for: kind) ?? provider?.model,
+                    health: asrHealth
+                )
+            case .tts:
+                healthOK = ttsHealth.isUsable
+                healthText = ModelDiagnostics.describe(
+                    providerName: provider?.userFacingName,
+                    model: product.selectedModel(for: kind) ?? provider?.model,
+                    health: ttsHealth
+                )
             default:
                 // VAD / Embedding / Pronunciation V1 尚无独立 runtime，如配置了本地 Provider 才有意义
                 healthOK = false

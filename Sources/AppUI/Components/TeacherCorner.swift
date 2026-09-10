@@ -3,7 +3,7 @@ import SwiftUI
 
 /// 侧边栏底部的「老师角落」：
 /// - 老师背后挂一块小黑板，白色粉笔字显示**今日全局 token 用量**；
-/// - 老师头顶按今日用量不时冒出小气泡：<100 万督促学习、100 万~500 万鼓励、>500 万提醒休息。
+/// - 老师头顶按今日用量不时冒出小气泡：<2000 督促学习、2000~20000 鼓励、≥20000 提醒休息。
 public struct TeacherCorner: View {
 
     @Environment(\.forestTheme) private var theme
@@ -79,8 +79,13 @@ public struct TeacherCorner: View {
 
     // MARK: - 气泡文案（按今日用量分档，随机抽取）
 
-    /// < 100 万：督促学习。
-    private static let urgeLines = [
+    /// 今日用量分档阈值（token）。**产品口径，改动请同步测试与文档。**
+    /// `nonisolated`：这些是不可变常量，`nudgeTier` / `pool` 等纯函数要在非 MainActor 上下文调用。
+    nonisolated public static let urgeUpperBound = 2_000
+    nonisolated public static let cheerUpperBound = 20_000
+
+    /// 0–2000：督促学习。
+    nonisolated private static let urgeLines = [
         "今天还没开张呢，来读一句吧！",
         "单词们都想你了，快回来练两句～",
         "每日一句，胜过周末狂练！",
@@ -93,8 +98,8 @@ public struct TeacherCorner: View {
         "你的椅子和小动物都坐好了，就差你！",
     ]
 
-    /// 100 万 ~ 500 万：鼓励/奖励。
-    private static let cheerLines = [
+    /// 2000–20000：鼓励/奖励。
+    nonisolated private static let cheerLines = [
         "今天火力全开，森林为你骄傲！",
         "这个量，单词本都要给你颁勋章了！",
         "进步神速！奖励你摸摸小树苗🌳",
@@ -107,8 +112,8 @@ public struct TeacherCorner: View {
         "照这个节奏，云雀高枝不在话下！",
     ]
 
-    /// > 500 万：提醒休息。
-    private static let restLines = [
+    /// ≥ 20000：提醒休息。
+    nonisolated private static let restLines = [
         "练了这么多，让眼睛和耳朵歇会儿吧☕️",
         "学得多也要歇得好，去窗边看看远处？",
         "喝口水，伸个懒腰，森林等你回来。",
@@ -122,13 +127,26 @@ public struct TeacherCorner: View {
     ]
 
     nonisolated public static func randomNudge(for tokens: Int) -> String {
-        let pool: [String]
-        switch tokens {
-        case ..<1_000_000: pool = urgeLines
-        case 1_000_000..<5_000_000: pool = cheerLines
-        default: pool = restLines
+        let options = pool(for: tokens)
+        return options.randomElement() ?? options[0]
+    }
+
+    /// 今日用量对应的文案池（按 `urgeUpperBound` / `cheerUpperBound` 分档）。
+    nonisolated public static func pool(for tokens: Int) -> [String] {
+        switch nudgeTier(for: tokens) {
+        case 0: urgeLines
+        case 1: cheerLines
+        default: restLines
         }
-        return pool.randomElement() ?? pool[0]
+    }
+
+    /// 今日用量落在哪一档（0 = 督促 / 1 = 鼓励 / 2 = 休息）。纯函数，便于单测与 UI 展示。
+    nonisolated public static func nudgeTier(for tokens: Int) -> Int {
+        switch tokens {
+        case ..<urgeUpperBound: 0
+        case urgeUpperBound..<cheerUpperBound: 1
+        default: 2
+        }
     }
 }
 

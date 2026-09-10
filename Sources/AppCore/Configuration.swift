@@ -118,6 +118,11 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
     public var topP: Double?
     public var maxTokens: Int?
     public var requestTimeout: TimeInterval?
+    /// 本地模型服务的「启动」命令（shell）。空 = 该 Provider 不支持真实启停
+    /// （应用层开关兜底）。命令只来自配置文件，代码里不出现任何服务路径字面量。
+    public var serviceStartCommand: String?
+    /// 本地模型服务的「停止」命令（shell）。含义同上。
+    public var serviceStopCommand: String?
 
     public init(
         id: String,
@@ -135,7 +140,9 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         temperature: Double? = nil,
         topP: Double? = nil,
         maxTokens: Int? = nil,
-        requestTimeout: TimeInterval? = nil
+        requestTimeout: TimeInterval? = nil,
+        serviceStartCommand: String? = nil,
+        serviceStopCommand: String? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -153,6 +160,8 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         self.topP = topP
         self.maxTokens = maxTokens
         self.requestTimeout = requestTimeout
+        self.serviceStartCommand = serviceStartCommand
+        self.serviceStopCommand = serviceStopCommand
     }
 
     public var userFacingName: String { displayName ?? id }

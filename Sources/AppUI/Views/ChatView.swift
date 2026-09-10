@@ -50,9 +50,15 @@ public struct ChatView: View {
     var onOpenScenarios: (() -> Void)? = nil
     /// 结束当前情景。
     var onEndScenario: (() -> Void)? = nil
+    /// 录音过程中实时识别出的文本（流式写进输入框；nil = 没在录音）。
+    var voiceTranscript: String? = nil
+    /// 对话模型被关闭时的提示（非 nil 时输入框上方常驻提示并禁用发送）。
+    var modelStoppedNotice: String? = nil
 
     @State private var input: String = ""
     @FocusState private var isInputFocused: Bool
+    /// 本次录音开始前输入框里的内容：流式识别结果拼在它后面，绝不覆盖用户手打的字。
+    @State private var voiceBase: String = ""
 
     /// 相隔超过该时长的两条消息之间才显示时间戳。
     private let timestampGap: TimeInterval = 5 * 60
@@ -74,7 +80,9 @@ public struct ChatView: View {
                 onSpeechRateChange: ((Double) -> Void)? = nil,
                 scenario: ScenarioProgress? = nil,
                 onOpenScenarios: (() -> Void)? = nil,
-                onEndScenario: (() -> Void)? = nil) {
+                onEndScenario: (() -> Void)? = nil,
+                voiceTranscript: String? = nil,
+                modelStoppedNotice: String? = nil) {
         self.chat = chat
         self.modelName = modelName
         self.health = health
@@ -110,6 +118,9 @@ public struct ChatView: View {
                 Divider().overlay(theme.divider)
             }
             messageArea
+            if let modelStoppedNotice {
+                modelStoppedBanner(modelStoppedNotice)
+            }
             voiceErrorBanner
             inputBar
             contextStrip
@@ -121,6 +132,21 @@ public struct ChatView: View {
                 onSpeakTap?(last.content)
             }
         }
+        // 流式语音输入：录音期间识别结果实时写入输入框（只替换「本次语音」那一段，
+        // 用户手打的内容原样保留）。
+        .onChange(of: voiceTranscript) { _, text in
+            guard let text, isRecording else { return }
+            input = Self.mergedInput(base: voiceBase, voice: text)
+        }
+    }
+
+    /// 把「语音识别结果」拼到「录音前已有内容」后面（纯函数，便于单测）。
+    public nonisolated static func mergedInput(base: String, voice: String) -> String {
+        let spoken = voice.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !spoken.isEmpty else { return base }
+        guard !base.isEmpty else { return spoken }
+        if let last = base.last, last.isWhitespace { return base + spoken }
+        return base + " " + spoken
     }
 
     // MARK: - 头部
@@ -593,6 +619,32 @@ public struct ChatView: View {
 
     // MARK: - 输入区
 
+    /// 对话模型被关闭时的常驻提示：用户一开始打字就能看到「该启动哪个模型」。
+    private func modelStoppedBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "pause.circle.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(.red)
+            Text(message)
+                .font(.system(size: 12, design: .rounded))
+                .foregroundStyle(theme.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.red.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.red.opacity(0.35), lineWidth: 1)
+        )
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+    }
+
     /// 语音输入失败提示（录音/识别出错时贴在输入框上方，可关闭）。
     /// 没有它时，点麦克风失败在对话区是**完全静默**的，用户只会觉得「没反应」。
     @ViewBuilder
@@ -667,23 +719,29 @@ public struct ChatView: View {
                     )
             }
             .buttonStyle(.plain)
-            .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !chat.isGenerating)
-            .help(chat.isGenerating ? "停止" : "发送")
+            .disabled(chat.isGenerating
+                      ? false
+                      : (input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || modelStoppedNotice != nil))
+            .help(chat.isGenerating ? "停止" : (modelStoppedNotice != nil ? "请先启动对话模型" : "发送"))
         }
         .padding(.horizontal, 18)
         .padding(.top, 12)
     }
 
-    /// 麦克风按钮：点击说话 → 再点识别填入输入框。
+    /// 麦克风按钮：点击说话 → 录音期间流式出字 → 再点识别并纠正拼写后定稿。
     private var micButton: some View {
         Button {
             Task { @MainActor in
                 if isRecording {
                     if let text = await onMicStop?(), !text.isEmpty {
-                        input = input.isEmpty ? text : input + " " + text
+                        input = Self.mergedInput(base: voiceBase, voice: text)
                     }
+                    // 本次结果成为下一轮的起点：连续口述会自然接在后面。
+                    voiceBase = input
                     isInputFocused = true
                 } else {
+                    // 记住录音前的输入，流式结果只替换「本次语音」这一段
+                    voiceBase = input
                     await onMicStart?()
                 }
             }
@@ -756,6 +814,8 @@ public struct ChatView: View {
     }
 
     private func send() {
+        // 对话模型被关闭时，输入不丢、也不发出去；用户按提示启动模型即可。
+        guard modelStoppedNotice == nil else { return }
         let text = input
         input = ""
         chat.send(text)

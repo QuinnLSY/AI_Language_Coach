@@ -16,6 +16,9 @@ public actor TTSManager {
         provider = nil
     }
 
+    /// 当前注册的 Provider（供「启动 / 关闭」这类需要拿到实例的能力使用）。
+    public var current: (any TTSProvider)? { provider }
+
     public func synthesize(_ request: TTSRequest) async throws -> TTSResult {
         guard let provider else { throw AIProviderError.notInitialized }
         return try await provider.synthesize(request)

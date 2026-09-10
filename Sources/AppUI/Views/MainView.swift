@@ -184,7 +184,9 @@ public struct MainView: View {
                     onSpeechRateChange: { rate in Task { await state.setSpeechRate(rate) } },
                     scenario: state.activeScenario,
                     onOpenScenarios: { Task { await state.openScenarios() } },
-                    onEndScenario: { Task { await state.endScenario() } }
+                    onEndScenario: { Task { await state.endScenario() } },
+                    voiceTranscript: state.voiceTranscript,
+                    modelStoppedNotice: state.llmStoppedNotice
                 )
             }
         }

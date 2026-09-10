@@ -17,6 +17,8 @@ public actor CoachServices {
     public let voice: VoiceService
     /// 练习复盘（学习记忆：一次练习 → 一份结构化总结）。
     private let reviewer: SessionReviewService
+    /// 语音输入专用的拼写纠正（只作用于语音识别结果，手打不改）。
+    private let spellingCorrector: SpellingCorrectionService
 
     /// 学习数据库。打开失败时为 nil（功能降级为不持久化，不影响对话）。
     public private(set) var learning: LearningDatabase?
@@ -24,6 +26,10 @@ public actor CoachServices {
     private var llmProvider: (any LLMProvider)?
     /// 场景目录缓存（资源文件，进程内读一次即可）。
     private var scenarioCache: [Scenario]?
+    /// 进行中的 LLM 装配任务：并发调用只装配一次（见 `ensureLLMReady`）。
+    private var llmReadyTask: Task<Void, Error>?
+    /// 被用户显式「关闭」的模型能力。**仅进程内有效**：应用打开时全部为启动态。
+    private var stoppedKinds: Set<AIProviderKind> = []
 
     public init(config: ConfigStore = .shared, llm: LLMManager = LLMManager(), databasePath: String? = nil) {
         self.config = config
@@ -35,6 +41,7 @@ public actor CoachServices {
         let database = try? LearningDatabase(path: path)
         self.learning = database
         self.reviewer = SessionReviewService(llm: self.llm, learning: database)
+        self.spellingCorrector = SpellingCorrectionService(llm: self.llm)
         if self.learning == nil {
             AppLog.warning("学习数据库打开失败，持久化已降级关闭: \(path)", category: "database")
         }
@@ -54,12 +61,36 @@ public actor CoachServices {
         if let model = configuration.resolvedModel(for: .llm) {
             providerConfig.model = model
         }
+        providerConfig = Self.fillServiceCommands(providerConfig)
         let provider = Self.makeLLMProvider(providerConfig)
         try await provider.initialize(config: providerConfig)
         // load 失败（如 runtime 未启动）不阻断启动：UI 需展示明确状态。
         try? await provider.load()
         llmProvider = provider
         await llm.register(provider)
+    }
+
+    /// **确保 LLM 已装配**。用户可能在应用还没启动完就发了消息 —— 那时 Provider 尚未注册，
+    /// 请求会直接以「尚未初始化」失败，表现就是「老师说啥都不回」。
+    /// 这里做一次幂等的装配（并发调用共享同一个任务），让首条消息自己把自己救回来。
+    public func ensureLLMReady() async throws {
+        if llmProvider != nil { return }
+        if let existing = llmReadyTask {
+            try await existing.value
+            return
+        }
+        let task = Task { [weak self] in
+            guard let self else { throw AIProviderError.notInitialized }
+            try await self.bootstrapLLM()
+        }
+        llmReadyTask = task
+        do {
+            try await task.value
+        } catch {
+            // 失败不缓存：下次发送时应当重新尝试装配（例如用户刚启动了本地服务）。
+            llmReadyTask = nil
+            throw error
+        }
     }
 
     /// 装配语音能力（ASR + TTS）。**语音是可选能力**：runtime 没启动也不阻断应用。
@@ -73,9 +104,10 @@ public actor CoachServices {
     }
 
     private func bootstrapASR(_ configuration: AppConfiguration) async -> ProviderHealth {
-        guard let providerConfig = Self.preferredProvider(.asr, in: configuration) else {
+        guard let raw = Self.preferredProvider(.asr, in: configuration) else {
             return .configurationInvalid(reason: "没有启用的语音识别 Provider")
         }
+        let providerConfig = Self.fillServiceCommands(raw)
         let provider = Self.makeASRProvider(providerConfig)
         do {
             try await provider.initialize(config: providerConfig)
@@ -88,9 +120,10 @@ public actor CoachServices {
     }
 
     private func bootstrapTTS(_ configuration: AppConfiguration) async -> ProviderHealth {
-        guard let providerConfig = Self.preferredProvider(.tts, in: configuration) else {
+        guard let raw = Self.preferredProvider(.tts, in: configuration) else {
             return .configurationInvalid(reason: "没有启用的教师语音 Provider")
         }
+        let providerConfig = Self.fillServiceCommands(raw)
         let provider = Self.makeTTSProvider(providerConfig)
         do {
             try await provider.initialize(config: providerConfig)
@@ -111,6 +144,21 @@ public actor CoachServices {
     public func asrHealth() async -> ProviderHealth { await asr.healthCheck() }
     public func ttsHealth() async -> ProviderHealth { await tts.healthCheck() }
     public func availableVoices() async -> [String] { await voice.refreshVoices() }
+
+    /// 语音识别结果的拼写纠正（**仅语音输入使用**；手打内容一律不经过这里）。
+    ///
+    /// 失败/模型不可用时返回原文——语音输入不能被纠正步骤卡住。
+    public func correctSpelling(_ text: String) async -> String {
+        guard isModelRunning(.llm) else { return text }
+        let configuration = await config.current
+        let provider = configuration.resolvedProvider(for: .llm)
+        let options = SpellingCorrectionService.Options(
+            model: configuration.resolvedModel(for: .llm),
+            temperature: 0,
+            maxTokens: min(provider?.maxTokens ?? 256, 256)
+        )
+        return await spellingCorrector.correct(text, options: options)
+    }
 
     /// 高级设置：修改 LLM Provider 的端点 / 温度后重新装配。
     public func setLLMProviderField(endpoint: String? = nil, temperature: Double? = nil) async throws {
@@ -189,6 +237,103 @@ public actor CoachServices {
         default:
             break // vad / embedding / pronunciation V1 尚无真实 runtime
         }
+    }
+
+    // MARK: - 模型启动 / 关闭（设置页）
+
+    /// 某能力当前是否处于「启动」状态。
+    ///
+    /// 语义是**用户意图**：应用打开时所有模型默认为启动态（不会被持久化成关闭）。
+    public func isModelRunning(_ kind: AIProviderKind) -> Bool {
+        !stoppedKinds.contains(kind)
+    }
+
+    /// 全部能力的启停快照（UI 展示用）。
+    public func modelRunStates() -> [AIProviderKind: Bool] {
+        var result: [AIProviderKind: Bool] = [:]
+        for kind in AIProviderKind.allCases { result[kind] = isModelRunning(kind) }
+        return result
+    }
+
+    /// 打开 / 关闭一个能力的模型。
+    ///
+    /// - 本地模型（实现了 `ModelServiceControlling`）：真的把后台服务拉起来 / 停掉。
+    /// - 云端 / 内置模拟：只做应用层面的开关（外部服务无法被本应用终止）。
+    ///
+    /// - Returns: 面向用户的一句话说明（告诉用户刚才到底发生了什么）。
+    @discardableResult
+    public func setModelRunning(_ kind: AIProviderKind, running: Bool) async throws -> String {
+        let configuration = await config.current
+        let providerConfig = configuration.resolvedProvider(for: kind)
+        let providerName = providerConfig?.userFacingName
+        let model = configuration.resolvedModel(for: kind)
+        let who = ModelDiagnostics.label(providerName: providerName, model: model)
+
+        if running {
+            stoppedKinds.remove(kind)
+            if let controller = await serviceController(for: kind) {
+                try await controller.startModelService()
+                await rebootstrap(kind: kind)
+                return "\(who) 已启动：后台服务已拉起。"
+            }
+            await rebootstrap(kind: kind)
+            return "\(who) 已启动（应用层面）：本地无需启动服务。"
+        }
+
+        stoppedKinds.insert(kind)
+        if let controller = await serviceController(for: kind) {
+            do {
+                try await controller.stopModelService()
+                return "\(who) 已关闭：后台服务已下线，不再占用资源。"
+            } catch {
+                // 关闭失败也保持「关闭」状态（应用层面照样不再调用它），但把原因告诉用户。
+                throw AppError.unknown(ModelDiagnostics.describe(providerName: providerName, model: model, error: error))
+            }
+        }
+        return "\(who) 已关闭（应用层面）：不会再被调用。"
+    }
+
+    /// 该能力背后可真实启停的服务控制器；不支持时返回 nil。
+    private func serviceController(for kind: AIProviderKind) async -> (any ModelServiceControlling)? {
+        switch kind {
+        case .llm: llmProvider as? any ModelServiceControlling
+        case .asr: await asr.current as? any ModelServiceControlling
+        case .tts: await tts.current as? any ModelServiceControlling
+        default: nil
+        }
+    }
+
+    /// 生效 LLM 的「哪个模型」描述（如 `本地模型 · qwen3:8b`），错误提示统一用它。
+    public func llmLabel() async -> String {
+        let configuration = await config.current
+        let provider = configuration.resolvedProvider(for: .llm)
+        return ModelDiagnostics.label(
+            providerName: provider?.userFacingName,
+            model: configuration.resolvedModel(for: .llm)
+        )
+    }
+
+    /// 某能力的「哪个模型」描述（设置页与提示共用）。
+    public func modelLabel(for kind: AIProviderKind) async -> String {
+        let configuration = await config.current
+        let provider = configuration.resolvedProvider(for: kind)
+        return ModelDiagnostics.label(
+            providerName: provider?.userFacingName,
+            model: configuration.resolvedModel(for: kind)
+        )
+    }
+
+    /// 把配置里的启停命令补齐：老配置文件（本轮新增字段之前写的）里没有这两项，
+    /// 用内置默认配置里同 id 的值兜底，保证「启动 / 关闭」按钮一装上就能用。
+    public static func fillServiceCommands(_ config: ProviderConfig) -> ProviderConfig {
+        guard config.serviceStartCommand == nil || config.serviceStopCommand == nil,
+              let defaults = try? DefaultConfiguration.load(),
+              let fallback = defaults.providers.first(where: { $0.id == config.id })
+        else { return config }
+        var result = config
+        if result.serviceStartCommand == nil { result.serviceStartCommand = fallback.serviceStartCommand }
+        if result.serviceStopCommand == nil { result.serviceStopCommand = fallback.serviceStopCommand }
+        return result
     }
 
     /// 设置某能力当前使用的模型（本地检测选择 / 手动填写共用），并重装配。

@@ -213,3 +213,15 @@ public final class WhisperASRAdapter: ASRProvider, @unchecked Sendable {
         let text: String
     }
 }
+
+// MARK: - 本地模型服务的后台启停（设置页「启动 / 关闭」按钮）
+
+extension WhisperASRAdapter: ModelServiceControlling {
+    public func startModelService() async throws {
+        try await LocalServiceControl.start(config: resolvedConfig())
+    }
+
+    public func stopModelService() async throws {
+        try await LocalServiceControl.stop(config: resolvedConfig())
+    }
+}

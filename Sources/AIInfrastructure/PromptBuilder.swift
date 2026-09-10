@@ -92,4 +92,24 @@ public enum PromptBuilder {
     private static func fallbackSystemPrompt(learningLanguage: String) -> String {
         "You are a friendly \(learningLanguage) conversation coach. Keep replies short and encouraging."
     }
+
+    /// 语音输入专用的拼写纠正提示词（**只用于语音，不用于手打**）。
+    /// 模板走 `Resources/Prompts/spelling_fix.txt`，缺失时用等价内联兜底。
+    public static func spellingFixPrompt(sentence: String) -> String {
+        let template: String
+        if let url = AppResourceBundle.module.url(forResource: "Prompts/spelling_fix", withExtension: "txt"),
+           let loaded = try? String(contentsOf: url, encoding: .utf8) {
+            template = loaded
+        } else {
+            template = """
+            Fix only the spelling mistakes in the sentence below. Keep every other word, \
+            the word order and the punctuation exactly the same. Reply with the corrected \
+            sentence only, with no quotes and no explanation.
+
+            Sentence:
+            {sentence}
+            """
+        }
+        return template.replacingOccurrences(of: "{sentence}", with: sentence)
+    }
 }

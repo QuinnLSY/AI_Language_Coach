@@ -112,10 +112,13 @@ final class OptimizationTests: XCTestCase {
 
     func testNudgePoolSelectionByThreshold() {
         // 三档各不相同且都能随机取到合法文案
-        for tokens in [0, 42, 999_999, 1_000_000, 4_999_999, 5_000_000, 9_999_999] {
+        // 口径：0–2000 督促 / 2000–20000 鼓励 / ≥20000 提醒休息
+        for tokens in [0, 42, 1_999, 2_000, 19_999, 20_000, 9_999_999] {
             let line = TeacherCorner.randomNudge(for: tokens)
             XCTAssertFalse(line.isEmpty)
         }
+        XCTAssertNotEqual(TeacherCorner.pool(for: 1_999), TeacherCorner.pool(for: 2_000))
+        XCTAssertNotEqual(TeacherCorner.pool(for: 19_999), TeacherCorner.pool(for: 20_000))
     }
 
     // MARK: - 右上角天体 = 日夜切换

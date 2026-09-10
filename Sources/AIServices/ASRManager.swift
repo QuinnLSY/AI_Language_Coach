@@ -16,6 +16,9 @@ public actor ASRManager {
         provider = nil
     }
 
+    /// 当前注册的 Provider（供「启动 / 关闭」这类需要拿到实例的能力使用）。
+    public var current: (any ASRProvider)? { provider }
+
     public func transcribe(_ request: ASRRequest) async throws -> ASRResult {
         guard let provider else { throw AIProviderError.notInitialized }
         return try await provider.transcribe(request)

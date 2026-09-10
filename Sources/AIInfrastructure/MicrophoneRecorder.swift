@@ -138,6 +138,22 @@ public final class MicrophoneRecorder: @unchecked Sendable {
         return min(1, sqrt(sum / Float(tail.count)) * 4)
     }
 
+    /// 当前已采集音频的快照（**不断流**）。
+    ///
+    /// 供「流式识别」用：边说边把已录到的音频送去识别，把中间结果实时显示出来。
+    /// 返回的是副本，调用方随便处理；未录音时返回空数组。
+    public func currentSamples() -> [Float] {
+        lock.lock(); defer { lock.unlock() }
+        guard _isRecording else { return [] }
+        return buffer
+    }
+
+    /// 已采集的采样点数量（用于判断「有没有新声音」）。
+    public var capturedSampleCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return buffer.count
+    }
+
     // MARK: - 格式（可测的纯逻辑）
 
     /// 识别链路的统一目标格式：16kHz 单声道 Float32（whisper 要求）。

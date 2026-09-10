@@ -119,3 +119,21 @@ public protocol AIProvider: Sendable {
     func capabilities() -> ProviderCapabilities
     func metadata() -> ProviderMetadata
 }
+
+// MARK: - 可选能力：本地模型服务的后台启停
+
+/// **可选能力**：该 Provider 背后的模型服务能被应用真正启停。
+///
+/// - 本地模型（Ollama / whisper.cpp / Qwen3-TTS）：`stop` 让服务在后台下线、不再占用显存，
+///   `start` 把它重新拉起来向应用提供服务。
+/// - 云端模型（DeepSeek / OpenRouter 等）**不实现本协议** —— 外部服务无法被终止，
+///   它的「关闭」只能发生在应用层（见 `CoachServices.setModelRunning`）。
+/// - 内置模拟能力（VAD / Embedding / Pronunciation）同样不实现。
+///
+/// 上层只依据「是否实现了本协议」来决定说的是「真的帮你把服务停了」还是「应用层面关了」。
+public protocol ModelServiceControlling: Sendable {
+    /// 启动模型服务（幂等：已在运行应当直接成功）。
+    func startModelService() async throws
+    /// 停止模型服务（幂等：已停止应当直接成功）。
+    func stopModelService() async throws
+}

@@ -231,3 +231,18 @@ public final class Qwen3TTSAdapter: TTSProvider, VoiceCatalogProvider, @unchecke
         let voices: [String]
     }
 }
+
+// MARK: - 本地模型服务的后台启停（设置页「启动 / 关闭」按钮）
+//
+// 语音服务的进程管理完全由配置驱动（`ProviderConfig.serviceStartCommand /
+// serviceStopCommand`），Adapter 只负责转发，不内置任何脚本路径。
+
+extension Qwen3TTSAdapter: ModelServiceControlling {
+    public func startModelService() async throws {
+        try await LocalServiceControl.start(config: resolvedConfig())
+    }
+
+    public func stopModelService() async throws {
+        try await LocalServiceControl.stop(config: resolvedConfig())
+    }
+}

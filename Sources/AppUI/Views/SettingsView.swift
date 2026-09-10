@@ -270,16 +270,20 @@ public struct SettingsView: View {
                 .font(.system(size: 13, design: .rounded))
 
                 Toggle("小动物自由活动", isOn: Binding(
-                    get: { state.animalActivityEnabled },
+                    // 夜晚：显示为未勾选且不可点击（白天的小动物都睡了），
+                    // 但**不改动用户白天的配置**，切回白天即恢复原选择。
+                    get: { AppState.animalActivityToggleValue(enabled: state.animalActivityEnabled, isNight: theme.isNight) },
                     set: { enabled in Task { await state.setAnimalActivity(enabled) } }
                 ))
                 .font(.system(size: 13, design: .rounded))
+                .disabled(theme.isNight)
+                .help(theme.isNight ? "夜晚小动物们都在睡觉，白天才能开启活动" : "开启后小动物会在林间自由活动")
 
-                // 活动频率滑条：关闭活动时置灰不可拖
+                // 活动频率滑条：关闭活动（或夜晚）时置灰不可拖
                 HStack(spacing: 10) {
                     Text("移动频率")
                         .font(.system(size: 13, design: .rounded))
-                        .foregroundStyle(state.animalActivityEnabled ? theme.primaryText : theme.secondaryText)
+                        .foregroundStyle(activityControlsActive ? theme.primaryText : theme.secondaryText)
                     Slider(
                         value: Binding(
                             get: { state.animalActivityFrequency },
@@ -287,21 +291,28 @@ public struct SettingsView: View {
                         ),
                         in: 0...1
                     )
-                    .disabled(!state.animalActivityEnabled)
-                    Text(state.animalActivityEnabled ? frequencyLabel : "—")
+                    .disabled(!activityControlsActive)
+                    Text(activityControlsActive ? frequencyLabel : "—")
                         .font(.system(size: 11, design: .rounded))
                         .foregroundStyle(theme.secondaryText)
                         .frame(width: 52, alignment: .trailing)
                         .monospacedDigit()
                 }
                 .padding(.leading, 20)
-                .opacity(state.animalActivityEnabled ? 1 : 0.45)
+                .opacity(activityControlsActive ? 1 : 0.45)
 
-                Text("关闭活动时，小动物们会回到初始位置排排站好（成长之树右下角有同步的表情开关）。夜晚它们会自动安静下来。小动物们还会不定时告别离开、换新邻居进场。以上开关全局记忆，下次打开应用自动延续。")
+                Text(theme.isNight
+                     ? "现在是夜晚，小动物们都在睡觉，活动开关已暂时锁定；切回白天即可重新调整。"
+                     : "关闭活动时，小动物们会回到初始位置排排站好（成长之树右下角有同步的表情开关）。夜晚它们会自动安静下来。小动物们还会不定时告别离开、换新邻居进场。以上开关全局记忆，下次打开应用自动延续。")
                     .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
             }
         }
+    }
+
+    /// 小动物活动相关控件是否可用（夜晚一律锁定）。
+    private var activityControlsActive: Bool {
+        state.animalActivityEnabled && !theme.isNight
     }
 
     /// 频率滑条的展示文案。
@@ -382,6 +393,77 @@ public struct SettingsView: View {
         .help(isActive ? "当前生效" : "切换到\(option.name)")
     }
 
+    // MARK: - 模型启动 / 关闭（所有模型组件共用同一个按钮）
+
+    /// 「启动 / 关闭」按钮：两种状态共用一个位置。
+    ///
+    /// - 模型处于**启动**状态 → 显示红色外框的「关闭」，点击后让模型下线。
+    /// - 模型处于**关闭**状态 → 显示绿色外框的「启动」，点击后让模型上线。
+    ///
+    /// 本地模型会真正启停后台服务；云端 / 内置模型只做应用层面的开关。
+    @ViewBuilder
+    private func modelRunButton(_ kind: AIProviderKind) -> some View {
+        let running = state.isModelRunning(kind)
+        let switching = state.modelSwitching.contains(kind)
+        let tint: Color = running ? .red : .green
+
+        Button {
+            Task { await state.setModelRunning(kind, running: !running) }
+        } label: {
+            HStack(spacing: 4) {
+                if switching {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .controlSize(.mini)
+                        .scaleEffect(0.6)
+                        .frame(width: 10, height: 10)
+                        .tint(tint)
+                } else {
+                    Image(systemName: running ? "stop.circle.fill" : "play.circle.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                Text(running ? "关闭" : "启动")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .frame(height: 22)
+            .background(Capsule().fill(tint.opacity(0.10)))
+            .overlay(Capsule().strokeBorder(tint, lineWidth: 1.2))
+        }
+        .buttonStyle(.plain)
+        .disabled(switching)
+        .help(running
+              ? "关闭该模型：本地模型会真正停掉后台服务"
+              : "启动该模型：本地模型会在本机后台拉起服务")
+    }
+
+    /// 启停操作结果提示（成功为绿、失败为橙）。
+    @ViewBuilder
+    private var modelMessageRow: some View {
+        if let message = state.modelMessage {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: message.contains("已启动") || message.contains("已关闭") ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(message.contains("已启动") || message.contains("已关闭") ? .green : .orange)
+                Text(message)
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button {
+                    state.clearModelMessage()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .help("关闭提示")
+            }
+        }
+    }
+
     private var isSelectedProviderRemote: Bool {
         providerOptions.first { $0.id == state.selectedProviderID }?.isRemote ?? false
     }
@@ -393,9 +475,12 @@ public struct SettingsView: View {
                 Circle()
                     .fill(state.health.isUsable ? Color.green : Color.orange)
                     .frame(width: 8, height: 8)
-                Text(state.health.userFacingDescription)
+                // 状态文案带模型名：失败时用户一眼知道是哪个模型出了问题
+                Text(state.llmHealthDescription)
                     .font(.system(size: 12, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                modelRunButton(.llm)
                 Spacer()
                 Button {
                     isRefreshing = true
@@ -410,6 +495,8 @@ public struct SettingsView: View {
                 .disabled(isRefreshing)
                 .help("重新检测本地模型")
             }
+
+            modelMessageRow
 
             if state.availableModels.isEmpty {
                 Text("没有检测到本地模型。请确认本地模型服务已启动后点击刷新。")
@@ -453,7 +540,22 @@ public struct SettingsView: View {
     /// 云端 Provider：API Key → 验证并获取模型 → 选模型 / 推理强度 → 启用。
     private var remoteProviderSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // ① API Key
+            // ① 状态 + 启动/关闭（云端模型无法被终止，这里的开关只作用于应用层）
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(state.health.isUsable ? Color.green : Color.orange)
+                    .frame(width: 8, height: 8)
+                Text(state.llmHealthDescription)
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                modelRunButton(.llm)
+                Spacer()
+            }
+
+            modelMessageRow
+
+            // ② API Key
             HStack(spacing: 8) {
                 SecureField("API Key", text: Binding(
                     get: { state.apiKeyDrafts[state.selectedProviderID] ?? "" },
@@ -493,7 +595,7 @@ public struct SettingsView: View {
                 .labelsHidden()
             }
 
-            // ③ 推理强度
+            // ④ 推理强度
             Picker("推理强度", selection: Binding(
                 get: { state.reasoningEffortDraft },
                 set: { state.reasoningEffortDraft = $0 }
@@ -531,6 +633,8 @@ public struct SettingsView: View {
                     }
                 }
 
+                modelMessageRow
+
                 deploymentTips
             }
         }
@@ -542,7 +646,7 @@ public struct SettingsView: View {
     private func capabilitySection(_ info: CapabilityModelInfo) -> some View {
         let kind = info.kind
         VStack(alignment: .leading, spacing: 9) {
-            // ① 当前模型 + 来源 + 状态
+            // ① 当前模型 + 来源 + 状态（状态右边是共用的「启动 / 关闭」按钮）
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Circle()
                     .fill(info.healthOK ? Color.green : (info.currentModel == nil ? Color.gray : Color.orange))
@@ -554,6 +658,9 @@ public struct SettingsView: View {
                 Text(info.healthText)
                     .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
+                    .multilineTextAlignment(.trailing)
+                    .fixedSize(horizontal: false, vertical: true)
+                modelRunButton(kind)
             }
             Text("当前：\(info.currentModel ?? "未配置")")
                 .font(.system(size: 12, weight: .medium, design: .rounded))

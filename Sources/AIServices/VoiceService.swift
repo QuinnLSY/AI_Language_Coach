@@ -41,10 +41,17 @@ public actor VoiceService {
 
     /// 相位变化回调（含当前朗读文本，供 UI 高亮对应消息）。
     public var onPhaseChange: (@Sendable (SpeechPhase, String?) -> Void)?
+    /// 流式识别回调：录音过程中不断把「当前听到的整句」推给 UI，实现边说边出字。
+    public var onPartialChange: (@Sendable (String) -> Void)?
 
     /// 注册相位回调（UI 侧装配用）。
     public func setPhaseHandler(_ handler: (@Sendable (SpeechPhase, String?) -> Void)?) {
         onPhaseChange = handler
+    }
+
+    /// 注册流式识别回调（UI 侧装配用）。
+    public func setPartialHandler(_ handler: (@Sendable (String) -> Void)?) {
+        onPartialChange = handler
     }
 
     /// 当前朗读会话令牌：换值即作废上一段朗读（用于「再点一次 = 重新读」）。
@@ -81,6 +88,7 @@ public actor VoiceService {
             try recorder.start()
             isRecording = true
             lastError = nil
+            startPartialLoop(language: partialLanguage)
         } catch {
             lastError = "无法开始录音：\(error.localizedDescription)"
         }
@@ -88,6 +96,8 @@ public actor VoiceService {
 
     /// 停止录音并识别；返回识别文本（失败返回 nil 并写入 lastError）。
     public func stopRecordingAndTranscribe(language: String? = nil) async -> String? {
+        // 先停掉流式识别，避免它与最终识别抢同一个（串行的）语音服务。
+        stopPartialLoop()
         let samples = recorder.stop()
         isRecording = false
         // 采集链路自身出过问题（如重采样失败）时优先报它，否则「没录到声音」会掩盖真因。
@@ -113,8 +123,76 @@ public actor VoiceService {
     }
 
     public func cancelRecording() {
+        stopPartialLoop()
         _ = recorder.stop()
         isRecording = false
+    }
+
+    // MARK: - 流式识别（边说边出字）
+
+    /// 最近一次 startRecording 时指定的语言。
+    private var partialLanguage: String?
+    /// 流式识别的后台循环。
+    private var partialTask: Task<Void, Never>?
+    /// 流式识别的间隔：太密会拖慢（语音服务串行），太疏则不够"流式"。
+    private static let partialInterval: TimeInterval = 1.2
+    /// 触发一次中间识别所需的最少「新增音频」时长（秒）。
+    private static let partialMinNewAudio: TimeInterval = 0.8
+    /// 少于这个总时长不识别（避免把半秒钟的杂音当一句话）。
+    private static let partialMinTotalAudio: TimeInterval = 1.0
+
+    /// 记录本次录音希望识别的语言（供流式循环使用）。
+    public func setPartialLanguage(_ language: String?) {
+        partialLanguage = language
+    }
+
+    private func startPartialLoop(language: String?) {
+        stopPartialLoop()
+        partialLanguage = language
+        // Task 继承本 actor 的隔离：循环里的调用都直接跑在本 actor 上，只有 asr.transcribe 需要 await。
+        partialTask = Task { [weak self] in
+            guard let self else { return }
+            var lastCount = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(Self.partialInterval * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                let samples = await self.snapshot()
+                let minimumTotal = Int(MicrophoneRecorder.sampleRate * Self.partialMinTotalAudio)
+                let minimumNew = Int(MicrophoneRecorder.sampleRate * Self.partialMinNewAudio)
+                guard samples.count >= minimumTotal, samples.count - lastCount >= minimumNew else { continue }
+                lastCount = samples.count
+                guard let text = await self.transcribePartial(samples: samples, language: language), !text.isEmpty else {
+                    continue
+                }
+                guard !Task.isCancelled else { return }
+                await self.emitPartial(text)
+            }
+        }
+    }
+
+    /// 把中间识别结果推给 UI（在 actor 内读取回调，避免跨隔离访问可变状态）。
+    private func emitPartial(_ text: String) {
+        onPartialChange?(text)
+    }
+
+    private func stopPartialLoop() {
+        partialTask?.cancel()
+        partialTask = nil
+    }
+
+    private func snapshot() -> [Float] {
+        recorder.currentSamples()
+    }
+
+    /// 一次中间识别：失败静默（不打断录音，也不覆盖 lastError）。
+    private func transcribePartial(samples: [Float], language: String?) async -> String? {
+        do {
+            let result = try await asr.transcribe(ASRRequest(audioSamples: samples, language: language))
+            let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : text
+        } catch {
+            return nil
+        }
     }
 
     /// 实时电平（0…1），供 UI 画说话波纹。

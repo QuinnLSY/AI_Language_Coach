@@ -153,7 +153,24 @@ public final class ChatService {
 
         let configuration = await services.configuration
         let providerConfig = configuration.resolvedProvider(for: .llm)
+        let providerName = providerConfig?.userFacingName
         let model = await services.currentLLMModel()
+
+        // ① 模型被用户显式关闭 → 立刻明确告诉他怎么办，而不是假装在生成。
+        if !(await services.isModelRunning(.llm)) {
+            errorMessage = ModelDiagnostics.stoppedHint(providerName: providerName, model: model)
+            return
+        }
+
+        // ② 应用还没装配好 Provider 就收到了消息（用户手速快于启动）：
+        //    以前这里直接以「尚未初始化」失败，表现就是「老师永远不回第一句」。
+        //    现在自己把装配补上再继续。
+        do {
+            try await services.ensureLLMReady()
+        } catch {
+            errorMessage = ModelDiagnostics.describe(providerName: providerName, model: model, error: error)
+            return
+        }
 
         var systemPrompt = PromptBuilder.teacherSystemPrompt(
             learningLanguage: profile.learningLanguage,
@@ -187,6 +204,7 @@ public final class ChatService {
         let tokensBefore = estimatedContextTokens
         var accumulated = ""
         var reasoning = ""
+        var failure: Error?
         do {
             let stream = await services.llm.stream(request)
             for try await chunk in stream {
@@ -201,19 +219,25 @@ public final class ChatService {
                 }
                 isThinking = accumulated.isEmpty && !reasoning.isEmpty
             }
-        } catch let error as AIProviderError {
-            errorMessage = error.localizedDescription
         } catch {
-            if !(error is CancellationError) {
-                errorMessage = error.localizedDescription
-            }
+            failure = error
         }
 
         streamingText = ""
         streamingReasoning = ""
         isThinking = false
-        let finalText = Self.stripThinking(accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
-        // 用户主动叫停时保留已生成内容，不算错误。
+
+        var finalText = Self.stripThinking(accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // ③ 流式一个字都没拿到（部分 runtime 的 SSE 会失败）→ 退回一次性请求再试一次。
+        //    宁可多花一次请求，也不要让学员的话石沉大海。
+        if finalText.isEmpty, failure == nil, !Task.isCancelled {
+            if let fallback = await nonStreamingFallback(request) {
+                finalText = fallback
+                reasoning = ""
+            }
+        }
+
         if !finalText.isEmpty {
             // 抽取老师标注的纠错块（[[FIX]] ...），不进聊天正文。
             let parsed = Self.extractCorrections(finalText)
@@ -231,6 +255,32 @@ public final class ChatService {
             }
             // 今日全局 token 用量（上下文增量估算，供黑板/督促气泡）。
             DailyTokenCounter.add(max(estimatedContextTokens - tokensBefore, 0))
+            return
+        }
+
+        // ④ 调用出错 → 明确说出是哪个模型出的问题。
+        if let failure {
+            if !(failure is CancellationError) {
+                errorMessage = ModelDiagnostics.describe(providerName: providerName, model: model, error: failure)
+            }
+            return
+        }
+        // ⑤ 请求成功但正文为空：绝大多数是推理模型把输出预算全用在思考上了。
+        if Task.isCancelled { return }
+        errorMessage = ModelDiagnostics.label(providerName: providerName, model: model)
+            + " 这次没有给出回复（可能把输出额度都用在思考上了）。请再发一次，或换个模型试试。"
+    }
+
+    /// 无流式兜底：同样请求再走一次非流式通道，返回可用的正文（失败返回 nil）。
+    private func nonStreamingFallback(_ request: LLMRequest) async -> String? {
+        var plain = request
+        plain.streaming = false
+        do {
+            let response = try await services.llm.generate(plain)
+            let text = Self.stripThinking(response.text).trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : text
+        } catch {
+            return nil
         }
     }
 

@@ -391,3 +391,80 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
         }
     }
 }
+
+// MARK: - 本地模型服务的后台启停（设置页「启动 / 关闭」按钮）
+//
+// 实测（Ollama 0.33.3，2026-09-10）：
+//   POST /api/generate  {"model":"qwen3:8b","keep_alive":0}      → 立即卸载，done_reason="unload"
+//   POST /api/generate  {"model":"qwen3:8b","keep_alive":"30m"}  → 载入显存，done_reason="load"（约 1.4s）
+// 不带 prompt 时不会产生任何推理开销，正是「启动 / 关闭」需要的语义。
+
+extension OllamaLLMAdapter: ModelServiceControlling {
+
+    /// 让 Ollama 把模型权重载入内存，随时可以对话。
+    /// 若 Ollama 本身没在运行，用配置里的启动命令把它拉起来后重试一次。
+    public func startModelService() async throws {
+        do {
+            try await setKeepAlive(.duration(Self.loadKeepAlive))
+            return
+        } catch {
+            let config = try await resolvedEndpoint().0
+            let command = (config.serviceStartCommand ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !command.isEmpty else { throw error }
+            // 拉起本机服务（并等它开始接受连接），然后再载入模型。
+            try await LocalServiceControl.start(config: config)
+            try await setKeepAlive(.duration(Self.loadKeepAlive))
+        }
+    }
+
+    /// 让 Ollama 立即卸载模型：后台下线、不再占用显存。
+    /// 服务本来就没在跑 = 已经处于关闭状态，视为成功（幂等）。
+    public func stopModelService() async throws {
+        do {
+            try await setKeepAlive(.seconds(0))
+        } catch let error as AIProviderError {
+            switch error {
+            case .connectionFailed, .timeout, .runtimeUnavailable: return
+            default: throw error
+            }
+        }
+    }
+
+    private func setKeepAlive(_ keepAlive: OllamaKeepAlive) async throws {
+        let (config, base) = try await resolvedEndpoint()
+        guard let model = config.model ?? config.candidateModels.first, !model.isEmpty else {
+            throw AIProviderError.invalidConfiguration("未指定模型")
+        }
+        var request = URLRequest(url: base.appendingPathComponent("api/generate"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try Self.makeEncoder().encode(
+            OllamaLoadRequest(model: model, keepAlive: keepAlive)
+        )
+        let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? 120)
+        try Self.ensureSuccess(statusCode: response.statusCode, data: data)
+    }
+
+    /// 启动后的保留时长：够长，避免刚启动就被回收（用户还能手动关闭）。
+    private static let loadKeepAlive = "30m"
+}
+
+/// Ollama 载入 / 卸载请求体（仅本文件可见）。
+private struct OllamaLoadRequest: Encodable {
+    let model: String
+    let keepAlive: OllamaKeepAlive
+}
+
+/// `keep_alive` 允许数字（秒，0 = 立即卸载）或时长字符串（"30m"）。
+private enum OllamaKeepAlive: Encodable {
+    case seconds(Int)
+    case duration(String)
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .seconds(let value): try container.encode(value)
+        case .duration(let value): try container.encode(value)
+        }
+    }
+}
