@@ -2,7 +2,7 @@ import AIInterfaces
 import AIServices
 import AIInfrastructure
 import AppCore
-import AppUI
+@testable import AppUI
 import XCTest
 
 /// 模型启停、错误文案、语音拼写纠正、token 分档、夜晚锁定等纯逻辑的回归测试。
@@ -158,6 +158,22 @@ final class ModelControlTests: XCTestCase {
         XCTAssertEqual(ChatView.mergedInput(base: "I want", voice: "a coffee"), "I want a coffee")
         XCTAssertEqual(ChatView.mergedInput(base: "I want ", voice: "a coffee"), "I want a coffee")
         XCTAssertEqual(ChatView.mergedInput(base: "typed only", voice: "  "), "typed only")
+    }
+
+    /// 回归：`ChatView` 的属性有默认值 `= nil`，手写 init 漏赋值**不会编译报错**。
+    /// 曾因此让「模型关闭提示条」和「语音流式写入」双双静默失效（UI 截图才发现）。
+    func testChatViewInitStoresStreamingAndStoppedInputs() {
+        let chat = ChatService(services: CoachServices(config: ConfigStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("alc-chatview-\(UUID().uuidString).json")), databasePath: ":memory:"))
+        let view = ChatView(
+            chat: chat,
+            modelName: "qwen3:8b",
+            health: .connected(model: "qwen3:8b"),
+            voiceTranscript: "hello wor",
+            modelStoppedNotice: "本地模型 · qwen3:8b 已关闭"
+        )
+        XCTAssertEqual(view.voiceTranscript, "hello wor", "voiceTranscript 必须被 init 存入，否则语音流式写不进输入框")
+        XCTAssertEqual(view.modelStoppedNotice, "本地模型 · qwen3:8b 已关闭", "modelStoppedNotice 必须被 init 存入，否则关闭提示条不显示")
     }
 
     // MARK: - 今日 token 分档（0–2000 督促 / 2000–20000 鼓励 / ≥20000 休息）

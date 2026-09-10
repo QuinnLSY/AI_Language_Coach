@@ -107,6 +107,11 @@ public struct ChatView: View {
         self.scenario = scenario
         self.onOpenScenarios = onOpenScenarios
         self.onEndScenario = onEndScenario
+        // ⚠️ 这两个必须显式赋值：属性声明处有默认值 `= nil`，
+        // 手写 init 漏掉它们**不会编译报错**，而是静默保持 nil
+        // → 表现为「模型关闭提示条不出现」+「语音流式结果写不进输入框」。
+        self.voiceTranscript = voiceTranscript
+        self.modelStoppedNotice = modelStoppedNotice
     }
 
     public var body: some View {
