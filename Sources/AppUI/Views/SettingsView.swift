@@ -57,6 +57,7 @@ public struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     themeCard
                     partnerCard
+                    forestCompanionsCard
                     modelCard
                     voiceCard
                     learningCard
@@ -248,6 +249,36 @@ public struct SettingsView: View {
         }
         .buttonStyle(.plain)
         .help("设为\(partnerRole.title)：\(kind.displayName)")
+    }
+
+    // MARK: - 森林伙伴（气泡 / 活动开关，全部全局记忆）
+
+    private var forestCompanionsCard: some View {
+        card(title: "森林伙伴", systemImage: "pawprint") {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("老师激励气泡", isOn: Binding(
+                    get: { state.teacherBubblesEnabled },
+                    set: { enabled in Task { await state.setTeacherBubbles(enabled) } }
+                ))
+                .font(.system(size: 13, design: .rounded))
+
+                Toggle("小动物气泡（点击/自发冒泡）", isOn: Binding(
+                    get: { state.animalBubblesEnabled },
+                    set: { enabled in Task { await state.setAnimalBubbles(enabled) } }
+                ))
+                .font(.system(size: 13, design: .rounded))
+
+                Toggle("小动物自由活动", isOn: Binding(
+                    get: { state.animalActivityEnabled },
+                    set: { enabled in Task { await state.setAnimalActivity(enabled) } }
+                ))
+                .font(.system(size: 13, design: .rounded))
+
+                Text("关闭活动时，小动物们会回到初始位置排排站好（成长之树右下角有同步的表情开关）。夜晚它们会自动安静下来。以上开关全局记忆，下次打开应用自动延续。")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+            }
+        }
     }
 
     // MARK: - 模型提供商（本地 / 云端并存，二选一生效）
@@ -478,6 +509,18 @@ public struct SettingsView: View {
                     Text(error)
                         .font(.system(size: 12, design: .rounded))
                         .foregroundStyle(.orange)
+                }
+
+                // 本地语音模型（runtime 自报：模型 + 运行设备）
+                if let runtimeInfo = state.ttsRuntimeInfo {
+                    HStack(spacing: 6) {
+                        Image(systemName: "cpu")
+                            .font(.system(size: 11))
+                            .foregroundStyle(theme.accent)
+                        Text("本地语音模型：\(runtimeInfo)")
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundStyle(theme.primaryText)
+                    }
                 }
 
                 // 教师音色

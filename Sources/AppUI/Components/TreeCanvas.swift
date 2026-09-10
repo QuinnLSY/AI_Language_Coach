@@ -8,16 +8,20 @@ public struct TreeCanvas: View {
     let progress: LearnerProgress
     /// 小学员形象（沿树攀爬的学员，戴红领巾；可点击说话）。
     let studentAnimal: AnimalKind
+    /// 小学员点击冒泡开关（设置可关）。
+    var bubblesAllowed: Bool = true
     var onSelectLevel: (TreeLevel) -> Void = { _ in }
 
     private let canvasHeight: CGFloat = 1080
     private let groundHeight: CGFloat = 120
 
     public init(theme: ForestTheme, progress: LearnerProgress, studentAnimal: AnimalKind = .bear,
+                bubblesAllowed: Bool = true,
                 onSelectLevel: @escaping (TreeLevel) -> Void = { _ in }) {
         self.theme = theme
         self.progress = progress
         self.studentAnimal = studentAnimal
+        self.bubblesAllowed = bubblesAllowed
         self.onSelectLevel = onSelectLevel
     }
 
@@ -266,16 +270,31 @@ private struct LevelNode: View {
 
 struct ForestGroundBand: View {
     let theme: ForestTheme
+    /// 小动物气泡总开关（设置可关）。
+    var bubblesAllowed: Bool = true
+    /// 实际生效的活动开关（配置 && 白天）。夜晚自动安静。
+    var activityAllowed: Bool = true
+    /// 右下角表情按钮回调（与设置里的开关联动）。
+    var onActivityToggle: (() -> Void)? = nil
 
-    /// 当前有气泡在显示的居民（点击或自发动作）——它的气泡要盖在所有气泡之上。
+    /// 当前气泡归属（点击或自发动作）——气泡统一画在带子顶层，永远不被遮挡。
     @State private var speakingIndex: Int?
+    @State private var bubbleText: String?
+    @State private var bubbleTick = 0
+    /// 各居民的**持续位移**：游走后停在新位置，不回原位。
+    @State private var offsets: [CGSize] = Array(repeating: .zero, count: Self.maxResidents)
+    /// 鸟类是否正栖在枝桠上。
+    @State private var perched: [Bool] = Array(repeating: false, count: Self.maxResidents)
+    /// 动作触发器（父级递增，LivelyAnimal 变化即执行）。
+    @State private var actionTicks: [Int] = Array(repeating: 0, count: Self.maxResidents)
+    @State private var actionKinds: [Int] = Array(repeating: 0, count: Self.maxResidents)
 
+    private static let maxResidents = 8
     // 各类元素的**上限**：始终按上限创建视图，靠透明度控制显隐。
     // 这样拖动分割线时元素不会突然创建/销毁（那正是画面抖动的来源）。
     private let grassCount = 26
     private let maxBushes = 4
     private let maxFlowers = 7
-    private let maxResidents = 8
 
     /// 稳定伪随机（同 index/salt 永远同值），保证布局不随重绘跳动。
     private func pr(_ index: Int, _ salt: Int) -> CGFloat {
@@ -286,7 +305,7 @@ struct ForestGroundBand: View {
 
     /// 居民数量随宽度增减：300 → 3 只，~500 → 6 只，越宽越多；上限物种数 8。
     private func residentCount(_ width: CGFloat) -> Int {
-        min(max(Int((width - 120) / 70) + 1, 3), maxResidents)
+        min(max(Int((width - 120) / 70) + 1, 3), Self.maxResidents)
     }
 
     /// 按宽度取前 N 只物种：伪随机打乱 8 个物种，前 N 个各不相同。
@@ -350,12 +369,14 @@ struct ForestGroundBand: View {
                         .animation(.easeOut(duration: 0.2), value: flowerCount)
                 }
 
+                // 树干底部的两根枝桠栖木（鸟类专用；画在树干透出区域的中心两侧）
+                perchStubs(width: width, height: height)
+
                 // 林间居民：各物种独立个体，朝向/大小/站位/动与静各不相同
-                ForEach(0..<maxResidents, id: \.self) { i in
+                ForEach(0..<Self.maxResidents, id: \.self) { i in
                     resident(
                         kind: order[i % order.count],
                         index: i,
-                        slot: CGFloat(i),
                         visibleCount: count,
                         span: span,
                         inset: inset,
@@ -363,12 +384,191 @@ struct ForestGroundBand: View {
                         quantizedWidth: qw
                     )
                 }
+
+                // 气泡顶层：永远画在所有居民之上（最新出现的气泡不被任何气泡/动物遮挡）
+                if let speaker = speakingIndex, speaker < count, let text = bubbleText {
+                    let home = homePosition(index: speaker, count: count, span: span,
+                                            inset: inset, groundLine: groundLine, quantizedWidth: qw)
+                    SpeechBubble(text: text, maxWidth: 150)
+                        .fixedSize()
+                        .position(
+                            x: home.x + offsets[speaker].width,
+                            y: home.y + offsets[speaker].height - home.size * 0.78
+                        )
+                        .transition(.opacity.combined(with: .scale(scale: 0.55, anchor: .bottom)))
+                        .zIndex(999)
+                        .allowsHitTesting(false)
+                }
             }
             .frame(width: width, height: height, alignment: .bottomLeading)
             // 档位切换时让位置/大小平滑过渡，而不是瞬移
             .animation(.easeOut(duration: 0.18), value: qw)
+            // 活动编排（宽度或活动开关变化时重启循环，取最新几何与开关值）
+            .task(id: "\(qw)-\(activityAllowed)-\(theme.isNight)") { await orchestrateLife(count: count, span: span, inset: inset,
+                                                   groundLine: groundLine, quantizedWidth: qw,
+                                                   width: width, order: order) }
+            // 气泡自动收起（3 秒），被新气泡打断时任务自动重启
+            .task(id: bubbleTick) {
+                guard speakingIndex != nil else { return }
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.25)) {
+                    speakingIndex = nil
+                    bubbleText = nil
+                }
+            }
+            // 关闭活动（设置开关或入夜）：全体回家排排站好（带过渡动画）
+            .onChange(of: activityAllowed) { _, allowed in
+                if !allowed { sendEveryoneHome() }
+            }
+            .onChange(of: theme.isNight) { _, night in
+                if night { sendEveryoneHome() }
+            }
         }
         .frame(maxWidth: .infinity)
+        // 右下角表情按钮：开心 = 允许活动，平静 = 已安静（与设置联动）
+        .overlay(alignment: .bottomTrailing) {
+            activityButton
+        }
+    }
+
+    // MARK: 活动编排（唯一的心跳：游走 / 跳 / 摇 / 飞枝）
+
+    private func orchestrateLife(count: Int, span: CGFloat, inset: CGFloat, groundLine: CGFloat,
+                                 quantizedWidth: CGFloat, width: CGFloat,
+                                 order: [AnimalKind]) async {
+        // 个体错峰启动，避免整排动物同时动作
+        try? await Task.sleep(for: .seconds(Double.random(in: 3...6)))
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(Double.random(in: 5...9)))
+            guard !Task.isCancelled, activityAllowed, !theme.isNight else { continue }
+            guard count > 0 else { continue }
+            let index = Int.random(in: 0..<count)
+            let isBird = order[index % order.count] == .owl
+
+            if isBird && !perched[index] && Int.random(in: 0..<10) < 3 {
+                // 鸟类：飞上枝桠，停留一阵（期间会小幅挪动），再飞回草地
+                await flyToPerch(index, count: count, span: span, inset: inset,
+                                 groundLine: groundLine, quantizedWidth: quantizedWidth, width: width)
+                // 枝上小憩：随机停留 + 小幅挪动
+                let stay = Int.random(in: 1...2)
+                for _ in 0..<stay {
+                    try? await Task.sleep(for: .seconds(Double.random(in: 4...8)))
+                    guard !Task.isCancelled, activityAllowed, !theme.isNight else { break }
+                    if Bool.random() { shuffleOnPerch(index, count: count, span: span, inset: inset,
+                                                      groundLine: groundLine, quantizedWidth: quantizedWidth, width: width) }
+                }
+                try? await Task.sleep(for: .seconds(Double.random(in: 3...6)))
+                guard !Task.isCancelled else { return }
+                await flyBackToGrass(index, count: count, span: span, inset: inset,
+                                     groundLine: groundLine, quantizedWidth: quantizedWidth)
+            } else if perched[index] {
+                // 已在枝上：要么小幅挪动，要么飞回草地
+                if Bool.random() {
+                    shuffleOnPerch(index, count: count, span: span, inset: inset,
+                                   groundLine: groundLine, quantizedWidth: quantizedWidth, width: width)
+                } else {
+                    await flyBackToGrass(index, count: count, span: span, inset: inset,
+                                         groundLine: groundLine, quantizedWidth: quantizedWidth)
+                }
+            } else {
+                // 地面：游走（真位移，不回原位）/ 跳 / 摇
+                let roll = Int.random(in: 0..<10)
+                if roll < 5 {
+                    wander(index, count: count, span: span, inset: inset,
+                           groundLine: groundLine, quantizedWidth: quantizedWidth)
+                } else if roll < 8 {
+                    trigger(index, kind: 0)
+                } else {
+                    trigger(index, kind: 1)
+                }
+            }
+        }
+    }
+
+    /// 触发跳/摇动作。
+    private func trigger(_ index: Int, kind: Int) {
+        actionKinds[index] = kind
+        actionTicks[index] += 1
+    }
+
+    /// 地面游走：在草地范围内累计位移（走到哪停在哪），不会走出草坡。
+    private func wander(_ index: Int, count: Int, span: CGFloat, inset: CGFloat,
+                        groundLine: CGFloat, quantizedWidth: CGFloat) {
+        let home = homePosition(index: index, count: count, span: span, inset: inset,
+                                groundLine: groundLine, quantizedWidth: quantizedWidth)
+        let current = offsets[index]
+        // 左右各留出草坡内边距，纵向限制在坡面附近
+        let slackLeft = home.x - inset * 0.45
+        let slackRight = (inset + span + inset * 0.45) - home.x
+        let nx = min(max(current.width + CGFloat.random(in: -24...24), -slackLeft), slackRight)
+        let ny = min(max(current.height + CGFloat.random(in: -16...6), -20), 7)
+        withAnimation(.easeInOut(duration: 0.8)) {
+            offsets[index] = CGSize(width: nx, height: ny)
+        }
+    }
+
+    /// 枝桠位置（相对树干中心对称两根）。
+    private func perchPoint(_ k: Int, width: CGFloat) -> CGPoint {
+        CGPoint(x: width * 0.5 + (k == 0 ? -1 : 1) * width * 0.085,
+                y: 22 + CGFloat(k) * 16)
+    }
+
+    /// 树干底部的枝桠栖木（视觉上接住飞上来的鸟）。
+    @ViewBuilder
+    private func perchStubs(width: CGFloat, height: CGFloat) -> some View {
+        ForEach(0..<2, id: \.self) { k in
+            let point = perchPoint(k, width: width)
+            Capsule()
+                .fill(theme.trunkShade.opacity(0.9))
+                .frame(width: 36, height: 5)
+                .rotationEffect(.degrees(k == 0 ? -6 : 6))
+                .position(point)
+        }
+    }
+
+    /// 鸟类飞上枝桠。
+    private func flyToPerch(_ index: Int, count: Int, span: CGFloat, inset: CGFloat,
+                            groundLine: CGFloat, quantizedWidth: CGFloat, width: CGFloat) async {
+        let home = homePosition(index: index, count: count, span: span, inset: inset,
+                                groundLine: groundLine, quantizedWidth: quantizedWidth)
+        let perch = perchPoint(Int.random(in: 0..<2), width: width)
+        withAnimation(.spring(response: 0.9, dampingFraction: 0.75)) {
+            offsets[index] = CGSize(width: perch.x - home.x, height: perch.y - home.y - 4)
+            perched[index] = true
+        }
+    }
+
+    /// 在枝上小幅挪动（沿枝 ±10pt）。
+    private func shuffleOnPerch(_ index: Int, count: Int, span: CGFloat, inset: CGFloat,
+                                groundLine: CGFloat, quantizedWidth: CGFloat, width: CGFloat) {
+        let home = homePosition(index: index, count: count, span: span, inset: inset,
+                                groundLine: groundLine, quantizedWidth: quantizedWidth)
+        let delta = CGFloat.random(in: -10...10)
+        withAnimation(.easeInOut(duration: 0.5)) {
+            offsets[index].width += delta
+        }
+    }
+
+    /// 飞回草地（落到离家最近的空位：直接回家）。
+    private func flyBackToGrass(_ index: Int, count: Int, span: CGFloat, inset: CGFloat,
+                                groundLine: CGFloat, quantizedWidth: CGFloat) async {
+        withAnimation(.spring(response: 0.9, dampingFraction: 0.75)) {
+            offsets[index] = .zero
+            perched[index] = false
+        }
+    }
+
+    /// 全体回家排排站好（关闭活动 / 入夜时调用，带过渡动画）。
+    private func sendEveryoneHome() {
+        withAnimation(.spring(response: 0.7, dampingFraction: 0.8)) {
+            for i in 0..<Self.maxResidents {
+                offsets[i] = .zero
+                perched[i] = false
+            }
+            speakingIndex = nil
+            bubbleText = nil
+        }
     }
 
     // MARK: 花草
@@ -420,51 +620,87 @@ struct ForestGroundBand: View {
 
     // MARK: 居民个体
 
-    private func resident(kind: AnimalKind, index: Int, slot: CGFloat, visibleCount: Int,
+    /// 家位置（与 resident() 完全同一套伪随机，编排与绘制共用）。
+    private func homePosition(index: Int, count: Int, span: CGFloat, inset: CGFloat,
+                              groundLine: CGFloat, quantizedWidth: CGFloat)
+        -> (x: CGFloat, y: CGFloat, size: CGFloat) {
+        let depth = pr(index, 14)
+        let base = min(54, 28 + quantizedWidth * 0.045) * (0.72 + depth * 0.42)
+        let size = base * (0.94 + pr(index, 5) * 0.14)
+        let pitch = span / CGFloat(max(1, count))
+        let jitter = (pr(index, 4) - 0.5) * min(24, pitch * 0.34)
+        let x = inset + (CGFloat(index) + 0.5) * pitch + jitter
+        let y = groundLine - size * 0.5 - depth * 10 + pr(index, 9) * 6
+        return (x, y, size)
+    }
+
+    private func resident(kind: AnimalKind, index: Int, visibleCount: Int,
                           span: CGFloat, inset: CGFloat, groundLine: CGFloat,
                           quantizedWidth: CGFloat) -> some View {
         let visible = index < visibleCount
-        // 前排大、后排小：用伪随机决定“深度”，再按深度给大小与站位
-        let depth = pr(index, 14)               // 0(远) ... 1(近)
-        // 个体大小只跟量化宽度走，拖动时不会逐帧缩放（缩放是肉眼可见的抖动源）
-        let base = min(54, 28 + quantizedWidth * 0.045) * (0.72 + depth * 0.42)
-        let size = base * (0.94 + pr(index, 5) * 0.14)
+        let home = homePosition(index: index, count: visibleCount, span: span, inset: inset,
+                                groundLine: groundLine, quantizedWidth: quantizedWidth)
         let facing: CGFloat = pr(index, 3) > 0.5 ? 1 : -1
-        let y = groundLine - size * 0.5 - depth * 10 + pr(index, 9) * 6
-        // 可见个体在整条带上均分，站位抖动幅度随间距收窄，避免重叠
-        let pitch = span / CGFloat(max(1, visibleCount))
-        let jitter = (pr(index, 4) - 0.5) * min(24, pitch * 0.34)
-        let x = inset + (slot + 0.5) * pitch + jitter
 
         return ZStack {
-            // 脚底阴影（落到脚部而不是身体中心）
-            Ellipse()
-                .fill(theme.shadow)
-                .frame(width: size * 0.92, height: size * 0.15)
-                .offset(y: size * 0.42)
+            // 脚底阴影（落到脚部而不是身体中心；鸟在枝上时收起）
+            if !perched[index] {
+                Ellipse()
+                    .fill(theme.shadow)
+                    .frame(width: home.size * 0.92, height: home.size * 0.15)
+                    .offset(y: home.size * 0.42)
+            }
 
             LivelyAnimal(
                 kind: kind,
                 isSleeping: theme.isNight,
-                size: size,
+                size: home.size,
                 facing: facing,
-                phrases: kind.phrases,
-                onBubbleChange: { active in
-                    if active {
-                        speakingIndex = index
-                    } else if speakingIndex == index {
-                        speakingIndex = nil
-                    }
-                }
+                actionTick: actionTicks[index],
+                actionKind: actionKinds[index],
+                onTap: { requestBubble(index) },
+                onSpontaneousBubble: { requestBubble(index) }
             )
         }
-        .position(x: x, y: y)
-        // 说话的个体永远在最上层，气泡不被相邻气泡/动物遮挡
-        .zIndex(speakingIndex == index ? 1000 : Double(Int(depth * 10)))
+        .position(x: home.x + offsets[index].width, y: home.y + offsets[index].height)
         .opacity(visible ? 1 : 0)
         .scaleEffect(visible ? 1 : 0.6, anchor: .bottom)
         .allowsHitTesting(visible)
         .animation(.easeOut(duration: 0.2), value: visibleCount)
+    }
+
+    /// 请求冒泡（点击或自发动作统一入口）：顶层展示，3 秒后自动收起。
+    private func requestBubble(_ index: Int) {
+        guard bubblesAllowed else { return }
+        // 物种顺序必须与绘制侧一致（同一套伪随机）
+        let kind = speciesOrder()[index % AnimalKind.allCases.count]
+        guard !kind.phrases.isEmpty else { return }
+        let current = speakingIndex == index ? bubbleText : nil
+        let pool = kind.phrases.filter { $0 != current }
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            speakingIndex = index
+            bubbleText = pool.randomElement() ?? kind.phrases[0]
+        }
+        bubbleTick += 1
+    }
+
+    // MARK: 右下角活动开关（与设置联动）
+
+    private var activityButton: some View {
+        Button {
+            onActivityToggle?()
+        } label: {
+            Image(systemName: activityAllowed ? "face.smiling" : "face.dashed")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(activityAllowed ? theme.accent : theme.secondaryText)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(theme.surface.opacity(0.9)))
+                .overlay(Circle().strokeBorder(theme.divider, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .padding(.trailing, 12)
+        .padding(.bottom, 10)
+        .help(activityAllowed ? "小动物们正在自由活动（点击让它们排排站好）" : "小动物们已安静（点击放它们出来玩）")
     }
 
     private struct HillCap: Shape {

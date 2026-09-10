@@ -174,16 +174,24 @@ public struct MainView: View {
                     TreeCanvas(
                         theme: state.theme,
                         progress: state.progress,
-                        studentAnimal: state.studentAnimalKind
+                        studentAnimal: state.studentAnimalKind,
+                        bubblesAllowed: state.animalBubblesEnabled
                     ) { level in
                         Task { await open(level) }
                     }
                     .padding(.top, 6)
                 }
 
-                ForestGroundBand(theme: state.theme)
-                    .frame(height: 150)
-                    .allowsHitTesting(true)
+                ForestGroundBand(
+                    theme: state.theme,
+                    bubblesAllowed: state.animalBubblesEnabled,
+                    activityAllowed: state.animalActivityEffective,
+                    onActivityToggle: {
+                        Task { await state.setAnimalActivity(!state.animalActivityEnabled) }
+                    }
+                )
+                .frame(height: 150)
+                .allowsHitTesting(true)
             }
         }
         .background(state.theme.surface.opacity(0.62))

@@ -113,7 +113,8 @@ public struct AppSidebar: View {
             TeacherCorner(
                 kind: state.teacherAnimalKind,
                 isSleeping: theme.isNight,
-                todayTokens: state.todayTokens
+                todayTokens: state.todayTokens,
+                bubblesAllowed: state.teacherBubblesEnabled
             )
             .help("AI 老师 · \(state.teacherAnimalKind.displayName)（可在设置中更换）")
             .transition(.opacity)

@@ -64,6 +64,11 @@ public protocol VoiceCatalogProvider: Sendable {
     func availableVoices() async -> [String]
 }
 
+/// 可选能力：runtime 能自报一句可读的运行信息（如「Qwen3-TTS · mps」）。
+public protocol RuntimeInfoProvider: Sendable {
+    func runtimeDescription() async -> String?
+}
+
 // MARK: - VAD
 
 public struct VADSegment: Sendable, Equatable {

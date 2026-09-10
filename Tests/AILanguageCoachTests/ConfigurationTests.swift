@@ -125,6 +125,28 @@ final class ConfigurationTests: XCTestCase {
         XCTAssertEqual(provider.model, "m")
     }
 
+    func testForestTogglesDefaultOnAndRoundTrip() throws {
+        // 旧 product 配置缺少新开关 → 默认全开
+        let legacy = """
+        {"learning_language":"en-US","teacher_animal":"panda"}
+        """
+        let old = try JSONDecoder().decode(ProductConfig.self, from: Data(legacy.utf8))
+        XCTAssertTrue(old.teacherBubbles)
+        XCTAssertTrue(old.animalBubbles)
+        XCTAssertTrue(old.animalActivity)
+
+        // 关闭后编码 → 再解码，值应保留（全局记忆的基础）
+        var product = ProductConfig()
+        product.teacherBubbles = false
+        product.animalBubbles = false
+        product.animalActivity = false
+        let data = try JSONEncoder().encode(product)
+        let restored = try JSONDecoder().decode(ProductConfig.self, from: data)
+        XCTAssertFalse(restored.teacherBubbles)
+        XCTAssertFalse(restored.animalBubbles)
+        XCTAssertFalse(restored.animalActivity)
+    }
+
     func testContextWindowFromResolvedProvider() {
         var configuration = AppConfiguration()
         configuration.providers = [

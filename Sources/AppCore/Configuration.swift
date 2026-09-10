@@ -153,6 +153,12 @@ public struct ProductConfig: Sendable, Equatable {
     /// 每类能力当前激活的 Provider（`AIProviderKind.rawValue -> provider id`）。
     /// 本地模型与云端 Provider 并存时，由它决定实际用谁。
     public var activeProviders: [String: String]
+    /// 老师头顶的督促/鼓励气泡（设置可关，默认开）。
+    public var teacherBubbles: Bool
+    /// 小动物点击/自发冒泡（设置可关，默认开）。
+    public var animalBubbles: Bool
+    /// 小动物自由活动（游走/跳/摇/飞枝）。夜晚 UI 层自动停，配置值不变。
+    public var animalActivity: Bool
 
     public init(
         learningLanguage: String = "en-US",
@@ -163,7 +169,10 @@ public struct ProductConfig: Sendable, Equatable {
         selectedModels: [String: String] = [:],
         teacherAnimal: String = "panda",
         studentAnimal: String = "bear",
-        activeProviders: [String: String] = [:]
+        activeProviders: [String: String] = [:],
+        teacherBubbles: Bool = true,
+        animalBubbles: Bool = true,
+        animalActivity: Bool = true
     ) {
         self.learningLanguage = learningLanguage
         self.nativeLanguage = nativeLanguage
@@ -174,6 +183,9 @@ public struct ProductConfig: Sendable, Equatable {
         self.teacherAnimal = teacherAnimal
         self.studentAnimal = studentAnimal
         self.activeProviders = activeProviders
+        self.teacherBubbles = teacherBubbles
+        self.animalBubbles = animalBubbles
+        self.animalActivity = animalActivity
     }
 
     public func selectedModel(for kind: AIProviderKind) -> String? { selectedModels[kind.rawValue] }
@@ -193,6 +205,7 @@ extension ProductConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case learningLanguage, nativeLanguage, teacherVoice, practiceMode, themeMode
         case selectedModels, teacherAnimal, studentAnimal, activeProviders
+        case teacherBubbles, animalBubbles, animalActivity
     }
 
     public init(from decoder: Decoder) throws {
@@ -206,6 +219,9 @@ extension ProductConfig: Codable {
         teacherAnimal = try container.decodeIfPresent(String.self, forKey: .teacherAnimal) ?? "panda"
         studentAnimal = try container.decodeIfPresent(String.self, forKey: .studentAnimal) ?? "bear"
         activeProviders = try container.decodeIfPresent([String: String].self, forKey: .activeProviders) ?? [:]
+        teacherBubbles = try container.decodeIfPresent(Bool.self, forKey: .teacherBubbles) ?? true
+        animalBubbles = try container.decodeIfPresent(Bool.self, forKey: .animalBubbles) ?? true
+        animalActivity = try container.decodeIfPresent(Bool.self, forKey: .animalActivity) ?? true
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -219,6 +235,9 @@ extension ProductConfig: Codable {
         try container.encode(teacherAnimal, forKey: .teacherAnimal)
         try container.encode(studentAnimal, forKey: .studentAnimal)
         try container.encode(activeProviders, forKey: .activeProviders)
+        try container.encode(teacherBubbles, forKey: .teacherBubbles)
+        try container.encode(animalBubbles, forKey: .animalBubbles)
+        try container.encode(animalActivity, forKey: .animalActivity)
     }
 }
 

@@ -572,16 +572,18 @@ struct ContextGauge: View {
             }
         }
         .frame(width: 13, height: 13)
-        .overlay(alignment: .bottom) {
+        // 悬浮详情在圆环**上方**弹出：状态栏贴着窗口底边，向下弹会被裁出窗外（这就是之前看不到的原因）
+        .overlay(alignment: .top) {
             if isHovering {
                 SpeechBubble(text: tooltip, maxWidth: 220)
                     .fixedSize()
-                    .offset(y: 40)
+                    .offset(y: -34)
                     .zIndex(10)
                     .transition(.opacity)
+                    .allowsHitTesting(false)
             }
         }
-        .contentShape(Circle().inset(by: -6))
+        .contentShape(Circle().inset(by: -8))
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.15)) { isHovering = hovering }
         }

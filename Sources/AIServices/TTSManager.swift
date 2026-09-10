@@ -31,4 +31,10 @@ public actor TTSManager {
         guard let catalog = provider as? VoiceCatalogProvider else { return [] }
         return await catalog.availableVoices()
     }
+
+    /// runtime 自报描述（如「Qwen3-TTS 0.6B · mps」）；不支持或未知时为 nil。
+    public func runtimeDescription() async -> String? {
+        guard let info = provider as? RuntimeInfoProvider else { return nil }
+        return await info.runtimeDescription()
+    }
 }

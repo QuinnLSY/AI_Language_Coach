@@ -58,6 +58,8 @@ public final class AppState {
     public var autoSpeak = false
     /// 当前教师音色（runtime 自报的候选 + 配置值兜底）。
     public private(set) var availableVoices: [String] = ["Serena", "Vivian", "Ryan", "Aiden", "Eric"]
+    /// 本地语音 runtime 自报描述（如「Qwen3-TTS 0.6B · mps」），nil = 未知。
+    public private(set) var ttsRuntimeInfo: String?
     /// 最近语音错误（nil = 正常）。
     public private(set) var voiceError: String?
     /// 语音服务健康状态。
@@ -91,6 +93,11 @@ public final class AppState {
     public var learningLanguage: String { product.learningLanguage }
     public var nativeLanguage: String { product.nativeLanguage }
     public var teacherVoice: String { product.teacherVoice }
+    public var teacherBubblesEnabled: Bool { product.teacherBubbles }
+    public var animalBubblesEnabled: Bool { product.animalBubbles }
+    public var animalActivityEnabled: Bool { product.animalActivity }
+    /// 实际生效的活动开关：配置开 && 非夜晚（夜晚自动安静）。
+    public var animalActivityEffective: Bool { product.animalActivity && !theme.isNight }
 
     /// 老师形象（侧边栏底部 + 聊天区 AI 头像）。
     public var teacherAnimalKind: AnimalKind {
@@ -161,6 +168,7 @@ public final class AppState {
             availableVoices = voices
             await normalizeVoice(voices)
         }
+        ttsRuntimeInfo = await services.voice.ttsRuntimeDescription()
     }
 
     /// 把配置里的音色对齐到 runtime 自报列表（大小写不敏感），避免选择器空选。
@@ -382,6 +390,23 @@ public final class AppState {
 
     public func setTeacherVoice(_ voice: String) async {
         product.teacherVoice = voice
+        await persistProduct()
+    }
+
+    // MARK: - 森林伙伴（气泡 / 活动开关，全部持久化）
+
+    public func setTeacherBubbles(_ enabled: Bool) async {
+        product.teacherBubbles = enabled
+        await persistProduct()
+    }
+
+    public func setAnimalBubbles(_ enabled: Bool) async {
+        product.animalBubbles = enabled
+        await persistProduct()
+    }
+
+    public func setAnimalActivity(_ enabled: Bool) async {
+        product.animalActivity = enabled
         await persistProduct()
     }
 

@@ -223,6 +223,7 @@ public final class Qwen3TTSAdapter: TTSProvider, VoiceCatalogProvider, @unchecke
     private struct HealthPayload: Decodable {
         let status: String
         let model: String?
+        let device: String?
         let voices: [String]?
     }
 

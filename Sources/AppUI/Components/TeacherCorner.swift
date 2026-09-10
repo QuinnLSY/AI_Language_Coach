@@ -11,15 +11,18 @@ public struct TeacherCorner: View {
     let isSleeping: Bool
     /// 今日整个应用累计使用的 token（估算）。
     let todayTokens: Int
+    /// 老师气泡开关（设置可关）。
+    var bubblesAllowed: Bool = true
 
     @State private var nudge: String?
     @State private var nudgeTick = 0
     private let nudgeTimer = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
 
-    public init(kind: AnimalKind, isSleeping: Bool, todayTokens: Int) {
+    public init(kind: AnimalKind, isSleeping: Bool, todayTokens: Int, bubblesAllowed: Bool = true) {
         self.kind = kind
         self.isSleeping = isSleeping
         self.todayTokens = todayTokens
+        self.bubblesAllowed = bubblesAllowed
     }
 
     public var body: some View {
@@ -62,8 +65,8 @@ public struct TeacherCorner: View {
             withAnimation(.easeOut(duration: 0.25)) { nudge = nil }
         }
         .onReceive(nudgeTimer) { _ in
-            // 不太频繁：每 15 秒Tick一次，约四成概率冒泡；正在显示时不打断
-            guard nudge == nil, !isSleeping, Double.random(in: 0..<1) < 0.42 else { return }
+            // 不太频繁：每 15 秒Tick一次，约四成概率冒泡；正在显示时不打断；设置可关
+            guard bubblesAllowed, nudge == nil, !isSleeping, Double.random(in: 0..<1) < 0.42 else { return }
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                 nudge = Self.randomNudge(for: todayTokens)
             }

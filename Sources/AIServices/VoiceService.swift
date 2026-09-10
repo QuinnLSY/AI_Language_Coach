@@ -110,6 +110,11 @@ public actor VoiceService {
         return availableVoices
     }
 
+    /// runtime 自报描述（本地语音模型与运行设备），设置页展示用。
+    public func ttsRuntimeDescription() async -> String? {
+        await tts.runtimeDescription()
+    }
+
     // MARK: - 内部
 
     /// 去掉不适合朗读的标记（`[[FIX]]` 块、markdown 等），保留自然语句。
