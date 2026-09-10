@@ -258,14 +258,17 @@ public actor CoachServices {
     // MARK: - 学习进度（数据库）
 
     /// 读进度；首次启动（无记录）时写入种子关卡并返回。
+    /// 返回前统一注入「关卡 → 情景」绑定（绑定表来自资源文件，不落库）。
     public func loadProgress() async -> LearnerProgress {
-        guard let learning else { return .seed() }
-        if let saved = try? await learning.loadProgress() {
-            return saved
+        var progress: LearnerProgress
+        if let learning, let saved = try? await learning.loadProgress() {
+            progress = saved
+        } else {
+            progress = .seed()
+            try? await learning?.saveProgress(progress)
         }
-        let seed = LearnerProgress.seed()
-        try? await learning.saveProgress(seed)
-        return seed
+        progress.applyScenarioBindings(LevelBindingCatalog.bundled())
+        return progress
     }
 
     public func saveProgress(_ progress: LearnerProgress) async {
@@ -275,9 +278,25 @@ public actor CoachServices {
 
     // MARK: - 会话持久化（ChatService 使用）
 
+    /// 首次发消息时登记会话（已存在则不动，避免把 message_count 归零）。
     public func persistSession(_ session: ChatSession) async {
         guard let learning else { return }
-        try? await learning.createSession(session)
+        try? await learning.createSessionIfAbsent(session)
+    }
+
+    /// 把会话标记为「在练某个情景」（进入情景时调用，重启后可接着练）。
+    /// 传 `nil` 表示退出情景（回到普通练习）。
+    public func attachScenario(_ scenarioID: String?, to sessionID: UUID, mode: PracticeMode) async {
+        guard let learning else { return }
+        try? await learning.setSessionScenario(
+            id: sessionID, scenarioID: scenarioID, mode: mode, startedAt: Date()
+        )
+    }
+
+    /// 某会话进行的情景 id（nil = 普通练习）。
+    public func sessionScenarioID(_ sessionID: UUID) async -> String? {
+        guard let learning else { return nil }
+        return (try? await learning.sessionScenarioID(id: sessionID)) ?? nil
     }
 
     public func persistMessage(_ message: ChatMessage, sessionID: UUID) async {

@@ -375,6 +375,8 @@ GrammarAgent → PromptBuilder → LLMRequest → LLMManager → OllamaLLMAdapte
 - **`auto` 必须被显式解析**：任何值为 `auto` 的字段，在进入 `Ready` 前必须解析为具体值，未解析即视为配置不完整。
 - 文档中留空的 `path/port/host` 保持留空，由后续接入时填写；代码里不允许出现具体值。
 - Scenario 数据驱动（`Resources/Scenarios/*.json`），禁止写死在 UI。
+- **关卡 ↔ 情景绑定同样数据驱动**：`Resources/Levels/level_bindings.json`（`{ "<level id>": "<scenario id>" }`）。绑定在 `loadProgress()` 时注入 `TreeLevel.scenarioID`，**不落库**（改绑定表即生效）。绑定后：点这一关直接进该情景；情景结算的星星记在这一关上（累计、封顶到 `requiredStars`）。
+- **学习库**：schema 版本集中在 `LearningDatabase.schemaVersion`（现 **v4**：`sessions.scenario_id`）。每次打开会跑一次幂等 `hygiene()`：删除「无消息且无情景」的空会话 —— 否则「最近会话」永远是新行，上次练习恢复不回来。**启动时不得预建空会话**（首条消息 / 首次进情景才建行）。
 - Prompt 版本化：`Resources/Prompts/{teacher,grammar,conversation,pronunciation,response_planner}/v1.x.md`。
 
 ---
@@ -446,7 +448,7 @@ Provider 侧另有 typed 错误（见 §3B.8 `AIProviderError`，14 个 case，�
 **日夜双景（一等公民，2026-09-09 补充细化）**：
 - **白天**：暖阳、明亮青绿林冠、飘动云朵、小动物**活跃**（跳跃/眨眼/奔跑）。
 - **夜晚**：深靛夜空 + 星星 + 月亮、萤火虫、小动物**睡觉**（闭眼 + Zzz）。
-- **切换入口**：左侧边栏（一键切换）+ 设置页（可选 `白天 / 夜晚 / 跟随系统`）+ 设置面板头部快捷键。切换需有过渡动画，不得硬切。
+- **切换入口**（2026-09-10 更新）：**右上角的太阳 / 月亮组件本身**（`CelestialToggle`，点太阳 → 进夜晚，点月亮 → 回白天）+ 设置页的 `白天 / 夜晚 / 跟随系统`。切换需有过渡动画，不得硬切。
 - **日夜作用域 = 全局**：任何新组件（含浮层、弹窗、设置、未来新增页面）都必须响应日夜切换。规则：
   1. 颜色一律从 `ForestTheme` 语义色取（`@Environment(\.forestTheme)`），**禁止 View 内写死颜色字面量**；新增语义色先进 `ForestTheme`（已有 `scrim / panel / selection / hover`）。
   2. 根视图挂 `.preferredColorScheme(theme.isNight ? .dark : .light)`，保证原生控件（TextField/Picker/滚动条）同步换肤。
@@ -546,6 +548,9 @@ Known Limitations / Unverified Assumptions / Next Recommended Task
   | `--scenario <id>` | 启动即进入某个情景（id 见 `Sources/AIInfrastructure/Resources/Scenarios/`） |
   | `--send "文本"` | 启动 1s 后自动发一条消息（端到端发消息验证） |
   | `--auto-speak` | 启动即打开自动朗读 |
+  | `--auto-end-scenario` | 启动 12s 后自动结束当前情景（验证星星结算 / 奖励提示条） |
+  | `--sleep-bubble` | 夜晚持续冒「它们在睡觉」气泡（本来由点右下角表情触发） |
   | `--theme day\|night\|system` | **临时**切换主题（只改内存，**不写配置文件**）——验证夜晚主题靠它，别再改 config.json |
 - ⚠️ **不要依赖合成点击做 UI 验证**：CGEvent 合成鼠标事件（`.workbuddy/tmp/click.swift`）在本机无辅助功能权限时会被**静默丢弃**，osascript 点击对 SwiftUI 按钮时灵时不灵。验证一律走「启动参数 + `screencapture -l<windowID>` 截图」+ 单测/集成测试。
+- ⚠️ **显示器休眠后 `screencapture` 全黑 / 报 `could not create image from window`**（窗口 ID 仍能拿到）。先 `caffeinate -u -t 3` 唤醒；若仍失败说明屏幕已锁，只能等用户解锁，别误判成「应用起不来」。
 - **截图尺寸换算**：`screencapture -l` 的 PNG 是 2× 且含窗口阴影边距（约 34pt/边），不能把截图像素坐标直接当屏幕点击坐标用。

@@ -33,7 +33,9 @@ public struct MainView: View {
             let chatW = max(chatMinWidth, total - fixedW - treeW)
 
             ZStack {
-                ForestSky(theme: state.theme)
+                // 天空不再自己画天体：右上角的太阳/月亮由 CelestialToggle 画在内容层之上，
+                // 这样它才是「看得见、点得到」的日夜切换控件（点击即切换）。
+                ForestSky(theme: state.theme, showsCelestial: false)
 
                 HStack(spacing: 0) {
                     AppSidebar(state: state)
@@ -53,12 +55,31 @@ public struct MainView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
+                // 右上角：太阳 / 月亮 = 日夜切换（位置与原先天空装饰完全一致）
+                CelestialToggle {
+                    Task { await state.toggleDayNight() }
+                }
+                .frame(width: 130, height: 130)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(.trailing, 64)
+                .padding(.top, 44)
+                .zIndex(2)
+
                 if state.showingSettings {
                     settingsOverlay
                 }
 
                 if state.showingScenarios {
                     scenariosOverlay
+                }
+
+                // 情景结算提示（星星入账 / 通关）——浮在最上层，数秒后自动消失
+                if let reward = state.lastReward {
+                    RewardToast(reward: reward) { state.dismissReward() }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .padding(.top, 78)
+                        .zIndex(30)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
         }
@@ -110,6 +131,13 @@ public struct MainView: View {
             if CommandLine.arguments.contains("--auto-speak") {
                 await state.setAutoSpeak(true)
             }
+            // 端到端验证辅助：--auto-end-scenario 启动 12 秒后自动结束情景（观察星星结算）
+            if CommandLine.arguments.contains("--auto-end-scenario") {
+                Task {
+                    try? await Task.sleep(for: .seconds(12))
+                    await state.endScenario()
+                }
+            }
         }
         .onChange(of: colorScheme) { _, newValue in
             state.systemIsDark = (newValue == .dark)
@@ -154,7 +182,7 @@ public struct MainView: View {
                     onSpeechRateChange: { rate in Task { await state.setSpeechRate(rate) } },
                     scenario: state.activeScenario,
                     onOpenScenarios: { Task { await state.openScenarios() } },
-                    onEndScenario: { state.endScenario() }
+                    onEndScenario: { Task { await state.endScenario() } }
                 )
             }
         }
@@ -224,7 +252,8 @@ public struct MainView: View {
                     activityFrequency: state.animalActivityFrequency,
                     onActivityToggle: {
                         Task { await state.setAnimalActivity(!state.animalActivityEnabled) }
-                    }
+                    },
+                    previewSleepBubble: CommandLine.arguments.contains("--sleep-bubble")
                 )
                 .frame(height: 150)
                 .allowsHitTesting(true)
@@ -334,6 +363,11 @@ public struct MainView: View {
 
     private func open(_ level: TreeLevel) async {
         guard level.state != .locked else { return }
+        // 绑定情景的关卡：点它就直接进入该情景（老师按角色开场，结算也记在这一关）
+        if let scenario = state.scenario(for: level.scenarioID) {
+            await state.startScenario(scenario)
+            return
+        }
         state.chat.send("Let's practice: \(level.title)")
     }
 }

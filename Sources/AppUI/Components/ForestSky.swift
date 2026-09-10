@@ -4,8 +4,15 @@ import SwiftUI
 public struct ForestSky: View {
 
     let theme: ForestTheme
+    /// 是否绘制太阳 / 月亮装饰。
+    /// 右上角的天体同时是「日夜切换」控件（见 `CelestialToggle`）：由主界面把它画在内容层之上，
+    /// 因此这里传 `false`，避免同一位置出现两个天体（一个不可点、一个可点）。
+    var showsCelestial: Bool
 
-    public init(theme: ForestTheme) { self.theme = theme }
+    public init(theme: ForestTheme, showsCelestial: Bool = true) {
+        self.theme = theme
+        self.showsCelestial = showsCelestial
+    }
 
     public var body: some View {
         ZStack {
@@ -13,18 +20,22 @@ public struct ForestSky: View {
 
             if theme.isNight {
                 StarsField()
-                MoonGlow(theme: theme)
-                    .frame(width: 120, height: 120)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(.trailing, 64)
-                    .padding(.top, 44)
+                if showsCelestial {
+                    MoonGlow(theme: theme)
+                        .frame(width: 120, height: 120)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .padding(.trailing, 64)
+                        .padding(.top, 44)
+                }
                 Fireflies()
             } else {
-                SunView(theme: theme)
-                    .frame(width: 130, height: 130)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(.trailing, 64)
-                    .padding(.top, 44)
+                if showsCelestial {
+                    SunView(theme: theme)
+                        .frame(width: 130, height: 130)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .padding(.trailing, 64)
+                        .padding(.top, 44)
+                }
                 Clouds()
             }
 
@@ -34,6 +45,49 @@ public struct ForestSky: View {
             }
         }
         .clipped()
+    }
+}
+
+// MARK: - 右上角天体（同时是日夜切换按钮）
+
+/// 右上角的太阳 / 月亮组件：**点击即切换日夜**。
+/// - 白天显示太阳 → 点击进入夜晚；
+/// - 夜晚显示月亮 → 点击回到白天。
+/// 视觉与天空里的天体完全一致（同一份 `SunView` / `MoonGlow`），另外叠一圈 hover 光环提示可点。
+public struct CelestialToggle: View {
+
+    @Environment(\.forestTheme) private var theme
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    public init(action: @escaping () -> Void) {
+        self.action = action
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            ZStack {
+                if theme.isNight {
+                    MoonGlow(theme: theme).frame(width: 120, height: 120)
+                } else {
+                    SunView(theme: theme).frame(width: 130, height: 130)
+                }
+
+                // hover 反馈：一圈淡淡的光环（不改变天体本身的形状）
+                Circle()
+                    .strokeBorder(theme.accent.opacity(hovering ? 0.55 : 0), lineWidth: 2)
+                    .frame(width: 112, height: 112)
+            }
+            .frame(width: 130, height: 130)
+            .scaleEffect(hovering ? 1.06 : 1)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.18), value: hovering)
+        .help(theme.isNight ? "点击回到白天" : "点击进入夜晚")
+        .accessibilityLabel(theme.isNight ? "切换到白天" : "切换到夜晚")
     }
 }
 

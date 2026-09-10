@@ -60,6 +60,9 @@ public struct TreeLevel: Codable, Sendable, Equatable, Identifiable {
     public var state: LevelState
     public var requiredStars: Int
     public var earnedStars: Int
+    /// 绑定到哪个情景（Scenario.id）：绑定后点这一关直接进入该情景，通关结算也记在它头上。
+    /// **不落库**——绑定关系来自资源文件（`Resources/Levels/level_bindings.json`），加载进度时统一注入。
+    public var scenarioID: String?
 
     public enum BranchSide: String, Codable, Sendable, CaseIterable { case left, right }
 
@@ -71,7 +74,8 @@ public struct TreeLevel: Codable, Sendable, Equatable, Identifiable {
         branch: BranchSide,
         state: LevelState = .locked,
         requiredStars: Int = 3,
-        earnedStars: Int = 0
+        earnedStars: Int = 0,
+        scenarioID: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -81,6 +85,7 @@ public struct TreeLevel: Codable, Sendable, Equatable, Identifiable {
         self.state = state
         self.requiredStars = requiredStars
         self.earnedStars = earnedStars
+        self.scenarioID = scenarioID
     }
 }
 
@@ -129,6 +134,19 @@ public extension LearnerProgress {
         totalStars = levels.reduce(0) { $0 + $1.earnedStars }
         let requiredTotal = max(levels.reduce(0) { $0 + $1.requiredStars }, 1)
         climbFraction = min(Double(totalStars) / Double(requiredTotal), 1)
+    }
+
+    /// 注入「关卡 → 情景」绑定（纯函数，绑定表来自资源文件）。
+    /// 绑定表里没有的关卡一律置空——不残留数据库里的旧值。
+    mutating func applyScenarioBindings(_ bindings: [String: String]) {
+        for index in levels.indices {
+            levels[index].scenarioID = bindings[levels[index].id]
+        }
+    }
+
+    /// 绑定到某个情景的关卡（没有则 nil）。用于「情景通关 → 记到哪一关」。
+    func level(boundToScenario scenarioID: String) -> TreeLevel? {
+        levels.first { $0.scenarioID == scenarioID }
     }
 }
 
@@ -190,6 +208,8 @@ public struct SessionSummary: Codable, Sendable, Equatable {
     public var messageCount: Int
     public var newStars: Int
     public var corrections: [GrammarCorrection]
+    /// 本次会话进行的情景（`Scenario.id`；nil = 普通练习）。
+    public var scenarioID: String?
 
     public init(
         sessionID: UUID = UUID(),
@@ -197,7 +217,8 @@ public struct SessionSummary: Codable, Sendable, Equatable {
         endedAt: Date = Date(),
         messageCount: Int = 0,
         newStars: Int = 0,
-        corrections: [GrammarCorrection] = []
+        corrections: [GrammarCorrection] = [],
+        scenarioID: String? = nil
     ) {
         self.sessionID = sessionID
         self.startedAt = startedAt
@@ -205,6 +226,7 @@ public struct SessionSummary: Codable, Sendable, Equatable {
         self.messageCount = messageCount
         self.newStars = newStars
         self.corrections = corrections
+        self.scenarioID = scenarioID
     }
 }
 
@@ -287,11 +309,20 @@ public struct ChatSession: Codable, Sendable, Equatable, Identifiable {
     public var startedAt: Date
     public var mode: PracticeMode
     public var messages: [ChatMessage]
+    /// 本会话进行的情景（`Scenario.id`；nil = 普通练习）。落库到 `sessions.scenario_id`。
+    public var scenarioID: String?
 
-    public init(id: UUID = UUID(), startedAt: Date = Date(), mode: PracticeMode = .conversation, messages: [ChatMessage] = []) {
+    public init(
+        id: UUID = UUID(),
+        startedAt: Date = Date(),
+        mode: PracticeMode = .conversation,
+        messages: [ChatMessage] = [],
+        scenarioID: String? = nil
+    ) {
         self.id = id
         self.startedAt = startedAt
         self.mode = mode
         self.messages = messages
+        self.scenarioID = scenarioID
     }
 }

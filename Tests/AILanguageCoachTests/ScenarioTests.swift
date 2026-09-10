@@ -200,6 +200,126 @@ final class ScenarioTests: XCTestCase {
         XCTAssertTrue(chat.messages.isEmpty)
     }
 
+    // MARK: - 关卡 ↔ 情景 绑定（第 22 步）
+
+    func testLevelBindingsParseIgnoresNonStringValues() throws {
+        let json = """
+        { "l1": "restaurant", "l2": 42, "": "nope", "l3": "" }
+        """
+        let parsed = try XCTUnwrap(LevelBindingCatalog.parse(Data(json.utf8)))
+        XCTAssertEqual(parsed, ["l1": "restaurant"], "非字符串 / 空键 / 空值一律忽略")
+        XCTAssertNil(LevelBindingCatalog.parse(nil))
+        XCTAssertNil(LevelBindingCatalog.parse(Data("not json".utf8)))
+    }
+
+    func testBundledLevelBindingsPointAtRealScenarios() {
+        let bindings = LevelBindingCatalog.bundled()
+        XCTAssertFalse(bindings.isEmpty, "内置关卡绑定表不应为空（Resources/Levels/level_bindings.json）")
+
+        let scenarioIDs = Set(ScenarioCatalog.bundled().map(\.id))
+        XCTAssertFalse(scenarioIDs.isEmpty, "内置场景资源应存在，否则绑定无从校验")
+        for (level, scenario) in bindings {
+            XCTAssertTrue(scenarioIDs.contains(scenario), "关卡 \(level) 绑定的场景 \(scenario) 不存在")
+        }
+    }
+
+    func testApplyScenarioBindingsInjectsAndClearsStaleValues() {
+        var progress = LearnerProgress.seed()
+        progress.levels[0].scenarioID = "stale_value"
+        progress.applyScenarioBindings(["l1": "restaurant", "l3": "hotel_checkin"])
+
+        XCTAssertEqual(progress.levels[0].scenarioID, "restaurant", "绑定表有的关卡按表注入")
+        XCTAssertEqual(progress.levels[2].scenarioID, "hotel_checkin")
+        XCTAssertNil(progress.levels[1].scenarioID, "绑定表没有的关卡必须清空旧值")
+        XCTAssertEqual(progress.level(boundToScenario: "hotel_checkin")?.id, "l3")
+        XCTAssertNil(progress.level(boundToScenario: "no_such_scenario"))
+    }
+
+    // MARK: - 情景结算规则
+
+    func testRewardStarsByTurns() {
+        XCTAssertEqual(ScenarioRewardRule.stars(turnsUsed: 0, maxTurns: 12), 0, "一句没说没有星")
+        XCTAssertEqual(ScenarioRewardRule.stars(turnsUsed: 1, maxTurns: 12), 1)
+        XCTAssertEqual(ScenarioRewardRule.stars(turnsUsed: 6, maxTurns: 12), 2)
+        XCTAssertEqual(ScenarioRewardRule.stars(turnsUsed: 12, maxTurns: 12), 3)
+        XCTAssertEqual(ScenarioRewardRule.stars(turnsUsed: 20, maxTurns: 12), 3)
+        XCTAssertEqual(ScenarioRewardRule.stars(turnsUsed: 3, maxTurns: 0), 0, "maxTurns 非法时不奖励")
+    }
+
+    func testRewardMessageWithoutBoundLevel() {
+        let reward = ScenarioRewardRule.reward(
+            scenarioTitle: "餐厅点餐", stars: 0, levelTitle: nil, willCompleteLevel: false
+        )
+        XCTAssertNil(reward.levelTitle)
+        XCTAssertEqual(reward.stars, 0, "没绑定关卡就不动星星")
+        XCTAssertTrue(reward.message.contains("餐厅点餐"))
+    }
+
+    func testRewardMessageOnLevelCompletion() {
+        let reward = ScenarioRewardRule.reward(
+            scenarioTitle: "餐厅点餐", stars: 3, levelTitle: "松鼠枝桠", willCompleteLevel: true
+        )
+        XCTAssertEqual(reward.stars, 3)
+        XCTAssertEqual(reward.levelTitle, "松鼠枝桠")
+        XCTAssertTrue(reward.didCompleteLevel)
+        XCTAssertTrue(reward.message.contains("已点亮"))
+    }
+
+    func testRewardMessageWhenNoTurnTaken() {
+        let reward = ScenarioRewardRule.reward(
+            scenarioTitle: "餐厅点餐", stars: 0, levelTitle: "松鼠枝桠", willCompleteLevel: false
+        )
+        XCTAssertFalse(reward.didCompleteLevel)
+        XCTAssertTrue(reward.message.contains("多开口"))
+    }
+
+    // MARK: - 加星是累计的（封顶到本关需求）
+
+    func testStarAwardAccumulatesAndCapsAtRequirement() {
+        // 蜂鸟花丛：已有 2/4，本次 1 星 → 3/4（没通关）
+        let first = ScenarioRewardRule.award(earned: 2, scored: 1, required: 4)
+        XCTAssertEqual(first.gained, 1)
+        XCTAssertEqual(first.total, 3)
+        XCTAssertFalse(first.didComplete)
+
+        // 再练一次 +1 → 4/4 通关
+        let second = ScenarioRewardRule.award(earned: first.total, scored: 1, required: 4)
+        XCTAssertEqual(second.gained, 1)
+        XCTAssertEqual(second.total, 4)
+        XCTAssertTrue(second.didComplete)
+
+        // 说满轮次一次拿 3 星，也不会超过本关需求
+        let capped = ScenarioRewardRule.award(earned: 0, scored: 3, required: 5)
+        XCTAssertEqual(capped.total, 3)
+        XCTAssertFalse(capped.didComplete)
+
+        // 已封顶时不再多给
+        let maxed = ScenarioRewardRule.award(earned: 4, scored: 3, required: 4)
+        XCTAssertEqual(maxed.gained, 0)
+        XCTAssertTrue(maxed.didComplete)
+    }
+
+    func testStarAwardHandlesIllegalInput() {
+        let award = ScenarioRewardRule.award(earned: 2, scored: -5, required: 4)
+        XCTAssertEqual(award.gained, 0)
+        XCTAssertEqual(award.total, 2)
+        XCTAssertFalse(award.didComplete)
+    }
+
+    func testScenarioProgressCompletion() {
+        let scenario = Scenario(
+            id: "s", title: "T", titleZh: "标题", category: "日常", difficulty: 1, level: "A1",
+            objective: "o", aiRole: "a", learnerRole: "b", opening: "hi", maxTurns: 4
+        )
+        var progress = ScenarioProgress(scenario: scenario, turnsUsed: 2)
+        XCTAssertFalse(progress.isComplete)
+        XCTAssertEqual(progress.completion, 0.5, accuracy: 0.0001)
+        progress.turnsUsed = 4
+        XCTAssertTrue(progress.isComplete)
+        XCTAssertEqual(progress.turnsRemaining, 0)
+        XCTAssertTrue(progress.isFinalTurn)
+    }
+
     // MARK: - 工具
 
     private func scenario(

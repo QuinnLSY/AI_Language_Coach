@@ -1,7 +1,7 @@
 import AIDomain
 import AIInfrastructure
 import AppCore
-import AppUI
+@testable import AppUI
 import XCTest
 
 /// 本轮体验优化相关的纯逻辑：Markdown 解析、思考过程持久化、会话恢复、token 统计。
@@ -115,6 +115,26 @@ final class OptimizationTests: XCTestCase {
         for tokens in [0, 42, 999_999, 1_000_000, 4_999_999, 5_000_000, 9_999_999] {
             let line = TeacherCorner.randomNudge(for: tokens)
             XCTAssertFalse(line.isEmpty)
+        }
+    }
+
+    // MARK: - 右上角天体 = 日夜切换
+
+    func testCelestialTapTogglesTheme() {
+        XCTAssertEqual(AppState.themeAfterCelestialTap(isNight: false), .night, "点太阳 → 进入夜晚")
+        XCTAssertEqual(AppState.themeAfterCelestialTap(isNight: true), .day, "点月亮 → 回到白天")
+    }
+
+    // MARK: - 夜晚「它们在睡觉」气泡
+
+    func testSleepPhrasesAreUsable() {
+        let lines = ForestGroundBand.sleepPhrases
+        XCTAssertGreaterThanOrEqual(lines.count, 3, "文案池至少 3 条")
+        XCTAssertLessThanOrEqual(lines.count, 5, "文案池最多 5 条")
+        XCTAssertEqual(Set(lines).count, lines.count, "文案不得重复")
+        for line in lines {
+            XCTAssertFalse(line.trimmingCharacters(in: .whitespaces).isEmpty)
+            XCTAssertLessThanOrEqual(line.count, 40, "文案过长会撑破气泡（面板最窄 300pt）")
         }
     }
 }

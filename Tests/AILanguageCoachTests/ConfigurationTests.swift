@@ -155,4 +155,24 @@ final class ConfigurationTests: XCTestCase {
         configuration.product.activateProvider("remote.llm", for: .llm)
         XCTAssertEqual(configuration.contextWindow(for: .llm), 65536)
     }
+
+    // MARK: - 自动朗读（默认开，且可持久化关掉）
+
+    func testAutoSpeakDefaultsToOn() {
+        XCTAssertTrue(ProductConfig().autoSpeak, "老师回复后自动朗读默认勾选")
+    }
+
+    func testAutoSpeakBackwardCompatibleDecode() throws {
+        // 旧配置文件没有 autoSpeak 字段 → 补默认值 true（不整体作废）
+        let legacy = Data(#"{"learningLanguage":"en-US","themeMode":"night"}"#.utf8)
+        let decoded = try JSONDecoder().decode(ProductConfig.self, from: legacy)
+        XCTAssertTrue(decoded.autoSpeak)
+        XCTAssertEqual(decoded.themeMode, .night)
+
+        // 关掉后能往返
+        var config = ProductConfig()
+        config.autoSpeak = false
+        let data = try JSONEncoder().encode(config)
+        XCTAssertFalse(try JSONDecoder().decode(ProductConfig.self, from: data).autoSpeak)
+    }
 }

@@ -38,14 +38,13 @@ public final class ChatService {
 
     private let services: CoachServices
     private var generationTask: Task<Void, Never>?
+    /// 会话是否已落库。**启动时不建空会话**——否则「最近会话」永远是新会话，
+    /// 上次的练习记录与情景就再也恢复不回来了；首条消息 / 首次进情景时才建行。
+    private var didPersistSession = false
 
     public init(services: CoachServices) {
         self.services = services
-        let id = UUID()
-        self.sessionID = id
-        Task { [services, id] in
-            await services.persistSession(ChatSession(id: id, mode: .conversation))
-        }
+        self.sessionID = UUID()
     }
 
     public func send(_ text: String) {
@@ -68,6 +67,7 @@ public final class ChatService {
 
     /// 进入一个情景：老师先以角色身份开场，之后每次回复都带着场景指令。
     /// 场景本体来自 `ScenarioCatalog`（资源文件），本层不做任何场景判断。
+    /// 同时把会话标记为「在练该情景」落库 —— 重启后能接着练。
     public func startScenario(_ scenario: Scenario) {
         cancel()
         streamingText = ""
@@ -75,6 +75,7 @@ public final class ChatService {
         isThinking = false
         errorMessage = nil
         scenarioProgress = ScenarioProgress(scenario: scenario)
+        persistScenarioBinding(scenario.id)
         let opening = scenario.opening.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !opening.isEmpty else { return }
         let message = ChatMessage(role: .assistant, content: opening)
@@ -87,10 +88,27 @@ public final class ChatService {
         scenarioProgress = nil
     }
 
-    private func persist(_ message: ChatMessage) {
+    private func persistScenarioBinding(_ scenarioID: String?) {
         let sessionID = sessionID
         let services = services
         Task {
+            await services.attachScenario(scenarioID, to: sessionID, mode: .conversation)
+        }
+    }
+
+    private func persist(_ message: ChatMessage) {
+        let sessionID = sessionID
+        let services = services
+        let needsSession = !didPersistSession
+        didPersistSession = true
+        let scenarioID = scenarioProgress?.scenario.id
+        // 建行与写消息放在同一个 Task 里，保证顺序（消息带外键）。
+        Task {
+            if needsSession {
+                await services.persistSession(
+                    ChatSession(id: sessionID, startedAt: Date(), scenarioID: scenarioID)
+                )
+            }
             await services.persistMessage(message, sessionID: sessionID)
         }
     }
@@ -102,11 +120,20 @@ public final class ChatService {
     }
 
     /// 启动时恢复上次会话：消息回流 + 继续往同一会话里追加。
+    /// 若上次在练情景，则把情景一并接回来（老师继续扮演，轮次按已发言数还原）。
     public func restoreLastSessionIfNeeded() async {
         guard messages.isEmpty, !isGenerating else { return }
         guard let restored = await services.latestChatSession(), !restored.messages.isEmpty else { return }
         sessionID = restored.session.id
+        didPersistSession = true
         messages = restored.messages
+        if let scenarioID = restored.session.scenarioID,
+           let scenario = await services.scenario(id: scenarioID) {
+            scenarioProgress = ScenarioProgress(
+                scenario: scenario,
+                turnsUsed: messages.filter { $0.role == .user }.count
+            )
+        }
     }
 
     public func clear() {
@@ -115,6 +142,7 @@ public final class ChatService {
         streamingText = ""
         streamingReasoning = ""
         scenarioProgress = nil
+        persistScenarioBinding(nil)
         errorMessage = nil
     }
 

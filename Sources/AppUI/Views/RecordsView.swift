@@ -293,14 +293,25 @@ public struct RecordsView: View {
     }
 
     private func sessionRow(_ record: SessionSummary) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "leaf.fill")
+        let scenarioTitle = state.scenarioTitle(for: record.scenarioID)
+        return HStack(spacing: 10) {
+            Image(systemName: scenarioTitle == nil ? "leaf.fill" : "bubble.left.and.bubble.right.fill")
                 .font(.system(size: 12))
                 .foregroundStyle(theme.accent)
             VStack(alignment: .leading, spacing: 1) {
-                Text(record.startedAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(theme.primaryText)
+                HStack(spacing: 6) {
+                    Text(record.startedAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                    if let scenarioTitle {
+                        Text(scenarioTitle)
+                            .font(.system(size: 9, weight: .semibold, design: .rounded))
+                            .foregroundStyle(theme.accent)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(theme.accent.opacity(0.14)))
+                    }
+                }
                 Text(durationText(record))
                     .font(.system(size: 10, design: .rounded))
                     .foregroundStyle(theme.secondaryText)

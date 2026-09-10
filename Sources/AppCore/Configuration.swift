@@ -185,6 +185,8 @@ public struct ProductConfig: Sendable, Equatable {
     public var animalActivityFrequency: Double
     /// 音色切换时自动试听（设置里小喇叭控制，默认开）。
     public var voicePreview: Bool
+    /// 教师回复后自动朗读（设置里可关，**默认开**）。
+    public var autoSpeak: Bool
     /// 教师朗读语速（1 = 正常）。可选档位见 `SpeechRate`，非法取值落回 1。
     public var speechRate: Double
 
@@ -203,6 +205,7 @@ public struct ProductConfig: Sendable, Equatable {
         animalActivity: Bool = true,
         animalActivityFrequency: Double = 0.5,
         voicePreview: Bool = true,
+        autoSpeak: Bool = true,
         speechRate: Double = SpeechRate.x1.rawValue
     ) {
         self.learningLanguage = learningLanguage
@@ -219,6 +222,7 @@ public struct ProductConfig: Sendable, Equatable {
         self.animalActivity = animalActivity
         self.animalActivityFrequency = min(max(animalActivityFrequency, 0), 1)
         self.voicePreview = voicePreview
+        self.autoSpeak = autoSpeak
         self.speechRate = SpeechRate.nearest(to: speechRate).rawValue
     }
 
@@ -240,7 +244,7 @@ extension ProductConfig: Codable {
         case learningLanguage, nativeLanguage, teacherVoice, practiceMode, themeMode
         case selectedModels, teacherAnimal, studentAnimal, activeProviders
         case teacherBubbles, animalBubbles, animalActivity
-        case animalActivityFrequency, voicePreview, speechRate
+        case animalActivityFrequency, voicePreview, autoSpeak, speechRate
     }
 
     public init(from decoder: Decoder) throws {
@@ -259,6 +263,7 @@ extension ProductConfig: Codable {
         animalActivity = try container.decodeIfPresent(Bool.self, forKey: .animalActivity) ?? true
         animalActivityFrequency = try container.decodeIfPresent(Double.self, forKey: .animalActivityFrequency) ?? 0.5
         voicePreview = try container.decodeIfPresent(Bool.self, forKey: .voicePreview) ?? true
+        autoSpeak = try container.decodeIfPresent(Bool.self, forKey: .autoSpeak) ?? true
         speechRate = SpeechRate.nearest(
             to: try container.decodeIfPresent(Double.self, forKey: .speechRate) ?? SpeechRate.x1.rawValue
         ).rawValue
@@ -280,6 +285,7 @@ extension ProductConfig: Codable {
         try container.encode(animalActivity, forKey: .animalActivity)
         try container.encode(animalActivityFrequency, forKey: .animalActivityFrequency)
         try container.encode(voicePreview, forKey: .voicePreview)
+        try container.encode(autoSpeak, forKey: .autoSpeak)
         try container.encode(speechRate, forKey: .speechRate)
     }
 }

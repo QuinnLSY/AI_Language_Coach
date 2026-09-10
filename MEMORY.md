@@ -155,19 +155,27 @@ M1 Pro / 16GB：TTS 先 0.6B，benchmark 后再考虑 1.7B；优先保证 ASR+LL
 **禁止一上来就把 runtime 调用塞进 Agent。**
 **验收硬指标**：WhisperKit→其他 ASR、Qwen3→其他 LLM、Qwen3-TTS→GPT-SoVITS、Silero→其他 VAD、Ollama Embedding→MLX、发音 Pipeline A→B —— 全部替换**不动任何 Agent**；甚至 runtime 从 Ollama 换成 MLX/llama.cpp 跑同一个 Qwen3，也只改 Adapter/Provider 层。
 
-### 当前进度（2026-09-10 傍晚）
+### 当前进度（2026-09-10 傍晚·2）
 
-**Phase 0 + UI 大改版 + 第 14 步（SQLite）+ 第 17/18 步（ASR/TTS 本地）+ 第 20 步（Session 总结）+ 第 21 步（情景对话）已完成**；学习数据库 schema 仍为 **v3**。
+**Phase 0 + UI 大改版 + 第 14 步（SQLite）+ 第 17/18 步（ASR/TTS 本地）+ 第 20 步（Session 总结）+ 第 21 步（情景对话）+ 情景落库与关卡联动已完成**；学习数据库 schema 升到 **v4**。
 
 ```
-AIDomain/      新增 Scenario / ScenarioCorrectionMode / ScenarioProgress（情景对话领域模型）
-AIInfra/       Resources/Scenarios/*.json（7 个内置场景，数据驱动）+ ScenarioCatalog 加载器（坏文件跳过、空目录返回空）
-AIInfra/       Prompts/scenario.txt（角色扮演 Prompt，版本化）+ PromptBuilder.scenarioBlock
-AIServices/    ChatService 持有情景状态（开场白注入 / 每轮计数 / 结束复位）；CoachServices.availableScenarios
-AppUI/         ScenarioPickerView（分组卡片）；侧边栏「情景对话」入口；ChatView 场景胶囊 + 目标条
-AppUI/         ThinkingPanel：背景更透（0.42）+ 高度自适应（最多 6 行，不足按实际收窄）
-Tests/         95 个测试（新增 ScenarioTests 12 个），全部通过
+AIDomain/       Scenario 增补 isComplete / completion / ScenarioRewardRule（星级·累计加星·结算文案，纯函数）
+AIDomain/       TreeLevel.scenarioID（关卡↔情景绑定，不落库）；LearnerProgress.applyScenarioBindings / level(boundToScenario:)
+AIDomain/       ChatSession.scenarioID / SessionSummary.scenarioID（会话↔情景）
+AIInfra/        Resources/Levels/level_bindings.json + LevelBindingCatalog（数据驱动绑定表，缺资源返回空）
+AIInfra/        LearningDatabase v4：sessions.scenario_id；hygiene() 幂等清理空会话；createSessionIfAbsent；setSessionScenario 走 UPSERT
+AIServices/     ChatService 启动不再预建空会话（首条消息/首次进情景才建行）；情景随会话恢复；CoachServices.attachScenario / sessionScenarioID
+AppUI/          MainView 关卡点击：绑定情景的关卡直接进情景；RewardToast（结算提示条）；关卡节点挂「情景」小标
+AppUI/          学习记录页会话行显示情景标签；AppState.settleScenario（累计加星、封顶 requiredStars、达标通关解锁下一关）
+AppUI/          右上角太阳/月亮 = 日夜切换（CelestialToggle，点太阳→夜晚，点月亮→白天）；夜晚点右下角表情冒「它们在睡觉」气泡
+AppCore/        ProductConfig.autoSpeak（老师回复后自动朗读，默认开且持久化）
+Tests/          114 个测试（新增关卡绑定/结算规则/加星封顶/迁移清理/autoSpeak/主题映射/睡眠气泡），全部通过
 ```
+
+**本轮修掉的两个真 bug**：
+1. **启动预建空会话** → 「最近会话」永远是新空行，**上次练习与情景根本恢复不回来**。改为首条消息/首次进情景才建行，并加 `hygiene()` 清理历史遗留空会话。
+2. **星星用 `max` 而非累计** → 重复练习永远攒不满 `requiredStars`（关卡需求 4–6 星、单次最多 3 星，数学上不可达）。改为累计并封顶到本关需求。
 
 ### 截图验证工作流（重要，已踩坑）
 
@@ -179,15 +187,18 @@ Tests/         95 个测试（新增 ScenarioTests 12 个），全部通过
 5. **启动参数（全部与 `--open-settings` 同类，仅用于截图/端到端验证）**：
    - `--open-settings` 打开设置面板；`--open-records` 进学习记录页；`--open-scenarios` 打开情景选择面板
    - `--scenario <id>` 启动即进入某情景；`--send "文本"` 启动后自动发一条消息；`--auto-speak` 打开自动朗读
+   - `--auto-end-scenario` 12s 后自动结束情景（看星星结算）；`--sleep-bubble` 夜晚持续冒睡觉气泡
    - `--theme day|night|system` 临时切主题（不落盘）
 6. ⚠️ **CGEvent 合成点击（click.swift）在本机会被静默丢弃**（无辅助功能权限），osascript 点击对 SwiftUI 按钮时灵时不灵 → UI 验证以「启动参数 + 截图」为准，不要依赖点击。
+7. ⚠️ **显示器休眠后 `screencapture` 全黑 / 报 `could not create image from window`**（窗口 ID 仍拿得到）→ 先 `caffeinate -u -t 3`；仍失败说明屏幕已锁，别误判成「应用起不来」。
+8. 杀进程用 `pkill -x AILanguageCoach`（`pkill -f` 会匹配到当前 shell 命令行，把自己也杀掉）。
 
 ### 下一步（按路线图）
 
-1. 情景对话继续深化：场景 id 落库（sessions 表加 scenario_id，技术设计 §5.3）+ 与关卡（TreeLevel）联动。
-2. 第 15 步学习记忆继续深化：关卡进度与练习结算联动（completeLevel 已实现，待接复盘结论）。
-3. 第 22 步 Shadowing（跟读）→ 复用分句流水线 + 变速播放能力。
-4. 词汇本（侧边栏"词汇本"入口已留）：把复盘 new_words 与场景 target_vocabulary 沉淀为可复习的词汇表。
+1. 第 22 步 Shadowing（跟读）→ 复用分句流水线 + 变速播放能力。
+2. 词汇本（侧边栏"词汇本"入口已留）：把复盘 new_words 与场景 target_vocabulary 沉淀为可复习的词汇表。
+3. 关卡绑定表现只绑定 l1–l5（语义贴合：打招呼/自我介绍/点咖啡/过去时/问路）；医生、酒店两个场景仅从「情景对话」入口进入，待内容补齐后再绑。
+4. 第 23 步发音评测（V1.1）。
 
 
 ---

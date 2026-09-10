@@ -138,4 +138,102 @@ final class LearningDatabaseTests: XCTestCase {
         let recent = try await db.recentCorrections(limit: 10)
         XCTAssertEqual(recent.count, 1, "纠错本体是学习记忆，清理会话时必须保留")
     }
+
+    // MARK: - 情景落库（schema v4：sessions.scenario_id）
+
+    func testSessionScenarioRoundtrip() async throws {
+        let db = try makeDB()
+        let session = ChatSession()
+        try await db.createSession(session)
+        let initialScenario = try await db.sessionScenarioID(id: session.id)
+        XCTAssertNil(initialScenario, "新建会话默认不是情景练习")
+
+        try await db.setSessionScenario(id: session.id, scenarioID: "restaurant", mode: .conversation, startedAt: session.startedAt)
+        try await db.appendMessage(ChatMessage(role: .user, content: "A table for two"), sessionID: session.id)
+
+        let rawLatest = try await db.latestSession()
+        let latest = try XCTUnwrap(rawLatest)
+        XCTAssertEqual(latest.session.scenarioID, "restaurant", "重启后应能读回情景，继续上课")
+        XCTAssertEqual(latest.messages.count, 1)
+
+        let summaries = try await db.recentSessions(limit: 5)
+        XCTAssertEqual(summaries.first?.scenarioID, "restaurant", "学习记录页需要展示情景")
+        let summary = try await db.sessionSummary(id: session.id)
+        XCTAssertEqual(summary?.scenarioID, "restaurant")
+    }
+
+    func testSessionScenarioCanBeCleared() async throws {
+        let db = try makeDB()
+        let session = ChatSession(scenarioID: "restaurant")
+        try await db.createSession(session)
+        try await db.setSessionScenario(id: session.id, scenarioID: nil, mode: .conversation, startedAt: session.startedAt)
+        let cleared = try await db.sessionScenarioID(id: session.id)
+        XCTAssertNil(cleared, "退出情景后应清空绑定")
+    }
+
+    /// 启动时不得建空会话：否则「最近会话」永远是新行，上次练习恢复不回来。
+    func testCreateSessionIfAbsentKeepsMessageCount() async throws {
+        let db = try makeDB()
+        let session = ChatSession()
+        try await db.createSessionIfAbsent(session)
+        try await db.appendMessage(ChatMessage(role: .user, content: "hi"), sessionID: session.id)
+
+        // 再次登记（例如重启后再次发消息）不得把会话重置为空
+        try await db.createSessionIfAbsent(session)
+        let count = try await db.messageCount(sessionID: session.id)
+        XCTAssertEqual(count, 1, "重复登记不得清零 message_count")
+
+        // 情景绑定走 UPSERT：行不存在时也能落库
+        let fresh = ChatSession()
+        try await db.setSessionScenario(id: fresh.id, scenarioID: "shopping", mode: .conversation, startedAt: fresh.startedAt)
+        let boundScenario = try await db.sessionScenarioID(id: fresh.id)
+        XCTAssertEqual(boundScenario, "shopping")
+    }
+
+    func testSchemaVersionIsFour() async throws {
+        let db = try makeDB()
+        let version = try await db.schemaVersion()
+        XCTAssertEqual(version, 4)
+    }
+
+    /// 迁移：旧版本每次启动都会建空会话，导致「最近会话」恢复不回来 —— v4 迁移要清掉它们。
+    func testMigrationRemovesLegacyEmptySessions() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("legacy-\(UUID().uuidString).db")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let legacy = try SQLiteDatabase(path: url.path)
+        try legacy.run("""
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY, started_at REAL NOT NULL, ended_at REAL,
+            mode TEXT NOT NULL, message_count INTEGER NOT NULL DEFAULT 0
+        )
+        """)
+        try legacy.run("""
+        CREATE TABLE messages (
+            id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL,
+            content TEXT NOT NULL, created_at REAL NOT NULL, reasoning TEXT
+        )
+        """)
+        let empty = ChatSession(startedAt: Date(timeIntervalSinceNow: -60))
+        let used = ChatSession(startedAt: Date(timeIntervalSinceNow: -30))
+        try legacy.run(
+            "INSERT INTO sessions (id, started_at, mode, message_count) VALUES (?1, ?2, 'conversation', 0)",
+            [.text(empty.id.uuidString), .real(empty.startedAt.timeIntervalSince1970)]
+        )
+        try legacy.run(
+            "INSERT INTO sessions (id, started_at, mode, message_count) VALUES (?1, ?2, 'conversation', 1)",
+            [.text(used.id.uuidString), .real(used.startedAt.timeIntervalSince1970)]
+        )
+        try legacy.setSchemaVersion(3)
+        legacy.close()
+
+        // 重新打开 → 迁移到 v4：遗留空会话被清掉，真会话保留
+        let db = try LearningDatabase(path: url.path)
+        let sessions = try await db.recentSessions(limit: 10)
+        XCTAssertEqual(sessions.count, 1, "空会话是历史包袱，应在迁移时清掉")
+        XCTAssertEqual(sessions.first?.sessionID, used.id)
+        let version = try await db.schemaVersion()
+        XCTAssertEqual(version, 4)
+    }
 }

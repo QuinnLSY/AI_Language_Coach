@@ -238,6 +238,17 @@ private struct LevelNode: View {
             .fixedSize()
             .offset(y: 46)
         }
+        // 绑定了情景的关卡：挂一个小对话标，提示「点它就是进情景练」
+        .overlay(alignment: .topTrailing) {
+            if level.scenarioID != nil {
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 18, height: 18)
+                    .background(Circle().fill(theme.accentAlt))
+                    .offset(x: 4, y: -4)
+            }
+        }
     }
 
     private var fill: Color {
@@ -278,6 +289,8 @@ struct ForestGroundBand: View {
     var activityFrequency: Double = 0.5
     /// 右下角表情按钮回调（与设置里的开关联动）。
     var onActivityToggle: (() -> Void)? = nil
+    /// 验证钩子：启动时先冒一句「它们在睡觉」（仅在 `--sleep-bubble` 下由主界面传入）。
+    var previewSleepBubble: Bool = false
 
     /// 离场告别语（轮换时随机抽一条）。
     static let leavePhrases = [
@@ -296,6 +309,15 @@ struct ForestGroundBand: View {
         "大家好，这里的草真香呀～",
     ]
 
+    /// 夜晚点击右下角表情按钮时冒出的话（**小动物们都睡了**，随机抽一条，连点随机切换）。
+    static let sleepPhrases = [
+        "嘘——小动物们都睡着啦，别打扰它们哦～",
+        "夜深了，它们正做着甜甜的梦呢，明早再来吧！",
+        "呼……呼……睡得好香，轻一点声音哦。",
+        "月亮值班啦，小动物们都钻进窝里睡觉了。",
+        "它们说：明早第一缕阳光时再见！晚安～",
+    ]
+
     /// 每只小动物**独立拥有**一个气泡：`bubbleTexts[i]` 是槽位 i 当前的话（nil = 没在说话）。
     /// 多个气泡可以同时存在；`bubbleStamps[i]` 记录出现序号，序号越大画得越上层（最新出现的永远在最上方）。
     @State private var bubbleTexts: [String?] = Array(repeating: nil, count: Self.maxResidents)
@@ -312,6 +334,10 @@ struct ForestGroundBand: View {
     @State private var kinds: [AnimalKind] = []
     /// 各槽位朝向（游走时按移动方向翻转）。
     @State private var facings: [CGFloat] = []
+    /// 夜晚点右下角表情按钮冒出的「睡觉」气泡（nil = 没在显示）。
+    @State private var sleepLine: String?
+    /// 连点刷新用：变化即重启 3 秒自动收起计时（与动物气泡同一套逻辑）。
+    @State private var sleepTick = 0
 
     private static let maxResidents = 8
     // 各类元素的**上限**：始终按上限创建视图，靠透明度控制显隐。
@@ -448,13 +474,44 @@ struct ForestGroundBand: View {
                 if !allowed { sendEveryoneHome() }
             }
             .onChange(of: theme.isNight) { _, night in
-                if night { sendEveryoneHome() }
+                if night {
+                    sendEveryoneHome()
+                } else {
+                    // 天亮了：把「它们在睡觉」的气泡收掉
+                    withAnimation(.easeOut(duration: 0.25)) { sleepLine = nil }
+                }
             }
         }
         .frame(maxWidth: .infinity)
-        // 右下角表情按钮：开心 = 允许活动，平静 = 已安静（与设置联动）
+        // 右下角：表情按钮 + 夜晚「睡觉」气泡（右对齐，永远不会溢出面板）
         .overlay(alignment: .bottomTrailing) {
-            activityButton
+            VStack(alignment: .trailing, spacing: 6) {
+                if let sleepLine {
+                    SpeechBubble(text: sleepLine, maxWidth: 168)
+                        .fixedSize()
+                        .transition(.opacity.combined(with: .scale(scale: 0.55, anchor: .bottom)))
+                        .zIndex(5)
+                }
+                activityButton
+            }
+            .padding(.trailing, 12)
+            .padding(.bottom, 10)
+        }
+        // 与动物气泡一致的收起逻辑：连点会取消上一次计时，停手 3 秒后自动消失
+        .task(id: sleepTick) {
+            guard sleepLine != nil else { return }
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) { sleepLine = nil }
+        }
+        // 验证钩子：--sleep-bubble 时持续冒泡（真实行为由点击触发），便于截图确认气泡不越界
+        .task(id: "\(previewSleepBubble)-\(theme.isNight)") {
+            guard previewSleepBubble, theme.isNight else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1.2))
+                guard !Task.isCancelled, theme.isNight else { return }
+                activityTapped()
+            }
         }
     }
 
@@ -840,19 +897,35 @@ struct ForestGroundBand: View {
 
     private var activityButton: some View {
         Button {
-            onActivityToggle?()
+            activityTapped()
         } label: {
-            Image(systemName: activityAllowed ? "face.smiling" : "face.dashed")
+            Image(systemName: theme.isNight ? "moon.zzz.fill"
+                  : (activityAllowed ? "face.smiling" : "face.dashed"))
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(activityAllowed ? theme.accent : theme.secondaryText)
+                .foregroundStyle(activityAllowed && !theme.isNight ? theme.accent : theme.secondaryText)
                 .frame(width: 30, height: 30)
                 .background(Circle().fill(theme.surface.opacity(0.9)))
                 .overlay(Circle().strokeBorder(theme.divider, lineWidth: 1))
         }
         .buttonStyle(.plain)
-        .padding(.trailing, 12)
-        .padding(.bottom, 10)
-        .help(activityAllowed ? "小动物们正在自由活动（点击让它们排排站好）" : "小动物们已安静（点击放它们出来玩）")
+        .help(activityHelp)
+    }
+
+    /// 点击行为：白天 = 活动开关；夜晚 = 冒一句「它们在睡觉」（连点随机换一句）。
+    private func activityTapped() {
+        guard theme.isNight else {
+            onActivityToggle?()
+            return
+        }
+        let pool = Self.sleepPhrases.filter { $0 != sleepLine }
+        let next = pool.randomElement() ?? Self.sleepPhrases[0]
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { sleepLine = next }
+        sleepTick += 1
+    }
+
+    private var activityHelp: String {
+        if theme.isNight { return "夜深了，小动物们正在睡觉（点一下看看它们的梦话）" }
+        return activityAllowed ? "小动物们正在自由活动（点击让它们排排站好）" : "小动物们已安静（点击放它们出来玩）"
     }
 
     private struct HillCap: Shape {

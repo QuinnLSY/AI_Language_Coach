@@ -119,9 +119,13 @@ public final class AppState {
     public private(set) var cacheSnapshot: CacheSnapshot = .empty
     /// 上一次清理释放的字节数（展示用，0 = 无）。
     public private(set) var cacheFreedBytes: Int64 = 0
+    /// 情景结算奖励提示（nil = 不显示）。UI 展示数秒后自动消失。
+    public private(set) var lastReward: ScenarioReward?
 
     /// 产品配置缓存（Sendable，可在 MainActor 直接修改后整体回写）。
     private var product: ProductConfig = ProductConfig()
+    /// 结算提示的自动收起任务。
+    private var rewardDismissTask: Task<Void, Never>?
 
     public init() {
         let services = CoachServices()
@@ -183,6 +187,7 @@ public final class AppState {
         let configuration = await services.configuration
         product = configuration.product
         themeMode = configuration.product.themeMode
+        autoSpeak = configuration.product.autoSpeak
         chat.profile.learningLanguage = configuration.product.learningLanguage
         chat.profile.nativeLanguage = configuration.product.nativeLanguage
         progress = await services.loadProgress()
@@ -531,7 +536,13 @@ public final class AppState {
     }
 
     public func toggleDayNight() async {
-        await setThemeMode(theme.isNight ? .day : .night)
+        await setThemeMode(Self.themeAfterCelestialTap(isNight: theme.isNight))
+    }
+
+    /// 右上角太阳 / 月亮被点后的目标主题（纯函数，便于单测）：
+    /// 白天（太阳）→ 夜晚；夜晚（月亮）→ 白天。`isNight` 传当前**生效**主题。
+    nonisolated public static func themeAfterCelestialTap(isNight: Bool) -> ThemeMode {
+        isNight ? .day : .night
     }
 
     // MARK: - 进度
@@ -678,9 +689,84 @@ public final class AppState {
         chat.startScenario(scenario)
     }
 
-    /// 结束当前情景（对话内容保留）。
-    public func endScenario() {
+    /// 结束当前情景（对话内容保留），并按轮次把星星结算到绑定关卡。
+    public func endScenario() async {
+        guard let progress = chat.scenarioProgress else {
+            chat.endScenario()
+            return
+        }
         chat.endScenario()
+        await settleScenario(progress)
+    }
+
+    /// 按 id 取场景（关卡绑定 / 记录页展示用）。场景在启动时已加载。
+    public func scenario(for id: String?) -> Scenario? {
+        guard let id else { return nil }
+        return scenarios.first { $0.id == id }
+    }
+
+    /// 情景的母语标题（学习记录页展示用）。
+    public func scenarioTitle(for id: String?) -> String? {
+        scenario(for: id)?.titleZh
+    }
+
+    /// 立刻收起结算提示。
+    public func dismissReward() {
+        rewardDismissTask?.cancel()
+        rewardDismissTask = nil
+        lastReward = nil
+    }
+
+    /// 结算一次情景练习：答对轮次越多星越多；绑定关卡**累计**加星（封顶到本关需求）、
+    /// 达标即通关并解锁下一关。
+    private func settleScenario(_ finished: ScenarioProgress) async {
+        let scenario = finished.scenario
+        guard let index = progress.levels.firstIndex(where: { $0.scenarioID == scenario.id }) else {
+            // 场景没有绑定关卡：只给一句反馈，不动进度
+            lastReward = ScenarioRewardRule.reward(
+                scenarioTitle: scenario.titleZh, stars: 0, levelTitle: nil, willCompleteLevel: false
+            )
+            scheduleRewardDismissal()
+            return
+        }
+        let level = progress.levels[index]
+        // 已通关的关卡重复练习不再重复加星，但照样给个反馈
+        guard level.state != .completed else {
+            lastReward = ScenarioReward(
+                levelTitle: level.title, stars: 0, didCompleteLevel: false,
+                message: "「\(scenario.titleZh)」又练了一遍，很稳！"
+            )
+            scheduleRewardDismissal()
+            return
+        }
+
+        // 星星是「累计」的：本次按轮次给分，累加后封顶到本关需求（关卡最多就该拿满这么多星）。
+        let scored = ScenarioRewardRule.stars(turnsUsed: finished.turnsUsed, maxTurns: scenario.maxTurns)
+        let award = ScenarioRewardRule.award(earned: level.earnedStars, scored: scored, required: level.requiredStars)
+        lastReward = ScenarioRewardRule.reward(
+            scenarioTitle: scenario.titleZh, stars: award.gained,
+            levelTitle: level.title, willCompleteLevel: award.didComplete
+        )
+        if award.gained > 0 {
+            progress.levels[index].earnedStars = award.total
+            if award.didComplete {
+                await completeLevel(level.id, earnedStars: award.total)
+            } else {
+                progress.levels[index].state = .inProgress
+                progress.recalculateSummary()
+                await services.saveProgress(progress)
+            }
+        }
+        scheduleRewardDismissal()
+    }
+
+    private func scheduleRewardDismissal() {
+        rewardDismissTask?.cancel()
+        rewardDismissTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) { self?.lastReward = nil }
+        }
     }
 
     public func loadRecords() async {

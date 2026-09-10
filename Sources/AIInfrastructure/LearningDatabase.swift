@@ -10,7 +10,9 @@ public actor LearningDatabase {
     private let db: SQLiteDatabase
 
     /// v2：messages 增加 reasoning 列（推理模型思考过程持久化）。
-    public static let schemaVersion = 3
+    /// v3：新增 session_reviews（练习复盘）。
+    /// v4：sessions 增加 scenario_id 列（情景练习落库，重启后能接着练）。
+    public static let schemaVersion = 4
 
     /// 测试用内存库。
     public static func inMemory() throws -> LearningDatabase {
@@ -20,6 +22,7 @@ public actor LearningDatabase {
     public init(path: String) throws {
         db = try SQLiteDatabase(path: path)
         try migrate()
+        try hygiene()
     }
 
     /// 默认库位置：项目空间 `.workbuddy/app-config/learning.db`。
@@ -102,7 +105,21 @@ public actor LearningDatabase {
         """)
         try db.run("CREATE INDEX IF NOT EXISTS idx_reviews_session ON session_reviews(session_id)")
 
+        // v3 → v4：sessions 表补 scenario_id 列（已存在时报错属预期，忽略）。
+        try? db.run("ALTER TABLE sessions ADD COLUMN scenario_id TEXT")
+
         try db.setSchemaVersion(Self.schemaVersion)
+    }
+
+    /// 轻量卫生清理（幂等，每次打开都跑）：
+    /// 旧版本每次启动都会建一条空会话，而「最近会话」取最新的一条，
+    /// 导致上次的练习永远恢复不回来 —— 把这种纯空会话删掉（有情景标记的保留）。
+    private nonisolated func hygiene() throws {
+        try db.run("""
+        DELETE FROM sessions
+        WHERE message_count = 0 AND scenario_id IS NULL AND id != 'archive'
+          AND NOT EXISTS (SELECT 1 FROM messages WHERE messages.session_id = sessions.id)
+        """)
     }
 
     public func schemaVersion() throws -> Int {
@@ -176,8 +193,46 @@ public actor LearningDatabase {
 
     public func createSession(_ session: ChatSession) throws {
         try db.run(
-            "INSERT OR REPLACE INTO sessions (id, started_at, ended_at, mode, message_count) VALUES (?1, ?2, NULL, ?3, 0)",
-            [.text(session.id.uuidString), .real(session.startedAt.timeIntervalSince1970), .text(session.mode.rawValue)]
+            "INSERT OR REPLACE INTO sessions (id, started_at, ended_at, mode, message_count, scenario_id) VALUES (?1, ?2, NULL, ?3, 0, ?4)",
+            [
+                .text(session.id.uuidString),
+                .real(session.startedAt.timeIntervalSince1970),
+                .text(session.mode.rawValue),
+                session.scenarioID.map { .text($0) } ?? .null,
+            ]
+        )
+    }
+
+    /// 只在会话不存在时创建（不覆盖已有记录，message_count 不会被重置）。
+    /// 首次发消息 / 首次进入情景时调用——**启动时不建空会话**，否则「最近会话」永远是空的，
+    /// 上次的练习就再也恢复不回来了。
+    public func createSessionIfAbsent(_ session: ChatSession) throws {
+        try db.run(
+            "INSERT OR IGNORE INTO sessions (id, started_at, ended_at, mode, message_count, scenario_id) VALUES (?1, ?2, NULL, ?3, 0, ?4)",
+            [
+                .text(session.id.uuidString),
+                .real(session.startedAt.timeIntervalSince1970),
+                .text(session.mode.rawValue),
+                session.scenarioID.map { .text($0) } ?? .null,
+            ]
+        )
+    }
+
+    /// 把会话标记为「在练某个情景」（进入情景时调用）。行不存在时顺带建行，
+    /// 避免刚进情景就落不了库。`started_at` 保持原值不动。
+    public func setSessionScenario(id: UUID, scenarioID: String?, mode: PracticeMode, startedAt: Date) throws {
+        try db.run(
+            """
+            INSERT INTO sessions (id, started_at, ended_at, mode, message_count, scenario_id)
+            VALUES (?1, ?2, NULL, ?3, 0, ?4)
+            ON CONFLICT(id) DO UPDATE SET scenario_id = excluded.scenario_id, mode = excluded.mode
+            """,
+            [
+                .text(id.uuidString),
+                .real(startedAt.timeIntervalSince1970),
+                .text(mode.rawValue),
+                scenarioID.map { .text($0) } ?? .null,
+            ]
         )
     }
 
@@ -223,16 +278,16 @@ public actor LearningDatabase {
     /// 最近一个会话（含消息）。没有历史会话时返回 nil。
     public func latestSession() throws -> (session: ChatSession, messages: [ChatMessage])? {
         let rows = try db.query(
-            "SELECT id, started_at, mode FROM sessions WHERE id != 'archive' ORDER BY started_at DESC LIMIT 1"
-        ) { row -> (UUID, Date, PracticeMode)? in
+            "SELECT id, started_at, mode, scenario_id FROM sessions WHERE id != 'archive' ORDER BY started_at DESC LIMIT 1"
+        ) { row -> (UUID, Date, PracticeMode, String?)? in
             guard let idText = row.string(0), let id = UUID(uuidString: idText),
                   let started = row.double(1),
                   let modeRaw = row.string(2), let mode = PracticeMode(rawValue: modeRaw)
             else { return nil }
-            return (id, Date(timeIntervalSince1970: started), mode)
+            return (id, Date(timeIntervalSince1970: started), mode, row.string(3))
         }
         guard let first = rows.compactMap({ $0 }).first else { return nil }
-        let session = ChatSession(id: first.0, startedAt: first.1, mode: first.2)
+        let session = ChatSession(id: first.0, startedAt: first.1, mode: first.2, scenarioID: first.3)
         return (session, try messages(sessionID: first.0))
     }
 
@@ -245,7 +300,7 @@ public actor LearningDatabase {
 
     public func recentSessions(limit: Int = 20) throws -> [SessionSummary] {
         let rows = try db.query(
-            "SELECT id, started_at, COALESCE(ended_at, ?2) AS ended, message_count FROM sessions ORDER BY started_at DESC LIMIT ?1",
+            "SELECT id, started_at, COALESCE(ended_at, ?2) AS ended, message_count, scenario_id FROM sessions ORDER BY started_at DESC LIMIT ?1",
             [.int(limit), .real(Date().timeIntervalSince1970)]
         ) { row -> SessionSummary? in
             guard let idText = row.string(0),
@@ -259,7 +314,8 @@ public actor LearningDatabase {
                 endedAt: Date(timeIntervalSince1970: ended),
                 messageCount: row.int(3) ?? 0,
                 newStars: 0,
-                corrections: []
+                corrections: [],
+                scenarioID: row.string(4)
             )
         }
         return rows.compactMap { $0 }
@@ -310,10 +366,11 @@ public actor LearningDatabase {
     /// 会话总结：消息数 + 本会话纠错。
     public func sessionSummary(id: UUID) throws -> SessionSummary? {
         let rows = try db.query(
-            "SELECT id, started_at, COALESCE(ended_at, ?2), message_count FROM sessions WHERE id = ?1",
+            "SELECT id, started_at, COALESCE(ended_at, ?2), message_count, scenario_id FROM sessions WHERE id = ?1",
             [.text(id.uuidString), .real(Date().timeIntervalSince1970)]
         ) { row in
-            (id: row.string(0), started: row.double(1), ended: row.double(2), count: row.int(3) ?? 0)
+            (id: row.string(0), started: row.double(1), ended: row.double(2), count: row.int(3) ?? 0,
+             scenario: row.string(4))
         }
         guard let row = rows.first,
               let idText = row.id,
@@ -325,8 +382,18 @@ public actor LearningDatabase {
             endedAt: Date(timeIntervalSince1970: row.ended ?? Date().timeIntervalSince1970),
             messageCount: row.count,
             newStars: 0,
-            corrections: try corrections(sessionID: sessionID)
+            corrections: try corrections(sessionID: sessionID),
+            scenarioID: row.scenario
         )
+    }
+
+    /// 某会话进行的情景 id（nil = 普通练习 / 会话不存在）。
+    public func sessionScenarioID(id: UUID) throws -> String? {
+        try db.query(
+            "SELECT scenario_id FROM sessions WHERE id = ?1",
+            [.text(id.uuidString)],
+            map: { $0.string(0) }
+        ).first ?? nil
     }
 
     // MARK: - 练习复盘（学习记忆：把一次练习沉淀成可回看的总结）

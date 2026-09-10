@@ -171,4 +171,93 @@ public struct ScenarioProgress: Sendable, Equatable {
 
     /// 展示文案：`第 3/12 轮`。
     public var turnsText: String { "第 \(min(turnsUsed, scenario.maxTurns))/\(scenario.maxTurns) 轮" }
+
+    /// 是否已说满轮次（可以结算）。
+    public var isComplete: Bool { turnsUsed >= scenario.maxTurns }
+
+    /// 完成度 0...1（结算星级用）。
+    public var completion: Double {
+        guard scenario.maxTurns > 0 else { return 0 }
+        return min(Double(turnsUsed) / Double(scenario.maxTurns), 1)
+    }
+}
+
+// MARK: - 情景结算规则（纯函数，便于单测）
+
+/// 一次情景练习的结算结果：给哪一关加几颗星。
+public struct ScenarioReward: Sendable, Equatable {
+    /// 命中的关卡标题（没有绑定关卡时为 nil，只有提示语）。
+    public var levelTitle: String?
+    /// 本次获得的星星（0 = 没开口，不奖励）。
+    public var stars: Int
+    /// 结算后这一关是否达标记为「完成」。
+    public var didCompleteLevel: Bool
+    /// 展示文案（中文，直接给 UI）。
+    public var message: String
+
+    public init(levelTitle: String? = nil, stars: Int = 0, didCompleteLevel: Bool = false, message: String) {
+        self.levelTitle = levelTitle
+        self.stars = stars
+        self.didCompleteLevel = didCompleteLevel
+        self.message = message
+    }
+}
+
+public enum ScenarioRewardRule {
+
+    /// 星级：说满轮次 3 星；说满一半 2 星；开过口 1 星；一句没说 0 星。
+    public static func stars(turnsUsed: Int, maxTurns: Int) -> Int {
+        guard turnsUsed > 0, maxTurns > 0 else { return 0 }
+        if turnsUsed >= maxTurns { return 3 }
+        if turnsUsed * 2 >= maxTurns { return 2 }
+        return 1
+    }
+
+    /// 一次加星的结果（关卡星星是累计的，封顶到本关需求）。
+    public struct StarAward: Sendable, Equatable {
+        /// 本次实际到手（封顶后可能少于按轮次算出的分）。
+        public let gained: Int
+        /// 结算后该关的总星数。
+        public let total: Int
+        /// 是否达标（可以点亮这一关）。
+        public let didComplete: Bool
+    }
+
+    /// 累计加星：`earned` 原有星数 + `scored` 本次得分，封顶到 `required`。
+    public static func award(earned: Int, scored: Int, required: Int) -> StarAward {
+        let cap = max(required, 0)
+        let total = min(max(earned, 0) + max(scored, 0), cap)
+        return StarAward(
+            gained: max(total - max(earned, 0), 0),
+            total: total,
+            didComplete: total >= cap
+        )
+    }
+
+    /// 生成结算文案。`stars` 传**实际到手的星星**（已按关卡上限截断；没绑定关卡传 0）。
+    /// `levelTitle` 为 nil 表示场景没绑定关卡，只提示、不加星。
+    public static func reward(
+        scenarioTitle: String,
+        stars: Int,
+        levelTitle: String?,
+        willCompleteLevel: Bool
+    ) -> ScenarioReward {
+        guard let levelTitle else {
+            return ScenarioReward(
+                levelTitle: nil, stars: 0, didCompleteLevel: false,
+                message: "「\(scenarioTitle)」练完啦，说得不错！"
+            )
+        }
+        guard stars > 0 else {
+            return ScenarioReward(
+                levelTitle: levelTitle, stars: 0, didCompleteLevel: false,
+                message: "下次多开口几句，就能拿到星星啦～"
+            )
+        }
+        let tail = willCompleteLevel ? "，已点亮这一关！" : "，继续加油～"
+        return ScenarioReward(
+            levelTitle: levelTitle, stars: stars, didCompleteLevel: willCompleteLevel,
+            message: "「\(scenarioTitle)」+\(stars) 星\(tail)"
+        )
+    }
 }
