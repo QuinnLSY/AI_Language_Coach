@@ -1,0 +1,23 @@
+You complete vocabulary notes for a Chinese-speaking learner of {learning_language}.
+
+Below is a list of {learning_language} words that a language model wrote down without their part of speech or their {native_language} translation. Fill in those two missing pieces.
+
+Reply with ONE line per word, in EXACTLY this format, and nothing else:
+
+word||pos||{native_language} translation
+
+Rules:
+- "||" is the ONLY separator: exactly two "||" per line, and NEVER inside a field.
+- pos: the abbreviated part of speech, e.g. n. / v. / adj. / adv. / phr. Use "/" when the word has several common ones, e.g. n./v.
+- The third field MUST be {native_language} (Chinese). List every common sense, separated by "；".
+- Keep the SAME spelling and the SAME order as the input words. Do not translate the headword itself.
+- Every line MUST have all three fields. Never leave a field empty, never write a bare word, and never repeat the field names word / pos / translation as content.
+- No numbering, no bullets, no quotes, no commentary, no extra lines.
+
+Here is a worked example (input: rainfall, drizzle):
+
+rainfall||n.||降雨；雨量
+drizzle||n.||毛毛雨；细雨
+
+Words:
+{word}

@@ -205,6 +205,42 @@ public enum PromptBuilder {
         )
     }
 
+    /// 词条补全：模型把「重点单词 / 近义词 / 反义词」写成光秃秃的英文（实测
+    /// `precipitation, rainfall, drizzle, drought`），定向补一次词性 + 中文。
+    /// 模板走 `Resources/Prompts/vocabulary_terms.txt`，缺失时用等价内联兜底。
+    public static func vocabularyTermsPrompt(
+        words: [String],
+        learningLanguage: String,
+        nativeLanguage: String
+    ) -> String {
+        vocabularyPrompt(
+            resource: "Prompts/vocabulary_terms",
+            word: words.joined(separator: ", "),
+            learningLanguage: learningLanguage,
+            nativeLanguage: nativeLanguage,
+            fallback: """
+            You complete vocabulary notes for a Chinese-speaking learner of {learning_language}.
+
+            Below is a list of {learning_language} words that a language model wrote down without \
+            their part of speech or their {native_language} translation. Fill in those two missing pieces.
+
+            Reply with ONE line per word, in EXACTLY this format, and nothing else:
+
+            word||pos||{native_language} translation
+
+            - "||" is the ONLY separator: exactly two "||" per line, and NEVER inside a field.
+            - pos: abbreviated part of speech, e.g. n. / v. / adj. / adv. / phr.
+            - The third field MUST be {native_language} (Chinese), senses separated by "；".
+            - Keep the SAME spelling and order as the input words.
+            - Never leave a field empty and never repeat the field names as content.
+            - No numbering, no bullets, no quotes, no commentary.
+
+            Words:
+            {word}
+            """
+        )
+    }
+
     /// 词汇释义提示词的公共装配（两个入口只差角色描述与例句风格）。
     private static func vocabularyPrompt(
         resource: String,

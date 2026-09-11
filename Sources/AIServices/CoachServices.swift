@@ -580,6 +580,25 @@ public actor CoachServices {
         )
     }
 
+    /// 补齐已落库卡片里缺失的「词性 / 中文」（历史数据：模型当年只回了英文）。
+    /// 后台静默调用：模型没在跑 / 补不到就返回 nil，不打扰用户。
+    public func completeVocabularyTerms(_ entry: VocabularyEntry) async -> VocabularyEntry? {
+        guard isModelRunning(.llm) else { return nil }
+        try? await ensureLLMReady()
+        let provider = await config.current.resolvedProvider(for: .llm)
+        let options = VocabularyDefineOptions(
+            model: await currentLLMModel(),
+            maxTokens: min(provider?.maxTokens ?? 256, 256)
+        )
+        let configuration = await config.current
+        return await vocabulary.completeTerms(
+            of: entry,
+            learningLanguage: configuration.product.learningLanguage,
+            nativeLanguage: configuration.product.nativeLanguage,
+            options: options
+        )
+    }
+
     /// 抽一组每日推荐词（3 简单 / 5 中等 / 2 困难 / 2 词组，雅思标准；本地选词，不调模型）。
     public func dailyWordRecommendation(excluding: Set<String> = []) async -> [DailyWord] {
         await vocabulary.dailyRecommendation(excluding: excluding)

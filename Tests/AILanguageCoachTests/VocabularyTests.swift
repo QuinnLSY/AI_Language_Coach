@@ -337,6 +337,98 @@ final class VocabularyTests: XCTestCase {
         XCTAssertEqual(parsed.synonymTerms.first?.pos, "adj./n.")
     }
 
+    // MARK: - 重点单词：必须是英文 + 缺词性/中文的自动补全
+
+    func testKeywordLineIsHiddenWhenItHasNoEnglish() {
+        // 实测：模型把中文释义塞进 keywords（「你好、打招呼」）。
+        let chineseOnly = VocabularyDefinitionRule.parse("meaning: 你好；嗨\nkeywords: 你好、打招呼")
+        XCTAssertEqual(chineseOnly.keywordTerms.map(\.word), ["", ""])
+        XCTAssertTrue(chineseOnly.displayKeywordTerms.isEmpty, "没有英文的重点单词 → 整行不显示")
+
+        // 混排：只留下带英文的条目。
+        let mixed = VocabularyDefinitionRule.parse("meaning: 你好\nkeywords: 你好、how come (phr.) 怎么会")
+        XCTAssertEqual(mixed.displayKeywordTerms.map(\.word), ["how come"])
+        XCTAssertEqual(mixed.displayKeywordTerms.first?.translation, "怎么会")
+    }
+
+    func testKeywordCommaSeparatedEnglishSplitsIntoTerms() {
+        // 实测：`precipitation , rainfall, drizzle, drought` —— 逗号分隔的英文重点单词。
+        let definition = VocabularyDefinitionRule.parse(
+            "meaning: 降水\nkeywords: precipitation , rainfall, drizzle, drought"
+        )
+        XCTAssertEqual(definition.displayKeywordTerms.map(\.word), ["precipitation", "rainfall", "drizzle", "drought"])
+        XCTAssertTrue(definition.displayKeywordTerms.allSatisfy { $0.translation.isEmpty })
+        // 中文翻译里的「，」后面不是英文 → 不算分隔符。
+        let chinese = VocabularyTermParser.parseList("take (v.) 拿，拿住")
+        XCTAssertEqual(chinese.count, 1)
+        XCTAssertEqual(chinese.first?.translation, "拿，拿住")
+    }
+
+    func testTermsNeedingCompletionOnlyPicksEnglishIncompleteTerms() {
+        let definition = VocabularyDefinitionRule.parse("""
+        meaning: 降水
+        synonyms: rainfall (n.) 降雨、drizzle (n.)
+        keywords: precipitation , drought
+        """)
+        // rainfall 完整 → 不补；drizzle / precipitation / drought 缺中文 → 要补。
+        XCTAssertEqual(definition.termsNeedingCompletion.map(\.word), ["drizzle", "precipitation", "drought"])
+
+        // 纯中文的重点单词不进补全队列（连该补哪个词都不知道）。
+        let chineseOnly = VocabularyDefinitionRule.parse("meaning: 你好\nkeywords: 你好、打招呼")
+        XCTAssertTrue(chineseOnly.termsNeedingCompletion.isEmpty)
+
+        let complete = VocabularyDefinitionRule.parse("meaning: 拿\nsynonyms: take (v.) 拿")
+        XCTAssertTrue(complete.termsNeedingCompletion.isEmpty)
+    }
+
+    func testCompletionParsesModelLines() {
+        let map = VocabularyTermCompletion.parse("""
+        rainfall||n.||降雨；雨量
+        2. drizzle|n.|毛毛雨；细雨
+        - drought||n.||干旱
+        precipitation||n.||降水；沉淀
+        word||pos||translation
+        这一行没有分隔符也不是词条
+        """)
+        XCTAssertEqual(map["rainfall"]?.pos, "n.")
+        XCTAssertEqual(map["rainfall"]?.translation, "降雨；雨量")
+        XCTAssertEqual(map["drizzle"]?.pos, "n.")
+        XCTAssertEqual(map["drought"]?.translation, "干旱")
+        XCTAssertEqual(map["precipitation"]?.translation, "降水；沉淀")
+        XCTAssertNil(map["word"], "字段名回显不能当内容")
+        XCTAssertEqual(map.count, 4)
+    }
+
+    func testPatchedMergesCompletedTermsBackIntoDefinition() {
+        let definition = VocabularyDefinitionRule.parse("""
+        meaning: 降水
+        synonyms: rainfall (n.) 降雨
+        keywords: precipitation , rainfall, drizzle
+        """)
+        let completed: [String: VocabularyTerm] = [
+            "precipitation": VocabularyTerm(word: "precipitation", pos: "n.", translation: "降水"),
+            "rainfall": VocabularyTerm(word: "rainfall", pos: "n.", translation: "降雨"),
+            "drizzle": VocabularyTerm(word: "drizzle", pos: "n.", translation: "毛毛雨"),
+        ]
+        let patched = definition.patched(with: completed)
+        let patchedKeywords = VocabularyTermParser.parseList(patched.keywords)
+        XCTAssertEqual(patchedKeywords.map(\.word), ["precipitation", "rainfall", "drizzle"])
+        XCTAssertEqual(patchedKeywords.map(\.pos), ["n.", "n.", "n."])
+        XCTAssertEqual(patchedKeywords.map(\.translation), ["降水", "降雨", "毛毛雨"])
+        // 补全后不再需要补。
+        XCTAssertTrue(patched.termsNeedingCompletion.isEmpty)
+        // 近义词原样保留。
+        XCTAssertEqual(patched.synonyms, ["rainfall (n.) 降雨"])
+    }
+
+    func testPatchedDropsChineseOnlyKeywords() {
+        let definition = VocabularyDefinitionRule.parse("meaning: 你好\nkeywords: 你好、打招呼")
+        let patched = definition.patched(with: [
+            "how come": VocabularyTerm(word: "how come", pos: "phr.", translation: "怎么会")
+        ])
+        XCTAssertEqual(patched.keywords, "", "纯中文的重点单词在补全落库时被清掉")
+    }
+
     // MARK: - 添加框联想
 
     func testSuggesterRanksPrefixThenSubstringThenChinese() {

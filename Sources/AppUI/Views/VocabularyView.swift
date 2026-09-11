@@ -23,24 +23,36 @@ public struct VocabularyView: View {
         VStack(spacing: 0) {
             header
             Divider().overlay(theme.divider)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    dailySection
-                    // 添加框常驻：词表空了也要能随手加词。
-                    addRow
-                    if state.vocabularyEntries.isEmpty {
-                        emptyHint
-                    } else {
-                        ForEach(state.vocabularyEntries) { entry in
-                            entryCard(entry)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        dailySection
+                        // 添加框常驻：词表空了也要能随手加词。
+                        addRow
+                        if state.vocabularyEntries.isEmpty {
+                            emptyHint
+                        } else {
+                            ForEach(state.vocabularyEntries) { entry in
+                                entryCard(entry)
+                            }
                         }
+                        if let notice = state.vocabularyNotice {
+                            noticeBanner(notice)
+                        }
+                        // 末尾锚点：给 `--vocabulary-tail` 验证钩子用（滚到列表最后几条）。
+                        Color.clear.frame(height: 1).id(Self.tailAnchor)
                     }
-                    if let notice = state.vocabularyNotice {
-                        noticeBanner(notice)
-                    }
+                    .padding(20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .task {
+                    // 截图/验证辅助：--vocabulary-tail 启动后滚到词表末尾。
+                    // 本机 UI 自动化点不动 SwiftUI，滚轮 / 翻页键也不生效，
+                    // 要直接看末尾几条卡片（纯中文重点单词的历史数据）只能这样。
+                    guard CommandLine.arguments.contains("--vocabulary-tail") else { return }
+                    try? await Task.sleep(for: .seconds(2))
+                    proxy.scrollTo(Self.tailAnchor, anchor: .bottom)
+                }
             }
         }
         .background(theme.surfaceAlt.opacity(0.35))
@@ -49,8 +61,18 @@ public struct VocabularyView: View {
         .task {
             await state.openVocabulary()
             await state.loadDailyWordsIfNeeded()
+            // 截图/验证辅助：--daily-flip 启动后自动翻到页面第二页。
+            // 刻意放慢动画（1.8s），这样一张静态截图就能截到「整页滑动」的中间帧 ——
+            // 本机 UI 自动化点不到 SwiftUI 按钮，这是唯一能验证翻页过渡的办法。
+            guard CommandLine.arguments.contains("--daily-flip") else { return }
+            try? await Task.sleep(for: .seconds(4))
+            slowPageAnimation = true
+            goToPage(dailyPage + 1)
         }
     }
+
+    /// 词表末尾的滚动锚点（`--vocabulary-tail` 验证钩子用）。
+    static let tailAnchor = "vocabulary-tail-anchor"
 
     // MARK: - 顶栏
 
@@ -134,6 +156,13 @@ public struct VocabularyView: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .strokeBorder(theme.accent.opacity(0.22), lineWidth: 1)
             )
+            // 翻页按钮骑在**整个框的垂直中线**上（右侧贴边）——
+            // 不是顶在卡片上方（用户口径：位置往下移到框中线上）。
+            .overlay(alignment: .trailing) {
+                if !dailyExpanded {
+                    dailyPager.padding(.trailing, 14)
+                }
+            }
             // 展开 / 收起按钮骑在**下框线正中**（offset 半个胶囊高）。
             .overlay(alignment: .bottom) { dailyExpandToggle }
             .padding(.bottom, 10)
@@ -161,16 +190,47 @@ public struct VocabularyView: View {
             // 不写这行的话卡片会被压到 ~110pt（单词被拆成 recomm/end）。
             .frame(maxWidth: .infinity, alignment: .topLeading)
         } else {
-            HStack(alignment: .top, spacing: 8) {
+            // 收敛在 ZStack 里：翻页时旧页与新页同时存在，各自上下滑出 / 滑入，
+            // 才能看到「整页滑动」而不是直接闪现。
+            ZStack(alignment: .top) {
                 LazyVGrid(columns: Self.dailyColumns, spacing: 10) {
                     ForEach(pageWords) { word in
                         dailyCard(word)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                dailyPager
+                .id(dailyPage)
+                .transition(pageTransition)
             }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            // 滑动过程中滑出框外的部分要裁掉，否则会盖住上面的标题行。
+            .clipped()
+            // 给右侧翻页按钮让位（按钮由 dailySection 的 overlay 摆放）。
+            .padding(.trailing, Self.pagerGutter)
         }
+    }
+
+    /// 收起态右侧翻页按钮占用的宽度（按钮 20pt + 与卡片的间距 8pt）。
+    private static let pagerGutter: CGFloat = 28
+
+    /// 翻页方向：`true` = 往下一页（新页从下方滑入、旧页向上滑出）。
+    @State private var pageForward = true
+    /// 验证钩子 `--daily-flip` 用的慢速动画开关（正常交互始终保持 0.26s）。
+    @State private var slowPageAnimation = false
+
+    /// 整页滑动过渡 —— 与「拖动下拉条」的观感一致。
+    private var pageTransition: AnyTransition {
+        .asymmetric(
+            insertion: .move(edge: pageForward ? .bottom : .top).combined(with: .opacity),
+            removal: .move(edge: pageForward ? .top : .bottom).combined(with: .opacity)
+        )
+    }
+
+    /// 翻页（越界自动夹住；同页不重放动画）。
+    private func goToPage(_ target: Int) {
+        let clamped = min(max(target, 0), max(dailyPageCount - 1, 0))
+        guard clamped != dailyPage else { return }
+        pageForward = clamped > dailyPage
+        withAnimation(.easeInOut(duration: slowPageAnimation ? 1.8 : 0.26)) { dailyPage = clamped }
     }
 
     /// 收起态列宽：两列（每页 2 行 × 2 列 = 完整 4 个卡片）。
@@ -191,21 +251,15 @@ public struct VocabularyView: View {
         DailyWordPager.page(state.dailyWords, index: dailyPage, pageSize: Self.dailyPageSize)
     }
 
-    /// 右侧上下翻页按钮（取代原来的下拉条）。
+    /// 右侧上下翻页按钮（取代原来的下拉条；垂直方向骑在框的中线上）。
     private var dailyPager: some View {
         VStack(spacing: 6) {
-            pagerButton("chevron.up", enabled: dailyPage > 0) {
-                withAnimation(.easeInOut(duration: 0.18)) { dailyPage = max(dailyPage - 1, 0) }
-            }
+            pagerButton("chevron.up", enabled: dailyPage > 0) { goToPage(dailyPage - 1) }
             Text("\(dailyPage + 1)/\(dailyPageCount)")
                 .font(.system(size: 9, weight: .semibold, design: .rounded))
                 .foregroundStyle(theme.secondaryText)
                 .monospacedDigit()
-            pagerButton("chevron.down", enabled: dailyPage < dailyPageCount - 1) {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    dailyPage = min(dailyPage + 1, dailyPageCount - 1)
-                }
-            }
+            pagerButton("chevron.down", enabled: dailyPage < dailyPageCount - 1) { goToPage(dailyPage + 1) }
         }
     }
 
@@ -259,21 +313,26 @@ public struct VocabularyView: View {
                 Text(daily.word)
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.primaryText)
-                    // 单词优先占位：窄列时宁可把右边的按钮压成图标，
-                    // 也不要把 describe 拆成 desc/ribe。
+                    // 单词优先占位：窄列时宁可整体缩小，也不要把单词拆成 technolog/y。
+                    // 单个单词**只允许一行**（靠 minimumScaleFactor 收窄），
+                    // 词组才允许按空格折成两行。
                     .layoutPriority(1)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.85)
+                    .lineLimit(daily.isPhrase ? 2 : 1)
+                    .minimumScaleFactor(daily.isPhrase ? 0.85 : 0.72)
                     .fixedSize(horizontal: false, vertical: true)
                 difficultyTag(daily.difficulty)
                 phoneticLabel(definition?.phonetic, word: daily.word)
                 // 单词 / 词组单独一个喇叭（例句有它自己的喇叭，见 `definitionBody`）。
                 speakButton(daily.word)
                 Spacer(minLength: 0)
-                // 三态按钮（查释义 / 看释义 / 收起）：位置够就带文字，
-                // 位置不够（收起态两列卡片）自动降级成纯图标 + 悬停提示。
+                // 三态按钮（查释义 / 看释义 / 收起）：
+                // 展开态列宽富余 → 带文字更好认；
+                // 收起态是两列窄卡片 → 无条件降级成纯图标，把宽度让给单词
+                // （否则 consequence 会被挤成「considera…」）。
                 ViewThatFits(in: .horizontal) {
-                    dailyToggleButton(daily, title: dailyToggleTitle(daily, definition: definition), systemImage: dailyToggleIcon(daily), showsTitle: true)
+                    if dailyExpanded {
+                        dailyToggleButton(daily, title: dailyToggleTitle(daily, definition: definition), systemImage: dailyToggleIcon(daily), showsTitle: true)
+                    }
                     dailyToggleButton(daily, title: dailyToggleTitle(daily, definition: definition), systemImage: dailyToggleIcon(daily), showsTitle: false)
                 }
             }
@@ -392,10 +451,11 @@ public struct VocabularyView: View {
                 if !definition.antonymTerms.isEmpty {
                     definitionLine("反义词", terms: definition.antonymTerms)
                 }
-                // ⚠️ 传 `keywords`（纯值）而不是带「重点单词：」前缀的整行，
-                // 否则会渲染成「重点单词 重点单词：…」重复两遍。
-                if showKeywords, !definition.keywordTerms.isEmpty {
-                    definitionLine("重点单词", terms: definition.keywordTerms)
+                // ⚠️ 传 `displayKeywordTerms`：重点单词**必须是英文**。
+                // 模型偶尔把中文释义塞进 keywords（实测「你好、打招呼」），那种条目一律丢弃；
+                // 一个英文词都没有时**整行不显示**（用户口径：没有重点单词就不显示这一项）。
+                if showKeywords, !definition.displayKeywordTerms.isEmpty {
+                    definitionLine("重点单词", terms: definition.displayKeywordTerms)
                 }
             }
         }

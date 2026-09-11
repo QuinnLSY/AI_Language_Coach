@@ -410,6 +410,13 @@ public actor VocabularyService {
            let rescued = await phoneticFallback(word: entry.word, learningLanguage: learningLanguage, options: options) {
             parsed.phonetic = rescued
         }
+        // 近义词 / 反义词 / 重点单词缺词性或中文 → 定向补全（同一批词一次问完）。
+        parsed = await completingTerms(
+            in: parsed,
+            learningLanguage: learningLanguage,
+            nativeLanguage: nativeLanguage,
+            options: options
+        )
         guard !parsed.isEmpty else {
             throw AppError.unknown("模型没有给出可解析的释义，请再试一次")
         }
@@ -419,6 +426,35 @@ public actor VocabularyService {
         try? await learning?.updateVocabularyDefinition(id: entry.id, meaning: parsed.encoded, example: parsed.example)
         return defined
     }
+
+    /// 补齐**已落库**卡片里缺失的「词性 / 中文」（历史数据：模型当年只回了英文）。
+    /// 补到就覆盖落库并返回更新后的词条；没有要补的 / 补不到 → nil。
+    ///
+    /// 只补「有英文但缺词性或缺中文」的词条；纯中文的重点单词不在补全范围
+    /// （UI 侧直接不展示那一行，见 `VocabularyDefinition.displayKeywordTerms`）。
+    public func completeTerms(
+        of entry: VocabularyEntry,
+        learningLanguage: String,
+        nativeLanguage: String,
+        options: VocabularyDefineOptions
+    ) async -> VocabularyEntry? {
+        let definition = VocabularyDefinitionRule.decodeStored(entry.meaning)
+        guard !definition.termsNeedingCompletion.isEmpty else { return nil }
+        let completed = await completingTerms(
+            in: definition,
+            learningLanguage: learningLanguage,
+            nativeLanguage: nativeLanguage,
+            options: options
+        )
+        let encoded = completed.encoded
+        guard encoded != entry.meaning else { return nil }
+        var updated = entry
+        updated.meaning = encoded
+        updated.example = completed.example
+        try? await learning?.updateVocabularyDefinition(id: entry.id, meaning: encoded, example: completed.example)
+        return updated
+    }
+
 
     // MARK: - 每日推荐（本地选词 + 按需 LLM 释义）
 
@@ -471,6 +507,12 @@ public actor VocabularyService {
            let rescued = await phoneticFallback(word: word, learningLanguage: learningLanguage, options: options) {
             parsed.phonetic = rescued
         }
+        parsed = await completingTerms(
+            in: parsed,
+            learningLanguage: learningLanguage,
+            nativeLanguage: nativeLanguage,
+            options: options
+        )
         guard !parsed.isEmpty else {
             throw AppError.unknown("模型没有给出可解析的释义，请再试一次")
         }
@@ -512,6 +554,41 @@ public actor VocabularyService {
               VocabularyDefinitionRule.isUsablePhonetic(candidate)
         else { return nil }
         return candidate
+    }
+
+    // MARK: - 词条补全兜底
+
+    /// 释义里「有英文但缺词性 / 缺中文」的词条 → 一次极短请求补齐再合并回释义。
+    /// 没有要补的（或补不到）原样返回，不阻塞主流程。
+    private func completingTerms(
+        in definition: VocabularyDefinition,
+        learningLanguage: String,
+        nativeLanguage: String,
+        options: VocabularyDefineOptions
+    ) async -> VocabularyDefinition {
+        let missing = definition.termsNeedingCompletion
+        guard !missing.isEmpty else { return definition }
+        let request = LLMRequest(
+            messages: [
+                LLMMessage(
+                    role: .system,
+                    content: PromptBuilder.vocabularyTermsPrompt(
+                        words: missing.map(\.word),
+                        learningLanguage: learningLanguage,
+                        nativeLanguage: nativeLanguage
+                    )
+                )
+            ],
+            model: options.model,
+            temperature: 0,
+            maxTokens: 256,
+            streaming: false,
+            reasoningEffort: LLMRequest.noThinkingEffort
+        )
+        guard let response = try? await llm.generate(request) else { return definition }
+        let completed = VocabularyTermCompletion.parse(response.text)
+        guard !completed.isEmpty else { return definition }
+        return definition.patched(with: completed)
     }
 
     // MARK: - 内部

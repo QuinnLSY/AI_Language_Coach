@@ -198,6 +198,47 @@ public struct VocabularyDefinition: Sendable, Equatable {
         VocabularyTermParser.parseList(keywords)
     }
 
+    /// 重点单词**展示**词条：必须是英文（用户口径：重点单词里出现纯中文一律不认）。
+    /// 模型偶尔把中文释义塞进 keywords（实测：「你好、打招呼」），这类条目直接丢弃；
+    /// 一个英文词都没有时整行不显示 —— 而不是渲染一行没有单词的「重点单词」。
+    public var displayKeywordTerms: [VocabularyTerm] {
+        keywordTerms.filter { !$0.word.isEmpty }
+    }
+
+    /// 需要补「词性 / 中文」的英文词条（近义词 / 反义词 / 重点单词三类合并去重）。
+    ///
+    /// 判定标准：**有英文但缺词性或缺中文** —— 这正是模型常见的残缺输出
+    /// （实测重点单词回成 `precipitation, rainfall, drizzle`，三个词都没有词性和中文）。
+    /// 只有中文没英文的条目**不进补全队列**：它连该补哪个词都不知道，直接不展示。
+    public var termsNeedingCompletion: [VocabularyTerm] {
+        var seen = Set<String>()
+        return (synonymTerms + antonymTerms + keywordTerms).filter { term in
+            guard !term.word.isEmpty else { return false }
+            guard term.pos.isEmpty || term.translation.isEmpty else { return false }
+            return seen.insert(term.word.lowercased()).inserted
+        }
+    }
+
+    /// 用补全结果重写三类词条（顺序不变，已补到的字段覆盖，其余保持原样）。
+    /// 重点单词顺带走 `displayKeywordTerms`（纯中文条目就此清除）。
+    public func patched(with completed: [String: VocabularyTerm]) -> VocabularyDefinition {
+        func patch(_ terms: [VocabularyTerm]) -> [VocabularyTerm] {
+            terms.map { term in
+                guard let filled = completed[term.word.lowercased()] else { return term }
+                return VocabularyTerm(
+                    word: term.word.isEmpty ? filled.word : term.word,
+                    pos: term.pos.isEmpty ? filled.pos : term.pos,
+                    translation: term.translation.isEmpty ? filled.translation : term.translation
+                )
+            }
+        }
+        var copy = self
+        copy.synonyms = patch(synonymTerms).map(\.displayText)
+        copy.antonyms = patch(antonymTerms).map(\.displayText)
+        copy.keywords = patch(displayKeywordTerms).map(\.displayText).joined(separator: "、")
+        return copy
+    }
+
     /// 落库编码。历史数据原样保留（重点单词行照旧拼回）；结构化数据写成键值行，
     /// 读回时同一套解析。
     public var encoded: String {
@@ -273,21 +314,27 @@ public struct VocabularyTerm: Sendable, Equatable, Identifiable {
 public enum VocabularyTermParser {
 
     /// 条目分隔符：中文顿号 / 分号、英文分号、竖线、换行。
+    /// （半角 / 全角逗号另算：只有后面紧跟新的英文词时才当分隔符，见 `startsNewEnglishWord`。）
     public static let separators: Set<Character> = ["；", ";", "、", "|", "\n"]
 
     /// 一整段文本 → 词条列表（空条目自动丢弃）。
     /// 括号内的分隔符不算分隔符（挡住 `(adj./n.)` 这类词性被劈开）。
     public static func parseList(_ raw: String) -> [VocabularyTerm] {
+        let characters = Array(raw)
         var chunks: [String] = []
         var current = ""
         var depth = 0
-        for character in raw {
+        for (index, character) in characters.enumerated() {
             if character == "(" || character == "（" {
                 depth += 1
             } else if character == ")" || character == "）" {
                 depth = max(depth - 1, 0)
             }
-            if depth == 0, separators.contains(character) {
+            let isSeparator = depth == 0 && (
+                separators.contains(character)
+                    || (isComma(character) && startsNewEnglishWord(characters, after: index))
+            )
+            if isSeparator {
                 chunks.append(current)
                 current = ""
                 continue
@@ -298,6 +345,24 @@ public enum VocabularyTermParser {
         return chunks
             .map { parse($0) }
             .filter { !$0.isEmpty }
+    }
+
+    /// 半角 / 全角逗号。
+    static func isComma(_ character: Character) -> Bool {
+        character == "," || character == "，"
+    }
+
+    /// 逗号后面（跳过空格）是不是一个新的**英文词**开头。
+    ///
+    /// 实测模型会把重点单词写成 `precipitation, rainfall, drizzle, drought` —— 用逗号分隔，
+    /// 旧解析器整段当成一个词条的翻译，于是四个词只剩一个「单词 + 一串英文翻译」。
+    /// 反过来，中文翻译内部的「，」（如 `拿，拿住`）后面不是英文，因此不会被误切。
+    static func startsNewEnglishWord(_ characters: [Character], after index: Int) -> Bool {
+        var cursor = index + 1
+        while cursor < characters.count, characters[cursor] == " " { cursor += 1 }
+        guard cursor < characters.count else { return false }
+        let next = characters[cursor]
+        return next.isASCII && next.isLetter
     }
 
     /// 单条文本 → 词条。
@@ -347,6 +412,89 @@ public enum VocabularyTermParser {
               [".", "、", ")", "）", ":", "："].contains(String(characters[index]))
         else { return raw }
         return String(characters[(index + 1)...]).trimmingCharacters(in: .whitespaces)
+    }
+}
+
+// MARK: - 词条补全（缺词性 / 中文时定向问模型）
+
+/// 「给这几个英文词补词性 + 中文」请求的解析（**纯函数**）。
+///
+/// 提示词要求每行一条 `word||pos||中文`（`||` 是唯一分隔符，字段里不会再出现）。
+/// 模型偶尔不听话，因此容错：
+/// - 分隔符认 `||` / `|` / 全角 `｜`；
+/// - 行首项目符号（`- ` / `* ` / `1. `）与两端空格先剥掉；
+/// - 没有分隔符的行退回按 `word (pos) 中文` 解析；
+/// - 字段名回显（`word|pos|translation` 这种标签行）直接丢弃。
+public enum VocabularyTermCompletion {
+
+    /// 行内字段分隔符（长的优先）。
+    public static let fieldSeparators = ["||", "|", "｜"]
+
+    /// 模型输出 → [小写英文词: 词条]。
+    public static func parse(_ raw: String) -> [String: VocabularyTerm] {
+        var result: [String: VocabularyTerm] = [:]
+        for line in raw.split(whereSeparator: \.isNewline) {
+            guard let term = parseLine(String(line)), !term.word.isEmpty else { continue }
+            result[term.word.lowercased()] = term
+        }
+        return result
+    }
+
+    /// 单行 → 词条（认不出返回 nil）。
+    static func parseLine(_ raw: String) -> VocabularyTerm? {
+        var text = raw.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return nil }
+        text = VocabularyTermParser.stripLeadingNumbering(text)
+        text = stripBullet(text)
+        guard !text.isEmpty else { return nil }
+
+        if let parts = splitFields(text) {
+            let word = parts[0].trimmingCharacters(in: .whitespaces)
+            let pos = parts.count > 1 ? normalizing(parts[1]) : ""
+            let translation = parts.count > 2 ? normalizing(parts[2]) : ""
+            guard !isFieldName(word) else { return nil }
+            return VocabularyTerm(word: word, pos: pos, translation: translation)
+        }
+
+        // 没有分隔符：退回半结构化解析（`rainfall (n.) 降雨`）。
+        let term = VocabularyTermParser.parse(text)
+        guard !term.word.isEmpty else { return nil }
+        return term
+    }
+
+    /// 按 `||` / `|` / `｜` 切成至多 3 段（没有分隔符返回 nil）。
+    static func splitFields(_ text: String) -> [String]? {
+        for separator in fieldSeparators {
+            let parts = text.components(separatedBy: separator)
+            if parts.count >= 2 {
+                // `word || pos || 中文` 这种带空格的写法照样切对。
+                return parts.count > 3 ? Array(parts[0...1] + [parts[2...].joined(separator: separator)]) : parts
+            }
+        }
+        return nil
+    }
+
+    /// 去掉行首项目符号。
+    static func stripBullet(_ text: String) -> String {
+        var result = text
+        while let first = result.first, "-*•—–".contains(first) {
+            result.removeFirst()
+            result = result.trimmingCharacters(in: .whitespaces)
+        }
+        return result
+    }
+
+    /// 字段值清洗：去空白、去掉模型多写的引号。
+    static func normalizing(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespaces)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'“”‘’"))
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    /// 字段名回显防御（`word` / `pos` / `translation` 这些标签不能当内容）。
+    static func isFieldName(_ raw: String) -> Bool {
+        let key = raw.lowercased().trimmingCharacters(in: .whitespaces)
+        return ["word", "pos", "translation", "meaning", "chinese", "中文", "词性"].contains(key)
     }
 }
 

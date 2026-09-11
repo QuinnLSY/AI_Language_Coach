@@ -126,7 +126,10 @@ public struct MainView: View {
                 await state.openShadowing()
             }
             // 截图/验证辅助：--open-vocabulary 启动时直接进入词汇本页
-            if CommandLine.arguments.contains("--open-vocabulary") {
+            // （--daily-flip / --vocabulary-tail 自带进页，见 VocabularyView 的验证钩子）
+            if CommandLine.arguments.contains("--open-vocabulary")
+                || CommandLine.arguments.contains("--daily-flip")
+                || CommandLine.arguments.contains("--vocabulary-tail") {
                 await state.openVocabulary()
             }
             // 截图/验证辅助：--vocabulary-draft "sign" 进词汇本 + 往添加框塞一段输入，

@@ -174,6 +174,8 @@ public final class AppState {
     /// 释义被手动收起的词条（「查释义」按钮与收起开关是同一个按钮；
     /// 已有释义默认展开，收起后点「看释义」再展开，不重新请求模型）。
     public private(set) var collapsedVocabularyDefinitions: Set<UUID> = []
+    /// 已经尝试过「词性 / 中文补全」的词条（每个词一次，失败不反复重试）。
+    private var termsHealAttempted: Set<UUID> = []
     /// 每日推荐（本次启动随机抽的 12 个：3 简单 / 5 中等 / 2 困难 / 2 词组；不落库）。
     public private(set) var dailyWords: [DailyWord] = []
     /// 每日推荐词的释义缓存（按需 LLM，word → 释义；与词汇本共用同一结构）。
@@ -930,6 +932,21 @@ public final class AppState {
         }
         await reloadVocabulary()
         await loadVocabularyBankIfNeeded()
+        await healVocabularyTermsIfNeeded()
+    }
+
+    /// 进页面时把**历史落库**里缺「词性 / 中文」的词条补一遍（后台，每次启动每个词只试一次）。
+    ///
+    /// 早先版本模型只把重点单词写成英文（实测 `precipitation, rainfall, drizzle, drought`），
+    /// 老数据不会自己变好 —— 这里定向问一次模型补上并覆盖落库，之后的启动就直接是好的。
+    /// 模型没在跑 / 补不到就静默跳过，不打扰用户。
+    private func healVocabularyTermsIfNeeded() async {
+        for entry in vocabularyEntries where !collapsedVocabularyDefinitions.contains(entry.id) {
+            guard !termsHealAttempted.contains(entry.id) else { continue }
+            let definition = VocabularyDefinitionRule.decodeStored(entry.meaning)
+            guard !definition.termsNeedingCompletion.isEmpty else { continue }
+            await healVocabularyTerms(id: entry.id)
+        }
     }
 
     /// 重新读库 + 汇总统计。
@@ -972,9 +989,26 @@ public final class AppState {
             await defineVocabulary(id: id)
         } else if collapsedVocabularyDefinitions.contains(id) {
             collapsedVocabularyDefinitions.remove(id)
+            // 展开时顺手补一次「词性 / 中文」：早年落库的释义里重点单词只有英文。
+            await healVocabularyTerms(id: id)
         } else {
             collapsedVocabularyDefinitions.insert(id)
         }
+    }
+
+    /// 已落库释义的词条补全：近义词 / 反义词 / 重点单词缺词性或中文时，
+    /// 定向请求一次模型补上并覆盖落库（每个词只试一次，失败静默）。
+    private func healVocabularyTerms(id: UUID) async {
+        guard !termsHealAttempted.contains(id) else { return }
+        // 模型没开就等下次进页面再试（不标记，否则本次启动内不再补）。
+        guard isModelRunning(.llm) else { return }
+        termsHealAttempted.insert(id)
+        guard let entry = vocabularyEntries.first(where: { $0.id == id }) else { return }
+        guard let updated = await services.completeVocabularyTerms(entry) else { return }
+        if let index = vocabularyEntries.firstIndex(where: { $0.id == id }) {
+            vocabularyEntries[index] = updated
+        }
+        refreshVocabularySuggestions()
     }
 
     /// 重新释义：旧数据（早先版本只存了整段中文，没有音标 / 词性 / 例句翻译）
