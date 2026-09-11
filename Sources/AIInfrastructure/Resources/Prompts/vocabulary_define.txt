@@ -4,10 +4,16 @@ For the word or expression below, reply with EXACTLY one line in this format:
 
 MEANING||EXAMPLE||KEYWORDS
 
+IMPORTANT: MEANING, EXAMPLE and KEYWORDS above are only field NAMES. NEVER write these three words in your reply — replace each with real content.
+
 - MEANING: a DETAILED explanation in {native_language} (Chinese). Explain what it means, when to use it, and any nuance or register — 1 to 3 short sentences. NEVER reply with an English explanation, NEVER just repeat the word itself, NEVER give a bare one-word literal translation.
 - EXAMPLE: ONE natural example sentence in {learning_language} that clearly uses the word or expression.
-- KEYWORDS: if the entry contains SEVERAL words (a phrase, collocation or sentence), pick its 2-4 most important words and list each as: word (part-of-speech) Chinese translation, separated by "；". Example: boost (v.) 提升；encourage (v.) 鼓励. If the entry is a SINGLE word, write just "-".
+- KEYWORDS: if the entry contains SEVERAL words (a phrase, collocation or sentence), pick its 2-4 most important words and list each as: word (part-of-speech) Chinese translation, separated by "；". If the entry is a SINGLE word, write just "-".
 - No numbering, no quotes around the fields, no extra lines, no explanation.
+
+Here is a worked example of a CORRECT reply (for the word "percent"):
+
+百分比是用来表示一个数是另一个数的百分之几的数学概念，常用于描述比例或相对关系，如成绩、增长率等，口语和书面语都很常用。||Only five percent of the students passed the exam.||five (num.) 五；student (n.) 学生；exam (n.) 考试
 
 Word or expression:
 {word}

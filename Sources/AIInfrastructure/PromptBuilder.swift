@@ -168,6 +168,7 @@ public enum PromptBuilder {
             - MEANING: a DETAILED explanation in {native_language} (Chinese), 1-3 short sentences. NEVER an English explanation, NEVER just repeat the word.
             - EXAMPLE: ONE natural example sentence in {learning_language} using the word or expression.
             - KEYWORDS: for a multi-word entry, list its 2-4 key words as "word (part-of-speech) Chinese translation" separated by "；"; for a single word, write "-".
+            - IMPORTANT: MEANING / EXAMPLE / KEYWORDS are only field names — NEVER write them in your reply, replace each with real content.
             - No extra text.
 
             Word or expression:
@@ -200,6 +201,7 @@ public enum PromptBuilder {
             - EXAMPLE: ONE natural IELTS-style example sentence in {learning_language}.
             - EXAMPLE_TRANSLATION: its {native_language} translation.
             - SYNONYMS / ANTONYMS: 1-2 words each, separated by "、"; write "-" if none.
+            - IMPORTANT: the field names (POS / MEANING / ...) are labels only — NEVER write them in your reply, replace each with real content.
             - No extra text.
 
             Word:

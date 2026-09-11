@@ -109,6 +109,33 @@ final class VocabularyTests: XCTestCase {
         XCTAssertEqual(single?.storedMeaning, "详细的中文释义")
     }
 
+    func testDefineRuleRepairsPlaceholderEcho() {
+        // qwen3:8b 实测会把格式行的字段名原样回显、只在中间填内容：
+        // 「MEANING||真实的释义||EXAMPLE」→ 字段名段必须剔除，真实释义升位。
+        let echo = VocabularyDefineRule.parse("MEANING||Water is a common liquid essential for life.||EXAMPLE")
+        XCTAssertEqual(echo?.meaning, "Water is a common liquid essential for life.")
+        XCTAssertEqual(echo?.example, "", "EXAMPLE 是字段名回显，不是例句")
+        XCTAssertEqual(echo?.keywords, "")
+        // 整行纯字段名回显（没有任何真实内容）：拒绝解析。
+        XCTAssertNil(VocabularyDefineRule.parse("MEANING||EXAMPLE||KEYWORDS"))
+        // 大小写不敏感。
+        let mixed = VocabularyDefineRule.parse("meaning||百分比是指百分之一为单位的比率。||-")
+        XCTAssertEqual(mixed?.meaning, "百分比是指百分之一为单位的比率。")
+    }
+
+    func testSanitizedStoredMeaningCleansLegacyEchoRows() {
+        // 历史坏数据（释义=「MEANING」+「重点单词：EXAMPLE」两行垃圾）→ 清完为空，
+        // 退回「还没有释义」让用户重新查释义。
+        let corrupt = VocabularyDefineRule.sanitizedStoredMeaning("MEANING\n重点单词： EXAMPLE")
+        XCTAssertEqual(corrupt, "")
+        // 好数据原样保留。
+        let good = "详细的中文释义。\n重点单词：boost (v.) 提升"
+        XCTAssertEqual(VocabularyDefineRule.sanitizedStoredMeaning(good), good)
+        // 坏行剔除但好行保留。
+        let partial = VocabularyDefineRule.sanitizedStoredMeaning("MEANING\n真正的释义。")
+        XCTAssertEqual(partial, "真正的释义。")
+    }
+
     // MARK: - 每日推荐（Daily Recommendation）
 
     /// 固定种子随机源：让选词测试可复现。
@@ -177,6 +204,15 @@ final class VocabularyTests: XCTestCase {
         // 围栏 + 客套行要跳过；空释义拒绝。
         XCTAssertNil(VocabularyDailyRule.parse("```\nSure!\nadj.||||An example.||-||-||-"))
         XCTAssertNil(VocabularyDailyRule.parse("没有分隔符的一行"))
+
+        // 字段名回显段（POS/MEANING/…）要剔除，真实内容按位升格。
+        let echoed = VocabularyDailyRule.parse(
+            "POS||大量的、实质性的；强调数量或程度超出一般。||EXAMPLE||EXAMPLE_TRANSLATION||considerable、significant||-"
+        )
+        XCTAssertEqual(echoed?.pos, "", "POS 是字段名回显")
+        XCTAssertEqual(echoed?.meaning, "大量的、实质性的；强调数量或程度超出一般。")
+        XCTAssertEqual(echoed?.example, "")
+        XCTAssertEqual(echoed?.synonyms, ["considerable", "significant"])
     }
 
     func testWordBankParseFiltersInvalidAndDuplicates() throws {

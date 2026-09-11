@@ -6,10 +6,16 @@ import Foundation
 
 /// 词汇本定义输出的解析规则（纯函数，便于单测）。
 ///
-/// 模型被要求回一行「释义||例句||重点单词」；实际偶尔会围栏、多余行、缺分隔符。
-/// 规则：取**含 `||` 的第一行**拆开；没有 `||` 时整行按释义处理（例句/重点单词为空）。
-/// 重点单词段为 `-` 时视为「没有」（单词本就是它自己的重点）。
+/// 模型被要求回一行「释义||例句||重点单词」；实际偶尔会围栏、多余行、缺分隔符，
+/// 甚至把格式行里的字段名（MEANING/EXAMPLE/KEYWORDS）原样回显、只在中间填内容
+/// （qwen3:8b 实测出现过）。规则：
+/// - 取**含 `||` 的第一行**拆开；
+/// - **等于字段名的段直接剔除**（回显防御），剩下的段按 释义→例句→重点单词 依次取用；
+/// - 重点单词为 `-` 视为「没有」；没有 `||` 时整行按释义处理。
 public enum VocabularyDefineRule {
+
+    /// 模型可能原样回显的字段名（小写）。
+    static let placeholderTokens: Set<String> = ["meaning", "example", "keywords", "pos", "释义", "例句", "重点单词"]
 
     public struct Definition: Sendable, Equatable {
         public var meaning: String
@@ -29,6 +35,11 @@ public enum VocabularyDefineRule {
         }
     }
 
+    /// 该段是否是字段名的原样回显。
+    static func isPlaceholder(_ segment: String) -> Bool {
+        placeholderTokens.contains(segment.trimmingCharacters(in: .whitespaces).lowercased())
+    }
+
     public static func parse(_ raw: String) -> Definition? {
         let lines = raw
             .replacingOccurrences(of: "```", with: "")
@@ -37,27 +48,56 @@ public enum VocabularyDefineRule {
             .filter { !$0.isEmpty }
         // 含分隔符的行才是正文（模型偶尔先客气一句）。
         if let body = lines.first(where: { $0.contains("||") }) {
-            let parts = body.components(separatedBy: "||").map {
-                $0.trimmingCharacters(in: .whitespaces)
-            }
-            let meaning = parts.first ?? ""
-            let example = parts.count > 1 ? parts[1] : ""
-            // 第三段（重点单词）可选；`-` 表示没有。
-            var keywords = parts.count > 2 ? parts[2] : ""
+            let real = body
+                .components(separatedBy: "||")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !isPlaceholder($0) }
+            // 整行都是字段名回显（没有真实内容）：按无正文处理。
+            guard let meaning = real.first, !meaning.isEmpty else { return nil }
+            let example = real.count > 1 ? real[1] : ""
+            var keywords = real.count > 2 ? real[2] : ""
             if keywords == "-" { keywords = "" }
-            guard !meaning.isEmpty else { return nil }
             return Definition(meaning: meaning, example: example, keywords: keywords)
         }
-        guard let single = lines.first, !single.isEmpty else { return nil }
+        guard let single = lines.first, !single.isEmpty, !isPlaceholder(single) else { return nil }
         return Definition(meaning: single, example: "")
+    }
+
+    /// 清洗历史坏数据：老版本解析器曾把字段名回显落库（释义=「MEANING」、
+    /// 重点单词=「EXAMPLE」）。逐行剔除字段名行与「重点单词：<字段名>」行；
+    /// 剔完为空 → 返回空串（UI 退回「还没有释义」，可重新查释义覆盖）。
+    public static func sanitizedStoredMeaning(_ raw: String) -> String {
+        let kept = raw
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { line in
+                if isPlaceholder(line) { return false }
+                // 「重点单词：EXAMPLE」这类坏行：冒号后是字段名 → 整行剔除。
+                if line.hasPrefix("重点单词"),
+                   let value = line.split(whereSeparator: { ":：".contains($0) }).last,
+                   isPlaceholder(String(value)) {
+                    return false
+                }
+                return true
+            }
+        return kept.joined(separator: "\n")
     }
 }
 
 /// 每日推荐释义输出的解析规则（纯函数）。
 ///
 /// 一行六段：`词性||释义||例句||例句翻译||近义词||反义词`；
-/// 近/反义词以「、」分隔，`-` 表示没有。
+/// 近/反义词以「、」分隔，`-` 表示没有；字段名回显段（POS/MEANING/…）直接剔除。
 public enum VocabularyDailyRule {
+
+    static let placeholderTokens: Set<String> = [
+        "pos", "meaning", "example", "example_translation", "example translation",
+        "exampletranslation", "synonyms", "antonyms", "词性", "释义", "例句", "例句翻译", "近义词", "反义词",
+    ]
+
+    static func isPlaceholder(_ segment: String) -> Bool {
+        placeholderTokens.contains(segment.trimmingCharacters(in: .whitespaces).lowercased())
+    }
 
     public static func parse(_ raw: String) -> DailyDefinition? {
         let lines = raw
@@ -66,19 +106,25 @@ public enum VocabularyDailyRule {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         guard let body = lines.first(where: { $0.contains("||") }) else { return nil }
+        // 按原始位置取段；等于字段名的段（模型回显格式行）逐个中和为「缺席」，
+        // 不能整体重排 —— 回显场景下剔除后位置有歧义。
         let parts = body.components(separatedBy: "||").map {
             $0.trimmingCharacters(in: .whitespaces)
         }
-        guard parts.count >= 2 else { return nil }
-        let meaning = parts[1]
+        func field(_ index: Int) -> String {
+            guard index < parts.count else { return "" }
+            let value = parts[index]
+            return (value == "-" || isPlaceholder(value)) ? "" : value
+        }
+        let meaning = field(1)
         guard !meaning.isEmpty else { return nil }
         return DailyDefinition(
-            pos: parts[0] == "-" ? "" : parts[0],
+            pos: field(0),
             meaning: meaning,
-            example: parts.count > 2 && parts[2] != "-" ? parts[2] : "",
-            exampleTranslation: parts.count > 3 && parts[3] != "-" ? parts[3] : "",
-            synonyms: parseList(parts.count > 4 ? parts[4] : ""),
-            antonyms: parseList(parts.count > 5 ? parts[5] : "")
+            example: field(2),
+            exampleTranslation: field(3),
+            synonyms: parseList(field(4)),
+            antonyms: parseList(field(5))
         )
     }
 
@@ -121,9 +167,16 @@ public actor VocabularyService {
     // MARK: - 读取
 
     /// 全部词汇（新 → 旧）。没有数据库时为空（UI 呈现可操作提示，不崩）。
+    /// 读出时顺手清洗历史坏数据（字段名回显行），清完为空的词退回「还没有释义」，
+    /// 可重新查释义覆盖。
     public func entries() async -> [VocabularyEntry] {
         guard let learning else { return [] }
-        return (try? await learning.allVocabulary()) ?? []
+        let loaded = (try? await learning.allVocabulary()) ?? []
+        return loaded.map { entry in
+            var cleaned = entry
+            cleaned.meaning = VocabularyDefineRule.sanitizedStoredMeaning(entry.meaning)
+            return cleaned
+        }
     }
 
     /// 从复盘的 new_words 导入生词（按 word 去重，已有词的进度不动）。返回新词数。

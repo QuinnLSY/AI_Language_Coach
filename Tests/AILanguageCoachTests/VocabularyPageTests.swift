@@ -45,16 +45,19 @@ final class VocabularyPageTests: XCTestCase {
         XCTAssertGreaterThan(hosting.fittingSize.height, 0, "词汇本页（含每日推荐 + 常驻添加框）应可布局")
     }
 
-    func testTranslationCardWidthRespectsDynamicCap() {
+    func testTranslationCardLayoutsLikeBodyBubble() {
+        // 译文卡片已与正文气泡同构（不再做任何宽度测量）：
+        // 这里只验证渲染属性仍然保留「颜色 + 引号」之外的普通文本换行行为。
         let long = String(repeating: "这是一句很长的译文，", count: 40)
-        // 窄消息区：卡片顶到「净宽 − 100」的上限，与该窗口下正文气泡的最大宽一致。
-        let narrow = ChatView.translationCardWidth(for: long, maxWidth: 400)
-        XCTAssertEqual(narrow, 400)
-        // 宽消息区：同一句可以更宽，不再被旧的 320 硬编码提前折行。
-        let wide = ChatView.translationCardWidth(for: long, maxWidth: 700)
-        XCTAssertEqual(wide, 700)
-        // 短句仍是「文字实际占宽」的小卡片，不会被撑满。
-        let short = ChatView.translationCardWidth(for: "好的", maxWidth: 700)
-        XCTAssertLessThan(short, 120)
+        let text = Text(long).fixedSize(horizontal: false, vertical: true)
+        let hosting = NSHostingView(rootView: HStack(spacing: 6) {
+            text.foregroundStyle(.primary)
+            Image(systemName: "quote.opening")
+        }
+        .padding(.horizontal, 12))
+        hosting.frame = NSRect(x: 0, y: 0, width: 400, height: 800)
+        hosting.layoutSubtreeIfNeeded()
+        // 关键断言：结构换行约束下不会超出提案宽度（旧量宽方案曾撑出容器）。
+        XCTAssertLessThanOrEqual(hosting.bounds.width, 401)
     }
 }

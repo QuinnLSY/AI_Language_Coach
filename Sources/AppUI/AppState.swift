@@ -182,8 +182,18 @@ public final class AppState {
     public private(set) var isDefiningDaily: Set<String> = []
     /// 已展开释义的每日推荐词（点「查释义」展开，再点收起）。
     public private(set) var expandedDailyWords: Set<String> = []
+    /// 本次展示中已计入「认识」的推荐词（再点一次是撤销 → 计数 -1）。
+    /// 每次换一批/重启后清空 —— 单词每出现一次最多计一次，防误点连击。
+    public private(set) var dailyAcknowledged: Set<String> = []
+    /// 「认识」累计计数（跨启动持久化）。满 3 次的词不再进入每日推荐。
+    private var dailyRecognitions: [String: Int] = [:]
     /// 本次启动是否已抽过每日推荐（每次启动只抽一次，刷新按钮才重新抽）。
     private var dailyWordsLoaded = false
+
+    /// 「认识」计数的持久化键（UserDefaults：轻量 [word: count]，不值得为此建表）。
+    private static let dailyRecognitionStorageKey = "vocabulary.dailyRecognitions"
+    /// 累计认识满此次数 → 不再推荐。
+    public static let dailyRecognitionRetireCount = 3
 
     /// 产品配置缓存（Sendable，可在 MainActor 直接修改后整体回写）。
     private var product: ProductConfig = ProductConfig()
@@ -201,6 +211,8 @@ public final class AppState {
         var states: [AIProviderKind: Bool] = [:]
         for kind in AIProviderKind.allCases { states[kind] = true }
         self.modelRunStates = states
+        // 每日推荐「认识」计数（手写 init 不给默认值漏赋值报错，必须显式加载）。
+        self.dailyRecognitions = Self.loadDailyRecognitions()
     }
 
     public convenience init() { self.init(services: CoachServices()) }
@@ -958,22 +970,48 @@ public final class AppState {
 
     // MARK: - 词汇本 · 每日推荐
 
+    /// 读「认识」计数（UserDefaults，轻量 [word: count]）。
+    private static func loadDailyRecognitions() -> [String: Int] {
+        guard let data = UserDefaults.standard.data(forKey: dailyRecognitionStorageKey) else { return [:] }
+        return (try? JSONDecoder().decode([String: Int].self, from: data)) ?? [:]
+    }
+
+    private func saveDailyRecognitions() {
+        if let data = try? JSONEncoder().encode(dailyRecognitions) {
+            UserDefaults.standard.set(data, forKey: Self.dailyRecognitionStorageKey)
+        }
+    }
+
+    /// 某词累计被点「认识」的次数。
+    public func dailyRecognitionCount(word: String) -> Int {
+        dailyRecognitions[word.lowercased()] ?? 0
+    }
+
+    /// 已认熟（满 3 次）的词集合：抽词时排除。
+    private var retiredDailyWords: Set<String> {
+        Set(dailyRecognitions.filter { $0.value >= Self.dailyRecognitionRetireCount }.keys)
+    }
+
     /// 每次启动随机抽 10 个推荐词（3 简单 / 5 中等 / 2 困难，雅思标准）。
-    /// 只在第一次进词汇本页时抽，之后进页面保持同一组。
+    /// 只在第一次进词汇本页时抽，之后进页面保持同一组；已认熟的词不再出现。
     public func loadDailyWordsIfNeeded() async {
         guard !dailyWordsLoaded else { return }
         dailyWordsLoaded = true
-        dailyWords = await services.dailyWordRecommendation()
+        dailyWords = await services.dailyWordRecommendation(excluding: retiredDailyWords)
     }
 
-    /// 刷新：重新抽 10 个与当前展示的**不同**的词（清空展开态，释义缓存保留可复用）。
+    /// 刷新：重新抽 10 个与当前展示的**不同**的词（清空展开态与本次「认识」记录，
+    /// 已认熟的词不再出现；释义缓存保留可复用）。
     public func refreshDailyWords() async {
-        let next = await services.dailyWordRecommendation(excluding: Set(dailyWords.map { $0.word.lowercased() }))
+        var excluding = Set(dailyWords.map { $0.word.lowercased() })
+        excluding.formUnion(retiredDailyWords)
+        let next = await services.dailyWordRecommendation(excluding: excluding)
         // 词库不足 10 词时可能抽不满，把排除条件放宽再抽一次。
         dailyWords = next.isEmpty && !dailyWords.isEmpty
-            ? await services.dailyWordRecommendation()
+            ? await services.dailyWordRecommendation(excluding: retiredDailyWords)
             : next
         expandedDailyWords = []
+        dailyAcknowledged = []
     }
 
     /// 每日推荐词的「查释义」按钮：展开 / 收起切换，首次展开时请求模型。
@@ -993,6 +1031,26 @@ public final class AppState {
             }
         }
         expandedDailyWords.insert(word)
+    }
+
+    /// 每日推荐的「认识」按钮（同一按钮切换）：
+    /// - 未计入 → 计数 +1，按钮变灰显示「再想想」（再点撤销 → 计数 -1）；
+    /// - 每次出现最多计一次，换一批 / 重启后重新可计；
+    /// - 累计满 3 次 → 该词从推荐中移除，之后不再推荐。
+    public func toggleDailyRecognized(word: String) async {
+        let key = word.lowercased()
+        if dailyAcknowledged.contains(word) {
+            dailyRecognitions[key] = max((dailyRecognitions[key] ?? 1) - 1, 0)
+            dailyAcknowledged.remove(word)
+        } else {
+            dailyRecognitions[key] = (dailyRecognitions[key] ?? 0) + 1
+            dailyAcknowledged.insert(word)
+        }
+        saveDailyRecognitions()
+        if (dailyRecognitions[key] ?? 0) >= Self.dailyRecognitionRetireCount {
+            dailyWords.removeAll { $0.word.caseInsensitiveCompare(word) == .orderedSame }
+            vocabularyNotice = "「\(word)」累计认识 3 次，已从每日推荐中毕业 🎉"
+        }
     }
 
     /// 把推荐词加入复习列表（用户手动；已在词表时只提示）。

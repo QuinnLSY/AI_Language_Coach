@@ -139,6 +139,7 @@ public struct VocabularyView: View {
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.primaryText)
                 difficultyTag(daily.difficulty)
+                speakButton(daily.word)
                 Spacer(minLength: 0)
                 if state.expandedDailyWords.contains(daily.word) {
                     // 释义已展开 → 同一个按钮变成「收起」。
@@ -155,7 +156,9 @@ public struct VocabularyView: View {
                 dailyDefinitionBody(definition)
             }
 
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
+                recognizeButton(daily)
+                recognitionDots(state.dailyRecognitionCount(word: daily.word))
                 Spacer(minLength: 0)
                 if inVocabulary(daily.word) {
                     Label("已在词表", systemImage: "checkmark")
@@ -186,6 +189,55 @@ public struct VocabularyView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(theme.divider, lineWidth: 1)
         )
+    }
+
+    /// 黄色小喇叭：朗读卡片里的英文（单词 + 例句）。朗读中再点即停。
+    /// 复用老师朗读链路（`AppState.speak` → VoiceService 分句流水线 + 相位回调）。
+    private func speakButton(_ text: String) -> some View {
+        let isSpeakingThis = state.speakingText == text && state.speechPhase != .idle
+        return Button {
+            if isSpeakingThis {
+                Task { await state.stopSpeaking() }
+            } else {
+                Task { await state.speak(text) }
+            }
+        } label: {
+            Image(systemName: isSpeakingThis ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.yellow)
+        }
+        .buttonStyle(.plain)
+        .help(isSpeakingThis ? "停止朗读" : "朗读")
+    }
+
+    /// 每日推荐的「认识」按钮（与复习判分的认识同款绿色）：
+    /// 点一下计数 +1 并变灰成「再想想」（再点撤销）；累计满 3 次的词不再推荐。
+    private func recognizeButton(_ daily: DailyWord) -> some View {
+        let acknowledged = state.dailyAcknowledged.contains(daily.word)
+        return Button {
+            Task { await state.toggleDailyRecognized(word: daily.word) }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: acknowledged ? "arrow.uturn.backward" : "checkmark.circle.fill")
+                Text(acknowledged ? "再想想" : "认识")
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(acknowledged ? theme.secondaryText : Color.green)
+        }
+        .buttonStyle(.plain)
+        .help(acknowledged ? "撤销：刚才点错了" : "我认识这个词（累计 3 次后不再推荐）")
+    }
+
+    /// 「认识」进度点：最多 3 个小绿点，亮几个 = 被认识几次。
+    private func recognitionDots(_ count: Int) -> some View {
+        HStack(spacing: 3) {
+            ForEach(0..<AppState.dailyRecognitionRetireCount, id: \.self) { index in
+                Circle()
+                    .fill(index < count ? Color.green : theme.divider)
+                    .frame(width: 6, height: 6)
+            }
+        }
+        .help("累计认识 \(count) 次，满 \(AppState.dailyRecognitionRetireCount) 次不再推荐")
     }
 
     /// 每日推荐的「查释义 / 看释义 / 收起」按钮（一个按钮三态切换）。
@@ -303,11 +355,14 @@ public struct VocabularyView: View {
 
     private func entryCard(_ entry: VocabularyEntry) -> some View {
         let collapsed = state.collapsedVocabularyDefinitions.contains(entry.id)
+        // 小喇叭朗读内容：单词 + 例句（有例句就连起来读，一个按钮读完卡片所有英文）。
+        let spokenText = entry.example.isEmpty ? entry.word : "\(entry.word). \(entry.example)"
         return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(entry.word)
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.primaryText)
+                speakButton(spokenText)
                 if ReviewScheduler.isDue(entry) {
                     Text("待复习")
                         .font(.system(size: 9, weight: .semibold))

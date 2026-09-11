@@ -73,10 +73,6 @@ public struct ChatView: View {
     /// 录音中且尚未发送：只有这段时间才允许流式结果往输入框里写。
     /// （发送后必须彻底断开，否则正在录音时发送会被下一轮流式结果原样填回来。）
     @State private var isMergingVoice = false
-    /// 消息区内容列实测宽度（去掉左右 18pt 内边距后的净宽）。
-    /// 译文卡片的最大宽度由此推算 —— 卡片上限要和正文气泡的上限一致，
-    /// 否则长译文会在正文气泡还没换行的宽度处提前换行。
-    @State private var chatContentWidth: CGFloat = 0
 
     /// 每条预设提问停留的秒数。
     private let rotationInterval: Double = 3.4
@@ -371,11 +367,6 @@ public struct ChatView: View {
                     .padding(.horizontal, 18)
                     .padding(.vertical, 16)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        proxy.size.width
-                    } action: { width in
-                        chatContentWidth = width
-                    }
                 }
                 .onChange(of: chat.messages.count) { _, _ in scrollToBottom(proxy) }
                 .onChange(of: chat.streamingText) { scrollToBottom(proxy) }
@@ -473,8 +464,10 @@ public struct ChatView: View {
                 CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
             }
             // 学员气泡靠右 → 内容列 .trailing；老师靠左 → .leading。
-            // ⚠️ 不能靠给译文卡片挂 `frame(maxWidth: .infinity)` 来贴边：
-            // 那会让这列变成弹性视图，与学员侧的 Spacer 平分空闲宽度，把正文气泡挤向中间。
+            // ⚠️ 译文卡片**不挂任何宽度 frame**：裸 HStack[Text] 是「内容自然宽度、
+            // 超宽自动换行」，与正文气泡完全同构；挂了 `frame(maxWidth: .infinity)`
+            // 才会变成弹性视图、与 Spacer 平分宽度把正文挤向中间（第一轮翻车根因），
+            // 挂了 `frame(width: 量宽)` 则会撑出行宽（第二轮翻车根因）。
             VStack(alignment: isUser ? .trailing : .leading, spacing: 6) {
                 // 思考过程：对话卡片内嵌的折叠面板，正文在其下方。
                 if !isUser, let reasoning = message.reasoning, !reasoning.isEmpty {
@@ -538,6 +531,13 @@ public struct ChatView: View {
     /// 对齐跟随**内容列**（学员 .trailing / 老师 .leading）：
     /// 学员译文与正文气泡**右缘对齐**（正文位置不动，译文出现在其下方）；
     /// 老师译文左对齐。两侧因此永不重叠，一眼就能分出这句话是谁说的。
+    ///
+    /// ⚠️ 布局与正文气泡**完全同构**（2026-09-11 定版）：不做任何宽度测量、
+    /// 不挂任何 `frame(width:)` —— 内容自然宽度、超过可用宽度自动换行，
+    /// 可用宽度与正文气泡一模一样（同处一个 VStack，收到同一个宽度提案）。
+    /// 只保留两处刻意差异：底色不同、多一个引号图标。
+    /// 历史教训：量宽方案（自然宽 ×1.04、动态上限）连续翻车 —— 忘减内边距就
+    /// 把整行撑出窗口。Text 本来就会在提案宽度处换行，根本不需要手工量。
     private func translationCard(_ text: String, isUser: Bool) -> some View {
         HStack(alignment: .top, spacing: Self.translationMarkGap) {
             if isUser {
@@ -550,11 +550,6 @@ public struct ChatView: View {
         }
         .padding(.horizontal, Self.translationPadding)
         .padding(.vertical, 8)
-        // 宽度收紧到「文字实际占宽」：短句就是一条小卡片，而不是撑满的长条。
-        // 定宽 + 交给上层 VStack 对齐 —— 卡片本身必须保持**刚性**（见 bubble 内注释）。
-        // 上限与正文气泡的最大宽度一致（由消息区实测宽度推算），长译文
-        // 不会再在比正文气泡窄的地方提前换行。
-        .frame(width: Self.translationCardWidth(for: text, maxWidth: translationCardWidthCap), alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(theme.surfaceAlt.opacity(0.9))
@@ -564,15 +559,6 @@ public struct ChatView: View {
                 .strokeBorder(theme.accent.opacity(0.28), lineWidth: 1)
         )
         .transition(.opacity.combined(with: .move(edge: .top)))
-    }
-
-    /// 译文卡片宽度上限（实例侧）：跟随消息区实测宽度推算。
-    ///
-    /// 正文气泡的最大宽 = 消息区净宽 − 对侧 Spacer 最小 36 − 头像(最大 30)
-    /// − 翻译按钮 20 − 两个间距 8+6 = 净宽 − 100。卡片上限与之取齐；
-    /// 首帧还没量到宽度时退回旧值 320（下一帧立刻被实测值取代）。
-    private var translationCardWidthCap: CGFloat {
-        chatContentWidth > 200 ? chatContentWidth - Self.bubbleChromeWidth : Self.translationCardMaxWidth
     }
 
     /// 引号方向跟着卡片走：老师在**左**用左引号，学员在**右**用右引号。
@@ -590,50 +576,12 @@ public struct ChatView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    // MARK: - 译文卡片宽度（纯度量，可单测）
+    // MARK: - 译文卡片装饰常量
 
     /// 译文卡片左右内边距。
     nonisolated static let translationPadding: CGFloat = 12
     /// 引号图标与文字之间的间距。
     nonisolated static let translationMarkGap: CGFloat = 6
-    /// 引号图标占宽（SF Symbol 9pt semibold 实测 13pt，取 14 留 1pt 余量）。
-    nonisolated static let translationMarkWidth: CGFloat = 14
-    /// 卡片最大宽度：超过则换行。这是**兜底值** —— 实际上限随消息区宽度
-    /// 动态推算（见 `bubbleChromeWidth`），与正文气泡的最大宽度保持一致。
-    nonisolated static let translationCardMaxWidth: CGFloat = 320
-    /// 气泡行两侧的固定开销：对侧 Spacer 最小 36 + 头像最大 30
-    /// + 翻译按钮 20 + 间距 8 + 6 = 100。正文气泡最大宽 = 净宽 − 该值。
-    nonisolated static let bubbleChromeWidth: CGFloat = 100
-    /// 正文可用宽度上限 = 卡片上限 − 内边距 − 引号 − 间距。
-    nonisolated static func translationTextMaxWidth(cardMaxWidth: CGFloat) -> CGFloat {
-        cardMaxWidth - translationPadding * 2 - translationMarkWidth - translationMarkGap
-    }
-
-    /// 卡片宽度 = 文字自然宽度 + 卡片装饰宽度（内边距 / 引号 / 间距）。
-    ///
-    /// 为什么要手工量：SwiftUI 里 `Text` 是**弹性**的，放进 `frame(maxWidth:)` 会被撑到上限，
-    /// 而译文多是短句，撑满后卡片比文字长出一大截（「太多空余」）。这里按单行自然宽度收紧，
-    /// 只有超长句才回落到上限换行。
-    nonisolated static func translationCardWidth(for text: String, maxWidth: CGFloat) -> CGFloat {
-        let chrome = translationPadding * 2 + translationMarkWidth + translationMarkGap
-        return translationNaturalWidth(for: text, maxWidth: translationTextMaxWidth(cardMaxWidth: maxWidth)) + chrome
-    }
-
-    /// 单行自然宽度（与渲染字体一致：系统圆体 12pt），上限截断。
-    ///
-    /// 实测 NSString 量出 149pt 的句子，SwiftUI `Text` 实渲染 155pt（约 +4%）——
-    /// 不留这个系数，卡片就会比量宽早一行换行。量宽偏大最多多 4pt 空隙，看不出来；
-    /// 偏小则当场换行，所以系数必须留。
-    nonisolated static func translationNaturalWidth(for text: String, maxWidth: CGFloat) -> CGFloat {
-        let base = NSFont.systemFont(ofSize: 12)
-        let descriptor = base.fontDescriptor.withDesign(.rounded) ?? base.fontDescriptor
-        let font = NSFont(descriptor: descriptor, size: 12) ?? base
-        let widest = text
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { ($0 as NSString).size(withAttributes: [.font: font]).width }
-            .max() ?? 0
-        return min(ceil(widest * 1.04) + 4, maxWidth)
-    }
 
     /// 翻译按钮：**按需翻译**的入口。
     ///
