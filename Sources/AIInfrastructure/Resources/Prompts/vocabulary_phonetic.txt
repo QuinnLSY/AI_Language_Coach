@@ -1,0 +1,10 @@
+You give the IPA transcription of a single {learning_language} word.
+
+Reply with ONLY the transcription between slashes — nothing else, no key name, no explanation.
+
+- Use British or American IPA, with stress marks, e.g. /səbˈstænʃl/.
+- Never write a bare "/" and never leave the line empty: if you are unsure, still give your best transcription.
+- No quotes, no numbering, no commentary.
+
+Word:
+{word}

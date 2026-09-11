@@ -125,7 +125,57 @@ final class VocabularyTests: XCTestCase {
         XCTAssertEqual(parsed.antonyms, [])
         XCTAssertEqual(parsed.exampleTranslation, "我们必须把生活成本考虑进去。")
         XCTAssertEqual(parsed.keywords, "take (v.) 拿；account (n.) 账户；consideration (n.) 考虑")
-        XCTAssertEqual(parsed.keywordsLine, "重点单词：take (v.) 拿；account (n.) 账户；consideration (n.) 考虑")
+    }
+
+    func testPhoneticGuardsAgainstBareSlashAndRescuesStrayIPA() {
+        // 模型实测出现过只回一个「/」的音标：视为缺席，卡片上不能显示孤零零的斜杠。
+        let bare = VocabularyDefinitionRule.parse("""
+        phonetic: /
+        pos: n.
+        meaning: 爱好；消遣
+        explanation: 指工作学习之外的娱乐活动。
+        example: She has a hobby of painting landscapes.
+        """)
+        XCTAssertEqual(bare.phonetic, "", "裸斜杠不是音标")
+
+        // 音标被写到没带键的行里（或键名没认出来）时，兜底搜捕要把它救回来。
+        let stray = VocabularyDefinitionRule.parse("""
+        pos: n.
+        meaning: 习惯
+        /ˈhɒbɪ/
+        example: Reading is my favourite hobby.
+        """)
+        XCTAssertEqual(stray.phonetic, "/ˈhɒbɪ/", "没带键的音标也要能救回")
+
+        // 合法音标原样保留（英式 / 美式、方括号写法都算）。
+        XCTAssertTrue(VocabularyDefinitionRule.isUsablePhonetic("/ɪnˈkriːs/"))
+        XCTAssertTrue(VocabularyDefinitionRule.isUsablePhonetic("[ˈhɒbi]"))
+        XCTAssertFalse(VocabularyDefinitionRule.isUsablePhonetic("/"))
+        XCTAssertFalse(VocabularyDefinitionRule.isUsablePhonetic("//"))
+        XCTAssertFalse(VocabularyDefinitionRule.isUsablePhonetic("-"))
+
+        // 中文行里的「A/B」不能当成音标（必须含字母且不是 CJK）。
+        XCTAssertNil(VocabularyDefinitionRule.phoneticCandidate(in: "中文/解释/说明"))
+        XCTAssertEqual(VocabularyDefinitionRule.phoneticCandidate(in: "word /ˈsaɪkl/ here"), "/ˈsaɪkl/")
+    }
+
+    func testNeedsPhoneticOnlyForSingleWords() {
+        XCTAssertTrue(VocabularyService.needsPhonetic("hobby"))
+        XCTAssertFalse(VocabularyService.needsPhonetic("take into account"), "词组没有音标")
+        XCTAssertFalse(VocabularyService.needsPhonetic("What would you like to order?"))
+    }
+
+    func testKeywordsValueDropsItsOwnLabel() {
+        // 值自带「重点单词：」前缀时必须去掉 —— 否则复习卡会渲染成
+        // 「重点单词 重点单词：cycle (n.)；phase (n.)」重复两遍。
+        let duplicated = VocabularyDefinitionRule.parse("""
+        meaning: 循环；周期
+        keywords: 重点单词：cycle (n.)；phase (n.)
+        """)
+        XCTAssertEqual(duplicated.keywords, "cycle (n.)；phase (n.)")
+        // 正常的纯值不受影响。
+        let plain = VocabularyDefinitionRule.parse("keywords: cycle (n.)；phase (n.)")
+        XCTAssertEqual(plain.keywords, "cycle (n.)；phase (n.)")
     }
 
     func testDefinitionRuleRepairsPlaceholderEcho() {

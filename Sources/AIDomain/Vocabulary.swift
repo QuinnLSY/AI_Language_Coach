@@ -183,11 +183,6 @@ public struct VocabularyDefinition: Sendable, Equatable {
             .filter { !$0.isEmpty }
     }
 
-    /// 「重点单词」行文案（没有则 nil）。
-    public var keywordsLine: String? {
-        keywords.isEmpty ? nil : "重点单词：\(keywords)"
-    }
-
     /// 落库编码。历史数据原样保留（重点单词行照旧拼回）；结构化数据写成键值行，
     /// 读回时同一套解析。
     public var encoded: String {

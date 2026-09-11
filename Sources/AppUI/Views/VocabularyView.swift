@@ -86,6 +86,12 @@ public struct VocabularyView: View {
 
     // MARK: - 每日推荐
 
+    /// 推荐框默认**收起**（只露前几个卡片，紧凑）；点下框线中间的按钮展开 / 收起。
+    @State private var dailyExpanded = false
+
+    /// 收起状态下推荐框的高度 ≈ 两行卡片（两列布局下正好四个卡片）。
+    private static let collapsedDailyHeight: CGFloat = 106
+
     @ViewBuilder
     private var dailySection: some View {
         if !state.dailyWords.isEmpty {
@@ -115,14 +121,7 @@ public struct VocabularyView: View {
                     .help("重新随机推荐 12 个不同的单词与词组")
                 }
 
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 230), spacing: 10)],
-                    spacing: 10
-                ) {
-                    ForEach(state.dailyWords) { word in
-                        dailyCard(word)
-                    }
-                }
+                dailyGrid
             }
             .padding(14)
             .background(
@@ -133,7 +132,55 @@ public struct VocabularyView: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .strokeBorder(theme.accent.opacity(0.22), lineWidth: 1)
             )
+            // 展开 / 收起按钮骑在**下框线正中**（offset 半个胶囊高）。
+            .overlay(alignment: .bottom) { dailyExpandToggle }
+            .padding(.bottom, 10)
         }
+    }
+
+    /// 推荐词网格：展开时全部平铺；收起时限制高度 + 内置滚动条（可继续往下浏览）。
+    @ViewBuilder
+    private var dailyGrid: some View {
+        let grid = LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 230), spacing: 10)],
+            spacing: 10
+        ) {
+            ForEach(state.dailyWords) { word in
+                dailyCard(word)
+            }
+        }
+        if dailyExpanded {
+            grid
+        } else {
+            ScrollView(.vertical) {
+                grid.padding(.trailing, 4)
+            }
+            .frame(height: Self.collapsedDailyHeight)
+            .scrollIndicators(.visible)
+        }
+    }
+
+    /// 下框线正中的下拉 / 收起按钮（互相切换）。
+    private var dailyExpandToggle: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.18)) { dailyExpanded.toggle() }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: dailyExpanded ? "chevron.up" : "chevron.down")
+                Text(dailyExpanded ? "收起" : "展开")
+            }
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(theme.accent)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(theme.surface))
+            .overlay(
+                Capsule().strokeBorder(theme.accent.opacity(0.35), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .offset(y: 10)
+        .help(dailyExpanded ? "收起为前几个卡片" : "展开全部推荐词")
     }
 
     private func dailyCard(_ daily: DailyWord) -> some View {
@@ -146,7 +193,8 @@ public struct VocabularyView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 difficultyTag(daily.difficulty)
                 phoneticLabel(definition?.phonetic, word: daily.word)
-                speakButton(dailySpokenText(daily))
+                // 单词 / 词组单独一个喇叭（例句有它自己的喇叭，见 `definitionBody`）。
+                speakButton(daily.word)
                 Spacer(minLength: 0)
                 if state.expandedDailyWords.contains(daily.word) {
                     // 释义已展开 → 同一个按钮变成「收起」。
@@ -197,14 +245,6 @@ public struct VocabularyView: View {
         )
     }
 
-    /// 每日推荐卡朗读内容：**单词 + 例句**（例句要等「查释义」拿到后才一起读）。
-    private func dailySpokenText(_ daily: DailyWord) -> String {
-        guard let definition = state.dailyDefinitions[daily.word], !definition.example.isEmpty else {
-            return daily.word
-        }
-        return "\(daily.word). \(definition.example)"
-    }
-
     // MARK: - 释义排版（复习卡 / 每日推荐卡共用）
 
     /// 统一释义排版：中文义项一行 → 解释另起一行 → 例句 + 翻译 → 近/反义词 →（可选）重点单词。
@@ -244,23 +284,34 @@ public struct VocabularyView: View {
                         .lineSpacing(2)
                 }
 
-                if !definition.example.isEmpty || !definition.exampleTranslation.isEmpty {
+                if !definition.example.isEmpty {
                     VStack(alignment: .leading, spacing: 3) {
-                        if !definition.example.isEmpty {
+                        HStack(alignment: .firstTextBaseline, spacing: 5) {
+                            definitionLabel("例句")
                             Text(definition.example)
                                 .font(.system(size: 11, design: .rounded).italic())
                                 .foregroundStyle(theme.secondaryText)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .lineSpacing(2)
+                            // 例句有**自己**的喇叭：与单词的喇叭分开，可单独朗读。
+                            speakButton(definition.example)
+                            Spacer(minLength: 0)
                         }
                         if !definition.exampleTranslation.isEmpty {
-                            Text(definition.exampleTranslation)
-                                .font(.system(size: 11, design: .rounded))
-                                .foregroundStyle(theme.secondaryText.opacity(0.85))
-                                .fixedSize(horizontal: false, vertical: true)
-                                .lineSpacing(2)
+                            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                                // 用等宽的空标签占位，让译文与例句左对齐。
+                                definitionLabel("例句").hidden()
+                                Text(definition.exampleTranslation)
+                                    .font(.system(size: 11, design: .rounded))
+                                    .foregroundStyle(theme.secondaryText.opacity(0.85))
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .lineSpacing(2)
+                                Spacer(minLength: 0)
+                            }
                         }
                     }
+                } else if !definition.exampleTranslation.isEmpty {
+                    definitionLine("例句", definition.exampleTranslation)
                 }
 
                 if !definition.synonyms.isEmpty {
@@ -269,18 +320,25 @@ public struct VocabularyView: View {
                 if !definition.antonyms.isEmpty {
                     definitionLine("反义词", definition.antonyms.joined(separator: "、"))
                 }
-                if showKeywords, let keywords = definition.keywordsLine {
-                    definitionLine("重点单词", keywords)
+                // ⚠️ 传 `keywords`（纯值）而不是带「重点单词：」前缀的整行，
+                // 否则会渲染成「重点单词 重点单词：…」重复两遍。
+                if showKeywords, !definition.keywords.isEmpty {
+                    definitionLine("重点单词", definition.keywords)
                 }
             }
         }
     }
 
+    /// 黄字小标签（例句 / 近义词 / 反义词 / 重点单词共用同一套样式）。
+    private func definitionLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(theme.accent.opacity(0.85))
+    }
+
     private func definitionLine(_ title: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Text(title)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(theme.accent.opacity(0.85))
+            definitionLabel(title)
             Text(value)
                 .font(.system(size: 11, design: .rounded))
                 .foregroundStyle(theme.primaryText.opacity(0.85))
@@ -460,10 +518,6 @@ public struct VocabularyView: View {
     private func entryCard(_ entry: VocabularyEntry) -> some View {
         let collapsed = state.collapsedVocabularyDefinitions.contains(entry.id)
         let definition = VocabularyDefinitionRule.decodeStored(entry.meaning)
-        // 小喇叭朗读内容：单词 + 例句（有例句就连起来读，一个按钮读完卡片所有英文）。
-        let spokenText = definition.example.isEmpty
-            ? entry.word
-            : "\(entry.word). \(definition.example)"
         return VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(entry.word)
@@ -471,7 +525,8 @@ public struct VocabularyView: View {
                     .foregroundStyle(theme.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 phoneticLabel(definition.phonetic, word: entry.word)
-                speakButton(spokenText)
+                // 只读单词；例句由例句行自己的喇叭读（两者互不影响）。
+                speakButton(entry.word)
                 if ReviewScheduler.isDue(entry) {
                     Text("待复习")
                         .font(.system(size: 9, weight: .semibold))

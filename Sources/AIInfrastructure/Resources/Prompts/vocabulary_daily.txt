@@ -14,7 +14,7 @@ keywords: <key words, or ->
 
 Rules for each line:
 - The words phonetic / pos / meaning / explanation / example / translation / synonyms / antonyms / keywords are only KEYS. Put the key and a colon at the start of its line, then the real content. NEVER write a bare key name as content.
-- phonetic: the IPA between slashes, e.g. /səbˈstænʃl/. Write this ONLY when the entry is a SINGLE word; if the entry is a phrase, write -.
+- phonetic: the IPA between slashes, e.g. /səbˈstænʃl/. Write this ONLY when the entry is a SINGLE word; if the entry is a phrase, write -. For a single word the IPA is REQUIRED: always give the full transcription (British or American), never leave this line empty and never write a bare "/" — a slash alone is useless.
 - pos: abbreviated part of speech (n. / v. / adj. / adv. / phr.). If the entry has several common parts of speech, join them with "/", e.g. n./v.
 - meaning: the {native_language} (Chinese) translation(s). List EVERY common sense, separated by "；" — do not collapse a multi-sense word into one vague phrase.
 - explanation: 1-2 {native_language} sentences about usage, register or typical collocations. It goes on ITS OWN line; never paste it into the meaning line.

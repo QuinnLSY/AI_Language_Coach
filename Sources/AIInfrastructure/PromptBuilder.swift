@@ -183,6 +183,28 @@ public enum PromptBuilder {
         )
     }
 
+    /// 音标兜底：模型偶尔漏音标、或只回一个「/」（实测出现过）。
+    /// 这时定向补一次极短的请求，只问 IPA；模板走 `Resources/Prompts/vocabulary_phonetic.txt`。
+    public static func vocabularyPhoneticPrompt(word: String, learningLanguage: String) -> String {
+        vocabularyPrompt(
+            resource: "Prompts/vocabulary_phonetic",
+            word: word,
+            learningLanguage: learningLanguage,
+            nativeLanguage: "Chinese",
+            fallback: """
+            You give the IPA transcription of a single {learning_language} word.
+
+            Reply with ONLY the transcription between slashes — nothing else, no key name, no explanation.
+
+            - Use British or American IPA with stress marks, e.g. /səbˈstænʃl/.
+            - Never write a bare "/" and never leave it empty: if unsure, still give your best transcription.
+
+            Word:
+            {word}
+            """
+        )
+    }
+
     /// 词汇释义提示词的公共装配（两个入口只差角色描述与例句风格）。
     private static func vocabularyPrompt(
         resource: String,
@@ -223,7 +245,7 @@ public enum PromptBuilder {
 
         Rules for each line:
         - The words phonetic / pos / meaning / explanation / example / translation / synonyms / antonyms / keywords are only KEYS. Put the key and a colon at the start of its line, then the real content. NEVER write a bare key name as content.
-        - phonetic: the IPA between slashes, e.g. /səbˈstænʃl/. Write this ONLY when the entry is a SINGLE word; if the entry is a phrase, write -.
+        - phonetic: the IPA between slashes, e.g. /səbˈstænʃl/. Write this ONLY when the entry is a SINGLE word; if the entry is a phrase, write -. For a single word the IPA is REQUIRED: give the full transcription, never leave it empty and never write a bare "/".
         - pos: abbreviated part of speech (n. / v. / adj. / adv. / phr.). Join several with "/", e.g. n./v.
         - meaning: the {native_language} (Chinese) translation(s). List EVERY common sense, separated by "；".
         - explanation: 1-2 {native_language} sentences about usage or collocations. It goes on ITS OWN line; never paste it into the meaning line.

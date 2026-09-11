@@ -71,6 +71,44 @@ public enum VocabularyDefinitionRule {
         field(forKey: value) != nil
     }
 
+    // MARK: - 音标（模型偶尔缺 / 只回一个「/」）
+
+    /// 音标是否可用。模型实测出现过两种坏输出：整个字段空缺，以及**只回一个斜杠** `"/"`。
+    /// 判据刻意宽松：至少 3 个字符且含字母（`/ˈhɒbi/`、`[ˈhɒbi]` 都算可用）。
+    public static func isUsablePhonetic(_ raw: String) -> Bool {
+        let value = raw.trimmingCharacters(in: .whitespaces)
+        guard value.count >= 3 else { return false }
+        return value.contains(where: { $0.isLetter })
+    }
+
+    /// 从任意文本里捞出第一个像样的音标片段（`/…/`）。
+    ///
+    /// 用途：模型有时把音标写到别的行（或写成没带键的裸行），此时按「键值行」解析会丢掉它；
+    /// 这里做一次兜底搜捕，救回来的音标胜过没有音标。
+    public static func phoneticCandidate(in text: String) -> String? {
+        let characters = Array(text)
+        var index = 0
+        while index < characters.count {
+            guard characters[index] == "/" else { index += 1; continue }
+            var end = index + 1
+            while end < characters.count, characters[end] != "/", end - index <= 40 {
+                end += 1
+            }
+            if end < characters.count, characters[end] == "/", end > index + 1 {
+                let candidate = String(characters[index...end])
+                let inner = String(characters[(index + 1)..<end])
+                // 音标里不会有空格与中文；靠这两条把「A/B」「and/or」这类斜杠写法挡掉。
+                let hasCJK = inner.contains { $0.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) } }
+                if isUsablePhonetic(candidate), !hasCJK,
+                   !inner.contains(where: { $0.isWhitespace }), inner.count <= 24 {
+                    return candidate
+                }
+            }
+            index = end + 1
+        }
+        return nil
+    }
+
     /// 拆「键: 值」。键必须短且只由字母 / 中文 / 下划线组成（允许 `-`/`*` 装饰前缀），
     /// 免得把英文例句里的冒号误当分隔符（那行会落到「自由文本」里，不丢内容）。
     static func splitKeyed(_ line: String) -> (key: String, value: String)? {
@@ -110,7 +148,9 @@ public enum VocabularyDefinitionRule {
             // 空值 / `-` / 字段名回显 → 该字段视为缺席。
             guard !trimmed.isEmpty, trimmed != "-", !isPlaceholder(trimmed) else { continue }
             switch field {
-            case .phonetic: definition.phonetic = trimmed
+            case .phonetic:
+                // 只回一个「/」或其它没有字母的垃圾值时视为缺席（否则卡片上会显示一个孤零零的斜杠）。
+                if isUsablePhonetic(trimmed) { definition.phonetic = trimmed }
             case .pos: definition.pos = trimmed
             case .meaning: definition.senses = trimmed
             case .explanation: definition.explanation = trimmed
@@ -118,11 +158,17 @@ public enum VocabularyDefinitionRule {
             case .translation: definition.exampleTranslation = trimmed
             case .synonyms: definition.synonyms = list(trimmed)
             case .antonyms: definition.antonyms = list(trimmed)
-            case .keywords: definition.keywords = trimmed
+            case .keywords: definition.keywords = strippedKeywordLabel(trimmed)
             }
         }
 
         guard foundKeyed else { return legacyDefinition(from: lines) }
+
+        // 音标兜底搜捕：模型把音标写到了没带键的行里（或干脆忘了键名），这里救回来。
+        if definition.phonetic.isEmpty,
+           let rescued = phoneticCandidate(in: lines.joined(separator: " ")) {
+            definition.phonetic = rescued
+        }
 
         // 键值行之外还剩的**自由文本**（旧版落库的整段释义、模型没按格式回的段落）：
         // 结构里没有义项与解释时，整段落到 `legacyText` —— UI 原样展示那段文字，
@@ -165,10 +211,31 @@ public enum VocabularyDefinitionRule {
                 definition.example = segment(1)
                 definition.keywords = segment(2)
             }
-            if !definition.isEmpty { return definition }
+            if !definition.isEmpty {
+                if definition.phonetic.isEmpty,
+                   let rescued = phoneticCandidate(in: body) {
+                    definition.phonetic = rescued
+                }
+                return definition
+            }
         }
         definition.legacyText = lines.joined(separator: "\n")
+        if let rescued = phoneticCandidate(in: definition.legacyText) {
+            definition.phonetic = rescued
+        }
         return definition
+    }
+
+    /// `keywords: 重点单词：xxx` 这种「值自带标签前缀」的坏值要去掉前缀，
+    /// 否则 UI 会渲染成「重点单词 重点单词：xxx」重复两遍（qwen3:8b 实测出现过）。
+    static func strippedKeywordLabel(_ raw: String) -> String {
+        guard let index = raw.firstIndex(where: { $0 == ":" || $0 == "：" }), index > raw.startIndex else {
+            return raw
+        }
+        let head = String(raw[raw.startIndex..<index]).trimmingCharacters(in: .whitespaces)
+        guard field(forKey: head) == .keywords else { return raw }
+        let rest = String(raw[raw.index(after: index)...]).trimmingCharacters(in: .whitespaces)
+        return rest.isEmpty ? raw : rest
     }
 
     /// 「considerable、significant」「-, minor」→ 有效词列表。
@@ -318,7 +385,12 @@ public actor VocabularyService {
             reasoningEffort: LLMRequest.noThinkingEffort
         )
         let response = try await llm.generate(request)
-        let parsed = VocabularyDefinitionRule.parse(response.text)
+        var parsed = VocabularyDefinitionRule.parse(response.text)
+        // 单词必须有音标：模型漏了 / 只回一个「/」时补一次极短的定向请求。
+        if parsed.phonetic.isEmpty,
+           let rescued = await phoneticFallback(word: entry.word, learningLanguage: learningLanguage, options: options) {
+            parsed.phonetic = rescued
+        }
         guard !parsed.isEmpty else {
             throw AppError.unknown("模型没有给出可解析的释义，请再试一次")
         }
@@ -364,11 +436,52 @@ public actor VocabularyService {
             reasoningEffort: LLMRequest.noThinkingEffort
         )
         let response = try await llm.generate(request)
-        let parsed = VocabularyDefinitionRule.parse(response.text)
+        var parsed = VocabularyDefinitionRule.parse(response.text)
+        if parsed.phonetic.isEmpty,
+           let rescued = await phoneticFallback(word: word, learningLanguage: learningLanguage, options: options) {
+            parsed.phonetic = rescued
+        }
         guard !parsed.isEmpty else {
             throw AppError.unknown("模型没有给出可解析的释义，请再试一次")
         }
         return parsed
+    }
+
+    // MARK: - 音标兜底
+
+    /// 只有**单个单词**才需要音标（词组 / 短句本来就没有）。
+    public static func needsPhonetic(_ word: String) -> Bool {
+        !word.contains(" ") && word.count <= 24
+    }
+
+    /// 定向补一次音标：一次极短的请求（只问 IPA），失败就认了（返回 nil，不阻塞主流程）。
+    private func phoneticFallback(
+        word: String,
+        learningLanguage: String,
+        options: VocabularyDefineOptions
+    ) async -> String? {
+        guard Self.needsPhonetic(word) else { return nil }
+        let request = LLMRequest(
+            messages: [
+                LLMMessage(
+                    role: .system,
+                    content: PromptBuilder.vocabularyPhoneticPrompt(
+                        word: word,
+                        learningLanguage: learningLanguage
+                    )
+                )
+            ],
+            model: options.model,
+            temperature: 0,
+            maxTokens: 64,
+            streaming: false,
+            reasoningEffort: LLMRequest.noThinkingEffort
+        )
+        guard let response = try? await llm.generate(request) else { return nil }
+        guard let candidate = VocabularyDefinitionRule.phoneticCandidate(in: response.text),
+              VocabularyDefinitionRule.isUsablePhonetic(candidate)
+        else { return nil }
+        return candidate
     }
 
     // MARK: - 内部
