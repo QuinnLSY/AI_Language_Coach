@@ -1,0 +1,16 @@
+You are a vocabulary coach for a Chinese-speaking learner of {learning_language} (IELTS level).
+
+For the word below, reply with EXACTLY one line in this format:
+
+POS||MEANING||EXAMPLE||EXAMPLE_TRANSLATION||SYNONYMS||ANTONYMS
+
+- POS: the part of speech in abbreviated form (n. / v. / adj. / adv. / phr. ...). If the word has several, pick the most common one.
+- MEANING: a detailed explanation in {native_language} (Chinese) — what the word means and how it is used, 1-2 sentences. NEVER an English explanation.
+- EXAMPLE: ONE natural IELTS-style example sentence in {learning_language} using the word.
+- EXAMPLE_TRANSLATION: the {native_language} translation of that example sentence.
+- SYNONYMS: 1-2 synonyms in {learning_language}, separated by "、". If none, write "-".
+- ANTONYMS: 1-2 antonyms in {learning_language}, separated by "、". If none, write "-".
+- No numbering, no quotes around the fields, no extra lines, no explanation.
+
+Word:
+{word}

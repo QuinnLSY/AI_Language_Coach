@@ -150,7 +150,7 @@ public enum PromptBuilder {
             .replacingOccurrences(of: "{text}", with: text)
     }
 
-    /// 词汇本按需释义（第 24 步）：给生词配「中文释义||例句」。
+    /// 词汇本按需释义（第 24 步）：给生词配「详细中文释义||例句||重点单词」。
     /// 模板走 `Resources/Prompts/vocabulary_define.txt`，缺失时用等价内联兜底。
     public static func vocabularyDefinePrompt(word: String, learningLanguage: String, nativeLanguage: String) -> String {
         let template: String
@@ -159,11 +159,50 @@ public enum PromptBuilder {
             template = loaded
         } else {
             template = """
-            For the {learning_language} word below, reply with exactly one line:
-            {native_meaning}||{example_sentence}
-            ({native_meaning} in {native_language}, {example_sentence} in {learning_language}. No extra text.)
+            You are building a vocabulary notebook for a Chinese-speaking learner of {learning_language}.
+
+            For the word or expression below, reply with EXACTLY one line in this format:
+
+            MEANING||EXAMPLE||KEYWORDS
+
+            - MEANING: a DETAILED explanation in {native_language} (Chinese), 1-3 short sentences. NEVER an English explanation, NEVER just repeat the word.
+            - EXAMPLE: ONE natural example sentence in {learning_language} using the word or expression.
+            - KEYWORDS: for a multi-word entry, list its 2-4 key words as "word (part-of-speech) Chinese translation" separated by "；"; for a single word, write "-".
+            - No extra text.
 
             Word or expression:
+            {word}
+            """
+        }
+        return template
+            .replacingOccurrences(of: "{word}", with: word)
+            .replacingOccurrences(of: "{learning_language}", with: learningLanguage)
+            .replacingOccurrences(of: "{native_language}", with: nativeLanguage)
+    }
+
+    /// 每日推荐单词释义：词性 + 详细中文释义 + 例句及翻译 + 近义词 / 反义词。
+    /// 模板走 `Resources/Prompts/vocabulary_daily.txt`，缺失时用等价内联兜底。
+    public static func vocabularyDailyPrompt(word: String, learningLanguage: String, nativeLanguage: String) -> String {
+        let template: String
+        if let url = AppResourceBundle.module.url(forResource: "Prompts/vocabulary_daily", withExtension: "txt"),
+           let loaded = try? String(contentsOf: url, encoding: .utf8) {
+            template = loaded
+        } else {
+            template = """
+            You are a vocabulary coach for a Chinese-speaking learner of {learning_language} (IELTS level).
+
+            For the word below, reply with EXACTLY one line in this format:
+
+            POS||MEANING||EXAMPLE||EXAMPLE_TRANSLATION||SYNONYMS||ANTONYMS
+
+            - POS: abbreviated part of speech (n. / v. / adj. / adv. ...).
+            - MEANING: a detailed explanation in {native_language} (Chinese), 1-2 sentences.
+            - EXAMPLE: ONE natural IELTS-style example sentence in {learning_language}.
+            - EXAMPLE_TRANSLATION: its {native_language} translation.
+            - SYNONYMS / ANTONYMS: 1-2 words each, separated by "、"; write "-" if none.
+            - No extra text.
+
+            Word:
             {word}
             """
         }

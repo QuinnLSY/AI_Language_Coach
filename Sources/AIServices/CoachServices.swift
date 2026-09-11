@@ -561,18 +561,42 @@ public actor CoachServices {
         await vocabulary.importFromReviews()
     }
 
-    /// 给生词补「中文释义 + 例句」（按需：点按钮才调用）。
+    /// 给生词补「详细中文释义 + 例句 + 重点单词」（按需：点按钮才调用）。
+    /// 详细释义比旧版长，token 上限放宽到 768。
     public func defineVocabulary(_ entry: VocabularyEntry) async throws -> VocabularyEntry {
         guard isModelRunning(.llm) else { throw AIProviderError.notInitialized }
         try await ensureLLMReady()
         let provider = await config.current.resolvedProvider(for: .llm)
         let options = VocabularyDefineOptions(
             model: await currentLLMModel(),
-            maxTokens: min(provider?.maxTokens ?? 512, 512)
+            maxTokens: min(provider?.maxTokens ?? 768, 768)
         )
         let configuration = await config.current
         return try await vocabulary.define(
             entry,
+            learningLanguage: configuration.product.learningLanguage,
+            nativeLanguage: configuration.product.nativeLanguage,
+            options: options
+        )
+    }
+
+    /// 抽一组每日推荐词（3 简单 / 5 中等 / 2 困难，雅思标准；本地选词，不调模型）。
+    public func dailyWordRecommendation(excluding: Set<String> = []) async -> [DailyWord] {
+        await vocabulary.dailyRecommendation(excluding: excluding)
+    }
+
+    /// 给每日推荐的词补「词性 + 中文释义 + 例句及翻译 + 近/反义词」（按需 LLM，不落库）。
+    public func defineDailyWord(_ word: String) async throws -> DailyDefinition {
+        guard isModelRunning(.llm) else { throw AIProviderError.notInitialized }
+        try await ensureLLMReady()
+        let provider = await config.current.resolvedProvider(for: .llm)
+        let options = VocabularyDefineOptions(
+            model: await currentLLMModel(),
+            maxTokens: min(provider?.maxTokens ?? 768, 768)
+        )
+        let configuration = await config.current
+        return try await vocabulary.defineDaily(
+            word,
             learningLanguage: configuration.product.learningLanguage,
             nativeLanguage: configuration.product.nativeLanguage,
             options: options

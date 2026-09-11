@@ -7,6 +7,7 @@ import SwiftUI
 ///
 /// 数据流：复盘 new_words / 手动添加 → `VocabularyService` → SQLite；
 /// 复习调度与判分在 `AIDomain.ReviewScheduler`（纯函数），这里只做「展示 + 触发」。
+/// 顶部还有「每日推荐」板块：每次启动随机 10 个雅思词（不落库、不自动进复习）。
 public struct VocabularyView: View {
 
     @Environment(\.forestTheme) private var theme
@@ -20,10 +21,12 @@ public struct VocabularyView: View {
             Divider().overlay(theme.divider)
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    dailySection
+                    // 添加框常驻：词表空了也要能随手加词。
+                    addRow
                     if state.vocabularyEntries.isEmpty {
                         emptyHint
                     } else {
-                        addRow
                         ForEach(state.vocabularyEntries) { entry in
                             entryCard(entry)
                         }
@@ -37,8 +40,12 @@ public struct VocabularyView: View {
             }
         }
         .background(theme.surfaceAlt.opacity(0.35))
-        // 每次出现都补一次导入（按 word 去重，重复导入是零成本的幂等操作）。
-        .task { await state.openVocabulary() }
+        // 每次出现都补一次导入（按 word 去重，重复导入是零成本的幂等操作）；
+        // 同时保证本次启动的每日推荐已抽好。
+        .task {
+            await state.openVocabulary()
+            await state.loadDailyWordsIfNeeded()
+        }
     }
 
     // MARK: - 顶栏
@@ -71,6 +78,195 @@ public struct VocabularyView: View {
         }
         .padding(.horizontal, 18)
         .frame(height: 64)
+    }
+
+    // MARK: - 每日推荐
+
+    @ViewBuilder
+    private var dailySection: some View {
+        if !state.dailyWords.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(theme.accent)
+                    Text("每日推荐")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                    Text("雅思标准 · 3 简单 / 5 中等 / 2 困难")
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                    Spacer(minLength: 0)
+                    Button {
+                        Task { await state.refreshDailyWords() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                            Text("换一批")
+                        }
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(theme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .help("重新随机推荐 10 个不同的单词")
+                }
+
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 230), spacing: 10)],
+                    spacing: 10
+                ) {
+                    ForEach(state.dailyWords) { word in
+                        dailyCard(word)
+                    }
+                }
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(theme.accent.opacity(0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(theme.accent.opacity(0.22), lineWidth: 1)
+            )
+        }
+    }
+
+    private func dailyCard(_ daily: DailyWord) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text(daily.word)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                difficultyTag(daily.difficulty)
+                Spacer(minLength: 0)
+                if state.expandedDailyWords.contains(daily.word) {
+                    // 释义已展开 → 同一个按钮变成「收起」。
+                    dailyToggleButton(daily, title: "收起", systemImage: "chevron.up")
+                } else if state.dailyDefinitions[daily.word] != nil {
+                    dailyToggleButton(daily, title: "看释义", systemImage: "character.book.closed")
+                } else {
+                    dailyToggleButton(daily, title: "查释义", systemImage: "character.book.closed")
+                }
+            }
+
+            if let definition = state.dailyDefinitions[daily.word],
+               state.expandedDailyWords.contains(daily.word) {
+                dailyDefinitionBody(definition)
+            }
+
+            HStack(spacing: 6) {
+                Spacer(minLength: 0)
+                if inVocabulary(daily.word) {
+                    Label("已在词表", systemImage: "checkmark")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(theme.secondaryText)
+                } else {
+                    Button {
+                        Task { await state.addDailyToReview(word: daily.word) }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "plus.rectangle.on.folder")
+                            Text("加入复习")
+                        }
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .help("加入词汇本复习列表")
+                }
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(theme.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(theme.divider, lineWidth: 1)
+        )
+    }
+
+    /// 每日推荐的「查释义 / 看释义 / 收起」按钮（一个按钮三态切换）。
+    private func dailyToggleButton(_ daily: DailyWord, title: String, systemImage: String) -> some View {
+        Button {
+            Task { await state.toggleDailyDefinition(word: daily.word) }
+        } label: {
+            HStack(spacing: 4) {
+                if state.isDefiningDaily.contains(daily.word) {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .controlSize(.mini)
+                        .scaleEffect(0.6)
+                } else {
+                    Image(systemName: systemImage)
+                }
+                Text(title)
+            }
+            .font(.system(size: 10, weight: .medium))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(theme.accent)
+        .disabled(state.isDefiningDaily.contains(daily.word))
+    }
+
+    private func dailyDefinitionBody(_ definition: DailyDefinition) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                if !definition.pos.isEmpty {
+                    Text(definition.pos)
+                        .font(.system(size: 10, weight: .semibold, design: .rounded).italic())
+                        .foregroundStyle(theme.accent)
+                }
+                Text(definition.meaning)
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundStyle(theme.primaryText.opacity(0.92))
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            if !definition.example.isEmpty {
+                Text(definition.example)
+                    .font(.system(size: 11, design: .rounded).italic())
+                    .foregroundStyle(theme.secondaryText)
+                if !definition.exampleTranslation.isEmpty {
+                    Text(definition.exampleTranslation)
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(theme.secondaryText.opacity(0.85))
+                }
+            }
+            if !definition.synonyms.isEmpty {
+                dailyLine("近义词", definition.synonyms.joined(separator: "、"))
+            }
+            if !definition.antonyms.isEmpty {
+                dailyLine("反义词", definition.antonyms.joined(separator: "、"))
+            }
+        }
+    }
+
+    private func dailyLine(_ title: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(theme.accent.opacity(0.85))
+            Text(value)
+                .font(.system(size: 11, design: .rounded))
+                .foregroundStyle(theme.primaryText.opacity(0.85))
+        }
+    }
+
+    private func difficultyTag(_ difficulty: Int) -> some View {
+        let color: Color = difficulty == 1 ? .green : (difficulty == 2 ? .orange : .red)
+        return Text(DailyWord.difficultyLabel(for: difficulty))
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(Capsule().fill(color.opacity(0.85)))
+    }
+
+    /// 该词是否已在复习列表（大小写不敏感，与数据库去重规则一致）。
+    private func inVocabulary(_ word: String) -> Bool {
+        state.vocabularyEntries.contains { $0.word.caseInsensitiveCompare(word) == .orderedSame }
     }
 
     // MARK: - 添加
@@ -106,7 +302,8 @@ public struct VocabularyView: View {
     // MARK: - 词条卡片
 
     private func entryCard(_ entry: VocabularyEntry) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let collapsed = state.collapsedVocabularyDefinitions.contains(entry.id)
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(entry.word)
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
@@ -143,19 +340,23 @@ public struct VocabularyView: View {
                 .help("从词表删除")
             }
 
-            if entry.meaning.isEmpty {
-                Text("还没有释义")
-                    .font(.system(size: 12, design: .rounded))
-                    .foregroundStyle(theme.secondaryText.opacity(0.7))
-            } else {
-                Text(entry.meaning)
-                    .font(.system(size: 12, design: .rounded))
-                    .foregroundStyle(theme.primaryText.opacity(0.9))
-            }
-            if !entry.example.isEmpty {
-                Text(entry.example)
-                    .font(.system(size: 11, design: .rounded).italic())
-                    .foregroundStyle(theme.secondaryText)
+            // 「查释义 / 收起释义」是同一个按钮：没释义 → 请求；有释义 → 切换展开。
+            if !collapsed {
+                if entry.meaning.isEmpty {
+                    Text("还没有释义")
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundStyle(theme.secondaryText.opacity(0.7))
+                } else {
+                    Text(entry.meaning)
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundStyle(theme.primaryText.opacity(0.9))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !entry.example.isEmpty {
+                    Text(entry.example)
+                        .font(.system(size: 11, design: .rounded).italic())
+                        .foregroundStyle(theme.secondaryText)
+                }
             }
 
             HStack(spacing: 10) {
@@ -165,27 +366,25 @@ public struct VocabularyView: View {
                     .foregroundStyle(theme.secondaryText)
                     .monospacedDigit()
                 Spacer(minLength: 0)
-                if entry.meaning.isEmpty {
-                    Button {
-                        Task { await state.defineVocabulary(id: entry.id) }
-                    } label: {
-                        HStack(spacing: 4) {
-                            if state.isDefiningVocabulary.contains(entry.id) {
-                                ProgressView()
-                                    .progressViewStyle(.circular)
-                                    .controlSize(.mini)
-                                    .scaleEffect(0.6)
-                            } else {
-                                Image(systemName: "character.book.closed")
-                            }
-                            Text("查释义")
+                Button {
+                    Task { await state.toggleVocabularyDefinition(id: entry.id) }
+                } label: {
+                    HStack(spacing: 4) {
+                        if state.isDefiningVocabulary.contains(entry.id) {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                                .controlSize(.mini)
+                                .scaleEffect(0.6)
+                        } else {
+                            Image(systemName: collapsed ? "character.book.closed" : "eye.slash")
                         }
-                        .font(.system(size: 11, weight: .medium))
+                        Text(collapsed ? "看释义" : (entry.meaning.isEmpty ? "查释义" : "收起释义"))
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(theme.accent)
-                    .disabled(state.isDefiningVocabulary.contains(entry.id))
+                    .font(.system(size: 11, weight: .medium))
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.accent)
+                .disabled(state.isDefiningVocabulary.contains(entry.id))
                 if ReviewScheduler.isDue(entry) {
                     gradeButton(entry.id, remembered: true, title: "认识", systemImage: "checkmark.circle.fill", color: .green)
                     gradeButton(entry.id, remembered: false, title: "忘了", systemImage: "xmark.circle.fill", color: .orange)
@@ -248,7 +447,7 @@ public struct VocabularyView: View {
             Text("词表还是空的")
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
                 .foregroundStyle(theme.primaryText)
-            Text("每次练习结束后，复盘里标记的生词会自动收进这里；也可以在上方手动添加。")
+            Text("每次练习结束后，复盘里标记的生词会自动收进这里；也可以在上方手动添加，或把每日推荐的词「加入复习」。")
                 .font(.system(size: 11, design: .rounded))
                 .foregroundStyle(theme.secondaryText)
                 .multilineTextAlignment(.center)

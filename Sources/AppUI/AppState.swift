@@ -171,6 +171,19 @@ public final class AppState {
     public var vocabularyDraft = ""
     /// 词汇本提示（可关闭；nil = 正常）。
     public private(set) var vocabularyNotice: String?
+    /// 释义被手动收起的词条（「查释义」按钮与收起开关是同一个按钮；
+    /// 已有释义默认展开，收起后点「看释义」再展开，不重新请求模型）。
+    public private(set) var collapsedVocabularyDefinitions: Set<UUID> = []
+    /// 每日推荐词（本次启动随机抽的 10 个：3 简单 / 5 中等 / 2 困难；不落库）。
+    public private(set) var dailyWords: [DailyWord] = []
+    /// 每日推荐词的释义缓存（按需 LLM，word → 释义）。
+    public private(set) var dailyDefinitions: [String: DailyDefinition] = [:]
+    /// 正在补释义的每日推荐词（按钮 loading）。
+    public private(set) var isDefiningDaily: Set<String> = []
+    /// 已展开释义的每日推荐词（点「查释义」展开，再点收起）。
+    public private(set) var expandedDailyWords: Set<String> = []
+    /// 本次启动是否已抽过每日推荐（每次启动只抽一次，刷新按钮才重新抽）。
+    private var dailyWordsLoaded = false
 
     /// 产品配置缓存（Sendable，可在 MainActor 直接修改后整体回写）。
     private var product: ProductConfig = ProductConfig()
@@ -901,16 +914,29 @@ public final class AppState {
         await reloadVocabulary()
     }
 
-    /// 给一个词补中文释义 + 例句（按需 LLM）。
+    /// 给一个词补「详细中文释义 + 例句 + 重点单词」（按需 LLM）。
     public func defineVocabulary(id: UUID) async {
         guard let entry = vocabularyEntries.first(where: { $0.id == id }) else { return }
         isDefiningVocabulary.insert(id)
         defer { isDefiningVocabulary.remove(id) }
         do {
             _ = try await services.defineVocabulary(entry)
+            collapsedVocabularyDefinitions.remove(id)
             await reloadVocabulary()
         } catch {
             vocabularyNotice = "「\(entry.word)」释义失败：\(error.localizedDescription)"
+        }
+    }
+
+    /// 查释义按钮（与收起开关集成）：没释义 → 请求模型；有释义 → 展开 / 收起切换。
+    public func toggleVocabularyDefinition(id: UUID) async {
+        guard let entry = vocabularyEntries.first(where: { $0.id == id }) else { return }
+        if entry.meaning.isEmpty {
+            await defineVocabulary(id: id)
+        } else if collapsedVocabularyDefinitions.contains(id) {
+            collapsedVocabularyDefinitions.remove(id)
+        } else {
+            collapsedVocabularyDefinitions.insert(id)
         }
     }
 
@@ -928,6 +954,59 @@ public final class AppState {
 
     public func dismissVocabularyNotice() {
         vocabularyNotice = nil
+    }
+
+    // MARK: - 词汇本 · 每日推荐
+
+    /// 每次启动随机抽 10 个推荐词（3 简单 / 5 中等 / 2 困难，雅思标准）。
+    /// 只在第一次进词汇本页时抽，之后进页面保持同一组。
+    public func loadDailyWordsIfNeeded() async {
+        guard !dailyWordsLoaded else { return }
+        dailyWordsLoaded = true
+        dailyWords = await services.dailyWordRecommendation()
+    }
+
+    /// 刷新：重新抽 10 个与当前展示的**不同**的词（清空展开态，释义缓存保留可复用）。
+    public func refreshDailyWords() async {
+        let next = await services.dailyWordRecommendation(excluding: Set(dailyWords.map { $0.word.lowercased() }))
+        // 词库不足 10 词时可能抽不满，把排除条件放宽再抽一次。
+        dailyWords = next.isEmpty && !dailyWords.isEmpty
+            ? await services.dailyWordRecommendation()
+            : next
+        expandedDailyWords = []
+    }
+
+    /// 每日推荐词的「查释义」按钮：展开 / 收起切换，首次展开时请求模型。
+    public func toggleDailyDefinition(word: String) async {
+        if expandedDailyWords.contains(word) {
+            expandedDailyWords.remove(word)
+            return
+        }
+        if dailyDefinitions[word] == nil {
+            isDefiningDaily.insert(word)
+            defer { isDefiningDaily.remove(word) }
+            do {
+                dailyDefinitions[word] = try await services.defineDailyWord(word)
+            } catch {
+                vocabularyNotice = "「\(word)」释义失败：\(error.localizedDescription)"
+                return
+            }
+        }
+        expandedDailyWords.insert(word)
+    }
+
+    /// 把推荐词加入复习列表（用户手动；已在词表时只提示）。
+    public func addDailyToReview(word: String) async {
+        if vocabularyEntries.contains(where: { $0.word.caseInsensitiveCompare(word) == .orderedSame }) {
+            vocabularyNotice = "「\(word)」已经在词表里了。"
+            return
+        }
+        guard await services.vocabulary.add(word: word) != nil else {
+            vocabularyNotice = "「\(word)」没能加入词表（为空或没有学习数据库）。"
+            return
+        }
+        vocabularyNotice = "「\(word)」已加入复习列表。"
+        await reloadVocabulary()
     }
 
     // MARK: - 跟读（Shadowing，第 22 步）

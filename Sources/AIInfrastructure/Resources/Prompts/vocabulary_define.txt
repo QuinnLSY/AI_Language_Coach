@@ -2,10 +2,11 @@ You are building a vocabulary notebook for a Chinese-speaking learner of {learni
 
 For the word or expression below, reply with EXACTLY one line in this format:
 
-{native_meaning}||{example_sentence}
+MEANING||EXAMPLE||KEYWORDS
 
-- {native_meaning}: the meaning in {native_language}, as short as possible (a word or short phrase).
-- {example_sentence}: ONE natural example sentence in {learning_language} using the word.
+- MEANING: a DETAILED explanation in {native_language} (Chinese). Explain what it means, when to use it, and any nuance or register — 1 to 3 short sentences. NEVER reply with an English explanation, NEVER just repeat the word itself, NEVER give a bare one-word literal translation.
+- EXAMPLE: ONE natural example sentence in {learning_language} that clearly uses the word or expression.
+- KEYWORDS: if the entry contains SEVERAL words (a phrase, collocation or sentence), pick its 2-4 most important words and list each as: word (part-of-speech) Chinese translation, separated by "；". Example: boost (v.) 提升；encourage (v.) 鼓励. If the entry is a SINGLE word, write just "-".
 - No numbering, no quotes around the fields, no extra lines, no explanation.
 
 Word or expression:

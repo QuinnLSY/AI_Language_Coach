@@ -6,37 +6,89 @@ import Foundation
 
 /// 词汇本定义输出的解析规则（纯函数，便于单测）。
 ///
-/// 模型被要求回一行「释义||例句」；实际偶尔会围栏、多余行、缺分隔符。
-/// 规则：取**含 `||` 的第一行**拆开，两侧各留第一段；没有 `||` 时整行按释义处理（例句为空）。
+/// 模型被要求回一行「释义||例句||重点单词」；实际偶尔会围栏、多余行、缺分隔符。
+/// 规则：取**含 `||` 的第一行**拆开；没有 `||` 时整行按释义处理（例句/重点单词为空）。
+/// 重点单词段为 `-` 时视为「没有」（单词本就是它自己的重点）。
 public enum VocabularyDefineRule {
 
     public struct Definition: Sendable, Equatable {
         public var meaning: String
         public var example: String
+        /// 重点单词（「boost (v.) 提升；encourage (v.) 鼓励」这样的整段文本）。
+        public var keywords: String
 
-        public init(meaning: String, example: String) {
+        public init(meaning: String, example: String, keywords: String = "") {
             self.meaning = meaning
             self.example = example
+            self.keywords = keywords
+        }
+
+        /// 落库的释义全文：详细释义 + 重点单词行（有重点单词时另起一行）。
+        public var storedMeaning: String {
+            keywords.isEmpty ? meaning : "\(meaning)\n重点单词：\(keywords)"
         }
     }
 
     public static func parse(_ raw: String) -> Definition? {
-        var lines = raw
+        let lines = raw
             .replacingOccurrences(of: "```", with: "")
             .split(separator: "\n", omittingEmptySubsequences: true)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         // 含分隔符的行才是正文（模型偶尔先客气一句）。
         if let body = lines.first(where: { $0.contains("||") }) {
-            let parts = body.components(separatedBy: "||")
-            let meaning = parts.first?.trimmingCharacters(in: .whitespaces) ?? ""
-            let example = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces) : ""
+            let parts = body.components(separatedBy: "||").map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            let meaning = parts.first ?? ""
+            let example = parts.count > 1 ? parts[1] : ""
+            // 第三段（重点单词）可选；`-` 表示没有。
+            var keywords = parts.count > 2 ? parts[2] : ""
+            if keywords == "-" { keywords = "" }
             guard !meaning.isEmpty else { return nil }
-            return Definition(meaning: meaning, example: example)
+            return Definition(meaning: meaning, example: example, keywords: keywords)
         }
         guard let single = lines.first, !single.isEmpty else { return nil }
-        lines = [single]
         return Definition(meaning: single, example: "")
+    }
+}
+
+/// 每日推荐释义输出的解析规则（纯函数）。
+///
+/// 一行六段：`词性||释义||例句||例句翻译||近义词||反义词`；
+/// 近/反义词以「、」分隔，`-` 表示没有。
+public enum VocabularyDailyRule {
+
+    public static func parse(_ raw: String) -> DailyDefinition? {
+        let lines = raw
+            .replacingOccurrences(of: "```", with: "")
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard let body = lines.first(where: { $0.contains("||") }) else { return nil }
+        let parts = body.components(separatedBy: "||").map {
+            $0.trimmingCharacters(in: .whitespaces)
+        }
+        guard parts.count >= 2 else { return nil }
+        let meaning = parts[1]
+        guard !meaning.isEmpty else { return nil }
+        return DailyDefinition(
+            pos: parts[0] == "-" ? "" : parts[0],
+            meaning: meaning,
+            example: parts.count > 2 && parts[2] != "-" ? parts[2] : "",
+            exampleTranslation: parts.count > 3 && parts[3] != "-" ? parts[3] : "",
+            synonyms: parseList(parts.count > 4 ? parts[4] : ""),
+            antonyms: parseList(parts.count > 5 ? parts[5] : "")
+        )
+    }
+
+    /// 「wonderful、excellent」「-, excellent」→ 有效词列表。
+    private static func parseList(_ raw: String) -> [String] {
+        guard raw != "-" else { return [] }
+        return raw
+            .split(whereSeparator: { "、，,;；".contains($0) })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && $0 != "-" }
     }
 }
 
@@ -150,10 +202,51 @@ public actor VocabularyService {
             throw AppError.unknown("模型没有给出可解析的释义，请再试一次")
         }
         var defined = entry
-        defined.meaning = parsed.meaning
+        defined.meaning = parsed.storedMeaning
         defined.example = parsed.example
-        try? await learning?.updateVocabularyDefinition(id: entry.id, meaning: parsed.meaning, example: parsed.example)
+        try? await learning?.updateVocabularyDefinition(id: entry.id, meaning: parsed.storedMeaning, example: parsed.example)
         return defined
+    }
+
+    // MARK: - 每日推荐（本地选词 + 按需 LLM 释义）
+
+    /// 抽一组每日推荐：3 简单 / 5 中等 / 2 困难（雅思标准），排除指定词。
+    /// 词库资源缺失时返回空（UI 隐藏板块，不崩）。
+    public func dailyRecommendation(excluding: Set<String> = []) -> [DailyWord] {
+        DailyWordPicker.pick(from: VocabularyWordBank.load(), excluding: excluding)
+    }
+
+    /// 给每日推荐的词补「词性 + 详细中文释义 + 例句及翻译 + 近/反义词」。
+    /// 只做展示，不落库 —— 推荐词默认不进复习列表。
+    public func defineDaily(
+        _ word: String,
+        learningLanguage: String,
+        nativeLanguage: String,
+        options: VocabularyDefineOptions
+    ) async throws -> DailyDefinition {
+        let request = LLMRequest(
+            messages: [
+                LLMMessage(
+                    role: .system,
+                    content: PromptBuilder.vocabularyDailyPrompt(
+                        word: word,
+                        learningLanguage: learningLanguage,
+                        nativeLanguage: nativeLanguage
+                    )
+                )
+            ],
+            model: options.model,
+            temperature: 0,
+            maxTokens: options.maxTokens ?? 512,
+            streaming: false,
+            // 确定性短任务关思考：与翻译同理由（24.8s → 1.4s）。
+            reasoningEffort: LLMRequest.noThinkingEffort
+        )
+        let response = try await llm.generate(request)
+        guard let parsed = VocabularyDailyRule.parse(response.text) else {
+            throw AppError.unknown("模型没有给出可解析的释义，请再试一次")
+        }
+        return parsed
     }
 
     // MARK: - 内部

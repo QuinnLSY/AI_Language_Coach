@@ -82,6 +82,7 @@ final class VocabularyTests: XCTestCase {
         let good = VocabularyDefineRule.parse("苹果||I eat an apple every day.")
         XCTAssertEqual(good?.meaning, "苹果")
         XCTAssertEqual(good?.example, "I eat an apple every day.")
+        XCTAssertEqual(good?.keywords, "", "两段格式没有重点单词段，向后兼容")
         // 模型偶尔先客气一句 / 包围栏：取含 || 的那一行。
         let noisy = VocabularyDefineRule.parse("Sure!\n```\n香蕉||Bananas are yellow.\n```")
         XCTAssertEqual(noisy?.meaning, "香蕉")
@@ -91,6 +92,112 @@ final class VocabularyTests: XCTestCase {
         XCTAssertEqual(bare?.meaning, "橙子")
         XCTAssertEqual(bare?.example, "")
         XCTAssertNil(VocabularyDefineRule.parse("  "))
+    }
+
+    func testDefineRuleParsesKeywordsSection() {
+        let parsed = VocabularyDefineRule.parse(
+            "指期待某事发生时激动不安的心情（常与 about 连用），多用于口语。||I'm really excited about the trip.||excite (v.) 使兴奋；trip (n.) 旅行"
+        )
+        XCTAssertEqual(parsed?.meaning, "指期待某事发生时激动不安的心情（常与 about 连用），多用于口语。")
+        XCTAssertEqual(parsed?.example, "I'm really excited about the trip.")
+        XCTAssertEqual(parsed?.keywords, "excite (v.) 使兴奋；trip (n.) 旅行")
+        // 含释义的落库全文要带上「重点单词」行。
+        XCTAssertTrue(parsed?.storedMeaning.contains("重点单词：excite (v.) 使兴奋") ?? false)
+        // 单个词没有重点单词：`-` 占位 → 清空，落库不追加该行。
+        let single = VocabularyDefineRule.parse("详细的中文释义||An example sentence.||-")
+        XCTAssertEqual(single?.keywords, "")
+        XCTAssertEqual(single?.storedMeaning, "详细的中文释义")
+    }
+
+    // MARK: - 每日推荐（Daily Recommendation）
+
+    /// 固定种子随机源：让选词测试可复现。
+    private struct SeededRNG: RandomNumberGenerator {
+        var state: UInt64
+        mutating func next() -> UInt64 {
+            state &+= 0x9E37_79B9_7F4A_7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return z ^ (z >> 31)
+        }
+    }
+
+    private func makeBank(easy: Int, medium: Int, hard: Int) -> [DailyWord] {
+        var bank: [DailyWord] = []
+        for index in 0..<easy { bank.append(DailyWord(word: "easy\(index)", difficulty: 1)) }
+        for index in 0..<medium { bank.append(DailyWord(word: "med\(index)", difficulty: 2)) }
+        for index in 0..<hard { bank.append(DailyWord(word: "hard\(index)", difficulty: 3)) }
+        return bank
+    }
+
+    func testDailyPickerFollowsQuota() {
+        // 雅思配额：3 简单 / 5 中等 / 2 困难。
+        XCTAssertEqual(DailyWordPicker.quota, [1: 3, 2: 5, 3: 2])
+        var rng = SeededRNG(state: 42)
+        let picked = DailyWordPicker.pick(from: makeBank(easy: 10, medium: 10, hard: 10), using: &rng)
+        XCTAssertEqual(picked.count, 10)
+        XCTAssertEqual(picked.filter { $0.difficulty == 1 }.count, 3)
+        XCTAssertEqual(picked.filter { $0.difficulty == 2 }.count, 5)
+        XCTAssertEqual(picked.filter { $0.difficulty == 3 }.count, 2)
+        // 同一批内不重复。
+        XCTAssertEqual(Set(picked.map(\.word)).count, 10)
+    }
+
+    func testDailyPickerExcludesAndToleratesSmallBank() {
+        var rng = SeededRNG(state: 7)
+        let bank = makeBank(easy: 4, medium: 6, hard: 3)
+        let first = DailyWordPicker.pick(from: bank, using: &rng)
+        // 刷新时排除上一批：不会再抽到同一批词。
+        let second = DailyWordPicker.pick(from: bank, excluding: Set(first.map { $0.word.lowercased() }), using: &rng)
+        XCTAssertEqual(Set(first.map(\.word)).intersection(second.map(\.word)), [])
+        // 词不够时有多少给多少，不崩。
+        let tiny = DailyWordPicker.pick(from: makeBank(easy: 1, medium: 0, hard: 0), using: &rng)
+        XCTAssertEqual(tiny.count, 1)
+        XCTAssertEqual(tiny.first?.difficulty, 1)
+    }
+
+    func testDailyRuleParsesSixSegments() {
+        let parsed = VocabularyDailyRule.parse(
+            "adj.||巨大的、显著的；强调数量或程度超出一般。||The company made a substantial investment in research.||这家公司在研究上投入了大量资金。||considerable、significant||tiny、negligible"
+        )
+        XCTAssertEqual(parsed?.pos, "adj.")
+        XCTAssertEqual(parsed?.meaning, "巨大的、显著的；强调数量或程度超出一般。")
+        XCTAssertEqual(parsed?.example, "The company made a substantial investment in research.")
+        XCTAssertEqual(parsed?.exampleTranslation, "这家公司在研究上投入了大量资金。")
+        XCTAssertEqual(parsed?.synonyms, ["considerable", "significant"])
+        XCTAssertEqual(parsed?.antonyms, ["tiny", "negligible"])
+
+        // `-` 占位：近/反义词、例句都可缺席。
+        let minimal = VocabularyDailyRule.parse("n.||某个中文释义。||-||-||-||-")
+        XCTAssertEqual(minimal?.example, "")
+        XCTAssertEqual(minimal?.synonyms, [])
+        XCTAssertEqual(minimal?.antonyms, [])
+
+        // 围栏 + 客套行要跳过；空释义拒绝。
+        XCTAssertNil(VocabularyDailyRule.parse("```\nSure!\nadj.||||An example.||-||-||-"))
+        XCTAssertNil(VocabularyDailyRule.parse("没有分隔符的一行"))
+    }
+
+    func testWordBankParseFiltersInvalidAndDuplicates() throws {
+        let json = """
+        [
+          {"word": "  significant ", "difficulty": 2},
+          {"word": "significant", "difficulty": 3},
+          {"word": "", "difficulty": 1},
+          {"difficulty": 1},
+          {"word": "echo"},
+          {"word": String(repeating: "a", count: 50), "difficulty": 1}
+        ]
+        """.replacingOccurrences(of: "String(repeating: \"a\", count: 50)", with: "\"" + String(repeating: "a", count: 50) + "\"")
+        let parsed = VocabularyWordBank.parse(Data(json.utf8))
+        XCTAssertEqual(parsed?.count, 2, "重复 / 空词 / 缺词 / 超长词全部过滤")
+        XCTAssertEqual(parsed?.first?.word, "significant")
+        XCTAssertEqual(parsed?.first?.difficulty, 2)
+        // 缺 difficulty 默认中等档。
+        XCTAssertEqual(parsed?.last?.word, "echo")
+        XCTAssertEqual(parsed?.last?.difficulty, 2)
+        XCTAssertNil(VocabularyWordBank.parse(Data("not json".utf8)))
     }
 
     func testNormalizeTrimsQuotesAndRejectsLongInput() {

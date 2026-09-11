@@ -113,6 +113,92 @@ public enum ReviewScheduler {
     }
 }
 
+// MARK: - 每日推荐（Daily Recommendation）
+
+/// 每日推荐的一个单词（来自本地雅思词库，不落库、默认不进复习列表）。
+public struct DailyWord: Sendable, Equatable, Identifiable, Codable {
+    public var word: String
+    /// 难度档：1 简单 / 2 中等 / 3 困难（雅思标准）。
+    public var difficulty: Int
+
+    public var id: String { word }
+
+    public init(word: String, difficulty: Int) {
+        self.word = word.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.difficulty = min(max(difficulty, 1), 3)
+    }
+
+    /// 难度标签（UI 展示）。
+    public var difficultyLabel: String { Self.difficultyLabel(for: difficulty) }
+
+    /// 难度标签（静态版，给没有词实例的 UI 用）。
+    public static func difficultyLabel(for difficulty: Int) -> String {
+        switch difficulty {
+        case 1: "简单"
+        case 2: "中等"
+        default: "困难"
+        }
+    }
+}
+
+/// 每日推荐的释义结果（按需由 LLM 补，不落库）。
+public struct DailyDefinition: Sendable, Equatable {
+    public var pos: String
+    public var meaning: String
+    public var example: String
+    public var exampleTranslation: String
+    public var synonyms: [String]
+    public var antonyms: [String]
+
+    public init(
+        pos: String,
+        meaning: String,
+        example: String,
+        exampleTranslation: String,
+        synonyms: [String],
+        antonyms: [String]
+    ) {
+        self.pos = pos
+        self.meaning = meaning
+        self.example = example
+        self.exampleTranslation = exampleTranslation
+        self.synonyms = synonyms
+        self.antonyms = antonyms
+    }
+}
+
+/// 每日推荐选词器：**纯函数**。
+///
+/// 规则：每次 10 个 —— 3 简单 / 5 中等 / 2 困难（雅思标准）；
+/// 从词库对应档位里随机抽，排除指定集合（刷新时排除当前展示的 10 个）。
+/// 某档位词不够时有多少给多少，不凑数。
+public enum DailyWordPicker {
+    /// 每次推荐的配额（难度 1/2/3 → 个数）。
+    public static let quota: [Int: Int] = [1: 3, 2: 5, 3: 2]
+
+    /// 从词库抽一组每日推荐（可注入随机源，便于单测）。
+    public static func pick<R: RandomNumberGenerator>(
+        from bank: [DailyWord],
+        excluding: Set<String> = [],
+        using generator: inout R
+    ) -> [DailyWord] {
+        let available = bank.filter { !excluding.contains($0.word.lowercased()) }
+        var picked: [DailyWord] = []
+        for difficulty in [1, 2, 3] {
+            let count = quota[difficulty] ?? 0
+            let candidates = available.filter { $0.difficulty == difficulty }.shuffled(using: &generator)
+            picked.append(contentsOf: candidates.prefix(count))
+        }
+        return picked
+    }
+
+    /// 便捷入口（系统随机源）。
+    public static func pick(from bank: [DailyWord], excluding: Set<String> = []) -> [DailyWord] {
+        var rng = SystemRandomNumberGenerator()
+        return pick(from: bank, excluding: excluding, using: &rng)
+    }
+}
+
 // MARK: - 统计
 
 /// 词汇统计（页面头部 / 学习记录）。
