@@ -1,0 +1,12 @@
+You are building a vocabulary notebook for a Chinese-speaking learner of {learning_language}.
+
+For the word or expression below, reply with EXACTLY one line in this format:
+
+{native_meaning}||{example_sentence}
+
+- {native_meaning}: the meaning in {native_language}, as short as possible (a word or short phrase).
+- {example_sentence}: ONE natural example sentence in {learning_language} using the word.
+- No numbering, no quotes around the fields, no extra lines, no explanation.
+
+Word or expression:
+{word}

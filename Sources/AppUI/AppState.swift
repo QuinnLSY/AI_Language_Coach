@@ -157,6 +157,21 @@ public final class AppState {
     /// 录音过程中实时识别出的文本（nil = 未在录音）。UI 把它写进输入框。
     public private(set) var voiceTranscript: String?
 
+    // MARK: - 词汇本（第 24 步 Vocabulary）
+
+    /// 是否停在词汇本页（占中间栏）。
+    public var showingVocabulary = false
+    /// 词汇表（进页面时加载；新 → 旧）。
+    public private(set) var vocabularyEntries: [VocabularyEntry] = []
+    /// 词汇统计（总数 / 待复习 / 已掌握 / 已释义）。
+    public private(set) var vocabularyStats: VocabularyStats = .empty
+    /// 正在补释义的词（按钮 loading）。
+    public private(set) var isDefiningVocabulary: Set<UUID> = []
+    /// 添加生词草稿（输入框绑定）。
+    public var vocabularyDraft = ""
+    /// 词汇本提示（可关闭；nil = 正常）。
+    public private(set) var vocabularyNotice: String?
+
     /// 产品配置缓存（Sendable，可在 MainActor 直接修改后整体回写）。
     private var product: ProductConfig = ProductConfig()
     /// 结算提示的自动收起任务。
@@ -842,6 +857,7 @@ public final class AppState {
 
     public func openRecords() async {
         showingShadowing = false
+        showingVocabulary = false
         showingRecords = true
         await loadRecords()
     }
@@ -849,6 +865,69 @@ public final class AppState {
     public func openPractice() async {
         showingRecords = false
         showingShadowing = false
+        showingVocabulary = false
+    }
+
+    // MARK: - 词汇本（Vocabulary，第 24 步）
+
+    /// 进入词汇本页：加载词表 + 从复盘导入新词。
+    public func openVocabulary() async {
+        showingRecords = false
+        showingShadowing = false
+        showingScenarios = false
+        showingVocabulary = true
+        let imported = await services.importVocabularyFromReviews()
+        if imported > 0 {
+            vocabularyNotice = "从最近复盘导入了 \(imported) 个新词，点「查释义」配上中文解释。"
+        }
+        await reloadVocabulary()
+    }
+
+    /// 重新读库 + 汇总统计。
+    public func reloadVocabulary() async {
+        let loaded = await services.vocabulary.entries()
+        vocabularyEntries = loaded
+        vocabularyStats = VocabularyStats.from(loaded)
+    }
+
+    /// 添加一个生词（手动）。已存在时提示，不重复加。
+    public func addVocabularyWord() async {
+        let word = vocabularyDraft
+        vocabularyDraft = ""
+        guard await services.vocabulary.add(word: word) != nil else {
+            vocabularyNotice = "「\(word)」没能加入词表（为空或没有学习数据库）。"
+            return
+        }
+        await reloadVocabulary()
+    }
+
+    /// 给一个词补中文释义 + 例句（按需 LLM）。
+    public func defineVocabulary(id: UUID) async {
+        guard let entry = vocabularyEntries.first(where: { $0.id == id }) else { return }
+        isDefiningVocabulary.insert(id)
+        defer { isDefiningVocabulary.remove(id) }
+        do {
+            _ = try await services.defineVocabulary(entry)
+            await reloadVocabulary()
+        } catch {
+            vocabularyNotice = "「\(entry.word)」释义失败：\(error.localizedDescription)"
+        }
+    }
+
+    /// 复习判分：认识 / 忘了。判分后刷新（到期列表随之变化）。
+    public func gradeVocabulary(id: UUID, remembered: Bool) async {
+        _ = await services.vocabulary.grade(id: id, remembered: remembered)
+        await reloadVocabulary()
+    }
+
+    /// 删除一个词。
+    public func removeVocabulary(id: UUID) async {
+        await services.vocabulary.remove(id: id)
+        await reloadVocabulary()
+    }
+
+    public func dismissVocabularyNotice() {
+        vocabularyNotice = nil
     }
 
     // MARK: - 跟读（Shadowing，第 22 步）
@@ -857,6 +936,7 @@ public final class AppState {
     public func openShadowing() async {
         showingRecords = false
         showingScenarios = false
+        showingVocabulary = false
         showingShadowing = true
         await loadShadowing()
     }
@@ -1052,6 +1132,7 @@ public final class AppState {
         showingRecords = false
         showingScenarios = false
         showingShadowing = false
+        showingVocabulary = false
         if product.practiceMode != .conversation {
             product.practiceMode = .conversation
             await persistProduct()

@@ -205,7 +205,7 @@ final class ShadowingTests: XCTestCase {
     func testDatabaseStoresAndReturnsAttemptsNewestFirst() async throws {
         let database = try LearningDatabase.inMemory()
         let version = try await database.schemaVersion()
-        XCTAssertEqual(version, 6, "发音评测列属于 schema v6")
+        XCTAssertEqual(version, 7, "发音评测列属于 schema v6+，词汇表 v7")
 
         let older = attempt(accuracy: 0.4, minutesAgo: 30)
         var newer = attempt(accuracy: 0.8, minutesAgo: 0)

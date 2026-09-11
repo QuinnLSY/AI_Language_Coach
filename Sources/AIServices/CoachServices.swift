@@ -25,6 +25,8 @@ public actor CoachServices {
     public let shadowing: ShadowingService
     /// 发音评测（Pronunciation，第 23 步）：从录音量语速 / 停顿 / 音高 / 音量起伏。
     public let pronunciation: PronunciationService
+    /// 词汇本（Vocabulary，第 24 步）：生词导入 / 复习 / 按需释义。
+    public let vocabulary: VocabularyService
 
     /// 学习数据库。打开失败时为 nil（功能降级为不持久化，不影响对话）。
     public private(set) var learning: LearningDatabase?
@@ -53,6 +55,7 @@ public actor CoachServices {
         // 将来接入音素模型时，把 provider 从工厂装进 PronunciationService 即可。
         self.pronunciation = PronunciationService()
         self.shadowing = ShadowingService(voice: self.voice, pronunciation: self.pronunciation, learning: database)
+        self.vocabulary = VocabularyService(llm: self.llm, learning: database)
         if self.learning == nil {
             AppLog.warning("学习数据库打开失败，持久化已降级关闭: \(path)", category: "database")
         }
@@ -548,6 +551,32 @@ public actor CoachServices {
     /// 最近的复盘列表（学习记录页展示）。
     public func recentReviews(limit: Int = 10) async -> [SessionReview] {
         await reviewer.recentReviews(limit: limit)
+    }
+
+    // MARK: - 词汇本（第 24 步 Vocabulary）
+
+    /// 从复盘 new_words 导入生词（按 word 去重）。返回新词数。
+    @discardableResult
+    public func importVocabularyFromReviews() async -> Int {
+        await vocabulary.importFromReviews()
+    }
+
+    /// 给生词补「中文释义 + 例句」（按需：点按钮才调用）。
+    public func defineVocabulary(_ entry: VocabularyEntry) async throws -> VocabularyEntry {
+        guard isModelRunning(.llm) else { throw AIProviderError.notInitialized }
+        try await ensureLLMReady()
+        let provider = await config.current.resolvedProvider(for: .llm)
+        let options = VocabularyDefineOptions(
+            model: await currentLLMModel(),
+            maxTokens: min(provider?.maxTokens ?? 512, 512)
+        )
+        let configuration = await config.current
+        return try await vocabulary.define(
+            entry,
+            learningLanguage: configuration.product.learningLanguage,
+            nativeLanguage: configuration.product.nativeLanguage,
+            options: options
+        )
     }
 
     // MARK: - 情景对话（Role Play，第 21 步）

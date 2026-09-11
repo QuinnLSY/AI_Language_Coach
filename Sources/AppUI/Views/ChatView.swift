@@ -463,7 +463,10 @@ public struct ChatView: View {
             if !isUser {
                 CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
             }
-            VStack(alignment: .leading, spacing: 6) {
+            // 学员气泡靠右 → 内容列 .trailing；老师靠左 → .leading。
+            // ⚠️ 不能靠给译文卡片挂 `frame(maxWidth: .infinity)` 来贴边：
+            // 那会让这列变成弹性视图，与学员侧的 Spacer 平分空闲宽度，把正文气泡挤向中间。
+            VStack(alignment: isUser ? .trailing : .leading, spacing: 6) {
                 // 思考过程：对话卡片内嵌的折叠面板，正文在其下方。
                 if !isUser, let reasoning = message.reasoning, !reasoning.isEmpty {
                     ThinkingPanel(reasoning: reasoning, isStreaming: false)
@@ -523,9 +526,9 @@ public struct ChatView: View {
 
     /// 译文卡片：默认不显示，点翻译按钮才出现在气泡下方。
     ///
-    /// 对齐方向与**气泡本身相反**（译文是「旁注」，不是气泡的一部分）：
-    /// 学员气泡靠左 → 译文靠右；老师气泡靠右 → 译文靠左。两侧因此永不重叠，
-    /// 一眼就能分出这句话是谁说的。
+    /// 对齐跟随**内容列**（学员 .trailing / 老师 .leading）：
+    /// 学员译文与正文气泡**右缘对齐**（正文位置不动，译文出现在其下方）；
+    /// 老师译文左对齐。两侧因此永不重叠，一眼就能分出这句话是谁说的。
     private func translationCard(_ text: String, isUser: Bool) -> some View {
         HStack(alignment: .top, spacing: Self.translationMarkGap) {
             if isUser {
@@ -539,6 +542,7 @@ public struct ChatView: View {
         .padding(.horizontal, Self.translationPadding)
         .padding(.vertical, 8)
         // 宽度收紧到「文字实际占宽」：短句就是一条小卡片，而不是撑满的长条。
+        // 定宽 + 交给上层 VStack 对齐 —— 卡片本身必须保持**刚性**（见 bubble 内注释）。
         .frame(width: Self.translationCardWidth(for: text), alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -548,8 +552,6 @@ public struct ChatView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(theme.accent.opacity(0.28), lineWidth: 1)
         )
-        // 卡片贴到与气泡相反的一侧。
-        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 

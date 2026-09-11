@@ -157,7 +157,7 @@ M1 Pro / 16GB：TTS 先 0.6B，benchmark 后再考虑 1.7B；优先保证 ASR+LL
 
 ### 当前进度（2026-09-10 傍晚·2）
 
-**Phase 0 + UI 大改版 + 第 14 步（SQLite）+ 第 17/18 步（ASR/TTS 本地）+ 第 20 步（Session 总结）+ 第 21 步（情景对话）+ 情景落库与关卡联动 + 第 22 步（跟读 Shadowing）+ 第 23 步（发音评测 Pronunciation）已完成**；学习数据库 schema 升到 **v6**。
+**Phase 0 + UI 大改版 + 第 14 步（SQLite）+ 第 17/18 步（ASR/TTS 本地）+ 第 20 步（Session 总结）+ 第 21 步（情景对话）+ 情景落库与关卡联动 + 第 22 步（跟读 Shadowing）+ 第 23 步（发音评测 Pronunciation）+ 第 24 步（词汇本 Vocabulary）已完成**；学习数据库 schema 升到 **v7**。
 
 ```
 AIDomain/       Scenario 增补 isComplete / completion / ScenarioRewardRule（星级·累计加星·结算文案，纯函数）
@@ -281,10 +281,26 @@ Tests/           PronunciationTests 18 个（合成波形脱机可测；总 222/
 **能量阈值封顶峰值 20%**（连续说话没有静音参考，噪声底×3 会把整段判成静音——单测抓出的真 bug）；
 建议必须点名数字（「语速偏慢（每分钟 96 词）…」），不写「多加练习」式空话。
 
+### 第 24 步 词汇本（Vocabulary）（2026-09-11）
+
+```
+AIDomain/        Vocabulary.swift：VocabularyEntry + ReviewScheduler（简化间隔重复：
+                 间隔 [0,1,2,4,7,14] 天；答对+1 封顶5，答错-1 保底0；新词永远当天到期）+ VocabularyStats
+AIInfra/         LearningDatabase v7：vocabulary_items（word 去重 COLLATE NOCASE，已存在不覆盖）
+                 + vocabulary_reviews 复习流水
+AIServices/      VocabularyService（复盘 newWords 导入 / 手动 / 判分 / 按需 LLM 释义「释义||例句」）
+AppUI/           VocabularyView（统计头/添加框/到期「认识·忘了」/查释义）+ 侧栏启用 + --open-vocabulary
+Tests/           VocabularyTests 13 个（调度/解析/清洗/去重/复习/迁移；总 235/235）
+```
+
+修复：学员译文卡片曾把正文气泡挤向左 —— 根因是卡片挂 `frame(maxWidth: .infinity)` 成为弹性视图、
+与学员侧 Spacer 平分宽度。现在卡片定宽刚性、贴边靠内容列 `VStack(alignment:)` 动态对齐
+（无头探针验证：译文出现前后正文气泡右缘 667.0 == 667.0）。
+
 ### 下一步（按路线图）
 
-1. **词汇本**（侧边栏入口已留、仍 `soon`）：把复盘 `new_words` / 场景 `target_vocabulary` / 跟读素材
-   沉淀成可复习的词汇表（第 24 步）。
+1. 词汇本可继续加：情景 `target_vocabulary` 一键导入、复习到期提醒（打开应用时冒泡）、
+   词汇增长曲线进学习记录页（第 26 步 Dashboard 的素材）。
 2. 发音评测可继续加：接入真音素模型（`PronunciationProvider` 插槽已留）、降速示范（0.75×）对照、
    评测结果并入学习记录页与 Session 总结（第 20 步的 summary 可吃 `pronunciation.overall`）。
 3. 跟读可继续加：按主题筛选素材、句子跟读难度自适应推荐。

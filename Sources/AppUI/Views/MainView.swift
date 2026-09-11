@@ -125,6 +125,10 @@ public struct MainView: View {
             if CommandLine.arguments.contains("--open-shadowing") {
                 await state.openShadowing()
             }
+            // 截图/验证辅助：--open-vocabulary 启动时直接进入词汇本页
+            if CommandLine.arguments.contains("--open-vocabulary") {
+                await state.openVocabulary()
+            }
             // 截图/验证辅助：--shadowing-sample "识别文本" 用**同一条评测链路**预览反馈界面
             // （本机无法合成点击、也无法自动对麦克风说话；它不录音、不落库，
             //   发音卡用合成的演示波形驱动 —— 真实录音时走的是同一段纯函数）
@@ -196,6 +200,8 @@ public struct MainView: View {
         Group {
             if state.showingShadowing {
                 ShadowingView(state: state)
+            } else if state.showingVocabulary {
+                VocabularyView(state: state)
             } else if state.showingRecords {
                 RecordsView(state: state)
             } else {

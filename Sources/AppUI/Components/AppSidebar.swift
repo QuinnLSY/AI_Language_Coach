@@ -76,6 +76,7 @@ public struct AppSidebar: View {
                 title: "练习",
                 isActive: !state.showingSettings && !state.showingRecords
                     && !state.showingScenarios && !state.showingShadowing
+                    && !state.showingVocabulary
             ) {
                 Task { await state.openPractice() }
             }
@@ -86,6 +87,14 @@ public struct AppSidebar: View {
                 isActive: state.showingShadowing
             ) {
                 Task { await state.openShadowing() }
+            }
+
+            navItem(
+                icon: "text.book.closed.fill",
+                title: "词汇本",
+                isActive: state.showingVocabulary
+            ) {
+                Task { await state.openVocabulary() }
             }
 
             navItem(
@@ -114,10 +123,6 @@ public struct AppSidebar: View {
 
             Divider().overlay(theme.divider)
                 .padding(.vertical, 6)
-
-            VStack(spacing: 4) {
-                navItem(icon: "text.book.closed.fill", title: "词汇本", isEnabled: false) {}
-            }
         }
         .padding(.top, 10)
     }

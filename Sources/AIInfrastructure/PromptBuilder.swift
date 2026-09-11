@@ -149,4 +149,27 @@ public enum PromptBuilder {
             .replacingOccurrences(of: "{target_language}", with: targetLanguage)
             .replacingOccurrences(of: "{text}", with: text)
     }
+
+    /// 词汇本按需释义（第 24 步）：给生词配「中文释义||例句」。
+    /// 模板走 `Resources/Prompts/vocabulary_define.txt`，缺失时用等价内联兜底。
+    public static func vocabularyDefinePrompt(word: String, learningLanguage: String, nativeLanguage: String) -> String {
+        let template: String
+        if let url = AppResourceBundle.module.url(forResource: "Prompts/vocabulary_define", withExtension: "txt"),
+           let loaded = try? String(contentsOf: url, encoding: .utf8) {
+            template = loaded
+        } else {
+            template = """
+            For the {learning_language} word below, reply with exactly one line:
+            {native_meaning}||{example_sentence}
+            ({native_meaning} in {native_language}, {example_sentence} in {learning_language}. No extra text.)
+
+            Word or expression:
+            {word}
+            """
+        }
+        return template
+            .replacingOccurrences(of: "{word}", with: word)
+            .replacingOccurrences(of: "{learning_language}", with: learningLanguage)
+            .replacingOccurrences(of: "{native_language}", with: nativeLanguage)
+    }
 }

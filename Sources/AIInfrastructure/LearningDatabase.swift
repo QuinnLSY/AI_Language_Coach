@@ -14,7 +14,7 @@ public actor LearningDatabase {
     /// v4：sessions 增加 scenario_id 列（情景练习落库，重启后能接着练）。
     /// v5：新增 shadowing_attempts（跟读记录：参考句 / 学员实际说的 / 匹配率）。
     /// v6：shadowing_attempts 增加 pronunciation 列（发音评测报告 JSON，第 23 步）。
-    public static let schemaVersion = 6
+    public static let schemaVersion = 7
 
     /// 测试用内存库。
     public static func inMemory() throws -> LearningDatabase {
@@ -127,6 +127,32 @@ public actor LearningDatabase {
         // v5 → v6：跟读记录补发音评测列（第 23 步 Pronunciation）。
         // 报告是结构化的只读结果，JSON 一列足够；旧行为 NULL = 当时没有音频。
         try? db.run("ALTER TABLE shadowing_attempts ADD COLUMN pronunciation TEXT")
+
+        // v6 → v7：词汇本（第 24 步 Vocabulary）。
+        // word 是业务唯一键（复盘提取 / 手动添加都按它去重），id 只是行标识。
+        try db.run("""
+        CREATE TABLE IF NOT EXISTS vocabulary_items (
+            id TEXT PRIMARY KEY,
+            word TEXT NOT NULL UNIQUE,
+            meaning TEXT NOT NULL DEFAULT '',
+            example TEXT NOT NULL DEFAULT '',
+            difficulty INTEGER NOT NULL DEFAULT 3,
+            mastery INTEGER NOT NULL DEFAULT 0,
+            review_count INTEGER NOT NULL DEFAULT 0,
+            last_reviewed_at REAL,
+            source TEXT NOT NULL DEFAULT 'manual',
+            created_at REAL NOT NULL
+        )
+        """)
+        try db.run("CREATE INDEX IF NOT EXISTS idx_vocab_created ON vocabulary_items(created_at DESC)")
+        try db.run("""
+        CREATE TABLE IF NOT EXISTS vocabulary_reviews (
+            id TEXT PRIMARY KEY,
+            item_id TEXT NOT NULL REFERENCES vocabulary_items(id) ON DELETE CASCADE,
+            remembered INTEGER NOT NULL,
+            reviewed_at REAL NOT NULL
+        )
+        """)
 
         try db.setSchemaVersion(Self.schemaVersion)
     }
@@ -534,6 +560,110 @@ public actor LearningDatabase {
                 createdAt: Date(timeIntervalSince1970: created)
             )
         }.compactMap { $0 }
+    }
+
+    // MARK: - 词汇本（第 24 步 Vocabulary）
+
+    /// 新增 / 更新词汇（按 word 去重：已存在时**不动**，保住已有掌握度与释义）。
+    /// 返回是否真的新插入了（false = 已有同词）。
+    @discardableResult
+    public func upsertVocabulary(_ entry: VocabularyEntry) throws -> Bool {
+        // 先查后插（封装层没有 changes() 计数）：已存在就不覆盖 ——
+        // 复习进度是学习资产，重复导入不能把它抹平。
+        let existing = try db.query(
+            "SELECT 1 FROM vocabulary_items WHERE word = ?1 COLLATE NOCASE",
+            [.text(entry.word)]
+        ) { _ in true }
+        guard existing.isEmpty else { return false }
+        try db.run(
+            """
+            INSERT INTO vocabulary_items
+                (id, word, meaning, example, difficulty, mastery, review_count,
+                 last_reviewed_at, source, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            """,
+            [
+                .text(entry.id.uuidString),
+                .text(entry.word),
+                .text(entry.meaning),
+                .text(entry.example),
+                .int(entry.difficulty),
+                .int(entry.mastery),
+                .int(entry.reviewCount),
+                entry.lastReviewedAt.map { .real($0.timeIntervalSince1970) } ?? .null,
+                .text(entry.source.rawValue),
+                .real(entry.createdAt.timeIntervalSince1970),
+            ]
+        )
+        return true
+    }
+
+    /// 全部词汇（**新 → 旧**）。
+    public func allVocabulary() throws -> [VocabularyEntry] {
+        try db.query(
+            """
+            SELECT id, word, meaning, example, difficulty, mastery, review_count,
+                   last_reviewed_at, source, created_at
+            FROM vocabulary_items ORDER BY created_at DESC
+            """
+        ) { row -> VocabularyEntry? in
+            guard let idText = row.string(0), let id = UUID(uuidString: idText),
+                  let word = row.string(1), let sourceRaw = row.string(8),
+                  let source = VocabularyEntry.Source(rawValue: sourceRaw),
+                  let created = row.double(9)
+            else { return nil }
+            return VocabularyEntry(
+                id: id,
+                word: word,
+                meaning: row.string(2) ?? "",
+                example: row.string(3) ?? "",
+                difficulty: row.int(4) ?? 3,
+                mastery: row.int(5) ?? 0,
+                reviewCount: row.int(6) ?? 0,
+                lastReviewedAt: row.double(7).map { Date(timeIntervalSince1970: $0) },
+                source: source,
+                createdAt: Date(timeIntervalSince1970: created)
+            )
+        }.compactMap { $0 }
+    }
+
+    /// 删除一条词汇（连带复习流水，外键 CASCADE）。
+    public func deleteVocabulary(id: UUID) throws {
+        try db.run("DELETE FROM vocabulary_items WHERE id = ?1", [.text(id.uuidString)])
+    }
+
+    /// 记一次复习：更新掌握度 / 次数 / 时间，并落复习流水。
+    public func recordVocabularyReview(_ graded: VocabularyEntry, remembered: Bool) throws {
+        try db.run(
+            """
+            UPDATE vocabulary_items
+            SET mastery = ?1, review_count = ?2, last_reviewed_at = ?3
+            WHERE id = ?4
+            """,
+            [
+                .int(graded.mastery),
+                .int(graded.reviewCount),
+                .real(graded.lastReviewedAt?.timeIntervalSince1970 ?? Date().timeIntervalSince1970),
+                .text(graded.id.uuidString),
+            ]
+        )
+        try db.run(
+            "INSERT INTO vocabulary_reviews (id, item_id, remembered, reviewed_at) VALUES (?1, ?2, ?3, ?4)",
+            [
+                .text(UUID().uuidString),
+                .text(graded.id.uuidString),
+                .int(remembered ? 1 : 0),
+                .real(Date().timeIntervalSince1970),
+            ]
+        )
+    }
+
+    /// 补释义 / 例句（按需 LLM 产出后回写）。
+    public func updateVocabularyDefinition(id: UUID, meaning: String, example: String) throws {
+        try db.run(
+            "UPDATE vocabulary_items SET meaning = ?1, example = ?2 WHERE id = ?3",
+            [.text(meaning), .text(example), .text(id.uuidString)]
+        )
     }
 
     /// 字符串列表以 JSON 数组存列（短列表，JSON 足够且可读）。
