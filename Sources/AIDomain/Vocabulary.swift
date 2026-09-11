@@ -732,6 +732,17 @@ public enum DailyWordPager {
         let start = min(max(index, 0), lastPage) * pageSize
         return Array(words[start..<min(start + pageSize, words.count)])
     }
+
+    /// 把一页的词切成若干行（每行 `perRow` 个）—— 收起态 2×2 布局用。
+    ///
+    /// 用普通行列而不是 `LazyVGrid` 的理由见 `VocabularyView.dailyGrid`：
+    /// 懒容器的子视图不参与过渡动画，卡片滑走了按钮却留在原地。
+    public static func rows(_ words: [DailyWord], perRow: Int = 2) -> [[DailyWord]] {
+        guard perRow > 0 else { return words.isEmpty ? [] : [words] }
+        return stride(from: 0, to: words.count, by: perRow).map {
+            Array(words[$0..<min($0 + perRow, words.count)])
+        }
+    }
 }
 
 // MARK: - 统计

@@ -156,13 +156,9 @@ public struct VocabularyView: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .strokeBorder(theme.accent.opacity(0.22), lineWidth: 1)
             )
-            // 翻页按钮骑在**整个框的垂直中线**上（右侧贴边）——
-            // 不是顶在卡片上方（用户口径：位置往下移到框中线上）。
-            .overlay(alignment: .trailing) {
-                if !dailyExpanded {
-                    dailyPager.padding(.trailing, 14)
-                }
-            }
+            // 翻页按钮由 `dailyGrid` 与卡片区并排摆放（垂直居中于卡片区），
+            // 不再挂在这个外框的 overlay 上 —— 那样是按「标题 + 卡片」整框居中，
+            // 位置会偏上。
             // 展开 / 收起按钮骑在**下框线正中**（offset 半个胶囊高）。
             .overlay(alignment: .bottom) { dailyExpandToggle }
             .padding(.bottom, 10)
@@ -190,27 +186,45 @@ public struct VocabularyView: View {
             // 不写这行的话卡片会被压到 ~110pt（单词被拆成 recomm/end）。
             .frame(maxWidth: .infinity, alignment: .topLeading)
         } else {
-            // 收敛在 ZStack 里：翻页时旧页与新页同时存在，各自上下滑出 / 滑入，
-            // 才能看到「整页滑动」而不是直接闪现。
-            ZStack(alignment: .top) {
-                LazyVGrid(columns: Self.dailyColumns, spacing: 10) {
-                    ForEach(pageWords) { word in
-                        dailyCard(word)
+            // 卡片区与翻页按钮并排、**垂直居中**对齐 —— 页码正好落在
+            // 上下两行卡片的间隙中线上（用户口径：按钮整体再下移到框中线）。
+            //
+            // ⚠️ 收起态**绝不能用 LazyVGrid**：懒容器的子视图不参与过渡动画，
+            // 卡片滑走了、里面的「查释义」按钮却留在原地（用户实测的 UI bug）。
+            // 每页固定 4 个，用普通 VStack/HStack 排 2×2 —— 每张卡片是一个
+            // 完整视图，卡内所有内容（含按钮）都跟着卡片一起移动。
+            HStack(alignment: .center, spacing: 8) {
+                ZStack(alignment: .top) {
+                    VStack(spacing: 10) {
+                        ForEach(Array(dailyPageRows.enumerated()), id: \.offset) { _, row in
+                            HStack(alignment: .top, spacing: 10) {
+                                ForEach(row) { word in
+                                    dailyCard(word)
+                                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                                }
+                                // 一行只剩一个卡片时右侧留空，两列始终等宽。
+                                if row.count == 1 {
+                                    Color.clear.frame(maxWidth: .infinity)
+                                }
+                            }
+                        }
                     }
+                    .id(dailyPage)
+                    .transition(pageTransition)
                 }
-                .id(dailyPage)
-                .transition(pageTransition)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                // 滑动过程中滑出框外的部分要裁掉，否则会盖住上面的标题行。
+                .clipped()
+
+                dailyPager
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            // 滑动过程中滑出框外的部分要裁掉，否则会盖住上面的标题行。
-            .clipped()
-            // 给右侧翻页按钮让位（按钮由 dailySection 的 overlay 摆放）。
-            .padding(.trailing, Self.pagerGutter)
         }
     }
 
-    /// 收起态右侧翻页按钮占用的宽度（按钮 20pt + 与卡片的间距 8pt）。
-    private static let pagerGutter: CGFloat = 28
+    /// 收起态当前页按每行 2 个切分（2 行 × 2 列）。
+    private var dailyPageRows: [[DailyWord]] {
+        DailyWordPager.rows(pageWords, perRow: 2)
+    }
 
     /// 翻页方向：`true` = 往下一页（新页从下方滑入、旧页向上滑出）。
     @State private var pageForward = true
@@ -233,14 +247,6 @@ public struct VocabularyView: View {
         withAnimation(.easeInOut(duration: slowPageAnimation ? 1.8 : 0.26)) { dailyPage = clamped }
     }
 
-    /// 收起态列宽：两列（每页 2 行 × 2 列 = 完整 4 个卡片）。
-    /// 卡片标题行在窄列下靠 `ViewThatFits` 自动降级（见 `dailyCard`），
-    /// 保证单词永远不会被拆成 desc/ribe。
-    private static let dailyColumns = [
-        GridItem(.flexible(), spacing: 10, alignment: .top),
-        GridItem(.flexible(), spacing: 10, alignment: .top)
-    ]
-
     /// 总页数（不足一页也算一页）。
     private var dailyPageCount: Int {
         DailyWordPager.pageCount(state.dailyWords, pageSize: Self.dailyPageSize)
@@ -251,7 +257,8 @@ public struct VocabularyView: View {
         DailyWordPager.page(state.dailyWords, index: dailyPage, pageSize: Self.dailyPageSize)
     }
 
-    /// 右侧上下翻页按钮（取代原来的下拉条；垂直方向骑在框的中线上）。
+    /// 右侧上下翻页按钮（取代原来的下拉条）。
+    /// 与卡片区**垂直居中**对齐 → 页码正好落在上下两行卡片的**间隙中线**上。
     private var dailyPager: some View {
         VStack(spacing: 6) {
             pagerButton("chevron.up", enabled: dailyPage > 0) { goToPage(dailyPage - 1) }
@@ -325,16 +332,17 @@ public struct VocabularyView: View {
                 // 单词 / 词组单独一个喇叭（例句有它自己的喇叭，见 `definitionBody`）。
                 speakButton(daily.word)
                 Spacer(minLength: 0)
-                // 三态按钮（查释义 / 看释义 / 收起）：
-                // 展开态列宽富余 → 带文字更好认；
-                // 收起态是两列窄卡片 → 无条件降级成纯图标，把宽度让给单词
-                // （否则 consequence 会被挤成「considera…」）。
-                ViewThatFits(in: .horizontal) {
-                    if dailyExpanded {
-                        dailyToggleButton(daily, title: dailyToggleTitle(daily, definition: definition), systemImage: dailyToggleIcon(daily), showsTitle: true)
-                    }
-                    dailyToggleButton(daily, title: dailyToggleTitle(daily, definition: definition), systemImage: dailyToggleIcon(daily), showsTitle: false)
-                }
+                // 三态按钮（查释义 / 看释义 / 收起）：**始终带文字**。
+                // ⚠️ 这里绝不能包 `ViewThatFits` —— 它原来的第一个候选带
+                // `if dailyExpanded` 条件，收起态下是个**空视图**，结果就是
+                // 「查释义」文字消失、还留下一个不随卡片移动的残影（用户实测的 UI bug）。
+                // `fixedSize` 保证按钮文字不被压缩，宽度让给单词侧缩。
+                dailyToggleButton(
+                    daily,
+                    title: dailyToggleTitle(daily, definition: definition),
+                    systemImage: dailyToggleIcon(daily)
+                )
+                .fixedSize()
             }
 
             if let definition, state.expandedDailyWords.contains(daily.word) {

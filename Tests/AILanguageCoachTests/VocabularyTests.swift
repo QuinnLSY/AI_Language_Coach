@@ -560,6 +560,23 @@ final class VocabularyTests: XCTestCase {
         XCTAssertTrue(DailyWordPager.page([], index: 0).isEmpty)
     }
 
+    func testDailyPagerSplitsPageIntoTwoColumns() {
+        // 收起态用普通行列排 2×2（不用 LazyVGrid：懒容器子视图不参与过渡动画，
+        // 卡片滑走时「查释义」按钮会留在原地）。
+        let words = (0..<4).map { DailyWord(word: "w\($0)", difficulty: 1) }
+        let rows = DailyWordPager.rows(words, perRow: 2)
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[0].map(\.word), ["w0", "w1"])
+        XCTAssertEqual(rows[1].map(\.word), ["w2", "w3"])
+
+        // 最后一行不足时按实际条数（漏一个卡片也不会空出整行）。
+        let odd = Array(words.prefix(3))
+        XCTAssertEqual(DailyWordPager.rows(odd, perRow: 2).map { $0.count }, [2, 1])
+        XCTAssertTrue(DailyWordPager.rows([], perRow: 2).isEmpty)
+        // 每页正好 4 张 → 2 行，行数与页容量一致。
+        XCTAssertEqual(DailyWordPager.rows(DailyWordPager.page(words, index: 0)).count, 2)
+    }
+
     func testWordBankEntriesCarryPartOfSpeechAndChinese() throws {
         // 词库每条都要带词性与中文（添加框联想浮层显示「英文（词性）中文」）。
         let entries = VocabularyWordBank.entries()
