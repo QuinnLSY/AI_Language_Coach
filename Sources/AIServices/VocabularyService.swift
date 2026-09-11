@@ -4,137 +4,203 @@ import AIInterfaces
 import AppCore
 import Foundation
 
-/// 词汇本定义输出的解析规则（纯函数，便于单测）。
+/// 释义解析规则（纯函数，便于单测）。**词汇本与每日推荐共用同一套解析**。
 ///
-/// 模型被要求回一行「释义||例句||重点单词」；实际偶尔会围栏、多余行、缺分隔符，
-/// 甚至把格式行里的字段名（MEANING/EXAMPLE/KEYWORDS）原样回显、只在中间填内容
-/// （qwen3:8b 实测出现过）。规则：
-/// - 取**含 `||` 的第一行**拆开；
-/// - **等于字段名的段直接剔除**（回显防御），剩下的段按 释义→例句→重点单词 依次取用；
-/// - 重点单词为 `-` 视为「没有」；没有 `||` 时整行按释义处理。
-public enum VocabularyDefineRule {
+/// 模型被要求按「键值行」回复：
+/// ```
+/// phonetic: /səbˈstænʃl/
+/// pos: adj.
+/// meaning: 大量的；实质性的；重要的
+/// explanation: 强调数量或程度超出一般，多用于正式书面语境。
+/// example: The government made substantial changes to the education policy.
+/// translation: 政府对教育政策做出了重大调整。
+/// synonyms: considerable、significant
+/// antonyms: slight、minor
+/// keywords: -
+/// ```
+/// 键值格式相比位置格式的好处：**缺字段只是少一行**（位置格式一缺就整体错位），
+/// 允许值里出现换行与冒号，也天然支持「中文义项 / 中文解释分行」。
+///
+/// 健壮性处理（都是实测踩过的坑）：
+/// - 剥围栏、去空行、容忍模型先客气一句；
+/// - 键名归一化（大小写、下划线、中英文冒号、`-`/`*` 前缀、中文键名都能认）；
+/// - **字段名回显防御**：值是字段名本身（`meaning: MEANING`）时视为缺席，
+///   而不是把 "MEANING" 当成释义落库（qwen3:8b 实测出现过）；
+/// - 认不出键值时回退旧格式（`||` 分段、整段纯文本），历史数据照旧能看。
+public enum VocabularyDefinitionRule {
 
-    /// 模型可能原样回显的字段名（小写）。
-    static let placeholderTokens: Set<String> = ["meaning", "example", "keywords", "pos", "释义", "例句", "重点单词"]
+    /// 字段（与 `VocabularyDefinition` 一一对应）。
+    enum Field: Hashable {
+        case phonetic, pos, meaning, explanation, example
+        case translation, synonyms, antonyms, keywords
+    }
 
-    public struct Definition: Sendable, Equatable {
-        public var meaning: String
-        public var example: String
-        /// 重点单词（「boost (v.) 提升；encourage (v.) 鼓励」这样的整段文本）。
-        public var keywords: String
+    // MARK: - 键名
 
-        public init(meaning: String, example: String, keywords: String = "") {
-            self.meaning = meaning
-            self.example = example
-            self.keywords = keywords
+    /// 键名归一化：去装饰前缀 / 下划线 / 空格，统一小写。
+    static func normalizeKey(_ raw: String) -> String {
+        var key = raw.trimmingCharacters(in: .whitespaces)
+        while let first = key.first, "-*•#·>".contains(first) {
+            key = String(key.dropFirst()).trimmingCharacters(in: .whitespaces)
         }
+        return key
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: " ", with: "")
+            .lowercased()
+    }
 
-        /// 落库的释义全文：详细释义 + 重点单词行（有重点单词时另起一行）。
-        public var storedMeaning: String {
-            keywords.isEmpty ? meaning : "\(meaning)\n重点单词：\(keywords)"
+    /// 键名 → 字段（认英文键、旧版大写键与常见中文键）。
+    static func field(forKey raw: String) -> Field? {
+        switch normalizeKey(raw) {
+        case "phonetic", "ipa", "pronunciation", "音标": .phonetic
+        case "pos", "partofspeech", "词性": .pos
+        case "meaning", "meanings", "sense", "senses", "definition", "释义", "词义", "中文释义", "中文翻译", "意思", "含义":
+            .meaning
+        case "explanation", "usage", "note", "notes", "解释", "说明", "用法", "辨析": .explanation
+        case "example", "sentence", "例句": .example
+        case "translation", "exampletranslation", "extranslation", "例句翻译", "译文", "翻译": .translation
+        case "synonyms", "synonym", "syn", "近义词", "同义词": .synonyms
+        case "antonyms", "antonym", "ant", "反义词": .antonyms
+        case "keywords", "keyword", "keys", "重点单词", "关键词": .keywords
+        default: nil
         }
     }
 
-    /// 该段是否是字段名的原样回显。
-    static func isPlaceholder(_ segment: String) -> Bool {
-        placeholderTokens.contains(segment.trimmingCharacters(in: .whitespaces).lowercased())
+    /// 该文本是否只是字段名（回显防御）。
+    static func isPlaceholder(_ value: String) -> Bool {
+        field(forKey: value) != nil
     }
 
-    public static func parse(_ raw: String) -> Definition? {
+    /// 拆「键: 值」。键必须短且只由字母 / 中文 / 下划线组成（允许 `-`/`*` 装饰前缀），
+    /// 免得把英文例句里的冒号误当分隔符（那行会落到「自由文本」里，不丢内容）。
+    static func splitKeyed(_ line: String) -> (key: String, value: String)? {
+        guard let index = line.firstIndex(where: { $0 == ":" || $0 == "：" }) else { return nil }
+        let rawKey = String(line[line.startIndex..<index]).trimmingCharacters(in: .whitespaces)
+        guard !rawKey.isEmpty, rawKey.count <= 26 else { return nil }
+        let key = normalizeKey(rawKey)
+        guard !key.isEmpty, key.count <= 24,
+              key.allSatisfy({ $0.isLetter || $0 == "_" })
+        else { return nil }
+        let value = String(line[line.index(after: index)...]).trimmingCharacters(in: .whitespaces)
+        return (key, value)
+    }
+
+    // MARK: - 解析
+
+    /// 解析模型输出（也用于落库文本，落库文本请先过 `sanitizedStoredMeaning`）。
+    ///
+    /// 认不出任何结构时整段文字进 `legacyText`（UI 按一段释义展示，不会丢内容）。
+    public static func parse(_ raw: String) -> VocabularyDefinition {
+        var definition = VocabularyDefinition()
         let lines = raw
             .replacingOccurrences(of: "```", with: "")
             .split(separator: "\n", omittingEmptySubsequences: true)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-        // 含分隔符的行才是正文（模型偶尔先客气一句）。
+
+        var unlabeled: [String] = []
+        var foundKeyed = false
+        for line in lines {
+            guard let (key, value) = splitKeyed(line), let field = field(forKey: key) else {
+                unlabeled.append(line)
+                continue
+            }
+            foundKeyed = true
+            let trimmed = value.trimmingCharacters(in: .whitespaces)
+            // 空值 / `-` / 字段名回显 → 该字段视为缺席。
+            guard !trimmed.isEmpty, trimmed != "-", !isPlaceholder(trimmed) else { continue }
+            switch field {
+            case .phonetic: definition.phonetic = trimmed
+            case .pos: definition.pos = trimmed
+            case .meaning: definition.senses = trimmed
+            case .explanation: definition.explanation = trimmed
+            case .example: definition.example = trimmed
+            case .translation: definition.exampleTranslation = trimmed
+            case .synonyms: definition.synonyms = list(trimmed)
+            case .antonyms: definition.antonyms = list(trimmed)
+            case .keywords: definition.keywords = trimmed
+            }
+        }
+
+        guard foundKeyed else { return legacyDefinition(from: lines) }
+
+        // 键值行之外还剩的**自由文本**（旧版落库的整段释义、模型没按格式回的段落）：
+        // 结构里没有义项与解释时，整段落到 `legacyText` —— UI 原样展示那段文字，
+        // 并给出「重新释义」入口升级格式（这样老词条的音标 / 词性 / 例句翻译才补得上）。
+        let freeText = unlabeled.filter { !isPlaceholder($0) }.joined(separator: "\n")
+        if definition.senses.isEmpty, definition.explanation.isEmpty, !freeText.isEmpty {
+            definition.legacyText = freeText
+        }
+        return definition
+    }
+
+    /// 落库文本 → 结构；认不出结构时整段进 `legacyText`。
+    public static func decodeStored(_ raw: String) -> VocabularyDefinition {
+        parse(sanitizedStoredMeaning(raw))
+    }
+
+    /// 认不出键值时的旧格式回退：`||` 分段（v2 三段 / v1 六段），否则整段文字。
+    private static func legacyDefinition(from lines: [String]) -> VocabularyDefinition {
+        var definition = VocabularyDefinition()
         if let body = lines.first(where: { $0.contains("||") }) {
             let real = body
                 .components(separatedBy: "||")
                 .map { $0.trimmingCharacters(in: .whitespaces) }
                 .filter { !isPlaceholder($0) }
-            // 整行都是字段名回显（没有真实内容）：按无正文处理。
-            guard let meaning = real.first, !meaning.isEmpty else { return nil }
-            let example = real.count > 1 ? real[1] : ""
-            var keywords = real.count > 2 ? real[2] : ""
-            if keywords == "-" { keywords = "" }
-            return Definition(meaning: meaning, example: example, keywords: keywords)
+            func segment(_ index: Int) -> String {
+                guard index < real.count else { return "" }
+                return real[index] == "-" ? "" : real[index]
+            }
+            if real.count >= 6 {
+                // 每日推荐 v1：词性||释义||例句||例句翻译||近义词||反义词。
+                definition.pos = segment(0)
+                definition.senses = segment(1)
+                definition.example = segment(2)
+                definition.exampleTranslation = segment(3)
+                definition.synonyms = list(segment(4))
+                definition.antonyms = list(segment(5))
+            } else {
+                // 词汇本 v2：释义||例句||重点单词。
+                definition.senses = segment(0)
+                definition.example = segment(1)
+                definition.keywords = segment(2)
+            }
+            if !definition.isEmpty { return definition }
         }
-        guard let single = lines.first, !single.isEmpty, !isPlaceholder(single) else { return nil }
-        return Definition(meaning: single, example: "")
+        definition.legacyText = lines.joined(separator: "\n")
+        return definition
     }
 
+    /// 「considerable、significant」「-, minor」→ 有效词列表。
+    static func list(_ raw: String) -> [String] {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, trimmed != "-" else { return [] }
+        return trimmed
+            .split(whereSeparator: { "、，,;；/|".contains($0) })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && $0 != "-" }
+    }
+
+    // MARK: - 历史坏数据清洗
+
     /// 清洗历史坏数据：老版本解析器曾把字段名回显落库（释义=「MEANING」、
-    /// 重点单词=「EXAMPLE」）。逐行剔除字段名行与「重点单词：<字段名>」行；
+    /// 重点单词=「EXAMPLE」）。逐行剔除纯字段名行与值是字段名的键值行；
     /// 剔完为空 → 返回空串（UI 退回「还没有释义」，可重新查释义覆盖）。
     public static func sanitizedStoredMeaning(_ raw: String) -> String {
         let kept = raw
             .split(separator: "\n", omittingEmptySubsequences: true)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { line in
+                guard !line.isEmpty else { return false }
                 if isPlaceholder(line) { return false }
-                // 「重点单词：EXAMPLE」这类坏行：冒号后是字段名 → 整行剔除。
-                if line.hasPrefix("重点单词"),
-                   let value = line.split(whereSeparator: { ":：".contains($0) }).last,
-                   isPlaceholder(String(value)) {
-                    return false
+                if let (key, value) = splitKeyed(line), field(forKey: key) != nil {
+                    let trimmed = value.trimmingCharacters(in: .whitespaces)
+                    // 「meaning: -」「example: EXAMPLE」这类空壳行整行剔除。
+                    return !(trimmed.isEmpty || trimmed == "-" || isPlaceholder(trimmed))
                 }
                 return true
             }
         return kept.joined(separator: "\n")
-    }
-}
-
-/// 每日推荐释义输出的解析规则（纯函数）。
-///
-/// 一行六段：`词性||释义||例句||例句翻译||近义词||反义词`；
-/// 近/反义词以「、」分隔，`-` 表示没有；字段名回显段（POS/MEANING/…）直接剔除。
-public enum VocabularyDailyRule {
-
-    static let placeholderTokens: Set<String> = [
-        "pos", "meaning", "example", "example_translation", "example translation",
-        "exampletranslation", "synonyms", "antonyms", "词性", "释义", "例句", "例句翻译", "近义词", "反义词",
-    ]
-
-    static func isPlaceholder(_ segment: String) -> Bool {
-        placeholderTokens.contains(segment.trimmingCharacters(in: .whitespaces).lowercased())
-    }
-
-    public static func parse(_ raw: String) -> DailyDefinition? {
-        let lines = raw
-            .replacingOccurrences(of: "```", with: "")
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        guard let body = lines.first(where: { $0.contains("||") }) else { return nil }
-        // 按原始位置取段；等于字段名的段（模型回显格式行）逐个中和为「缺席」，
-        // 不能整体重排 —— 回显场景下剔除后位置有歧义。
-        let parts = body.components(separatedBy: "||").map {
-            $0.trimmingCharacters(in: .whitespaces)
-        }
-        func field(_ index: Int) -> String {
-            guard index < parts.count else { return "" }
-            let value = parts[index]
-            return (value == "-" || isPlaceholder(value)) ? "" : value
-        }
-        let meaning = field(1)
-        guard !meaning.isEmpty else { return nil }
-        return DailyDefinition(
-            pos: field(0),
-            meaning: meaning,
-            example: field(2),
-            exampleTranslation: field(3),
-            synonyms: parseList(field(4)),
-            antonyms: parseList(field(5))
-        )
-    }
-
-    /// 「wonderful、excellent」「-, excellent」→ 有效词列表。
-    private static func parseList(_ raw: String) -> [String] {
-        guard raw != "-" else { return [] }
-        return raw
-            .split(whereSeparator: { "、，,;；".contains($0) })
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty && $0 != "-" }
     }
 }
 
@@ -174,7 +240,7 @@ public actor VocabularyService {
         let loaded = (try? await learning.allVocabulary()) ?? []
         return loaded.map { entry in
             var cleaned = entry
-            cleaned.meaning = VocabularyDefineRule.sanitizedStoredMeaning(entry.meaning)
+            cleaned.meaning = VocabularyDefinitionRule.sanitizedStoredMeaning(entry.meaning)
             return cleaned
         }
     }
@@ -225,7 +291,8 @@ public actor VocabularyService {
 
     // MARK: - 按需释义（LLM）
 
-    /// 给生词补「中文释义 + 例句」。模型不可用 / 解析失败时抛错，由 UI 给可操作提示。
+    /// 给生词补「音标 / 词性 / 中文义项 / 解释 / 例句及翻译 / 近反义 / 重点单词」。
+    /// 模型不可用 / 解析不出内容时抛错，由 UI 给可操作提示。
     public func define(
         _ entry: VocabularyEntry,
         learningLanguage: String,
@@ -251,32 +318,33 @@ public actor VocabularyService {
             reasoningEffort: LLMRequest.noThinkingEffort
         )
         let response = try await llm.generate(request)
-        guard let parsed = VocabularyDefineRule.parse(response.text) else {
+        let parsed = VocabularyDefinitionRule.parse(response.text)
+        guard !parsed.isEmpty else {
             throw AppError.unknown("模型没有给出可解析的释义，请再试一次")
         }
         var defined = entry
-        defined.meaning = parsed.storedMeaning
+        defined.meaning = parsed.encoded
         defined.example = parsed.example
-        try? await learning?.updateVocabularyDefinition(id: entry.id, meaning: parsed.storedMeaning, example: parsed.example)
+        try? await learning?.updateVocabularyDefinition(id: entry.id, meaning: parsed.encoded, example: parsed.example)
         return defined
     }
 
     // MARK: - 每日推荐（本地选词 + 按需 LLM 释义）
 
-    /// 抽一组每日推荐：3 简单 / 5 中等 / 2 困难（雅思标准），排除指定词。
+    /// 抽一组每日推荐：3 简单 / 5 中等 / 2 困难 / 2 词组（雅思标准），排除指定词。
     /// 词库资源缺失时返回空（UI 隐藏板块，不崩）。
     public func dailyRecommendation(excluding: Set<String> = []) -> [DailyWord] {
         DailyWordPicker.pick(from: VocabularyWordBank.load(), excluding: excluding)
     }
 
-    /// 给每日推荐的词补「词性 + 详细中文释义 + 例句及翻译 + 近/反义词」。
-    /// 只做展示，不落库 —— 推荐词默认不进复习列表。
+    /// 给每日推荐的词补「音标 / 词性 / 中文义项 / 解释 / 例句及翻译 / 近反义 / 重点单词」。
+    /// 与词汇本走**同一套字段**；只做展示，不落库 —— 推荐词默认不进复习列表。
     public func defineDaily(
         _ word: String,
         learningLanguage: String,
         nativeLanguage: String,
         options: VocabularyDefineOptions
-    ) async throws -> DailyDefinition {
+    ) async throws -> VocabularyDefinition {
         let request = LLMRequest(
             messages: [
                 LLMMessage(
@@ -296,7 +364,8 @@ public actor VocabularyService {
             reasoningEffort: LLMRequest.noThinkingEffort
         )
         let response = try await llm.generate(request)
-        guard let parsed = VocabularyDailyRule.parse(response.text) else {
+        let parsed = VocabularyDefinitionRule.parse(response.text)
+        guard !parsed.isEmpty else {
             throw AppError.unknown("模型没有给出可解析的释义，请再试一次")
         }
         return parsed

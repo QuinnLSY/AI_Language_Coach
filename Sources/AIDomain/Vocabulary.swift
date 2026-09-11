@@ -9,9 +9,10 @@ public struct VocabularyEntry: Sendable, Equatable, Identifiable, Codable {
     public var id: UUID
     /// 单词 / 表达（唯一键，去重依据）。
     public var word: String
-    /// 中文释义（按需由 LLM 补，导入时可能为空）。
+    /// 落库的释义全文（LLM 生成的结构化键值行；历史数据可能是整段中文）。
+    /// UI 用 `VocabularyDefinitionRule.decodeStored` 解析后按统一结构展示。
     public var meaning: String
-    /// 例句（按需由 LLM 补）。
+    /// 例句（按需由 LLM 补；朗读卡片英文时用）。
     public var example: String
     /// 难度 1–5（1 最易）。
     public var difficulty: Int
@@ -113,19 +114,119 @@ public enum ReviewScheduler {
     }
 }
 
+// MARK: - 释义（统一模型）
+
+/// 一条词的完整释义。**词汇本复习卡与每日推荐卡共用同一个结构**，
+/// 因此两处的排版完全一致（区别只有复习卡多一行「重点单词」）。
+///
+/// 数据来源两种：
+/// - LLM 按需生成：键值行格式（`phonetic: …` / `pos: …` …）；
+/// - 历史落库数据：早先版本只存了「一段中文释义（+重点单词）」，
+///   解析不出结构时整体落到 `legacyText`，UI 按整段文字展示。
+public struct VocabularyDefinition: Sendable, Equatable {
+    /// 音标（IPA）。**只有单个单词才有**；词组 / 短句一律为空。
+    public var phonetic: String
+    /// 词性，多词性用 `/` 连接（如 `n./v.`）。
+    public var pos: String
+    /// 中文义项：**多义词的义项全部列出**，用「；」分隔。
+    public var senses: String
+    /// 中文解释（用法 / 语境 / 搭配），与义项**分行**展示。
+    public var explanation: String
+    public var example: String
+    public var exampleTranslation: String
+    public var synonyms: [String]
+    public var antonyms: [String]
+    /// 词组 / 短句的重点单词（「word (n.) 中文；…」整段文本）；单词为空。
+    public var keywords: String
+    /// 无法结构化的历史数据原文（非空时 UI 按整段释义展示）。
+    public var legacyText: String
+
+    public init(
+        phonetic: String = "",
+        pos: String = "",
+        senses: String = "",
+        explanation: String = "",
+        example: String = "",
+        exampleTranslation: String = "",
+        synonyms: [String] = [],
+        antonyms: [String] = [],
+        keywords: String = "",
+        legacyText: String = ""
+    ) {
+        self.phonetic = phonetic
+        self.pos = pos
+        self.senses = senses
+        self.explanation = explanation
+        self.example = example
+        self.exampleTranslation = exampleTranslation
+        self.synonyms = synonyms
+        self.antonyms = antonyms
+        self.keywords = keywords
+        self.legacyText = legacyText
+    }
+
+    /// 没有任何可展示内容。
+    public var isEmpty: Bool {
+        phonetic.isEmpty && pos.isEmpty && senses.isEmpty && explanation.isEmpty
+            && example.isEmpty && exampleTranslation.isEmpty && synonyms.isEmpty
+            && antonyms.isEmpty && keywords.isEmpty && legacyText.isEmpty
+    }
+
+    /// 是否来自历史非结构化数据（UI 可提示「重新释义」升级到新格式）。
+    public var isLegacy: Bool { !legacyText.isEmpty }
+
+    /// 中文义项列表（按「；」拆开）。
+    public var senseList: [String] {
+        senses
+            .split(whereSeparator: { "；;".contains($0) })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// 「重点单词」行文案（没有则 nil）。
+    public var keywordsLine: String? {
+        keywords.isEmpty ? nil : "重点单词：\(keywords)"
+    }
+
+    /// 落库编码。历史数据原样保留（重点单词行照旧拼回）；结构化数据写成键值行，
+    /// 读回时同一套解析。
+    public var encoded: String {
+        guard legacyText.isEmpty else {
+            return keywords.isEmpty ? legacyText : "\(legacyText)\n重点单词：\(keywords)"
+        }
+        var lines: [String] = []
+        if !phonetic.isEmpty { lines.append("phonetic: \(phonetic)") }
+        if !pos.isEmpty { lines.append("pos: \(pos)") }
+        if !senses.isEmpty { lines.append("meaning: \(senses)") }
+        if !explanation.isEmpty { lines.append("explanation: \(explanation)") }
+        if !example.isEmpty { lines.append("example: \(example)") }
+        if !exampleTranslation.isEmpty { lines.append("translation: \(exampleTranslation)") }
+        if !synonyms.isEmpty { lines.append("synonyms: \(synonyms.joined(separator: "、"))") }
+        if !antonyms.isEmpty { lines.append("antonyms: \(antonyms.joined(separator: "、"))") }
+        if !keywords.isEmpty { lines.append("keywords: \(keywords)") }
+        return lines.joined(separator: "\n")
+    }
+}
+
 // MARK: - 每日推荐（Daily Recommendation）
 
-/// 每日推荐的一个单词（来自本地雅思词库，不落库、默认不进复习列表）。
+/// 每日推荐的一个词 / 词组（来自本地雅思词库，不落库、默认不进复习列表）。
 public struct DailyWord: Sendable, Equatable, Identifiable, Codable {
+    /// 难度档上限：1 简单 / 2 中等 / 3 困难 / 4 词组（雅思标准）。
+    public static let maxDifficulty = 4
+
     public var word: String
-    /// 难度档：1 简单 / 2 中等 / 3 困难（雅思标准）。
+    /// 难度档：1 简单 / 2 中等 / 3 困难 / 4 词组。
     public var difficulty: Int
 
     public var id: String { word }
 
+    /// 词组档（短语 / 固定搭配）。
+    public var isPhrase: Bool { difficulty == DailyWordPicker.phraseDifficulty }
+
     public init(word: String, difficulty: Int) {
         self.word = word.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.difficulty = min(max(difficulty, 1), 3)
+        self.difficulty = min(max(difficulty, 1), Self.maxDifficulty)
     }
 
     /// 难度标签（UI 展示）。
@@ -136,45 +237,25 @@ public struct DailyWord: Sendable, Equatable, Identifiable, Codable {
         switch difficulty {
         case 1: "简单"
         case 2: "中等"
-        default: "困难"
+        case 3: "困难"
+        default: "词组"
         }
-    }
-}
-
-/// 每日推荐的释义结果（按需由 LLM 补，不落库）。
-public struct DailyDefinition: Sendable, Equatable {
-    public var pos: String
-    public var meaning: String
-    public var example: String
-    public var exampleTranslation: String
-    public var synonyms: [String]
-    public var antonyms: [String]
-
-    public init(
-        pos: String,
-        meaning: String,
-        example: String,
-        exampleTranslation: String,
-        synonyms: [String],
-        antonyms: [String]
-    ) {
-        self.pos = pos
-        self.meaning = meaning
-        self.example = example
-        self.exampleTranslation = exampleTranslation
-        self.synonyms = synonyms
-        self.antonyms = antonyms
     }
 }
 
 /// 每日推荐选词器：**纯函数**。
 ///
-/// 规则：每次 10 个 —— 3 简单 / 5 中等 / 2 困难（雅思标准）；
-/// 从词库对应档位里随机抽，排除指定集合（刷新时排除当前展示的 10 个）。
+/// 规则：每次 12 个 —— 3 简单 / 5 中等 / 2 困难 / 2 词组（雅思标准）；
+/// 从词库对应档位里随机抽，排除指定集合（刷新时排除当前展示的一批）。
 /// 某档位词不够时有多少给多少，不凑数。
 public enum DailyWordPicker {
-    /// 每次推荐的配额（难度 1/2/3 → 个数）。
-    public static let quota: [Int: Int] = [1: 3, 2: 5, 3: 2]
+    /// 词组档难度值。
+    public static let phraseDifficulty = 4
+    /// 每次推荐的配额（难度 1/2/3/4 → 个数）。
+    public static let quota: [Int: Int] = [1: 3, 2: 5, 3: 2, 4: 2]
+
+    /// 每次推荐的总数。
+    public static var total: Int { quota.values.reduce(0, +) }
 
     /// 从词库抽一组每日推荐（可注入随机源，便于单测）。
     public static func pick<R: RandomNumberGenerator>(
@@ -184,7 +265,7 @@ public enum DailyWordPicker {
     ) -> [DailyWord] {
         let available = bank.filter { !excluding.contains($0.word.lowercased()) }
         var picked: [DailyWord] = []
-        for difficulty in [1, 2, 3] {
+        for difficulty in [1, 2, 3, phraseDifficulty] {
             let count = quota[difficulty] ?? 0
             let candidates = available.filter { $0.difficulty == difficulty }.shuffled(using: &generator)
             picked.append(contentsOf: candidates.prefix(count))

@@ -98,32 +98,16 @@ public struct RecordsView: View {
     // MARK: - 练习复盘（学习记忆：一次练习沉淀一份总结）
 
     private var reviewCard: some View {
-        card(title: "练习复盘", systemImage: "sparkles") {
+        card(title: "练习复盘", systemImage: "sparkles", trailing: { reviewActionButton }) {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    if state.isGeneratingReview {
+                if state.isGeneratingReview {
+                    HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
                         Text("老师正在回看这次练习…")
                             .font(.system(size: 12, design: .rounded))
                             .foregroundStyle(theme.secondaryText)
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
-                    Button {
-                        Task { await state.generateSessionReview() }
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "wand.and.stars")
-                            Text(state.latestReview == nil ? "生成本次复盘" : "重新生成")
-                        }
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .frame(height: 28)
-                        .background(Capsule().fill(theme.accent))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(state.isGeneratingReview || state.chat.messages.isEmpty)
-                    .help(state.chat.messages.isEmpty ? "先和老师聊几句，再来复盘" : "让本地模型回看这次练习并生成总结")
                 }
 
                 if let review = state.latestReview {
@@ -133,6 +117,26 @@ public struct RecordsView: View {
                 }
             }
         }
+    }
+
+    /// 「生成本次复盘 / 重新生成」：挂在卡片标题行右侧（不额外占一行）。
+    private var reviewActionButton: some View {
+        Button {
+            Task { await state.generateSessionReview() }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "wand.and.stars")
+                Text(state.latestReview == nil ? "生成本次复盘" : "重新生成")
+            }
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .frame(height: 26)
+            .background(Capsule().fill(theme.accent))
+        }
+        .buttonStyle(.plain)
+        .disabled(state.isGeneratingReview || state.chat.messages.isEmpty)
+        .help(state.chat.messages.isEmpty ? "先和老师聊几句，再来复盘" : "让本地模型回看这次练习并生成总结")
     }
 
     private func reviewBody(_ review: SessionReview) -> some View {
@@ -350,7 +354,17 @@ public struct RecordsView: View {
     }
 
     private func card<Content: View>(title: String, systemImage: String, @ViewBuilder content: () -> Content) -> some View {
+        card(title: title, systemImage: systemImage, trailing: { EmptyView() }, content: content)
+    }
 
+    /// 带右上角操作区的卡片。练习复盘的「重新生成」就挂在**标题行右侧**，
+    /// 不再单独占一行 —— 那一行只有右边一个按钮，会在标题和正文之间留出一道空白。
+    private func card<Content: View, Trailing: View>(
+        title: String,
+        systemImage: String,
+        @ViewBuilder trailing: () -> Trailing,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: systemImage)
@@ -358,6 +372,8 @@ public struct RecordsView: View {
                 Text(title)
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.primaryText)
+                Spacer(minLength: 8)
+                trailing()
             }
             content()
         }
@@ -371,22 +387,30 @@ public struct RecordsView: View {
     }
 }
 
-// MARK: - 小标签自动换行（新词/短语展示）
+// MARK: - 小标签自动换行（复盘新词 / 短语展示）
+//
+// 用 `FlowRow`（`Layout` 自动换行）而不是 LazyVGrid：网格的列宽是固定的，
+// 长单词会被硬拆到两行（实测 "precipitation" 被拆成 "precipitatio / n"）。
+// FlowRow 按每个 chip 的**自然宽度**排布 —— 单词整体展示、短词组尽量保持一行，
+// 只有整句级别的长文本才在词边界折行（不会在单词中间断开）。
 
 private struct WrappingChips: View {
     let items: [String]
     let tint: Color
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 74), spacing: 6)], alignment: .leading, spacing: 6) {
+        FlowRow(spacing: 6, lineSpacing: 6, wrapsLongItems: true) {
             ForEach(items, id: \.self) { item in
                 Text(item)
                     .font(.system(size: 11, weight: .medium, design: .rounded))
                     .foregroundStyle(tint)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(Capsule().fill(tint.opacity(0.14)))
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

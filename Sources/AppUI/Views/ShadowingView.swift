@@ -504,6 +504,19 @@ public struct ShadowingView: View {
 struct FlowRow: Layout {
     var spacing: CGFloat = 6
     var lineSpacing: CGFloat = 6
+    /// 长条目是否允许在**词边界**折行：
+    /// - `false`（默认）：只按自然宽度量，每个 chip 永远一行 —— 逐词 chip / 单词用；
+    /// - `true`：拿可用宽做提案，整句过长时在空格处折行，
+    ///   既保证短词 / 短词组一行放下，又不会在单词中间断开。
+    var wrapsLongItems: Bool = false
+
+    /// 量一个子视图：是否需要「约束到可用宽」。
+    private func measure(_ subview: LayoutSubviews.Element, maxWidth: CGFloat) -> CGSize {
+        guard wrapsLongItems, maxWidth.isFinite else {
+            return subview.sizeThatFits(.unspecified)
+        }
+        return subview.sizeThatFits(ProposedViewSize(width: maxWidth, height: nil))
+    }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let maxWidth = proposal.width ?? .infinity
@@ -512,7 +525,7 @@ struct FlowRow: Layout {
         var lineHeight: CGFloat = 0
         var widest: CGFloat = 0
         for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+            let size = measure(subview, maxWidth: maxWidth)
             if x > 0, x + size.width > maxWidth {
                 widest = max(widest, x - spacing)
                 x = 0
@@ -531,7 +544,7 @@ struct FlowRow: Layout {
         var y = bounds.minY
         var lineHeight: CGFloat = 0
         for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+            let size = measure(subview, maxWidth: bounds.width)
             if x > bounds.minX, x + size.width > bounds.maxX {
                 x = bounds.minX
                 y += lineHeight + lineSpacing

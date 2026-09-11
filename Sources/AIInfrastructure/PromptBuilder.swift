@@ -150,30 +150,53 @@ public enum PromptBuilder {
             .replacingOccurrences(of: "{text}", with: text)
     }
 
-    /// 词汇本按需释义（第 24 步）：给生词配「详细中文释义||例句||重点单词」。
+    /// 词汇本按需释义（第 24 步）：给生词配「音标 / 词性 / 中文义项 / 解释 / 例句及翻译 / 近反义 / 重点单词」。
     /// 模板走 `Resources/Prompts/vocabulary_define.txt`，缺失时用等价内联兜底。
     public static func vocabularyDefinePrompt(word: String, learningLanguage: String, nativeLanguage: String) -> String {
+        vocabularyPrompt(
+            resource: "Prompts/vocabulary_define",
+            word: word,
+            learningLanguage: learningLanguage,
+            nativeLanguage: nativeLanguage,
+            fallback: vocabularyPromptFallback(
+                role: "You are building a vocabulary notebook for a Chinese-speaking learner of {learning_language}.",
+                entryLabel: "Word or expression:",
+                exampleStyle: "ONE natural sentence"
+            )
+        )
+    }
+
+    /// 每日推荐释义：与词汇本**同一套字段**（音标 / 词性 / 中文义项 / 解释 / 例句及翻译 / 近反义 / 重点单词），
+    /// 只有例句偏雅思书面风格。
+    /// 模板走 `Resources/Prompts/vocabulary_daily.txt`，缺失时用等价内联兜底。
+    public static func vocabularyDailyPrompt(word: String, learningLanguage: String, nativeLanguage: String) -> String {
+        vocabularyPrompt(
+            resource: "Prompts/vocabulary_daily",
+            word: word,
+            learningLanguage: learningLanguage,
+            nativeLanguage: nativeLanguage,
+            fallback: vocabularyPromptFallback(
+                role: "You are a vocabulary coach for a Chinese-speaking learner of {learning_language} (IELTS level).",
+                entryLabel: "Word or phrase:",
+                exampleStyle: "ONE natural IELTS-style sentence"
+            )
+        )
+    }
+
+    /// 词汇释义提示词的公共装配（两个入口只差角色描述与例句风格）。
+    private static func vocabularyPrompt(
+        resource: String,
+        word: String,
+        learningLanguage: String,
+        nativeLanguage: String,
+        fallback: String
+    ) -> String {
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/vocabulary_define", withExtension: "txt"),
+        if let url = AppResourceBundle.module.url(forResource: resource, withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {
-            template = """
-            You are building a vocabulary notebook for a Chinese-speaking learner of {learning_language}.
-
-            For the word or expression below, reply with EXACTLY one line in this format:
-
-            MEANING||EXAMPLE||KEYWORDS
-
-            - MEANING: a DETAILED explanation in {native_language} (Chinese), 1-3 short sentences. NEVER an English explanation, NEVER just repeat the word.
-            - EXAMPLE: ONE natural example sentence in {learning_language} using the word or expression.
-            - KEYWORDS: for a multi-word entry, list its 2-4 key words as "word (part-of-speech) Chinese translation" separated by "；"; for a single word, write "-".
-            - IMPORTANT: MEANING / EXAMPLE / KEYWORDS are only field names — NEVER write them in your reply, replace each with real content.
-            - No extra text.
-
-            Word or expression:
-            {word}
-            """
+            template = fallback
         }
         return template
             .replacingOccurrences(of: "{word}", with: word)
@@ -181,36 +204,49 @@ public enum PromptBuilder {
             .replacingOccurrences(of: "{native_language}", with: nativeLanguage)
     }
 
-    /// 每日推荐单词释义：词性 + 详细中文释义 + 例句及翻译 + 近义词 / 反义词。
-    /// 模板走 `Resources/Prompts/vocabulary_daily.txt`，缺失时用等价内联兜底。
-    public static func vocabularyDailyPrompt(word: String, learningLanguage: String, nativeLanguage: String) -> String {
-        let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/vocabulary_daily", withExtension: "txt"),
-           let loaded = try? String(contentsOf: url, encoding: .utf8) {
-            template = loaded
-        } else {
-            template = """
-            You are a vocabulary coach for a Chinese-speaking learner of {learning_language} (IELTS level).
+    /// 资源文件缺失时的等价兜底模板（字段与资源模板一字不差）。
+    private static func vocabularyPromptFallback(role: String, entryLabel: String, exampleStyle: String) -> String {
+        """
+        \(role)
 
-            For the word below, reply with EXACTLY one line in this format:
+        For the entry below, reply with EXACTLY these nine lines and nothing else:
 
-            POS||MEANING||EXAMPLE||EXAMPLE_TRANSLATION||SYNONYMS||ANTONYMS
+        phonetic: <IPA>
+        pos: <part of speech>
+        meaning: <Chinese senses>
+        explanation: <Chinese explanation>
+        example: <one sentence>
+        translation: <Chinese translation of the example>
+        synonyms: <synonyms>
+        antonyms: <antonyms>
+        keywords: <key words, or ->
 
-            - POS: abbreviated part of speech (n. / v. / adj. / adv. ...).
-            - MEANING: a detailed explanation in {native_language} (Chinese), 1-2 sentences.
-            - EXAMPLE: ONE natural IELTS-style example sentence in {learning_language}.
-            - EXAMPLE_TRANSLATION: its {native_language} translation.
-            - SYNONYMS / ANTONYMS: 1-2 words each, separated by "、"; write "-" if none.
-            - IMPORTANT: the field names (POS / MEANING / ...) are labels only — NEVER write them in your reply, replace each with real content.
-            - No extra text.
+        Rules for each line:
+        - The words phonetic / pos / meaning / explanation / example / translation / synonyms / antonyms / keywords are only KEYS. Put the key and a colon at the start of its line, then the real content. NEVER write a bare key name as content.
+        - phonetic: the IPA between slashes, e.g. /səbˈstænʃl/. Write this ONLY when the entry is a SINGLE word; if the entry is a phrase, write -.
+        - pos: abbreviated part of speech (n. / v. / adj. / adv. / phr.). Join several with "/", e.g. n./v.
+        - meaning: the {native_language} (Chinese) translation(s). List EVERY common sense, separated by "；".
+        - explanation: 1-2 {native_language} sentences about usage or collocations. It goes on ITS OWN line; never paste it into the meaning line.
+        - example: \(exampleStyle) in {learning_language} that clearly uses the entry.
+        - translation: the {native_language} translation of that example sentence.
+        - synonyms / antonyms: 1-2 {learning_language} words each, separated by "、"; write - when there is none.
+        - keywords: for a multi-word entry, 2-4 key words as "word (part-of-speech) Chinese translation", separated by "；"; for a single word write -.
+        - No numbering, no quotes, no extra lines, no commentary.
 
-            Word:
-            {word}
-            """
-        }
-        return template
-            .replacingOccurrences(of: "{word}", with: word)
-            .replacingOccurrences(of: "{learning_language}", with: learningLanguage)
-            .replacingOccurrences(of: "{native_language}", with: nativeLanguage)
+        Here is a worked example of a CORRECT reply (for the word "substantial"):
+
+        phonetic: /səbˈstænʃl/
+        pos: adj.
+        meaning: 大量的；实质性的；重要的
+        explanation: 强调数量或程度超出一般，多用于正式书面语境，如 substantial progress / a substantial amount。
+        example: The government made substantial changes to the education policy.
+        translation: 政府对教育政策做出了重大调整。
+        synonyms: considerable、significant
+        antonyms: slight、minor
+        keywords: -
+
+        \(entryLabel)
+        {word}
+        """
     }
 }

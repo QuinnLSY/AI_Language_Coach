@@ -174,10 +174,10 @@ public final class AppState {
     /// 释义被手动收起的词条（「查释义」按钮与收起开关是同一个按钮；
     /// 已有释义默认展开，收起后点「看释义」再展开，不重新请求模型）。
     public private(set) var collapsedVocabularyDefinitions: Set<UUID> = []
-    /// 每日推荐词（本次启动随机抽的 10 个：3 简单 / 5 中等 / 2 困难；不落库）。
+    /// 每日推荐（本次启动随机抽的 12 个：3 简单 / 5 中等 / 2 困难 / 2 词组；不落库）。
     public private(set) var dailyWords: [DailyWord] = []
-    /// 每日推荐词的释义缓存（按需 LLM，word → 释义）。
-    public private(set) var dailyDefinitions: [String: DailyDefinition] = [:]
+    /// 每日推荐词的释义缓存（按需 LLM，word → 释义；与词汇本共用同一结构）。
+    public private(set) var dailyDefinitions: [String: VocabularyDefinition] = [:]
     /// 正在补释义的每日推荐词（按钮 loading）。
     public private(set) var isDefiningDaily: Set<String> = []
     /// 已展开释义的每日推荐词（点「查释义」展开，再点收起）。
@@ -952,6 +952,12 @@ public final class AppState {
         }
     }
 
+    /// 重新释义：旧数据（早先版本只存了整段中文，没有音标 / 词性 / 例句翻译）
+    /// 想升级成新格式时用 —— 重新请求模型并覆盖落库。
+    public func redefineVocabulary(id: UUID) async {
+        await defineVocabulary(id: id)
+    }
+
     /// 复习判分：认识 / 忘了。判分后刷新（到期列表随之变化）。
     public func gradeVocabulary(id: UUID, remembered: Bool) async {
         _ = await services.vocabulary.grade(id: id, remembered: remembered)
@@ -992,7 +998,7 @@ public final class AppState {
         Set(dailyRecognitions.filter { $0.value >= Self.dailyRecognitionRetireCount }.keys)
     }
 
-    /// 每次启动随机抽 10 个推荐词（3 简单 / 5 中等 / 2 困难，雅思标准）。
+    /// 每次启动随机抽 12 个推荐词（3 简单 / 5 中等 / 2 困难 / 2 词组，雅思标准）。
     /// 只在第一次进词汇本页时抽，之后进页面保持同一组；已认熟的词不再出现。
     public func loadDailyWordsIfNeeded() async {
         guard !dailyWordsLoaded else { return }
@@ -1000,13 +1006,13 @@ public final class AppState {
         dailyWords = await services.dailyWordRecommendation(excluding: retiredDailyWords)
     }
 
-    /// 刷新：重新抽 10 个与当前展示的**不同**的词（清空展开态与本次「认识」记录，
+    /// 刷新：重新抽 12 个与当前展示的**不同**的词（清空展开态与本次「认识」记录，
     /// 已认熟的词不再出现；释义缓存保留可复用）。
     public func refreshDailyWords() async {
         var excluding = Set(dailyWords.map { $0.word.lowercased() })
         excluding.formUnion(retiredDailyWords)
         let next = await services.dailyWordRecommendation(excluding: excluding)
-        // 词库不足 10 词时可能抽不满，把排除条件放宽再抽一次。
+        // 词库不足时可能抽不满，把排除条件放宽再抽一次。
         dailyWords = next.isEmpty && !dailyWords.isEmpty
             ? await services.dailyWordRecommendation(excluding: retiredDailyWords)
             : next

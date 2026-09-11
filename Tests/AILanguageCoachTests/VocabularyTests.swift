@@ -76,64 +76,150 @@ final class VocabularyTests: XCTestCase {
         XCTAssertEqual(VocabularyStats.from([]), .empty)
     }
 
-    // MARK: - 输出解析 / 生词清洗（纯函数）
+    // MARK: - 释义解析（键值行；词汇本与每日推荐共用同一套）
 
-    func testDefineRuleParsesMeaningAndExample() {
-        let good = VocabularyDefineRule.parse("苹果||I eat an apple every day.")
-        XCTAssertEqual(good?.meaning, "苹果")
-        XCTAssertEqual(good?.example, "I eat an apple every day.")
-        XCTAssertEqual(good?.keywords, "", "两段格式没有重点单词段，向后兼容")
-        // 模型偶尔先客气一句 / 包围栏：取含 || 的那一行。
-        let noisy = VocabularyDefineRule.parse("Sure!\n```\n香蕉||Bananas are yellow.\n```")
-        XCTAssertEqual(noisy?.meaning, "香蕉")
-        XCTAssertEqual(noisy?.example, "Bananas are yellow.")
-        // 没有 ||：整行按释义，例句为空。
-        let bare = VocabularyDefineRule.parse("橙子")
-        XCTAssertEqual(bare?.meaning, "橙子")
-        XCTAssertEqual(bare?.example, "")
-        XCTAssertNil(VocabularyDefineRule.parse("  "))
+    func testDefinitionRuleParsesKeyedLines() {
+        let raw = """
+        phonetic: /səbˈstænʃl/
+        pos: adj.
+        meaning: 大量的；实质性的；重要的
+        explanation: 强调数量或程度超出一般，多用于正式书面语境。
+        example: The government made substantial changes to the education policy.
+        translation: 政府对教育政策做出了重大调整。
+        synonyms: considerable、significant
+        antonyms: slight、minor
+        keywords: -
+        """
+        let parsed = VocabularyDefinitionRule.parse(raw)
+        XCTAssertEqual(parsed.phonetic, "/səbˈstænʃl/")
+        XCTAssertEqual(parsed.pos, "adj.")
+        XCTAssertEqual(parsed.senses, "大量的；实质性的；重要的")
+        XCTAssertEqual(parsed.senseList, ["大量的", "实质性的", "重要的"], "多义要全部列出")
+        XCTAssertEqual(parsed.explanation, "强调数量或程度超出一般，多用于正式书面语境。")
+        XCTAssertEqual(parsed.example, "The government made substantial changes to the education policy.")
+        XCTAssertEqual(parsed.exampleTranslation, "政府对教育政策做出了重大调整。")
+        XCTAssertEqual(parsed.synonyms, ["considerable", "significant"])
+        XCTAssertEqual(parsed.antonyms, ["slight", "minor"])
+        XCTAssertEqual(parsed.keywords, "", "`-` = 没有重点单词（单个词）")
+        XCTAssertFalse(parsed.isEmpty)
+        XCTAssertFalse(parsed.isLegacy)
     }
 
-    func testDefineRuleParsesKeywordsSection() {
-        let parsed = VocabularyDefineRule.parse(
-            "指期待某事发生时激动不安的心情（常与 about 连用），多用于口语。||I'm really excited about the trip.||excite (v.) 使兴奋；trip (n.) 旅行"
+    func testDefinitionRuleParsesPhraseKeywordsAndChineseKeys() {
+        // 词组：没有音标，有重点单词；键名用中文也应认得。
+        let parsed = VocabularyDefinitionRule.parse("""
+        * 音标：-
+        * 词性：phr.
+        * 中文释义：考虑；顾及
+        * 解释：正式书面用语，名词短语可放在 take 之后或 into account 之前。
+        * 例句：We must take into account the cost of living.
+        * 例句翻译：我们必须把生活成本考虑进去。
+        * 近义词：bear in mind、allow for
+        * 反义词：-
+        * 重点单词：take (v.) 拿；account (n.) 账户；consideration (n.) 考虑
+        """)
+        XCTAssertEqual(parsed.phonetic, "", "词组不显示音标")
+        XCTAssertEqual(parsed.pos, "phr.")
+        XCTAssertEqual(parsed.senses, "考虑；顾及")
+        XCTAssertEqual(parsed.synonyms, ["bear in mind", "allow for"])
+        XCTAssertEqual(parsed.antonyms, [])
+        XCTAssertEqual(parsed.exampleTranslation, "我们必须把生活成本考虑进去。")
+        XCTAssertEqual(parsed.keywords, "take (v.) 拿；account (n.) 账户；consideration (n.) 考虑")
+        XCTAssertEqual(parsed.keywordsLine, "重点单词：take (v.) 拿；account (n.) 账户；consideration (n.) 考虑")
+    }
+
+    func testDefinitionRuleRepairsPlaceholderEcho() {
+        // qwen3:8b 实测会把格式行的字段名当值回显：必须视为缺席，绝不能落库。
+        let echoed = VocabularyDefinitionRule.parse("""
+        phonetic: PHONETIC
+        pos: POS
+        meaning: 百分比；百分率
+        explanation: EXPLANATION
+        example: EXAMPLE
+        translation: EXAMPLE_TRANSLATION
+        synonyms: SYNONYMS
+        antonyms: -
+        keywords: -
+        """)
+        XCTAssertEqual(echoed.phonetic, "")
+        XCTAssertEqual(echoed.pos, "")
+        XCTAssertEqual(echoed.senses, "百分比；百分率")
+        XCTAssertEqual(echoed.explanation, "")
+        XCTAssertEqual(echoed.example, "")
+        XCTAssertEqual(echoed.exampleTranslation, "")
+        XCTAssertEqual(echoed.synonyms, [])
+        // 整段都是回显（没有任何真实内容）→ 视为空，UI 退回「还没有释义」。
+        let pure = VocabularyDefinitionRule.parse("phonetic: PHONETIC\npos: POS\nmeaning: MEANING")
+        XCTAssertTrue(pure.isEmpty)
+    }
+
+    func testDefinitionRuleFallsBackToLegacyFormats() {
+        // 旧词汇本 v2：义项 || 例句 || 重点单词。
+        let v2 = VocabularyDefinitionRule.parse("苹果||I eat an apple every day.||apple (n.) 苹果")
+        XCTAssertEqual(v2.senses, "苹果")
+        XCTAssertEqual(v2.example, "I eat an apple every day.")
+        XCTAssertEqual(v2.keywords, "apple (n.) 苹果")
+
+        // 旧每日推荐 v1：词性 || 释义 || 例句 || 例句翻译 || 近义 || 反义。
+        let v1 = VocabularyDefinitionRule.parse(
+            "adj.||大量的、显著的||A substantial rise.||大幅上升。||considerable、significant||slight、minor"
         )
-        XCTAssertEqual(parsed?.meaning, "指期待某事发生时激动不安的心情（常与 about 连用），多用于口语。")
-        XCTAssertEqual(parsed?.example, "I'm really excited about the trip.")
-        XCTAssertEqual(parsed?.keywords, "excite (v.) 使兴奋；trip (n.) 旅行")
-        // 含释义的落库全文要带上「重点单词」行。
-        XCTAssertTrue(parsed?.storedMeaning.contains("重点单词：excite (v.) 使兴奋") ?? false)
-        // 单个词没有重点单词：`-` 占位 → 清空，落库不追加该行。
-        let single = VocabularyDefineRule.parse("详细的中文释义||An example sentence.||-")
-        XCTAssertEqual(single?.keywords, "")
-        XCTAssertEqual(single?.storedMeaning, "详细的中文释义")
+        XCTAssertEqual(v1.pos, "adj.")
+        XCTAssertEqual(v1.senses, "大量的、显著的")
+        XCTAssertEqual(v1.exampleTranslation, "大幅上升。")
+        XCTAssertEqual(v1.synonyms, ["considerable", "significant"])
+
+        // 旧版（v2 落库）：一段中文 + 「重点单词：」行 → 段落与重点单词都还原，
+        // 并且**标记为 legacy**，UI 会给出「重新释义」把音标 / 词性 / 例句翻译补上。
+        let stored = VocabularyDefinitionRule.parse("旧版落库的一段中文释义。\n重点单词：boost (v.) 提升")
+        XCTAssertEqual(stored.legacyText, "旧版落库的一段中文释义。")
+        XCTAssertEqual(stored.keywords, "boost (v.) 提升")
+        XCTAssertTrue(stored.isLegacy)
+        XCTAssertTrue(stored.senses.isEmpty)
+        // 整段原样再编码：重点单词行要拼回去（老数据不会被压扁）。
+        XCTAssertEqual(stored.encoded, "旧版落库的一段中文释义。\n重点单词：boost (v.) 提升")
+
+        // 完全认不出结构（没有键值行、没有 `||`）→ 整段进 legacyText。
+        let plain = VocabularyDefinitionRule.parse("这是一段完全自由格式的旧释义。\n没有任何标签。")
+        XCTAssertTrue(plain.isLegacy)
+        XCTAssertEqual(plain.legacyText, "这是一段完全自由格式的旧释义。\n没有任何标签。")
     }
 
-    func testDefineRuleRepairsPlaceholderEcho() {
-        // qwen3:8b 实测会把格式行的字段名原样回显、只在中间填内容：
-        // 「MEANING||真实的释义||EXAMPLE」→ 字段名段必须剔除，真实释义升位。
-        let echo = VocabularyDefineRule.parse("MEANING||Water is a common liquid essential for life.||EXAMPLE")
-        XCTAssertEqual(echo?.meaning, "Water is a common liquid essential for life.")
-        XCTAssertEqual(echo?.example, "", "EXAMPLE 是字段名回显，不是例句")
-        XCTAssertEqual(echo?.keywords, "")
-        // 整行纯字段名回显（没有任何真实内容）：拒绝解析。
-        XCTAssertNil(VocabularyDefineRule.parse("MEANING||EXAMPLE||KEYWORDS"))
-        // 大小写不敏感。
-        let mixed = VocabularyDefineRule.parse("meaning||百分比是指百分之一为单位的比率。||-")
-        XCTAssertEqual(mixed?.meaning, "百分比是指百分之一为单位的比率。")
+    func testDefinitionRoundTripsThroughStoredEncoding() {
+        let original = VocabularyDefinition(
+            phonetic: "/ˈæpl/",
+            pos: "n.",
+            senses: "苹果；苹果树",
+            explanation: "可数名词，指水果。",
+            example: "I eat an apple every day.",
+            exampleTranslation: "我每天吃一个苹果。",
+            synonyms: ["fruit"],
+            keywords: ""
+        )
+        let restored = VocabularyDefinitionRule.decodeStored(original.encoded)
+        XCTAssertEqual(restored.phonetic, original.phonetic)
+        XCTAssertEqual(restored.pos, original.pos)
+        XCTAssertEqual(restored.senses, original.senses)
+        XCTAssertEqual(restored.explanation, original.explanation)
+        XCTAssertEqual(restored.exampleTranslation, original.exampleTranslation)
+        XCTAssertEqual(restored.synonyms, ["fruit"])
+        XCTAssertFalse(restored.isLegacy, "结构化数据往返后不应退化成 legacy")
     }
 
     func testSanitizedStoredMeaningCleansLegacyEchoRows() {
-        // 历史坏数据（释义=「MEANING」+「重点单词：EXAMPLE」两行垃圾）→ 清完为空，
+        // 历史坏数据（释义=「MEANING」+「重点单词： EXAMPLE」两行垃圾）→ 清完为空，
         // 退回「还没有释义」让用户重新查释义。
-        let corrupt = VocabularyDefineRule.sanitizedStoredMeaning("MEANING\n重点单词： EXAMPLE")
+        let corrupt = VocabularyDefinitionRule.sanitizedStoredMeaning("MEANING\n重点单词： EXAMPLE")
         XCTAssertEqual(corrupt, "")
         // 好数据原样保留。
         let good = "详细的中文释义。\n重点单词：boost (v.) 提升"
-        XCTAssertEqual(VocabularyDefineRule.sanitizedStoredMeaning(good), good)
+        XCTAssertEqual(VocabularyDefinitionRule.sanitizedStoredMeaning(good), good)
         // 坏行剔除但好行保留。
-        let partial = VocabularyDefineRule.sanitizedStoredMeaning("MEANING\n真正的释义。")
+        let partial = VocabularyDefinitionRule.sanitizedStoredMeaning("MEANING\n真正的释义。")
         XCTAssertEqual(partial, "真正的释义。")
+        // 空壳键值行（值是 `-` 或字段名）整行剔除，正常键值行保留。
+        let keyed = "meaning: 苹果\nexplanation: -\npos: POS"
+        XCTAssertEqual(VocabularyDefinitionRule.sanitizedStoredMeaning(keyed), "meaning: 苹果")
     }
 
     // MARK: - 每日推荐（Daily Recommendation）
@@ -150,30 +236,36 @@ final class VocabularyTests: XCTestCase {
         }
     }
 
-    private func makeBank(easy: Int, medium: Int, hard: Int) -> [DailyWord] {
+    private func makeBank(easy: Int, medium: Int, hard: Int, phrases: Int = 0) -> [DailyWord] {
         var bank: [DailyWord] = []
         for index in 0..<easy { bank.append(DailyWord(word: "easy\(index)", difficulty: 1)) }
         for index in 0..<medium { bank.append(DailyWord(word: "med\(index)", difficulty: 2)) }
         for index in 0..<hard { bank.append(DailyWord(word: "hard\(index)", difficulty: 3)) }
+        for index in 0..<phrases { bank.append(DailyWord(word: "phrase \(index)", difficulty: 4)) }
         return bank
     }
 
     func testDailyPickerFollowsQuota() {
-        // 雅思配额：3 简单 / 5 中等 / 2 困难。
-        XCTAssertEqual(DailyWordPicker.quota, [1: 3, 2: 5, 3: 2])
+        // 雅思配额：3 简单 / 5 中等 / 2 困难 / 2 词组。
+        XCTAssertEqual(DailyWordPicker.quota, [1: 3, 2: 5, 3: 2, 4: 2])
+        XCTAssertEqual(DailyWordPicker.total, 12)
         var rng = SeededRNG(state: 42)
-        let picked = DailyWordPicker.pick(from: makeBank(easy: 10, medium: 10, hard: 10), using: &rng)
-        XCTAssertEqual(picked.count, 10)
+        let picked = DailyWordPicker.pick(from: makeBank(easy: 10, medium: 10, hard: 10, phrases: 10), using: &rng)
+        XCTAssertEqual(picked.count, 12)
         XCTAssertEqual(picked.filter { $0.difficulty == 1 }.count, 3)
         XCTAssertEqual(picked.filter { $0.difficulty == 2 }.count, 5)
         XCTAssertEqual(picked.filter { $0.difficulty == 3 }.count, 2)
+        XCTAssertEqual(picked.filter(\.isPhrase).count, 2, "再随机给两个词组")
         // 同一批内不重复。
-        XCTAssertEqual(Set(picked.map(\.word)).count, 10)
+        XCTAssertEqual(Set(picked.map(\.word)).count, 12)
+        // 第 4 档的标签是「词组」（前三档仍是简单 / 中等 / 困难）。
+        XCTAssertEqual(DailyWord.difficultyLabel(for: 4), "词组")
+        XCTAssertEqual(DailyWord.difficultyLabel(for: 2), "中等")
     }
 
     func testDailyPickerExcludesAndToleratesSmallBank() {
         var rng = SeededRNG(state: 7)
-        let bank = makeBank(easy: 4, medium: 6, hard: 3)
+        let bank = makeBank(easy: 4, medium: 6, hard: 3, phrases: 2)
         let first = DailyWordPicker.pick(from: bank, using: &rng)
         // 刷新时排除上一批：不会再抽到同一批词。
         let second = DailyWordPicker.pick(from: bank, excluding: Set(first.map { $0.word.lowercased() }), using: &rng)
@@ -182,37 +274,6 @@ final class VocabularyTests: XCTestCase {
         let tiny = DailyWordPicker.pick(from: makeBank(easy: 1, medium: 0, hard: 0), using: &rng)
         XCTAssertEqual(tiny.count, 1)
         XCTAssertEqual(tiny.first?.difficulty, 1)
-    }
-
-    func testDailyRuleParsesSixSegments() {
-        let parsed = VocabularyDailyRule.parse(
-            "adj.||巨大的、显著的；强调数量或程度超出一般。||The company made a substantial investment in research.||这家公司在研究上投入了大量资金。||considerable、significant||tiny、negligible"
-        )
-        XCTAssertEqual(parsed?.pos, "adj.")
-        XCTAssertEqual(parsed?.meaning, "巨大的、显著的；强调数量或程度超出一般。")
-        XCTAssertEqual(parsed?.example, "The company made a substantial investment in research.")
-        XCTAssertEqual(parsed?.exampleTranslation, "这家公司在研究上投入了大量资金。")
-        XCTAssertEqual(parsed?.synonyms, ["considerable", "significant"])
-        XCTAssertEqual(parsed?.antonyms, ["tiny", "negligible"])
-
-        // `-` 占位：近/反义词、例句都可缺席。
-        let minimal = VocabularyDailyRule.parse("n.||某个中文释义。||-||-||-||-")
-        XCTAssertEqual(minimal?.example, "")
-        XCTAssertEqual(minimal?.synonyms, [])
-        XCTAssertEqual(minimal?.antonyms, [])
-
-        // 围栏 + 客套行要跳过；空释义拒绝。
-        XCTAssertNil(VocabularyDailyRule.parse("```\nSure!\nadj.||||An example.||-||-||-"))
-        XCTAssertNil(VocabularyDailyRule.parse("没有分隔符的一行"))
-
-        // 字段名回显段（POS/MEANING/…）要剔除，真实内容按位升格。
-        let echoed = VocabularyDailyRule.parse(
-            "POS||大量的、实质性的；强调数量或程度超出一般。||EXAMPLE||EXAMPLE_TRANSLATION||considerable、significant||-"
-        )
-        XCTAssertEqual(echoed?.pos, "", "POS 是字段名回显")
-        XCTAssertEqual(echoed?.meaning, "大量的、实质性的；强调数量或程度超出一般。")
-        XCTAssertEqual(echoed?.example, "")
-        XCTAssertEqual(echoed?.synonyms, ["considerable", "significant"])
     }
 
     func testWordBankParseFiltersInvalidAndDuplicates() throws {

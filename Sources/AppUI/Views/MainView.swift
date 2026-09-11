@@ -129,6 +129,23 @@ public struct MainView: View {
             if CommandLine.arguments.contains("--open-vocabulary") {
                 await state.openVocabulary()
             }
+            // 截图/验证辅助：--define-vocabulary 进词汇本 + 给第一个每日推荐词查释义、
+            // 给最新一条词条重新释义，并朗读「单词 + 例句」。
+            // 一次跑完「提示词 → 解析 → 卡片排版 → 朗读」整条链路，
+            // 不需要模拟点击（本机 UI 自动化对 SwiftUI 不可靠）。
+            if CommandLine.arguments.contains("--define-vocabulary") {
+                await state.openVocabulary()
+                await state.loadDailyWordsIfNeeded()
+                if let first = state.dailyWords.first {
+                    await state.toggleDailyDefinition(word: first.word)
+                    let example = state.dailyDefinitions[first.word]?.example ?? ""
+                    let spoken = example.isEmpty ? first.word : "\(first.word). \(example)"
+                    Task { await state.speak(spoken) }
+                }
+                if let newest = state.vocabularyEntries.first {
+                    await state.redefineVocabulary(id: newest.id)
+                }
+            }
             // 截图/验证辅助：--shadowing-sample "识别文本" 用**同一条评测链路**预览反馈界面
             // （本机无法合成点击、也无法自动对麦克风说话；它不录音、不落库，
             //   发音卡用合成的演示波形驱动 —— 真实录音时走的是同一段纯函数）

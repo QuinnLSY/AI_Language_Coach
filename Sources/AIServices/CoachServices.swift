@@ -580,13 +580,14 @@ public actor CoachServices {
         )
     }
 
-    /// 抽一组每日推荐词（3 简单 / 5 中等 / 2 困难，雅思标准；本地选词，不调模型）。
+    /// 抽一组每日推荐词（3 简单 / 5 中等 / 2 困难 / 2 词组，雅思标准；本地选词，不调模型）。
     public func dailyWordRecommendation(excluding: Set<String> = []) async -> [DailyWord] {
         await vocabulary.dailyRecommendation(excluding: excluding)
     }
 
-    /// 给每日推荐的词补「词性 + 中文释义 + 例句及翻译 + 近/反义词」（按需 LLM，不落库）。
-    public func defineDailyWord(_ word: String) async throws -> DailyDefinition {
+    /// 给每日推荐的词补「音标 / 词性 / 中文义项 / 解释 / 例句及翻译 / 近反义 / 重点单词」
+    /// （按需 LLM，不落库；与词汇本同一套字段）。
+    public func defineDailyWord(_ word: String) async throws -> VocabularyDefinition {
         guard isModelRunning(.llm) else { throw AIProviderError.notInitialized }
         try await ensureLLMReady()
         let provider = await config.current.resolvedProvider(for: .llm)
