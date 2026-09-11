@@ -189,9 +189,26 @@ public final class AppState {
     private var dailyRecognitions: [String: Int] = [:]
     /// 本次启动是否已抽过每日推荐（每次启动只抽一次，刷新按钮才重新抽）。
     private var dailyWordsLoaded = false
+    /// 本地词库缓存（添加框联想 / 总词数统计共用；只在需要时载入一次）。
+    private var vocabularyBankEntries: [WordBankEntry] = []
+    private var vocabularyBankLoaded = false
+    /// 添加框联想候选池（词库 + 本机已有释义）。
+    public private(set) var vocabularySuggestions: [VocabularySuggestion] = []
+    /// 当前输入命中的联想（悬浮框展示；空 = 不展示，不挤压下方内容）。
+    public private(set) var vocabularyMatches: [VocabularySuggestion] = []
+    /// 上次重置每日推荐学习进度的时间（没重置过为 nil）。
+    public private(set) var dailyProgressResetAt: Date?
+    /// 重置那一刻已学完（累计认识满 3 次）的词数。
+    public private(set) var dailyProgressResetLearned = 0
+    /// 词库总词数（设置页展示「上次已学 x / y 词」）。
+    public private(set) var dailyBankTotal = 0
 
     /// 「认识」计数的持久化键（UserDefaults：轻量 [word: count]，不值得为此建表）。
     private static let dailyRecognitionStorageKey = "vocabulary.dailyRecognitions"
+    /// 上次重置时间的持久化键。
+    private static let dailyResetAtKey = "vocabulary.dailyProgressResetAt"
+    /// 上次重置时已学词数的持久化键。
+    private static let dailyResetLearnedKey = "vocabulary.dailyProgressResetLearned"
     /// 累计认识满此次数 → 不再推荐。
     public static let dailyRecognitionRetireCount = 3
 
@@ -213,6 +230,12 @@ public final class AppState {
         self.modelRunStates = states
         // 每日推荐「认识」计数（手写 init 不给默认值漏赋值报错，必须显式加载）。
         self.dailyRecognitions = Self.loadDailyRecognitions()
+        // 上次重置进度的时间与已学词数（同样手写加载）。
+        let resetStamp = UserDefaults.standard.double(forKey: Self.dailyResetAtKey)
+        self.dailyProgressResetAt = resetStamp > 0
+            ? Date(timeIntervalSince1970: resetStamp)
+            : nil
+        self.dailyProgressResetLearned = UserDefaults.standard.integer(forKey: Self.dailyResetLearnedKey)
     }
 
     public convenience init() { self.init(services: CoachServices()) }
@@ -906,6 +929,7 @@ public final class AppState {
             vocabularyNotice = "从最近复盘导入了 \(imported) 个新词，点「查释义」配上中文解释。"
         }
         await reloadVocabulary()
+        await loadVocabularyBankIfNeeded()
     }
 
     /// 重新读库 + 汇总统计。
@@ -913,6 +937,7 @@ public final class AppState {
         let loaded = await services.vocabulary.entries()
         vocabularyEntries = loaded
         vocabularyStats = VocabularyStats.from(loaded)
+        refreshVocabularySuggestions()
     }
 
     /// 添加一个生词（手动）。已存在时提示，不重复加。
@@ -974,6 +999,65 @@ public final class AppState {
         vocabularyNotice = nil
     }
 
+    // MARK: - 词汇本 · 添加框联想
+
+    /// 载入本地词库（一次）：撑起添加框联想候选 + 设置页的总词数统计。
+    public func loadVocabularyBankIfNeeded() async {
+        guard !vocabularyBankLoaded else { return }
+        vocabularyBankLoaded = true
+        vocabularyBankEntries = await services.dailyWordBankEntries()
+        dailyBankTotal = vocabularyBankEntries.count
+        refreshVocabularySuggestions()
+    }
+
+    /// 输入框内容变化 → 刷新悬浮联想（空输入 = 收起浮层）。
+    public func vocabularyDraftChanged() {
+        vocabularyMatches = VocabularySuggester.match(vocabularyDraft, in: vocabularySuggestions)
+    }
+
+    /// 收起联想浮层。
+    public func dismissVocabularySuggestions() {
+        vocabularyMatches = []
+    }
+
+    /// 选中一条联想：**只替换输入框内容**，真正入库仍要点「添加」。
+    public func applyVocabularySuggestion(_ suggestion: VocabularySuggestion) {
+        vocabularyDraft = suggestion.word
+        vocabularyMatches = []
+    }
+
+    /// 重建联想候选池：词库（自带词性 / 中文）打底，本机已有释义覆盖上去。
+    private func refreshVocabularySuggestions() {
+        var byWord: [String: VocabularySuggestion] = [:]
+        for entry in vocabularyBankEntries {
+            byWord[entry.word.lowercased()] = VocabularySuggestion(
+                word: entry.word,
+                pos: entry.pos,
+                translation: entry.translation,
+                difficulty: entry.difficulty
+            )
+        }
+        func overlay(_ word: String, _ definition: VocabularyDefinition, inVocabulary: Bool) {
+            let key = word.lowercased()
+            var suggestion = byWord[key] ?? VocabularySuggestion(word: word)
+            suggestion.word = word
+            if !definition.pos.isEmpty { suggestion.pos = definition.pos }
+            let translation = definition.senses.isEmpty
+                ? (definition.legacyText.split(separator: "\n").first.map(String.init) ?? "")
+                : definition.senses
+            if !translation.isEmpty { suggestion.translation = translation }
+            suggestion.isInVocabulary = suggestion.isInVocabulary || inVocabulary
+            byWord[key] = suggestion
+        }
+        for entry in vocabularyEntries {
+            overlay(entry.word, VocabularyDefinitionRule.decodeStored(entry.meaning), inVocabulary: true)
+        }
+        for (word, definition) in dailyDefinitions {
+            overlay(word, definition, inVocabulary: false)
+        }
+        vocabularySuggestions = byWord.values.sorted { $0.word.lowercased() < $1.word.lowercased() }
+    }
+
     // MARK: - 词汇本 · 每日推荐
 
     /// 读「认识」计数（UserDefaults，轻量 [word: count]）。
@@ -996,6 +1080,30 @@ public final class AppState {
     /// 已认熟（满 3 次）的词集合：抽词时排除。
     private var retiredDailyWords: Set<String> {
         Set(dailyRecognitions.filter { $0.value >= Self.dailyRecognitionRetireCount }.keys)
+    }
+
+    /// 已学完（累计认识满 3 次）的词数。
+    public var dailyLearnedCount: Int {
+        dailyRecognitions.values.filter { $0 >= Self.dailyRecognitionRetireCount }.count
+    }
+
+    /// 重置每日推荐学习进度：清空「认识」记录与派生缓存，重新从最低档开始推荐。
+    /// 同时记下**重置那一刻**的时间与已学词数（设置页展示「上次已学 x / y 词」）。
+    public func resetDailyProgress() async {
+        dailyProgressResetAt = Date()
+        dailyProgressResetLearned = dailyLearnedCount   // 先记，再清空
+        if let stamp = dailyProgressResetAt {
+            UserDefaults.standard.set(stamp.timeIntervalSince1970, forKey: Self.dailyResetAtKey)
+        }
+        UserDefaults.standard.set(dailyProgressResetLearned, forKey: Self.dailyResetLearnedKey)
+
+        dailyRecognitions = [:]
+        saveDailyRecognitions()
+        dailyAcknowledged = []
+        expandedDailyWords = []
+        dailyDefinitions = [:]
+        dailyWords = await services.dailyWordRecommendation(excluding: retiredDailyWords)
+        vocabularyNotice = "每日推荐学习进度已重置：认识记录清零，词库重新从简单档开始推荐。"
     }
 
     /// 每次启动随机抽 12 个推荐词（3 简单 / 5 中等 / 2 困难 / 2 词组，雅思标准）。
@@ -1031,6 +1139,7 @@ public final class AppState {
             defer { isDefiningDaily.remove(word) }
             do {
                 dailyDefinitions[word] = try await services.defineDailyWord(word)
+                refreshVocabularySuggestions()   // 新释义（词性 / 中文）并入联想池
             } catch {
                 vocabularyNotice = "「\(word)」释义失败：\(error.localizedDescription)"
                 return

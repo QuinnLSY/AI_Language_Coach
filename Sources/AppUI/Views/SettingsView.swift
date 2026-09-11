@@ -44,6 +44,8 @@ public struct SettingsView: View {
     @State private var isRefreshing = false
     @State private var isClearingCache = false
     @State private var showClearConfirm = false
+    /// 重置每日推荐学习进度的二次确认。
+    @State private var showVocabularyResetConfirm = false
     /// 配置里的 LLM Provider 标签（本地 / 云端）。
     @State private var providerOptions: [(id: String, name: String, isRemote: Bool)] = []
 
@@ -62,6 +64,7 @@ public struct SettingsView: View {
                     voiceModelCenterCard
                     voiceCard
                     learningCard
+                    vocabularyCard
                     cacheCard
                     advancedCard
                     logsCard
@@ -75,6 +78,15 @@ public struct SettingsView: View {
         .task {
             await loadRuntimeValues()
             await state.refreshCacheInfo()
+            await state.loadVocabularyBankIfNeeded()
+        }
+        .confirmationDialog("确定重置每日推荐学习进度吗？", isPresented: $showVocabularyResetConfirm, titleVisibility: .visible) {
+            Button("重置进度", role: .destructive) {
+                Task { await state.resetDailyProgress() }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("「认识」次数会清零，词库重新从简单档开始推荐。词汇本里的词条与复习进度不受影响。")
         }
         .confirmationDialog("确定清理缓存吗？", isPresented: $showClearConfirm, titleVisibility: .visible) {
             Button("清理缓存", role: .destructive) {
@@ -970,6 +982,55 @@ public struct SettingsView: View {
             }
             .font(.system(size: 13, design: .rounded))
         }
+    }
+
+    // MARK: - 词汇本（每日推荐学习进度）
+
+    private var vocabularyCard: some View {
+        card(title: "词汇本", systemImage: "text.book.closed.fill") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("每日推荐按「简单 → 中等 → 困难 → 词组」的节奏出词。某个等级全部认识后该等级不再出现，空缺由还没学完的最低等级补上。")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button {
+                    showVocabularyResetConfirm = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.counterclockwise")
+                        Text("词汇本每日推荐学习进度重置")
+                    }
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.red)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.red.opacity(0.8), lineWidth: 1)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("清空「认识」记录，每日推荐重新从简单档开始")
+
+                Text(vocabularyResetSummary)
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                    .monospacedDigit()
+            }
+        }
+    }
+
+    /// 「上次重置时间 + 上次已学词数 / 词库总词数」。
+    private var vocabularyResetSummary: String {
+        let total = state.dailyBankTotal
+        guard let date = state.dailyProgressResetAt else {
+            return total > 0 ? "还没有重置过 · 词库共 \(total) 词" : "还没有重置过"
+        }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return "上次重置：\(formatter.string(from: date)) · 上次已学 \(state.dailyProgressResetLearned) / \(total) 词"
     }
 
     // MARK: - 缓存管理（大小 / 目录显示 + 清除）

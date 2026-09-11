@@ -239,11 +239,30 @@ public enum VocabularyDefinitionRule {
     }
 
     /// 「considerable、significant」「-, minor」→ 有效词列表。
+    ///
+    /// ⚠️ **不按 `/` 拆**：近反义与重点单词现在带词性（`significant (adj./n.) 显著的`），
+    /// 按 `/` 拆会把词性劈成两半。
     static func list(_ raw: String) -> [String] {
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, trimmed != "-" else { return [] }
-        return trimmed
-            .split(whereSeparator: { "、，,;；/|".contains($0) })
+        var chunks: [String] = []
+        var current = ""
+        var depth = 0
+        for character in trimmed {
+            if character == "(" || character == "（" {
+                depth += 1
+            } else if character == ")" || character == "）" {
+                depth = max(depth - 1, 0)
+            }
+            if depth == 0, "、，,;；|".contains(character) {
+                chunks.append(current)
+                current = ""
+                continue
+            }
+            current.append(character)
+        }
+        chunks.append(current)
+        return chunks
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty && $0 != "-" }
     }
@@ -404,9 +423,20 @@ public actor VocabularyService {
     // MARK: - 每日推荐（本地选词 + 按需 LLM 释义）
 
     /// 抽一组每日推荐：3 简单 / 5 中等 / 2 困难 / 2 词组（雅思标准），排除指定词。
+    /// 某档学完（该档词全被排除）时缺口由未学完的最低档补（见 `DailyWordPicker.pick`）。
     /// 词库资源缺失时返回空（UI 隐藏板块，不崩）。
     public func dailyRecommendation(excluding: Set<String> = []) -> [DailyWord] {
         DailyWordPicker.pick(from: VocabularyWordBank.load(), excluding: excluding)
+    }
+
+    /// 词库全部词（设置页展示「已学 / 总词数」、每日推荐选词都用它）。
+    public func wordBank() -> [DailyWord] {
+        VocabularyWordBank.load()
+    }
+
+    /// 词库的词性 / 中文速查（词汇本添加框联想）。
+    public func wordBankEntries() -> [WordBankEntry] {
+        VocabularyWordBank.entries()
     }
 
     /// 给每日推荐的词补「音标 / 词性 / 中文义项 / 解释 / 例句及翻译 / 近反义 / 重点单词」。

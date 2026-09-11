@@ -272,6 +272,106 @@ final class VocabularyTests: XCTestCase {
         XCTAssertEqual(VocabularyDefinitionRule.sanitizedStoredMeaning(keyed), "meaning: 苹果")
     }
 
+    // MARK: - 词条解析（近义词 / 反义词 / 重点单词共用）
+
+    func testTermParsesCompleteAndBrokenEntries() {
+        let complete = VocabularyTermParser.parse("take (v.) 拿")
+        XCTAssertEqual(complete.word, "take")
+        XCTAssertEqual(complete.pos, "v.")
+        XCTAssertEqual(complete.translation, "拿")
+        XCTAssertTrue(complete.isComplete)
+
+        // 只有英文（模型漏了中文）—— 不再拼出半截括号。
+        let noChinese = VocabularyTermParser.parse("cycle (n.)")
+        XCTAssertEqual(noChinese.word, "cycle")
+        XCTAssertEqual(noChinese.pos, "n.")
+        XCTAssertEqual(noChinese.translation, "")
+        XCTAssertFalse(noChinese.isComplete)
+        XCTAssertEqual(noChinese.displayText, "cycle (n.)")
+
+        // 只有中文（模型漏了英文）—— 保留中文，不凭空补空词性。
+        let noWord = VocabularyTermParser.parse("循环")
+        XCTAssertEqual(noWord.word, "")
+        XCTAssertEqual(noWord.pos, "")
+        XCTAssertEqual(noWord.translation, "循环")
+        XCTAssertFalse(noWord.isComplete)
+
+        // 全角括号 / 无词性 / 序号前缀都要认。
+        let fullWidth = VocabularyTermParser.parse("（n.）苹果")
+        XCTAssertEqual(fullWidth.pos, "n.")
+        XCTAssertEqual(fullWidth.translation, "苹果")
+        XCTAssertEqual(VocabularyTermParser.parse("significant 显著的").word, "significant")
+        XCTAssertEqual(VocabularyTermParser.parse("1. take (v.) 拿").word, "take")
+        XCTAssertTrue(VocabularyTermParser.parse("   ").isEmpty)
+    }
+
+    func testTermListSplitsAndKeepsTermsIntact() {
+        let terms = VocabularyTermParser.parseList("take (v.) 拿；account (n.) 账户；consideration (n.) 考虑")
+        XCTAssertEqual(terms.map(\.word), ["take", "account", "consideration"])
+        XCTAssertEqual(terms.map(\.translation), ["拿", "账户", "考虑"])
+        // 括号内的「/」不是分隔符（词性 adj./n. 不能被劈开）。
+        let multiPos = VocabularyTermParser.parseList("significant (adj./n.) 显著的")
+        XCTAssertEqual(multiPos.count, 1)
+        XCTAssertEqual(multiPos.first?.pos, "adj./n.")
+        XCTAssertEqual(multiPos.first?.translation, "显著的")
+    }
+
+    func testDefinitionExposesTermLists() {
+        let definition = VocabularyDefinitionRule.parse("""
+        meaning: 大量的；实质性的
+        synonyms: considerable (adj.) 大量的、significant (adj.) 显著的
+        antonyms: slight (adj.) 轻微的
+        keywords: make (v.) 做出；change (n.) 改变
+        """)
+        XCTAssertEqual(definition.synonymTerms.map(\.translation), ["大量的", "显著的"])
+        XCTAssertEqual(definition.synonymTerms.first?.pos, "adj.")
+        XCTAssertEqual(definition.antonymTerms.map(\.word), ["slight"])
+        XCTAssertEqual(definition.keywordTerms.map(\.word), ["make", "change"])
+        XCTAssertEqual(definition.keywordTerms.map(\.translation), ["做出", "改变"])
+    }
+
+    func testSynonymListKeepsSlashInsidePartOfSpeech() {
+        // 旧解析器按「/」拆近反义词，会把 (adj./n.) 劈成两半；现在不能。
+        let parsed = VocabularyDefinitionRule.parse("meaning: 显著的\nsynonyms: significant (adj./n.) 显著的")
+        XCTAssertEqual(parsed.synonyms, ["significant (adj./n.) 显著的"])
+        XCTAssertEqual(parsed.synonymTerms.first?.pos, "adj./n.")
+    }
+
+    // MARK: - 添加框联想
+
+    func testSuggesterRanksPrefixThenSubstringThenChinese() {
+        let candidates = [
+            VocabularySuggestion(word: "improve", difficulty: 1),
+            VocabularySuggestion(word: "importance", pos: "n.", translation: "重要性", difficulty: 2),
+            VocabularySuggestion(word: "significant", pos: "adj.", translation: "重要的", difficulty: 2),
+            VocabularySuggestion(word: "important", difficulty: 1),
+        ]
+        // 前缀命中优先，同分按词长。
+        XCTAssertEqual(
+            VocabularySuggester.match("imp", in: candidates).map(\.word),
+            ["improve", "important", "importance"]
+        )
+        // 中文命中排在英文命中之后。
+        XCTAssertEqual(VocabularySuggester.match("重要", in: candidates).map(\.word), ["importance", "significant"])
+        // 空查询不收（浮层隐藏）。
+        XCTAssertTrue(VocabularySuggester.match("   ", in: candidates).isEmpty)
+        // 大小写不敏感。
+        XCTAssertEqual(VocabularySuggester.match("IMP", in: candidates).first?.word, "improve")
+        // 上限 10 条，去重。
+        let many = (0..<30).map { VocabularySuggestion(word: "word\($0)") } + [VocabularySuggestion(word: "word1")]
+        XCTAssertEqual(VocabularySuggester.match("word", in: many).count, 10)
+        XCTAssertEqual(Set(VocabularySuggester.match("word", in: many).map(\.word)).count, 10)
+    }
+
+    func testSuggestionDetailFallsBackToDifficultyLabel() {
+        XCTAssertEqual(VocabularySuggestion(word: "apple", pos: "n.", translation: "苹果").detailText, "n. 苹果")
+        XCTAssertEqual(VocabularySuggestion(word: "evaporate", difficulty: 3).detailText, "困难")
+        XCTAssertEqual(VocabularySuggestion(word: "improve", difficulty: 1).detailText, "简单")
+        XCTAssertEqual(VocabularySuggestion(word: "what").detailText, "")
+        XCTAssertTrue(VocabularySuggestion(word: "apple", translation: "苹果").hasDefinition)
+        XCTAssertFalse(VocabularySuggestion(word: "apple").hasDefinition)
+    }
+
     // MARK: - 每日推荐（Daily Recommendation）
 
     /// 固定种子随机源：让选词测试可复现。
@@ -324,6 +424,67 @@ final class VocabularyTests: XCTestCase {
         let tiny = DailyWordPicker.pick(from: makeBank(easy: 1, medium: 0, hard: 0), using: &rng)
         XCTAssertEqual(tiny.count, 1)
         XCTAssertEqual(tiny.first?.difficulty, 1)
+    }
+
+    func testDailyPickerFillsDeficitFromLowestUnfinishedLevel() {
+        // 中等 / 困难 / 词组全学完（整体排除）→ 12 个位置全由简单档补。
+        let bank = makeBank(easy: 20, medium: 20, hard: 3, phrases: 2)
+        let mediumHardPhrases = Set(bank.filter { $0.difficulty != 1 }.map { $0.word.lowercased() })
+        var rng = SeededRNG(state: 11)
+        let easyFilled = DailyWordPicker.pick(from: bank, excluding: mediumHardPhrases, using: &rng)
+        XCTAssertEqual(easyFilled.count, 12, "学完的档位由「还没学完的最低档」补满")
+        XCTAssertTrue(easyFilled.allSatisfy { $0.difficulty == 1 })
+
+        // 简单 / 困难 / 词组学完 → 轮到中等档补（缺 3 + 2 + 2 = 7 个位置）。
+        var rng2 = SeededRNG(state: 12)
+        let mediumExcluding = Set(
+            bank.filter { $0.difficulty == 1 || $0.difficulty >= 3 }.map { $0.word.lowercased() }
+        )
+        let mediumFilled = DailyWordPicker.pick(from: bank, excluding: mediumExcluding, using: &rng2)
+        XCTAssertEqual(mediumFilled.count, 12)
+        XCTAssertTrue(mediumFilled.allSatisfy { $0.difficulty == 2 })
+
+        // 词库整体不够 → 有多少给多少。
+        var rng3 = SeededRNG(state: 13)
+        let tiny = DailyWordPicker.pick(from: makeBank(easy: 2, medium: 3, hard: 0, phrases: 0), using: &rng3)
+        XCTAssertEqual(tiny.count, 5, "词库只有 5 个可用词就展示 5 个")
+        // 同批内仍然不重复。
+        XCTAssertEqual(Set(tiny.map(\.word)).count, 5)
+    }
+
+    func testDailyPagerKeepsFourCardsPerPage() {
+        // 收起态：每页完整 4 张卡（2 行 × 2 列），右侧上下按钮翻页。
+        let words = (0..<12).map { DailyWord(word: "w\($0)", difficulty: 1) }
+        XCTAssertEqual(DailyWordPager.pageCount(words), 3)
+        XCTAssertEqual(DailyWordPager.page(words, index: 0).map(\.word), ["w0", "w1", "w2", "w3"])
+        XCTAssertEqual(DailyWordPager.page(words, index: 2).map(\.word), ["w8", "w9", "w10", "w11"])
+        // 越界页码夹到最后一页（不会崩、不会空屏）。
+        XCTAssertEqual(DailyWordPager.page(words, index: 9).count, 4)
+        XCTAssertEqual(DailyWordPager.page(words, index: -3).map(\.word).first, "w0")
+        // 不足一页按实际条数。
+        let few = Array(words.prefix(6))
+        XCTAssertEqual(DailyWordPager.pageCount(few), 2)
+        XCTAssertEqual(DailyWordPager.page(few, index: 1).count, 2)
+        XCTAssertTrue(DailyWordPager.page([], index: 0).isEmpty)
+    }
+
+    func testWordBankEntriesCarryPartOfSpeechAndChinese() throws {
+        // 词库每条都要带词性与中文（添加框联想浮层显示「英文（词性）中文」）。
+        let entries = VocabularyWordBank.entries()
+        XCTAssertGreaterThanOrEqual(entries.count, 100)
+        XCTAssertEqual(entries.count, VocabularyWordBank.load().count, "两份视图来自同一份数据")
+        let incomplete = entries.filter { $0.pos.isEmpty || $0.translation.isEmpty }
+        XCTAssertTrue(incomplete.isEmpty, "缺词性/中文的词：\(incomplete.map(\.word))")
+        XCTAssertEqual(entries.first { $0.difficulty == 4 }?.pos, "phr.")
+        XCTAssertEqual(entries.first { $0.word == "significant" }?.pos, "adj.")
+        XCTAssertEqual(entries.first { $0.word == "significant" }?.translation, "重要的；显著的")
+
+        // 老数据没有 pos / zh 也要宽容（空串，不影响选词）。
+        let legacy = "[{\"word\": \"improve\", \"difficulty\": 1}]"
+        let parsed = VocabularyWordBank.parseEntries(Data(legacy.utf8))
+        XCTAssertEqual(parsed?.first?.pos, "")
+        XCTAssertEqual(parsed?.first?.translation, "")
+        XCTAssertNil(VocabularyWordBank.parseEntries(Data("not json".utf8)))
     }
 
     func testWordBankParseFiltersInvalidAndDuplicates() throws {

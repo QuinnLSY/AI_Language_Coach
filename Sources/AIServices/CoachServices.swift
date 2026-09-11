@@ -585,6 +585,16 @@ public actor CoachServices {
         await vocabulary.dailyRecommendation(excluding: excluding)
     }
 
+    /// 每日推荐所用词库的全部词（设置页统计 / 每日推荐选词）。
+    public func dailyWordBank() async -> [DailyWord] {
+        await vocabulary.wordBank()
+    }
+
+    /// 词库的词性 / 中文速查（词汇本添加框联想浮层）。
+    public func dailyWordBankEntries() async -> [WordBankEntry] {
+        await vocabulary.wordBankEntries()
+    }
+
     /// 给每日推荐的词补「音标 / 词性 / 中文义项 / 解释 / 例句及翻译 / 近反义 / 重点单词」
     /// （按需 LLM，不落库；与词汇本同一套字段）。
     public func defineDailyWord(_ word: String) async throws -> VocabularyDefinition {

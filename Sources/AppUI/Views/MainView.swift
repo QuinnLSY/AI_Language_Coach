@@ -129,6 +129,14 @@ public struct MainView: View {
             if CommandLine.arguments.contains("--open-vocabulary") {
                 await state.openVocabulary()
             }
+            // 截图/验证辅助：--vocabulary-draft "sign" 进词汇本 + 往添加框塞一段输入，
+            // 直接看「添加」按钮与悬浮联想浮层（本机 UI 自动化打字不可靠）。
+            if let index = CommandLine.arguments.firstIndex(of: "--vocabulary-draft"),
+               index + 1 < CommandLine.arguments.count {
+                await state.openVocabulary()
+                state.vocabularyDraft = CommandLine.arguments[index + 1]
+                state.vocabularyDraftChanged()
+            }
             // 截图/验证辅助：--define-vocabulary 进词汇本 + 给第一个每日推荐词查释义、
             // 给最新一条词条重新释义，并朗读「单词 + 例句」。
             // 一次跑完「提示词 → 解析 → 卡片排版 → 朗读」整条链路，

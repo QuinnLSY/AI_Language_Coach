@@ -183,6 +183,21 @@ public struct VocabularyDefinition: Sendable, Equatable {
             .filter { !$0.isEmpty }
     }
 
+    /// 近义词词条（英文 + 词性 + 中文），与重点单词共用同一条目结构。
+    public var synonymTerms: [VocabularyTerm] {
+        VocabularyTermParser.parseList(synonyms.joined(separator: "；"))
+    }
+
+    /// 反义词词条。
+    public var antonymTerms: [VocabularyTerm] {
+        VocabularyTermParser.parseList(antonyms.joined(separator: "；"))
+    }
+
+    /// 重点单词词条（词组 / 短句才有）。
+    public var keywordTerms: [VocabularyTerm] {
+        VocabularyTermParser.parseList(keywords)
+    }
+
     /// 落库编码。历史数据原样保留（重点单词行照旧拼回）；结构化数据写成键值行，
     /// 读回时同一套解析。
     public var encoded: String {
@@ -200,6 +215,253 @@ public struct VocabularyDefinition: Sendable, Equatable {
         if !antonyms.isEmpty { lines.append("antonyms: \(antonyms.joined(separator: "、"))") }
         if !keywords.isEmpty { lines.append("keywords: \(keywords)") }
         return lines.joined(separator: "\n")
+    }
+}
+
+// MARK: - 词条（近义词 / 反义词 / 重点单词的展示单元）
+
+/// 一条「英文 + 词性 + 中文」词条。**近义词 / 反义词 / 重点单词共用同一结构**，
+/// 三处排版因此完全一致。
+///
+/// 模型输出并不总是完整，实测出现过两种残缺：
+/// ① 只有英文（+ 词性）没有中文 —— 卡片上就是个光秃秃的 `cycle (n.)`；
+/// ② 只有中文没有英文 —— 出现孤零零的「（n.）循环」。
+/// 解析器把能认出来的部分各归各位，UI 只渲染**存在**的部分，
+/// 因此不会再出现半截括号或只有一个词性的怪模样。
+public struct VocabularyTerm: Sendable, Equatable, Identifiable {
+    /// 英文词（可能为空）。
+    public var word: String
+    /// 词性，如 `n.` / `adj.`（可空）。
+    public var pos: String
+    /// 中文翻译（可能为空）。
+    public var translation: String
+
+    public init(word: String = "", pos: String = "", translation: String = "") {
+        self.word = word.trimmingCharacters(in: .whitespaces)
+        self.pos = pos.trimmingCharacters(in: .whitespaces)
+        self.translation = translation.trimmingCharacters(in: .whitespaces)
+    }
+
+    public var id: String { "\(word)|\(pos)|\(translation)" }
+
+    /// 三个字段全空。
+    public var isEmpty: Bool { word.isEmpty && pos.isEmpty && translation.isEmpty }
+
+    /// 英文与中文都在（完整词条）；只有一个的属于残缺输出。
+    public var isComplete: Bool { !word.isEmpty && !translation.isEmpty }
+
+    /// 纯文本形态（无障碍标签 / 日志 / 测试断言用）。
+    public var displayText: String {
+        var parts: [String] = []
+        if !word.isEmpty {
+            parts.append(pos.isEmpty ? word : "\(word) (\(pos))")
+        } else if !pos.isEmpty {
+            parts.append("(\(pos))")
+        }
+        if !translation.isEmpty { parts.append(translation) }
+        return parts.joined(separator: " ")
+    }
+}
+
+/// 词条解析（**纯函数**）：把模型给的「word (pos) 中文」半结构化文本拆成词条。
+///
+/// 认得的写法（混排、缺项都行）：
+/// - `take (v.) 拿`（完整）
+/// - `take 拿`（没有词性）
+/// - `take (v.)`（缺中文 —— 只保留英文与词性，不再拼出空括号）
+/// - `拿`（缺英文 —— 只渲染中文，不凭空造词性）
+public enum VocabularyTermParser {
+
+    /// 条目分隔符：中文顿号 / 分号、英文分号、竖线、换行。
+    public static let separators: Set<Character> = ["；", ";", "、", "|", "\n"]
+
+    /// 一整段文本 → 词条列表（空条目自动丢弃）。
+    /// 括号内的分隔符不算分隔符（挡住 `(adj./n.)` 这类词性被劈开）。
+    public static func parseList(_ raw: String) -> [VocabularyTerm] {
+        var chunks: [String] = []
+        var current = ""
+        var depth = 0
+        for character in raw {
+            if character == "(" || character == "（" {
+                depth += 1
+            } else if character == ")" || character == "）" {
+                depth = max(depth - 1, 0)
+            }
+            if depth == 0, separators.contains(character) {
+                chunks.append(current)
+                current = ""
+                continue
+            }
+            current.append(character)
+        }
+        chunks.append(current)
+        return chunks
+            .map { parse($0) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// 单条文本 → 词条。
+    public static func parse(_ raw: String) -> VocabularyTerm {
+        var text = stripLeadingNumbering(raw.trimmingCharacters(in: .whitespaces))
+        var pos = ""
+
+        // 先抠词性：半角 (…) 与全角（…）都认。
+        for (open, close) in [("(", ")"), ("（", "）")] {
+            guard let openIndex = text.firstIndex(of: Character(open)),
+                  let closeIndex = text[openIndex...].firstIndex(of: Character(close)),
+                  closeIndex > openIndex
+            else { continue }
+            let inner = String(text[text.index(after: openIndex)..<closeIndex])
+                .trimmingCharacters(in: .whitespaces)
+            // 「(n.)」「( n. )」都认；空括号不算词性。
+            if !inner.isEmpty { pos = inner }
+            text.removeSubrange(openIndex...closeIndex)
+            break
+        }
+        text = text.trimmingCharacters(in: .whitespaces)
+
+        // 英文段 = 开头连续的一串「英文词字符」（词组里的空格算同一段）。
+        let characters = Array(text)
+        var index = 0
+        while index < characters.count, isEnglishCharacter(characters[index]) { index += 1 }
+        let word = String(characters[0..<index]).trimmingCharacters(in: .whitespaces)
+        let rest = String(characters[index...]).trimmingCharacters(in: .whitespaces)
+        // 剩下的整段当作中文翻译（可能为空，也可能还夹着标点）。
+        return VocabularyTerm(word: word, pos: pos, translation: rest)
+    }
+
+    /// 英文词字符：ASCII 字母 / 数字 / 空格 / 连字符 / 撇号 / 斜杠。
+    /// 故意**不含中文**，这样中文开头（只有翻译的残缺条目）会落进 translation。
+    static func isEnglishCharacter(_ character: Character) -> Bool {
+        guard character.isASCII else { return false }
+        return character.isLetter || character.isNumber
+            || character == " " || character == "-" || character == "'" || character == "/"
+    }
+
+    /// 去掉「1. 」「2、」「3)」这类序号前缀（模型偶尔会加上）。
+    static func stripLeadingNumbering(_ raw: String) -> String {
+        let characters = Array(raw)
+        var index = 0
+        while index < characters.count, characters[index].isNumber { index += 1 }
+        guard index > 0, index < characters.count,
+              [".", "、", ")", "）", ":", "："].contains(String(characters[index]))
+        else { return raw }
+        return String(characters[(index + 1)...]).trimmingCharacters(in: .whitespaces)
+    }
+}
+
+// MARK: - 词库速查（添加框联想）
+
+/// 词库里的一条速查（**词性 + 中文义项**）。
+///
+/// 用途单一：词汇本添加框的模糊匹配浮层要显示「英文（词性）中文翻译」，
+/// 而每日推荐的详细释义仍由 LLM 按需生成 —— 词库只存一份离线可查的最小信息。
+public struct WordBankEntry: Sendable, Equatable, Codable {
+    public var word: String
+    /// 难度档：1 简单 / 2 中等 / 3 困难 / 4 词组。
+    public var difficulty: Int
+    /// 词性（如 `v./n.`）；老词库可能没有。
+    public var pos: String
+    /// 中文义项（多义用「；」分隔）。
+    public var translation: String
+
+    public init(word: String, difficulty: Int, pos: String = "", translation: String = "") {
+        self.word = word
+        self.difficulty = difficulty
+        self.pos = pos
+        self.translation = translation
+    }
+}
+
+// MARK: - 添加框联想（模糊匹配）
+
+/// 添加框下方的一条联想词。
+public struct VocabularySuggestion: Sendable, Equatable, Identifiable {
+    public var word: String
+    /// 词性（有释义时才有）。
+    public var pos: String
+    /// 中文翻译 / 义项（有释义时才有）。
+    public var translation: String
+    /// 词库难度档（1 简单 / 2 中等 / 3 困难 / 4 词组）；非词库来源为 nil。
+    public var difficulty: Int?
+    /// 已在词汇本里。
+    public var isInVocabulary: Bool
+
+    public var id: String { word.lowercased() }
+
+    /// 是否带真实中文（词性与义项来自本机已有释义）。
+    public var hasDefinition: Bool { !translation.isEmpty }
+
+    public init(
+        word: String,
+        pos: String = "",
+        translation: String = "",
+        difficulty: Int? = nil,
+        isInVocabulary: Bool = false
+    ) {
+        self.word = word.trimmingCharacters(in: .whitespaces)
+        self.pos = pos.trimmingCharacters(in: .whitespaces)
+        self.translation = translation.trimmingCharacters(in: .whitespaces)
+        self.difficulty = difficulty
+        self.isInVocabulary = isInVocabulary
+    }
+
+    /// 展示用副标题：有中文就「词性 + 中文」，否则退回难度档标签。
+    public var detailText: String {
+        guard !translation.isEmpty else {
+            return difficulty.map { DailyWord.difficultyLabel(for: $0) } ?? ""
+        }
+        return pos.isEmpty ? translation : "\(pos) \(translation)"
+    }
+}
+
+/// 联想匹配（**纯函数**）：前缀 > 子串 > 中文命中，同分按词长与字母序。
+public enum VocabularySuggester {
+
+    /// 最多展示几条（浮层高度不足时按实际条数收缩）。
+    public static let limit = 10
+
+    /// 查询串 → 命中的联想词（已去重，按相关度排序）。
+    public static func match(
+        _ query: String,
+        in candidates: [VocabularySuggestion],
+        limit: Int = limit
+    ) -> [VocabularySuggestion] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return [] }
+
+        var ranked: [(score: Int, length: Int, suggestion: VocabularySuggestion)] = []
+        for candidate in candidates {
+            let word = candidate.word.lowercased()
+            guard !word.isEmpty else { continue }
+            let score: Int
+            if word == needle {
+                score = 0
+            } else if word.hasPrefix(needle) {
+                score = 1
+            } else if word.contains(needle) {
+                score = 2
+            } else if candidate.translation.lowercased().contains(needle) {
+                score = 3
+            } else {
+                continue
+            }
+            ranked.append((score, candidate.word.count, candidate))
+        }
+        ranked.sort {
+            if $0.score != $1.score { return $0.score < $1.score }
+            if $0.length != $1.length { return $0.length < $1.length }
+            return $0.suggestion.word.lowercased() < $1.suggestion.word.lowercased()
+        }
+
+        var seen = Set<String>()
+        var result: [VocabularySuggestion] = []
+        for item in ranked where !seen.contains(item.suggestion.word.lowercased()) {
+            seen.insert(item.suggestion.word.lowercased())
+            result.append(item.suggestion)
+            if result.count >= max(limit, 1) { break }
+        }
+        return result
     }
 }
 
@@ -240,14 +502,20 @@ public struct DailyWord: Sendable, Equatable, Identifiable, Codable {
 
 /// 每日推荐选词器：**纯函数**。
 ///
-/// 规则：每次 12 个 —— 3 简单 / 5 中等 / 2 困难 / 2 词组（雅思标准）；
-/// 从词库对应档位里随机抽，排除指定集合（刷新时排除当前展示的一批）。
-/// 某档位词不够时有多少给多少，不凑数。
+/// 规则：每次最多 12 个 —— 3 简单 / 5 中等 / 2 困难 / 2 词组（雅思标准）；
+/// 从词库对应档位里随机抽，排除指定集合（刷新时排除当前展示的一批 + 已认熟的词）。
+///
+/// **等级补齐**：某档的词全被认熟（`excluding` 里已无该档可用词）时该档不再出词，
+/// 它的配额空缺由**还没学完的最低档**顶上（中/困学完 → 简单补；简单学完 → 中等补；
+/// 简 + 中完 → 只剩困难）。词库整体不够时有多少给多少，不凑数。
 public enum DailyWordPicker {
     /// 词组档难度值。
     public static let phraseDifficulty = 4
     /// 每次推荐的配额（难度 1/2/3/4 → 个数）。
     public static let quota: [Int: Int] = [1: 3, 2: 5, 3: 2, 4: 2]
+
+    /// 难度档顺序（补齐时按「最低档优先」遍历）。
+    public static let levelOrder: [Int] = [1, 2, 3, phraseDifficulty]
 
     /// 每次推荐的总数。
     public static var total: Int { quota.values.reduce(0, +) }
@@ -259,19 +527,62 @@ public enum DailyWordPicker {
         using generator: inout R
     ) -> [DailyWord] {
         let available = bank.filter { !excluding.contains($0.word.lowercased()) }
-        var picked: [DailyWord] = []
-        for difficulty in [1, 2, 3, phraseDifficulty] {
-            let count = quota[difficulty] ?? 0
-            let candidates = available.filter { $0.difficulty == difficulty }.shuffled(using: &generator)
-            picked.append(contentsOf: candidates.prefix(count))
+        // 每档先各自打乱，抽词与补位都从这里按顺序取，保证同批不重复。
+        var pools: [Int: [DailyWord]] = [:]
+        for level in levelOrder {
+            pools[level] = available.filter { $0.difficulty == level }.shuffled(using: &generator)
         }
-        return picked
+
+        var picked: [Int: [DailyWord]] = [:]
+        var deficit = 0
+        for level in levelOrder {
+            let pool = pools[level] ?? []
+            let want = quota[level] ?? 0
+            picked[level] = Array(pool.prefix(min(want, pool.count)))
+            // 这一档学完了（可用词不足配额）→ 缺多少记下来给别人补。
+            deficit += max(want - pool.count, 0)
+        }
+
+        // 缺口由**还没学完的最低档**依次顶上（低档先补，补不动再轮到下一档）。
+        for level in levelOrder where deficit > 0 {
+            let pool = pools[level] ?? []
+            let used = picked[level]?.count ?? 0
+            let spare = pool.count - used
+            guard spare > 0 else { continue }
+            let extra = min(spare, deficit)
+            picked[level, default: []].append(contentsOf: pool[used..<(used + extra)])
+            deficit -= extra
+        }
+
+        return levelOrder.flatMap { picked[$0] ?? [] }
     }
 
     /// 便捷入口（系统随机源）。
     public static func pick(from bank: [DailyWord], excluding: Set<String> = []) -> [DailyWord] {
         var rng = SystemRandomNumberGenerator()
         return pick(from: bank, excluding: excluding, using: &rng)
+    }
+}
+
+/// 收起态的翻页（**纯函数**）。
+///
+/// 产品口径：每日推荐收起时**完整展示 4 张卡**（2 行 × 2 列），右侧用上下按钮翻页；
+/// 早先用「固定高度 + 滚动条」，第二排只露一半，所以改成整页翻。
+public enum DailyWordPager {
+    /// 每页卡片数。
+    public static let pageSize = 4
+
+    /// 总页数（不足一页也算一页）。
+    public static func pageCount(_ words: [DailyWord], pageSize: Int = pageSize) -> Int {
+        max((words.count + pageSize - 1) / pageSize, 1)
+    }
+
+    /// 第 `index` 页的词（越界页码夹到最后一页，不崩不空屏）。
+    public static func page(_ words: [DailyWord], index: Int, pageSize: Int = pageSize) -> [DailyWord] {
+        guard !words.isEmpty else { return [] }
+        let lastPage = pageCount(words, pageSize: pageSize) - 1
+        let start = min(max(index, 0), lastPage) * pageSize
+        return Array(words[start..<min(start + pageSize, words.count)])
     }
 }
 

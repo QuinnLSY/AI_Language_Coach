@@ -20,8 +20,9 @@ Rules for each line:
 - explanation: 1-2 {native_language} sentences about usage, register or typical collocations. It goes on ITS OWN line; never paste it into the meaning line.
 - example: ONE natural sentence in {learning_language} that clearly uses the entry.
 - translation: the {native_language} translation of that example sentence.
-- synonyms / antonyms: 1-2 {learning_language} words each, separated by "、"; write - when there is none.
-- keywords: if the entry contains SEVERAL words (a phrase, collocation or sentence), pick its 2-4 key words and write each as: word (part-of-speech) Chinese translation, separated by "；". If the entry is a SINGLE word, write -.
+- synonyms / antonyms: 1-2 other {learning_language} words each, separated by "、". Write - when there is none.
+- keywords: if the entry contains SEVERAL words (a phrase, collocation or sentence), pick its 2-4 key words; if the entry is a SINGLE word, write -.
+- EVERY synonyms / antonyms / keywords item MUST have BOTH parts, written as: word (part-of-speech) {native_language} translation. Example: take (v.) 拿. NEVER output an English word with no Chinese translation, and NEVER output a bare Chinese translation with no English word — both halves are required.
 - No numbering, no quotes, no extra lines, no commentary.
 
 Here is a worked example of a CORRECT reply (for the word "substantial"):
@@ -32,8 +33,8 @@ meaning: 大量的；实质性的；重要的
 explanation: 强调数量或程度超出一般，多用于正式书面语境，如 substantial progress / a substantial amount。
 example: The government made substantial changes to the education policy.
 translation: 政府对教育政策做出了重大调整。
-synonyms: considerable、significant
-antonyms: slight、minor
+synonyms: considerable (adj.) 大量的、significant (adj.) 显著的
+antonyms: slight (adj.) 轻微的、minor (adj.) 次要的
 keywords: -
 
 Word or expression:

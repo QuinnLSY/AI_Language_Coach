@@ -86,11 +86,12 @@ public struct VocabularyView: View {
 
     // MARK: - 每日推荐
 
-    /// 推荐框默认**收起**（只露前几个卡片，紧凑）；点下框线中间的按钮展开 / 收起。
+    /// 推荐框默认**收起**（只露一整页 4 个卡片，紧凑）；点下框线中间的按钮展开 / 收起。
     @State private var dailyExpanded = false
-
-    /// 收起状态下推荐框的高度 ≈ 两行卡片（两列布局下正好四个卡片）。
-    private static let collapsedDailyHeight: CGFloat = 106
+    /// 收起态的页码：每页 4 个卡片（2 行 × 2 列），右侧上下按钮翻页。
+    @State private var dailyPage = 0
+    /// 收起态每页卡片数（2 行 × 2 列）。
+    private static let dailyPageSize = DailyWordPager.pageSize
 
     @ViewBuilder
     private var dailySection: some View {
@@ -109,6 +110,7 @@ public struct VocabularyView: View {
                     Spacer(minLength: 0)
                     Button {
                         Task { await state.refreshDailyWords() }
+                        dailyPage = 0
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "arrow.triangle.2.circlepath")
@@ -135,29 +137,96 @@ public struct VocabularyView: View {
             // 展开 / 收起按钮骑在**下框线正中**（offset 半个胶囊高）。
             .overlay(alignment: .bottom) { dailyExpandToggle }
             .padding(.bottom, 10)
+            // 换一批 / 重置后页码可能越界，收回第一页。
+            .onChange(of: state.dailyWords) { _, _ in dailyPage = 0 }
         }
     }
 
-    /// 推荐词网格：展开时全部平铺；收起时限制高度 + 内置滚动条（可继续往下浏览）。
+    /// 推荐词区域：
+    /// - 展开：全部平铺（自适应列宽）；
+    /// - 收起：固定两列、只渲染当前页的 4 个卡片 —— 高度由内容决定，
+    ///   **不再用固定高度裁切**（旧方案第二排只露一半），右侧上下按钮翻页。
     @ViewBuilder
     private var dailyGrid: some View {
-        let grid = LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 230), spacing: 10)],
-            spacing: 10
-        ) {
-            ForEach(state.dailyWords) { word in
-                dailyCard(word)
-            }
-        }
         if dailyExpanded {
-            grid
-        } else {
-            ScrollView(.vertical) {
-                grid.padding(.trailing, 4)
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 230), spacing: 10)],
+                spacing: 10
+            ) {
+                ForEach(state.dailyWords) { word in
+                    dailyCard(word)
+                }
             }
-            .frame(height: Self.collapsedDailyHeight)
-            .scrollIndicators(.visible)
+            // ⚠️ 必须显式撑满：LazyVGrid 在 VStack/HStack 里只按内容理想宽度排版，
+            // 不写这行的话卡片会被压到 ~110pt（单词被拆成 recomm/end）。
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        } else {
+            HStack(alignment: .top, spacing: 8) {
+                LazyVGrid(columns: Self.dailyColumns, spacing: 10) {
+                    ForEach(pageWords) { word in
+                        dailyCard(word)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                dailyPager
+            }
         }
+    }
+
+    /// 收起态列宽：两列（每页 2 行 × 2 列 = 完整 4 个卡片）。
+    /// 卡片标题行在窄列下靠 `ViewThatFits` 自动降级（见 `dailyCard`），
+    /// 保证单词永远不会被拆成 desc/ribe。
+    private static let dailyColumns = [
+        GridItem(.flexible(), spacing: 10, alignment: .top),
+        GridItem(.flexible(), spacing: 10, alignment: .top)
+    ]
+
+    /// 总页数（不足一页也算一页）。
+    private var dailyPageCount: Int {
+        DailyWordPager.pageCount(state.dailyWords, pageSize: Self.dailyPageSize)
+    }
+
+    /// 当前页的词。
+    private var pageWords: [DailyWord] {
+        DailyWordPager.page(state.dailyWords, index: dailyPage, pageSize: Self.dailyPageSize)
+    }
+
+    /// 右侧上下翻页按钮（取代原来的下拉条）。
+    private var dailyPager: some View {
+        VStack(spacing: 6) {
+            pagerButton("chevron.up", enabled: dailyPage > 0) {
+                withAnimation(.easeInOut(duration: 0.18)) { dailyPage = max(dailyPage - 1, 0) }
+            }
+            Text("\(dailyPage + 1)/\(dailyPageCount)")
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .foregroundStyle(theme.secondaryText)
+                .monospacedDigit()
+            pagerButton("chevron.down", enabled: dailyPage < dailyPageCount - 1) {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    dailyPage = min(dailyPage + 1, dailyPageCount - 1)
+                }
+            }
+        }
+    }
+
+    private func pagerButton(_ systemImage: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(enabled ? theme.accent : theme.secondaryText.opacity(0.35))
+                .frame(width: 20, height: 20)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous).fill(theme.surface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder((enabled ? theme.accent : theme.divider).opacity(0.4), lineWidth: 1)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .help(systemImage == "chevron.up" ? "上一页（上 4 个）" : "下一页（下 4 个）")
     }
 
     /// 下框线正中的下拉 / 收起按钮（互相切换）。
@@ -180,7 +249,7 @@ public struct VocabularyView: View {
         }
         .buttonStyle(.plain)
         .offset(y: 10)
-        .help(dailyExpanded ? "收起为前几个卡片" : "展开全部推荐词")
+        .help(dailyExpanded ? "收起为四个卡片" : "展开全部推荐词")
     }
 
     private func dailyCard(_ daily: DailyWord) -> some View {
@@ -190,19 +259,22 @@ public struct VocabularyView: View {
                 Text(daily.word)
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.primaryText)
+                    // 单词优先占位：窄列时宁可把右边的按钮压成图标，
+                    // 也不要把 describe 拆成 desc/ribe。
+                    .layoutPriority(1)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
                     .fixedSize(horizontal: false, vertical: true)
                 difficultyTag(daily.difficulty)
                 phoneticLabel(definition?.phonetic, word: daily.word)
                 // 单词 / 词组单独一个喇叭（例句有它自己的喇叭，见 `definitionBody`）。
                 speakButton(daily.word)
                 Spacer(minLength: 0)
-                if state.expandedDailyWords.contains(daily.word) {
-                    // 释义已展开 → 同一个按钮变成「收起」。
-                    dailyToggleButton(daily, title: "收起", systemImage: "chevron.up")
-                } else if definition != nil {
-                    dailyToggleButton(daily, title: "看释义", systemImage: "character.book.closed")
-                } else {
-                    dailyToggleButton(daily, title: "查释义", systemImage: "character.book.closed")
+                // 三态按钮（查释义 / 看释义 / 收起）：位置够就带文字，
+                // 位置不够（收起态两列卡片）自动降级成纯图标 + 悬停提示。
+                ViewThatFits(in: .horizontal) {
+                    dailyToggleButton(daily, title: dailyToggleTitle(daily, definition: definition), systemImage: dailyToggleIcon(daily), showsTitle: true)
+                    dailyToggleButton(daily, title: dailyToggleTitle(daily, definition: definition), systemImage: dailyToggleIcon(daily), showsTitle: false)
                 }
             }
 
@@ -314,16 +386,16 @@ public struct VocabularyView: View {
                     definitionLine("例句", definition.exampleTranslation)
                 }
 
-                if !definition.synonyms.isEmpty {
-                    definitionLine("近义词", definition.synonyms.joined(separator: "、"))
+                if !definition.synonymTerms.isEmpty {
+                    definitionLine("近义词", terms: definition.synonymTerms)
                 }
-                if !definition.antonyms.isEmpty {
-                    definitionLine("反义词", definition.antonyms.joined(separator: "、"))
+                if !definition.antonymTerms.isEmpty {
+                    definitionLine("反义词", terms: definition.antonymTerms)
                 }
                 // ⚠️ 传 `keywords`（纯值）而不是带「重点单词：」前缀的整行，
                 // 否则会渲染成「重点单词 重点单词：…」重复两遍。
-                if showKeywords, !definition.keywords.isEmpty {
-                    definitionLine("重点单词", definition.keywords)
+                if showKeywords, !definition.keywordTerms.isEmpty {
+                    definitionLine("重点单词", terms: definition.keywordTerms)
                 }
             }
         }
@@ -345,6 +417,46 @@ public struct VocabularyView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .lineSpacing(2)
         }
+    }
+
+    /// 词条行（**近义词 / 反义词 / 重点单词共用**）：黄字标签 + 一条条「英文 (词性) 中文」。
+    ///
+    /// 残缺词条只渲染存在的部分：模型只给英文（缺中文）时不会拼出半截括号，
+    /// 只给中文（缺英文）时也不会凭空补一个空词性 —— 两种情况都是可读的。
+    private func definitionLine(_ title: String, terms: [VocabularyTerm]) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            definitionLabel(title)
+            termText(terms)
+                .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(2)
+        }
+    }
+
+    /// 词条正文：`considerable (adj.) 大量的、significant (adj.) 显著的`。
+    private func termText(_ terms: [VocabularyTerm]) -> Text {
+        var result = Text("")
+        for (index, term) in terms.enumerated() {
+            if index > 0 {
+                result = result + Text("、").foregroundStyle(theme.secondaryText)
+            }
+            var part = Text("")
+            var needsSeparator = false
+            if !term.word.isEmpty {
+                part = part + Text(term.word).foregroundStyle(theme.primaryText.opacity(0.92))
+                needsSeparator = true
+            }
+            if !term.pos.isEmpty {
+                if needsSeparator { part = part + Text(" ") }
+                part = part + Text("(\(term.pos))").foregroundStyle(theme.accent.opacity(0.9))
+                needsSeparator = true
+            }
+            if !term.translation.isEmpty {
+                if needsSeparator { part = part + Text(" ") }
+                part = part + Text(term.translation).foregroundStyle(theme.primaryText.opacity(0.8))
+            }
+            result = result + part
+        }
+        return result.font(.system(size: 11, design: .rounded))
     }
 
     /// 词性小标签（斜体、主题色）。
@@ -441,7 +553,13 @@ public struct VocabularyView: View {
     }
 
     /// 每日推荐的「查释义 / 看释义 / 收起」按钮（一个按钮三态切换）。
-    private func dailyToggleButton(_ daily: DailyWord, title: String, systemImage: String) -> some View {
+    /// `showsTitle = false` 时只留图标（窄列降级），语义由悬停提示补足。
+    private func dailyToggleButton(
+        _ daily: DailyWord,
+        title: String,
+        systemImage: String,
+        showsTitle: Bool = true
+    ) -> some View {
         Button {
             Task { await state.toggleDailyDefinition(word: daily.word) }
         } label: {
@@ -454,13 +572,26 @@ public struct VocabularyView: View {
                 } else {
                     Image(systemName: systemImage)
                 }
-                Text(title)
+                if showsTitle { Text(title) }
             }
             .font(.system(size: 10, weight: .medium))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(theme.accent)
         .disabled(state.isDefiningDaily.contains(daily.word))
+        .help(title)
+    }
+
+    /// 三态按钮的图标：展开后是「收起」，否则都是「查 / 看释义」。
+    private func dailyToggleIcon(_ daily: DailyWord) -> String {
+        state.expandedDailyWords.contains(daily.word) ? "chevron.up" : "character.book.closed"
+    }
+
+    /// 三态按钮的文案：没释义 = 查释义，有释义 = 看释义，已展开 = 收起释义。
+    private func dailyToggleTitle(_ daily: DailyWord, definition: VocabularyDefinition?) -> String {
+        if state.expandedDailyWords.contains(daily.word) { return "收起释义" }
+        return definition == nil ? "查释义" : "看释义"
     }
 
     private func difficultyTag(_ difficulty: Int) -> some View {
@@ -486,31 +617,111 @@ public struct VocabularyView: View {
     // MARK: - 添加
 
     private var addRow: some View {
-        HStack(spacing: 8) {
+        // 输入框 + 「添加」按钮融成同一个圆角矩形（等高、共一条边框）。
+        HStack(spacing: 0) {
             TextField("想记的单词或表达，如：How come…", text: Bindable(state).vocabularyDraft)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(theme.surface)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(theme.divider, lineWidth: 1)
-                )
-                .onSubmit { Task { await state.addVocabularyWord() } }
+                .onSubmit { submitVocabularyDraft() }
+                .onChange(of: state.vocabularyDraft) { _, _ in
+                    state.vocabularyDraftChanged()
+                }
+
+            Rectangle()
+                .fill(theme.divider)
+                .frame(width: 1, height: 18)
+
             Button {
-                Task { await state.addVocabularyWord() }
+                submitVocabularyDraft()
             } label: {
-                Image(systemName: "plus.circle.fill")
-                    .foregroundStyle(theme.accent)
+                Text("添加")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(canSubmitVocabularyDraft ? theme.accent : theme.secondaryText.opacity(0.45))
+                    .padding(.horizontal, 14)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(state.vocabularyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+            .disabled(!canSubmitVocabularyDraft)
             .help("加入词表")
         }
+        .frame(height: 32)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(theme.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(theme.divider, lineWidth: 1)
+        )
+        // 联想浮层用 overlay：**不占布局高度**，因此不会把下方内容挤下去。
+        .overlay(alignment: .topLeading) {
+            if !state.vocabularyMatches.isEmpty {
+                suggestionPopover
+                    .offset(y: 36)
+            }
+        }
+        // 抬高绘制层级，浮层才能盖在下面的词条卡片之上。
+        .zIndex(10)
+    }
+
+    private var canSubmitVocabularyDraft: Bool {
+        !state.vocabularyDraft.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// 点「添加」（或回车）才真正入库；选中联想词只替换输入框内容。
+    private func submitVocabularyDraft() {
+        guard canSubmitVocabularyDraft else { return }
+        state.dismissVocabularySuggestions()
+        Task { await state.addVocabularyWord() }
+    }
+
+    /// 输入框下方的模糊匹配浮层：最多 10 条，不足按实际高度。
+    /// 每条显示「英文（词性）中文翻译」；词库词还没有中文时退回难度档标签。
+    private var suggestionPopover: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(state.vocabularyMatches) { suggestion in
+                Button {
+                    state.applyVocabularySuggestion(suggestion)
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(suggestion.word)
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(theme.primaryText)
+                        if !suggestion.detailText.isEmpty {
+                            Text(suggestion.detailText)
+                                .font(.system(size: 11, design: .rounded))
+                                .foregroundStyle(theme.secondaryText)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                        if suggestion.isInVocabulary {
+                            Text("已在词表")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(theme.secondaryText)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if suggestion.id != state.vocabularyMatches.last?.id {
+                    Divider().overlay(theme.divider)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(theme.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(theme.accent.opacity(0.3), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.14), radius: 8, y: 3)
     }
 
     // MARK: - 词条卡片
@@ -547,13 +758,13 @@ public struct VocabularyView: View {
                 Text(sourceLabel(entry.source))
                     .font(.system(size: 10, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
-                // 删除（悬停才显眼，平时低调）
+                // 删除（红色线条，醒目一些）
                 Button {
                     Task { await state.removeVocabulary(id: entry.id) }
                 } label: {
                     Image(systemName: "trash")
-                        .font(.system(size: 10))
-                        .foregroundStyle(theme.secondaryText.opacity(0.7))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color.red.opacity(0.85))
                 }
                 .buttonStyle(.plain)
                 .help("从词表删除")
