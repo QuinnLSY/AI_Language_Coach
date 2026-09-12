@@ -615,6 +615,31 @@ public struct SettingsView: View {
         .task { await state.refreshCapabilityInfos() }
     }
 
+    /// 「本地 / 云端」小徽章：云端走 API Key 与外部网络，本地跑在本机 runtime 上。
+    private func sourceBadge(info: CapabilityModelInfo) -> some View {
+        let title = info.isRemote ? "云端" : "本地"
+        return HStack(spacing: 3) {
+            Image(systemName: info.isRemote ? "cloud.fill" : "desktopcomputer")
+                .font(.system(size: 8))
+            Text(title)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+        }
+        .foregroundStyle(info.isRemote ? theme.accent : theme.secondaryText)
+        .padding(.horizontal, 6)
+        .frame(height: 16)
+        .background(
+            Capsule().fill(theme.surfaceAlt)
+        )
+        .overlay(
+            Capsule().strokeBorder(
+                (info.isRemote ? theme.accent : theme.divider).opacity(0.5), lineWidth: 1
+            )
+        )
+        .help(info.isRemote
+              ? "云端模型：由 \(info.providerName ?? "外部供应商") 通过 API Key 提供"
+              : "本地模型：运行在本机，不需要外部网络")
+    }
+
     /// 单个能力的模型区块：当前模型/来源 → 本地检测选择 → 手动填写 → 外部模型。
     @ViewBuilder
     private func capabilitySection(_ info: CapabilityModelInfo) -> some View {
@@ -628,6 +653,8 @@ public struct SettingsView: View {
                 Text(kind.displayName)
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.primaryText)
+                // 本地 / 云端一眼可辨（云端必带 API Key，走外部网络）
+                sourceBadge(info: info)
                 Spacer()
                 Text(info.healthText)
                     .font(.system(size: 11, design: .rounded))
@@ -700,7 +727,11 @@ public struct SettingsView: View {
             VStack(alignment: .leading, spacing: 9) {
                 let options = state.externalProviderCache[kind.rawValue] ?? []
                 if options.isEmpty {
-                    Text("该能力暂未配置外部供应商。")
+                    // 说话检测 / 发音评测依赖逐帧音频与声学特征，云端没有通用接口，
+                    // 因此不提供外部供应商——明确说出来，好过让用户对着空列表找原因。
+                    Text(kind == .vad || kind == .pronunciation
+                         ? "该能力基于逐帧音频在本地计算，暂无云端接口。"
+                         : "该能力暂未配置外部供应商。")
                         .font(.system(size: 11, design: .rounded))
                         .foregroundStyle(theme.secondaryText)
                 } else {

@@ -112,12 +112,36 @@ public final class AudioPlayback: NSObject, AVAudioPlayerDelegate, @unchecked Se
         return url
     }
 
+    // MARK: - 容器识别
+
+    /// 按音频数据的魔数猜扩展名。
+    ///
+    /// 本地 TTS 固定返回 WAV；**云端 TTS 可能返回 mp3 / m4a**（各家默认格式不同）。
+    /// 扩展名必须跟着内容走：把 mp3 写成 `.wav` 会让 `AVAudioFile` 读不出来，
+    /// 表现就是「云端语音启用成功了，却一点声音都没有」。
+    public nonisolated static func containerExtension(of data: Data) -> String {
+        let bytes = [UInt8](data.prefix(64))
+        guard bytes.count >= 12 else { return "wav" }
+        if ascii(bytes, 0) == "RIFF", ascii(bytes, 8) == "WAVE" { return "wav" }
+        if ascii(bytes, 0) == "ID3" { return "mp3" }
+        if bytes[0] == 0xFF, (bytes[1] & 0xE0) == 0xE0 { return "mp3" }
+        if ascii(bytes, 4) == "ftyp" { return "m4a" }
+        if ascii(bytes, 0) == "OggS" { return "ogg" }
+        if ascii(bytes, 0) == "fLaC" { return "flac" }
+        return "wav"
+    }
+
+    private nonisolated static func ascii(_ bytes: [UInt8], _ offset: Int) -> String {
+        guard offset + 4 <= bytes.count else { return "" }
+        return String(bytes: bytes[offset..<(offset + 4)], encoding: .ascii) ?? ""
+    }
+
     // MARK: - 变速链路（引擎 + 时间拉伸）
 
     /// 引擎播放：临时落盘 → AVAudioFile 读取 → 时间拉伸节点 → 输出，并等待整段播完。
     private func playWithEngine(wavData: Data, rate: Float) async throws {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("coach-tts-\(UUID().uuidString).wav")
+            .appendingPathComponent("coach-tts-\(UUID().uuidString).\(Self.containerExtension(of: wavData))")
         try wavData.write(to: url)
 
         let file = try AVAudioFile(forReading: url)

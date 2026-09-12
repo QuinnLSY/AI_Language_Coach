@@ -55,6 +55,72 @@
       "request_timeout": 120
     },
     {
+      "id": "remote.openai-asr",
+      "kind": "asr",
+      "enabled": false,
+      "runtime": "remoteAPI",
+      "display_name": "OpenAI 语音识别",
+      "endpoint": "https://api.openai.com/v1",
+      "models_path": "v1/models",
+      "candidate_models": [],
+      "streaming": false,
+      "request_timeout": 60
+    },
+    {
+      "id": "remote.groq-asr",
+      "kind": "asr",
+      "enabled": false,
+      "runtime": "remoteAPI",
+      "display_name": "Groq 语音识别",
+      "endpoint": "https://api.groq.com/openai",
+      "models_path": "v1/models",
+      "candidate_models": [],
+      "streaming": false,
+      "request_timeout": 60
+    },
+    {
+      "id": "remote.siliconflow-asr",
+      "kind": "asr",
+      "enabled": false,
+      "runtime": "remoteAPI",
+      "display_name": "SiliconFlow 语音识别",
+      "endpoint": "https://api.siliconflow.cn/v1",
+      "models_path": "v1/models",
+      "candidate_models": [],
+      "streaming": false,
+      "request_timeout": 60
+    },
+    {
+      "id": "remote.openai-tts",
+      "kind": "tts",
+      "enabled": false,
+      "runtime": "remoteAPI",
+      "display_name": "OpenAI 教师语音",
+      "endpoint": "https://api.openai.com/v1",
+      "models_path": "v1/models",
+      "voices": ["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer"],
+      "candidate_models": [],
+      "streaming": false,
+      "request_timeout": 180
+    },
+    {
+      "id": "remote.siliconflow-tts",
+      "kind": "tts",
+      "enabled": false,
+      "runtime": "remoteAPI",
+      "display_name": "SiliconFlow 教师语音",
+      "endpoint": "https://api.siliconflow.cn/v1",
+      "models_path": "v1/models",
+      "voices": [
+        "FunAudioLLM/CosyVoice2-0.5B:alex",
+        "FunAudioLLM/CosyVoice2-0.5B:anna",
+        "FunAudioLLM/CosyVoice2-0.5B:bella"
+      ],
+      "candidate_models": [],
+      "streaming": false,
+      "request_timeout": 180
+    },
+    {
       "id": "local.asr",
       "kind": "asr",
       "enabled": true,

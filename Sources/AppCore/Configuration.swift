@@ -123,6 +123,13 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
     public var serviceStartCommand: String?
     /// 本地模型服务的「停止」命令（shell）。含义同上。
     public var serviceStopCommand: String?
+    /// 云端模型列表路径（相对端点）。nil = 用 Adapter 的默认路径。
+    /// 各家端点前缀不同（有的已含 `/v1`，有的没有），配在文件里而不是代码里猜。
+    public var modelsPath: String?
+    /// 云端 TTS 可用音色。来自配置文件，代码里不出现任何音色名字面量。
+    public var voices: [String]?
+    /// 向量维度（embedding）。nil = 由首次响应推断。
+    public var dimensions: Int?
 
     public init(
         id: String,
@@ -142,7 +149,10 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         maxTokens: Int? = nil,
         requestTimeout: TimeInterval? = nil,
         serviceStartCommand: String? = nil,
-        serviceStopCommand: String? = nil
+        serviceStopCommand: String? = nil,
+        modelsPath: String? = nil,
+        voices: [String]? = nil,
+        dimensions: Int? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -162,9 +172,21 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         self.requestTimeout = requestTimeout
         self.serviceStartCommand = serviceStartCommand
         self.serviceStopCommand = serviceStopCommand
+        self.modelsPath = modelsPath
+        self.voices = voices
+        self.dimensions = dimensions
     }
 
     public var userFacingName: String { displayName ?? id }
+
+    /// 是否需要 API Key（云端 OpenAI 兼容接口一律需要）。
+    public var requiresAPIKey: Bool { runtime == .remoteAPI }
+
+    /// 是否为云端 Provider（UI 用来区分「本地 / 云端」）。
+    public var isRemote: Bool { runtime == .remoteAPI }
+
+    /// 模型列表路径：配置文件优先，缺省用 OpenAI 兼容默认路径。
+    public var resolvedModelsPath: String { modelsPath ?? "v1/models" }
 }
 
 // MARK: - 产品配置

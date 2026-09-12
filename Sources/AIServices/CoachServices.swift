@@ -124,7 +124,8 @@ public actor CoachServices {
         guard let raw = Self.preferredProvider(.asr, in: configuration) else {
             return .configurationInvalid(reason: "没有启用的语音识别 Provider")
         }
-        let providerConfig = Self.fillServiceCommands(raw)
+        var providerConfig = Self.fillServiceCommands(raw)
+        if let model = configuration.resolvedModel(for: .asr) { providerConfig.model = model }
         let provider = Self.makeASRProvider(providerConfig)
         do {
             try await provider.initialize(config: providerConfig)
@@ -140,7 +141,8 @@ public actor CoachServices {
         guard let raw = Self.preferredProvider(.tts, in: configuration) else {
             return .configurationInvalid(reason: "没有启用的教师语音 Provider")
         }
-        let providerConfig = Self.fillServiceCommands(raw)
+        var providerConfig = Self.fillServiceCommands(raw)
+        if let model = configuration.resolvedModel(for: .tts) { providerConfig.model = model }
         let provider = Self.makeTTSProvider(providerConfig)
         do {
             try await provider.initialize(config: providerConfig)
@@ -152,8 +154,13 @@ public actor CoachServices {
         return await provider.healthCheck()
     }
 
-    /// 同类 Provider 中优先选真实 runtime；只有 mock 时才用 mock。
+    /// 某能力实际要装配的 Provider：**先认用户选中的那个（本地 / 云端二选一）**，
+    /// 没选过再从启用的里面挑真实 runtime；只有 mock 时才用 mock。
+    ///
+    /// 这一步很关键：否则用户在设置里切到云端后，语音链路仍会挑到本地 runtime，
+    /// 表现为「界面显示已启用云端，实际还是本地（或反过来的鬼打墙）」。
     private static func preferredProvider(_ kind: AIProviderKind, in configuration: AppConfiguration) -> ProviderConfig? {
+        if let chosen = configuration.resolvedProvider(for: kind) { return chosen }
         let candidates = configuration.providers.filter { $0.kind == kind && $0.enabled }
         return candidates.first { $0.runtime != .mock } ?? candidates.first
     }
@@ -235,9 +242,13 @@ public actor CoachServices {
             throw AppError.configuration("找不到 Provider：\(providerID)")
         }
         providerConfig.apiKey = apiKey
-        let provider = RemoteLLMAdapter(providerID: providerConfig.id)
-        try await provider.initialize(config: providerConfig)
-        return try await provider.discoverModels()
+        // 发现流程对任意能力通用（llm / asr / tts …）：同一套 OpenAI 兼容 `/models`，
+        // 只是按能力过滤掉不属于这一类模型的条目（云端返回的是混合列表）。
+        return try await RemoteCommon.discoverModels(
+            config: providerConfig,
+            kind: kind,
+            client: HTTPClient(useSystemProxy: true)
+        )
     }
 
     /// 保存云端 Provider 的 API Key / 模型 / 推理强度，并激活 + 重装配（任意能力通用）。
@@ -682,6 +693,8 @@ public actor CoachServices {
         switch config.runtime {
         case .externalLocalRuntime:
             WhisperASRAdapter(providerID: config.id)
+        case .remoteAPI:
+            RemoteASRAdapter(providerID: config.id)
         default:
             MockASRProvider()
         }
@@ -691,6 +704,8 @@ public actor CoachServices {
         switch config.runtime {
         case .externalLocalRuntime:
             Qwen3TTSAdapter(providerID: config.id)
+        case .remoteAPI:
+            RemoteTTSAdapter(providerID: config.id)
         default:
             MockTTSProvider()
         }

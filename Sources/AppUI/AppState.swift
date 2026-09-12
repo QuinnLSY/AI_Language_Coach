@@ -15,8 +15,32 @@ public struct CapabilityModelInfo: Sendable, Equatable {
     public let currentModel: String?
     /// 来源描述（如「本地 · /Users/…/ggml-small.en.bin」或「DeepSeek 提供的云端模型」）。
     public let sourceDescription: String
+    /// 当前生效 Provider 是否为云端 API（设置页用来区分「本地 / 云端」）。
+    public let isRemote: Bool
+    /// 当前生效 Provider 的展示名（如「本地模型」「OpenAI 语音识别」）。
+    public let providerName: String?
     /// ~/AI_Models 下自动检测到的本地模型。
     public let localModels: [LocalModel]
+
+    public init(
+        kind: AIProviderKind,
+        healthOK: Bool,
+        healthText: String,
+        currentModel: String?,
+        sourceDescription: String,
+        isRemote: Bool,
+        providerName: String?,
+        localModels: [LocalModel]
+    ) {
+        self.kind = kind
+        self.healthOK = healthOK
+        self.healthText = healthText
+        self.currentModel = currentModel
+        self.sourceDescription = sourceDescription
+        self.isRemote = isRemote
+        self.providerName = providerName
+        self.localModels = localModels
+    }
 }
 
 /// UI 唯一状态源。**只依赖 Application Services，不碰 Provider / HTTP / SQL。**
@@ -648,6 +672,8 @@ public final class AppState {
                 healthText: healthText,
                 currentModel: current,
                 sourceDescription: source,
+                isRemote: provider?.isRemote ?? false,
+                providerName: provider?.userFacingName,
                 localModels: localModels
             )
         }
