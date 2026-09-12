@@ -27,6 +27,8 @@ public actor CoachServices {
     public let pronunciation: PronunciationService
     /// 词汇本（Vocabulary，第 24 步）：生词导入 / 复习 / 按需释义。
     public let vocabulary: VocabularyService
+    /// 学习进度（Dashboard，第 25 步）：会话 / 纠错 / 跟读 / 词汇按天汇总。
+    public let progress: ProgressService
 
     /// 学习数据库。打开失败时为 nil（功能降级为不持久化，不影响对话）。
     public private(set) var learning: LearningDatabase?
@@ -56,6 +58,7 @@ public actor CoachServices {
         self.pronunciation = PronunciationService()
         self.shadowing = ShadowingService(voice: self.voice, pronunciation: self.pronunciation, learning: database)
         self.vocabulary = VocabularyService(llm: self.llm, learning: database)
+        self.progress = ProgressService(learning: database)
         if self.learning == nil {
             AppLog.warning("学习数据库打开失败，持久化已降级关闭: \(path)", category: "database")
         }
@@ -452,6 +455,18 @@ public actor CoachServices {
     public func saveProgress(_ progress: LearnerProgress) async {
         guard let learning else { return }
         try? await learning.saveProgress(progress)
+    }
+
+    // MARK: - 学习进度快照（第 25 步 Dashboard）
+
+    /// 汇总一份学习进度快照（今日 / 时长 / 纠错 / 词汇 / 发音 / 目标 + 六类趋势）。
+    /// 星星与每日目标由产品层传入 —— 本服务只负责「记录折算」这一件事。
+    public func progressSnapshot(
+        days: Int = ProgressAggregator.defaultDays,
+        totalStars: Int = 0,
+        goalMinutes: Int = ProgressAggregator.defaultGoalMinutes
+    ) async -> ProgressSnapshot {
+        await progress.snapshot(days: days, totalStars: totalStars, goalMinutes: goalMinutes)
     }
 
     // MARK: - 会话持久化（ChatService 使用）

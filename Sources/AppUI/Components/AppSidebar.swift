@@ -76,7 +76,7 @@ public struct AppSidebar: View {
                 title: "练习",
                 isActive: !state.showingSettings && !state.showingRecords
                     && !state.showingScenarios && !state.showingShadowing
-                    && !state.showingVocabulary
+                    && !state.showingVocabulary && !state.showingProgress
             ) {
                 Task { await state.openPractice() }
             }
@@ -103,6 +103,14 @@ public struct AppSidebar: View {
                 isActive: state.showingScenarios
             ) {
                 Task { await state.openScenarios() }
+            }
+
+            navItem(
+                icon: "chart.line.uptrend.xyaxis",
+                title: "学习进度",
+                isActive: state.showingProgress
+            ) {
+                Task { await state.openProgress() }
             }
 
             navItem(

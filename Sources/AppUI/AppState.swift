@@ -205,9 +205,19 @@ public final class AppState {
     /// 词库总词数（设置页展示「上次已学 x / y 词」）。
     public private(set) var dailyBankTotal = 0
 
+    // MARK: - 学习进度（第 25 步 Dashboard）
+
+    /// 是否停在学习进度页（占中间栏，与其他页互斥）。
+    public var showingProgress = false
+    /// 学习进度快照（进页面时汇总一次）。**UI 只读它，不自己统计**。
+    public private(set) var progressSnapshot: ProgressSnapshot = .empty()
+    /// 正在汇总进度（首次进入时的 loading 态）。
+    public private(set) var isLoadingProgress = false
+    /// 统计窗口天数（7 / 14 / 30 天，UI 可切换）。
+    public var progressWindowDays = ProgressAggregator.defaultDays
+
     /// 「认识」计数的持久化键（UserDefaults：轻量 [word: count]，不值得为此建表）。
-    private static let dailyRecognitionStorageKey = "vocabulary.dailyRecognitions"
-    /// 上次重置时间的持久化键。
+    private static let dailyRecognitionStorageKey = "vocabulary.dailyRecognitions"    /// 上次重置时间的持久化键。
     private static let dailyResetAtKey = "vocabulary.dailyProgressResetAt"
     /// 上次重置时已学词数的持久化键。
     private static let dailyResetLearnedKey = "vocabulary.dailyProgressResetLearned"
@@ -908,6 +918,7 @@ public final class AppState {
     public func openRecords() async {
         showingShadowing = false
         showingVocabulary = false
+        showingProgress = false
         showingRecords = true
         await loadRecords()
     }
@@ -916,7 +927,47 @@ public final class AppState {
         showingRecords = false
         showingShadowing = false
         showingVocabulary = false
+        showingProgress = false
     }
+
+    // MARK: - 学习进度（Dashboard，第 25 步）
+
+    /// 进入学习进度页并汇总一次。星星与每日目标是产品层输入，记录折算在服务层。
+    public func openProgress() async {
+        showingRecords = false
+        showingShadowing = false
+        showingVocabulary = false
+        showingScenarios = false
+        showingProgress = true
+        await reloadProgress()
+    }
+
+    /// 重新汇总学习进度（切窗口 / 手动刷新 / 刚练完回来都走这里）。
+    public func reloadProgress() async {
+        isLoadingProgress = true
+        progressSnapshot = await services.progressSnapshot(
+            days: progressWindowDays,
+            totalStars: progress.totalStars,
+            goalMinutes: product.dailyGoalMinutes
+        )
+        isLoadingProgress = false
+    }
+
+    /// 切换统计窗口（7 / 14 / 30 天）。
+    public func setProgressWindow(_ days: Int) async {
+        progressWindowDays = min(max(days, 7), 90)
+        await reloadProgress()
+    }
+
+    /// 每日目标（分钟）——写产品配置（持久化）。
+    public func setDailyGoalMinutes(_ minutes: Int) async {
+        product.dailyGoalMinutes = min(max(minutes, 5), 180)
+        await persistProduct()
+        await reloadProgress()
+    }
+
+    /// 当前每日目标（分钟）。
+    public var dailyGoalMinutes: Int { product.dailyGoalMinutes }
 
     // MARK: - 词汇本（Vocabulary，第 24 步）
 
@@ -925,6 +976,7 @@ public final class AppState {
         showingRecords = false
         showingShadowing = false
         showingScenarios = false
+        showingProgress = false
         showingVocabulary = true
         let imported = await services.importVocabularyFromReviews()
         if imported > 0 {
@@ -1223,6 +1275,7 @@ public final class AppState {
         showingRecords = false
         showingScenarios = false
         showingVocabulary = false
+        showingProgress = false
         showingShadowing = true
         await loadShadowing()
     }

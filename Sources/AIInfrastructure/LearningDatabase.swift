@@ -409,6 +409,92 @@ public actor LearningDatabase {
         ) { row in Self.correction(from: row) }
     }
 
+    // MARK: - 进度聚合用的时间窗口查询（第 25 步 Dashboard）
+    //
+    // 趋势图要按天聚合，所以这里只取「窗口内的原始事实」，怎么折算成趋势是
+    // `ProgressAggregator` 的纯函数活儿 —— 数据库不做业务口径。
+
+    /// 窗口内每条消息的时间戳（正序）。练习时长由「同一天首条 → 末条」折算。
+    public func messageTimestamps(since: Date) throws -> [Date] {
+        try db.query(
+            "SELECT created_at FROM messages WHERE created_at >= ?1 ORDER BY created_at ASC",
+            [.real(since.timeIntervalSince1970)],
+            map: { row in row.double(0).map { Date(timeIntervalSince1970: $0) } }
+        ).compactMap { $0 }
+    }
+
+    /// 窗口内的纠错（新 → 旧），带创建时间。
+    public func correctionRecords(since: Date, limit: Int = 500) throws -> [CorrectionRecord] {
+        try db.query(
+            """
+            SELECT id, original, corrected, explanation, created_at
+            FROM corrections WHERE created_at >= ?1 ORDER BY created_at DESC LIMIT ?2
+            """,
+            [.real(since.timeIntervalSince1970), .int(limit)]
+        ) { row -> CorrectionRecord? in
+            guard let idText = row.string(0), let id = UUID(uuidString: idText),
+                  let original = row.string(1), let corrected = row.string(2),
+                  let created = row.double(4)
+            else { return nil }
+            return CorrectionRecord(
+                correction: GrammarCorrection(
+                    id: id, original: original, corrected: corrected,
+                    explanation: row.string(3) ?? ""
+                ),
+                createdAt: Date(timeIntervalSince1970: created)
+            )
+        }.compactMap { $0 }
+    }
+
+    /// 窗口内的跟读记录（新 → 旧）。
+    public func shadowingAttempts(since: Date, limit: Int = 500) throws -> [ShadowingAttempt] {
+        try db.query(
+            """
+            SELECT id, drill_id, reference, recognized, accuracy, pronunciation, created_at
+            FROM shadowing_attempts WHERE created_at >= ?1 ORDER BY created_at DESC LIMIT ?2
+            """,
+            [.real(since.timeIntervalSince1970), .int(limit)]
+        ) { row -> ShadowingAttempt? in
+            guard let idText = row.string(0), let id = UUID(uuidString: idText),
+                  let drillID = row.string(1), let reference = row.string(2),
+                  let recognized = row.string(3), let accuracy = row.double(4),
+                  let created = row.double(6)
+            else { return nil }
+            return ShadowingAttempt(
+                id: id, drillID: drillID, referenceText: reference,
+                recognizedText: recognized, accuracy: accuracy,
+                pronunciation: Self.decodeJSON(row.string(5)),
+                createdAt: Date(timeIntervalSince1970: created)
+            )
+        }.compactMap { $0 }
+    }
+
+    /// 窗口内的会话（新 → 旧）。
+    public func sessions(since: Date, limit: Int = 500) throws -> [SessionSummary] {
+        try db.query(
+            """
+            SELECT id, started_at, COALESCE(ended_at, ?3) AS ended, message_count, scenario_id
+            FROM sessions
+            WHERE started_at >= ?1 AND id != 'archive'
+            ORDER BY started_at DESC LIMIT ?2
+            """,
+            [.real(since.timeIntervalSince1970), .int(limit), .real(Date().timeIntervalSince1970)]
+        ) { row -> SessionSummary? in
+            guard let idText = row.string(0), let id = UUID(uuidString: idText),
+                  let started = row.double(1), let ended = row.double(2)
+            else { return nil }
+            return SessionSummary(
+                sessionID: id,
+                startedAt: Date(timeIntervalSince1970: started),
+                endedAt: Date(timeIntervalSince1970: ended),
+                messageCount: row.int(3) ?? 0,
+                newStars: 0,
+                corrections: [],
+                scenarioID: row.string(4)
+            )
+        }.compactMap { $0 }
+    }
+
     /// 会话总结：消息数 + 本会话纠错。
     public func sessionSummary(id: UUID) throws -> SessionSummary? {
         let rows = try db.query(

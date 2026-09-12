@@ -198,6 +198,8 @@ public struct ProductConfig: Sendable, Equatable {
     public var autoSpeak: Bool
     /// 教师朗读语速（1 = 正常）。可选档位见 `SpeechRate`，非法取值落回 1。
     public var speechRate: Double
+    /// 每日练习目标（分钟）。Dashboard 的「Learning goals」用它算完成度。
+    public var dailyGoalMinutes: Int
 
     public init(
         learningLanguage: String = "en-US",
@@ -215,7 +217,8 @@ public struct ProductConfig: Sendable, Equatable {
         animalActivityFrequency: Double = 0.5,
         voicePreview: Bool = true,
         autoSpeak: Bool = true,
-        speechRate: Double = SpeechRate.x1.rawValue
+        speechRate: Double = SpeechRate.x1.rawValue,
+        dailyGoalMinutes: Int = 15
     ) {
         self.learningLanguage = learningLanguage
         self.nativeLanguage = nativeLanguage
@@ -233,6 +236,7 @@ public struct ProductConfig: Sendable, Equatable {
         self.voicePreview = voicePreview
         self.autoSpeak = autoSpeak
         self.speechRate = SpeechRate.nearest(to: speechRate).rawValue
+        self.dailyGoalMinutes = min(max(dailyGoalMinutes, 5), 180)
     }
 
     public func selectedModel(for kind: AIProviderKind) -> String? { selectedModels[kind.rawValue] }
@@ -254,6 +258,7 @@ extension ProductConfig: Codable {
         case selectedModels, teacherAnimal, studentAnimal, activeProviders
         case teacherBubbles, animalBubbles, animalActivity
         case animalActivityFrequency, voicePreview, autoSpeak, speechRate
+        case dailyGoalMinutes
     }
 
     public init(from decoder: Decoder) throws {
@@ -276,6 +281,7 @@ extension ProductConfig: Codable {
         speechRate = SpeechRate.nearest(
             to: try container.decodeIfPresent(Double.self, forKey: .speechRate) ?? SpeechRate.x1.rawValue
         ).rawValue
+        dailyGoalMinutes = min(max(try container.decodeIfPresent(Int.self, forKey: .dailyGoalMinutes) ?? 15, 5), 180)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -296,6 +302,7 @@ extension ProductConfig: Codable {
         try container.encode(voicePreview, forKey: .voicePreview)
         try container.encode(autoSpeak, forKey: .autoSpeak)
         try container.encode(speechRate, forKey: .speechRate)
+        try container.encode(dailyGoalMinutes, forKey: .dailyGoalMinutes)
     }
 }
 

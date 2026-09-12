@@ -121,6 +121,16 @@ public struct MainView: View {
             if CommandLine.arguments.contains("--open-records") {
                 Task { await state.openRecords() }
             }
+            // 截图/验证辅助：--open-progress 启动时直接进入学习进度页（第 25 步 Dashboard）
+            // --progress-days N 指定统计窗口（7/14/30）
+            if CommandLine.arguments.contains("--open-progress") {
+                if let index = CommandLine.arguments.firstIndex(of: "--progress-days"),
+                   index + 1 < CommandLine.arguments.count,
+                   let days = Int(CommandLine.arguments[index + 1]) {
+                    state.progressWindowDays = min(max(days, 7), 90)
+                }
+                await state.openProgress()
+            }
             // 截图/验证辅助：--open-shadowing 启动时直接进入跟读页
             if CommandLine.arguments.contains("--open-shadowing") {
                 await state.openShadowing()
@@ -230,6 +240,8 @@ public struct MainView: View {
                 ShadowingView(state: state)
             } else if state.showingVocabulary {
                 VocabularyView(state: state)
+            } else if state.showingProgress {
+                LearningProgressView(state: state)
             } else if state.showingRecords {
                 RecordsView(state: state)
             } else {
