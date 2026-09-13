@@ -1,3 +1,4 @@
+import AIDomain
 import AIInterfaces
 import Foundation
 
@@ -18,6 +19,15 @@ public actor TTSManager {
 
     /// 当前注册的 Provider（供「启动 / 关闭」这类需要拿到实例的能力使用）。
     public var current: (any TTSProvider)? { provider }
+
+    /// 当前 Provider 的朗读投递方式：云端整段、本地分句（见 `SpeechDelivery`）。
+    ///
+    /// 判断依据是 Provider 自报的 runtime，而不是「用户选了什么」——
+    /// 用户切到云端后装配链路会换掉 Provider 实例，这里自然跟着变。
+    public var delivery: SpeechDelivery {
+        guard let provider else { return .segmented }
+        return SpeechDelivery.forRuntime(provider.metadata().runtime)
+    }
 
     public func synthesize(_ request: TTSRequest) async throws -> TTSResult {
         guard let provider else { throw AIProviderError.notInitialized }

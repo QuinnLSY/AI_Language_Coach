@@ -101,6 +101,8 @@ public final class AppState {
     public private(set) var availableVoices: [String] = ["Serena", "Vivian", "Ryan", "Aiden", "Eric"]
     /// 本地语音 runtime 自报描述（如「Qwen3-TTS 0.6B · mps」），nil = 未知。
     public private(set) var ttsRuntimeInfo: String?
+    /// 当前朗读投递方式：云端整段合成、本地分句流水线（随语音装配刷新）。
+    public private(set) var speechDelivery: SpeechDelivery = .segmented
     /// 最近语音错误（nil = 正常）。
     public private(set) var voiceError: String?
     /// 语音服务健康状态。
@@ -111,6 +113,8 @@ public final class AppState {
     public private(set) var capabilityInfos: [AIProviderKind: CapabilityModelInfo] = [:]
     /// 外部模型 API Key 草稿（providerID -> key）。
     public var externalKeyDrafts: [String: String] = [:]
+    /// 已保存过 API Key 的云端 Provider（设置页给对应标签右上角加小绿点）。
+    public private(set) var externalKeyConfigured: Set<String> = []
     /// 外部模型探测结果（providerID -> models）。
     public private(set) var externalModels: [String: [DiscoveredModel]] = [:]
     /// 每个能力当前展开的外部 Provider 标签。
@@ -489,6 +493,8 @@ public final class AppState {
             await normalizeVoice(voices)
         }
         ttsRuntimeInfo = await services.voice.ttsRuntimeDescription()
+        // 朗读投递方式随 Provider 变化：云端整段、本地分句（设置页会说明当前用的是哪种）。
+        speechDelivery = await services.voice.deliveryMode()
     }
 
     /// 把配置里的音色对齐到 runtime 自报列表（大小写不敏感），避免选择器空选。
@@ -706,6 +712,42 @@ public final class AppState {
         customModelDrafts[kind.rawValue] = ""
     }
 
+    /// 打开设置页时，按**已保存的配置**回填外部模型草稿。
+    ///
+    /// 修掉三个「每次都要重来一遍」的痛点（用户实测反馈）：
+    /// 1. **API Key 不回填** → 明明存过，界面上却是空框，用户以为丢了、要重新输；
+    /// 2. **模型列表只活在「本次点过验证」的内存里** → 重开设置选择器就空了，无法直接切换；
+    /// 3. **选中标签默认落在候选第一家** → 而不是用户上次真正在用的那一家。
+    ///
+    /// 只补**空**的位置：用户当下正在输入的内容不会被配置覆盖。
+    public func prefillExternalDrafts() async {
+        let configuration = await services.configuration
+        for provider in configuration.providers where provider.isRemote {
+            let saved = (provider.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !saved.isEmpty {
+                externalKeyConfigured.insert(provider.id)
+                if (externalKeyDrafts[provider.id] ?? "").isEmpty { externalKeyDrafts[provider.id] = saved }
+                if (apiKeyDrafts[provider.id] ?? "").isEmpty { apiKeyDrafts[provider.id] = saved }
+            }
+            // 候选模型 + 该 Provider 当前模型 + 该能力产品层选中的模型：
+            // 三者合并去重，保证选择器既能列出历史候选，也能显示「现在用的是哪个」。
+            var ids = provider.candidateModels
+            for extra in [provider.model, configuration.product.selectedModel(for: provider.kind)] {
+                guard let extra, !extra.isEmpty, !ids.contains(extra) else { continue }
+                ids.insert(extra, at: 0)
+            }
+            let models = ids.map { DiscoveredModel(id: $0, name: $0) }
+            guard !models.isEmpty else { continue }
+            if (externalModels[provider.id] ?? []).isEmpty { externalModels[provider.id] = models }
+            if (remoteModels[provider.id] ?? []).isEmpty { remoteModels[provider.id] = models }
+        }
+        // 选中标签：优先落在该能力**当前生效**的云端 Provider 上（本地生效则维持原样）。
+        for kind in AIProviderKind.allCases {
+            guard let active = configuration.resolvedProvider(for: kind), active.isRemote else { continue }
+            externalSelectedProvider[kind.rawValue] = active.id
+        }
+    }
+
     /// 某能力配置里的外部 Provider 候选（id + 展示名）。
     public func remoteProviderOptions(for kind: AIProviderKind) async -> [(id: String, name: String)] {
         let configuration = await services.configuration
@@ -727,6 +769,9 @@ public final class AppState {
             let models = try await services.fetchRemoteModels(providerID: providerID, apiKey: apiKey, kind: kind)
             externalModels[providerID] = models.filter { !$0.isEmbeddingOnly }
             externalMessages[providerID] = "验证成功，获取到 \(models.count) 个模型"
+            externalKeyConfigured.insert(providerID)
+            // 把探测结果留下来：重开设置时选择器直接可用，不必再点一次验证。
+            await services.rememberRemoteModels(models, providerID: providerID, kind: kind)
         } catch {
             externalMessages[providerID] = error.localizedDescription
         }
@@ -743,6 +788,7 @@ public final class AppState {
         do {
             try await services.applyRemoteProvider(providerID: providerID, apiKey: apiKey, model: model, kind: kind)
             externalMessages[providerID] = "已启用 \(model)"
+            externalKeyConfigured.insert(providerID)
             if kind == .asr || kind == .tts { await bootstrapVoice() }
         } catch {
             externalMessages[providerID] = error.localizedDescription
@@ -799,6 +845,8 @@ public final class AppState {
             let models = try await services.fetchRemoteModels(providerID: selectedProviderID, apiKey: apiKey)
             remoteModels[selectedProviderID] = models.filter { !$0.isEmbeddingOnly }
             remoteMessage = "验证成功，获取到 \(models.count) 个模型"
+            externalKeyConfigured.insert(selectedProviderID)
+            await services.rememberRemoteModels(models, providerID: selectedProviderID, kind: .llm)
         } catch {
             remoteMessage = error.localizedDescription
         }
@@ -822,6 +870,7 @@ public final class AppState {
             )
             bootMessage = nil
             remoteMessage = "已启用云端模型 \(model)"
+            externalKeyConfigured.insert(selectedProviderID)
         } catch {
             remoteMessage = error.localizedDescription
         }

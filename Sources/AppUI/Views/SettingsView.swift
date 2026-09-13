@@ -49,6 +49,9 @@ public struct SettingsView: View {
     @State private var showVocabularyResetConfirm = false
     /// 配置里的 LLM Provider 标签（本地 / 云端）。
     @State private var providerOptions: [(id: String, name: String, isRemote: Bool)] = []
+    /// 「外部模型」折叠区的展开状态（kind.rawValue -> 是否展开）。
+    /// 没记过时按「该能力当前是否走云端」决定默认值。
+    @State private var expandedExternal: [String: Bool] = [:]
 
     public init(state: AppState) { self.state = state }
 
@@ -63,7 +66,6 @@ public struct SettingsView: View {
                     forestCompanionsCard
                     modelCard
                     voiceModelCenterCard
-                    voiceCard
                     learningCard
                     vocabularyCard
                     cacheCard
@@ -78,6 +80,9 @@ public struct SettingsView: View {
         .background(theme.panel)
         .task {
             await loadRuntimeValues()
+            // 用已保存的配置回填外部模型草稿：Key、模型列表、选中的供应商。
+            // 必须在 loadRuntimeValues 之后（后者决定 selectedProviderID）。
+            await state.prefillExternalDrafts()
             await state.refreshCacheInfo()
             await state.loadVocabularyBankIfNeeded()
         }
@@ -624,6 +629,9 @@ public struct SettingsView: View {
                     }
                 }
 
+                // 语音服务在线状态（原「语音」卡片头部，卡片已并入本板块）
+                voiceServiceStatus
+
                 deploymentTips
             }
         }
@@ -732,13 +740,26 @@ public struct SettingsView: View {
 
             // ④ 外部模型（各厂商统一入口：填 Key → 拉取 → 选择）
             externalModelSection(kind: kind)
+
+            // ⑤ 教师语音专有：音色 / 语速 / 自动朗读（原独立「语音」卡片，
+            //    并入本板块后「配模型」与「怎么读」在同一处完成）
+            if kind == .tts {
+                teacherVoiceControls
+            }
         }
     }
 
     /// 外部模型折叠区（与 LLM 云端一致的流程）。
+    ///
+    /// 默认展开状态跟着**当前生效的 Provider**走：这个能力正在用云端模型时，
+    /// 一打开设置就应当看到那家供应商、已保存的 Key 与可选模型，
+    /// 而不是一个折叠着的「外部模型」，还得再点一下才知道自己配过什么。
     @ViewBuilder
     private func externalModelSection(kind: AIProviderKind) -> some View {
-        DisclosureGroup {
+        DisclosureGroup(isExpanded: Binding(
+            get: { expandedExternal[kind.rawValue] ?? (state.capabilityInfos[kind]?.isRemote ?? false) },
+            set: { expandedExternal[kind.rawValue] = $0 }
+        )) {
             VStack(alignment: .leading, spacing: 9) {
                 let options = state.externalProviderCache[kind.rawValue] ?? []
                 if options.isEmpty {
@@ -754,6 +775,9 @@ public struct SettingsView: View {
                     HStack(spacing: 8) {
                         ForEach(options, id: \.id) { option in
                             let selected = state.externalSelectedProvider[kind.rawValue] == option.id
+                            // 已经存过 API Key 的供应商：右上角点一颗小绿点，
+                            // 一眼看出「这家配好了，不用重新填」，不必逐个点开确认。
+                            let configured = state.externalKeyConfigured.contains(option.id)
                             Button {
                                 state.externalSelectedProvider[kind.rawValue] = option.id
                             } label: {
@@ -766,8 +790,20 @@ public struct SettingsView: View {
                                 .frame(height: 26)
                                 .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
                                     .fill(selected ? theme.accent : theme.surfaceAlt))
+                                .overlay(alignment: .topTrailing) {
+                                    if configured {
+                                        Circle()
+                                            .fill(Color.green)
+                                            .frame(width: 7, height: 7)
+                                            .overlay(Circle().strokeBorder(theme.panel, lineWidth: 1))
+                                            .offset(x: 3, y: -3)
+                                    }
+                                }
                             }
                             .buttonStyle(.plain)
+                            .help(configured
+                                  ? "\(option.name)：API Key 已保存，可直接选择模型"
+                                  : "\(option.name)：尚未填写 API Key")
                         }
                         Spacer()
                     }
@@ -861,111 +897,137 @@ public struct SettingsView: View {
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.surfaceAlt.opacity(0.6)))
     }
 
-    // MARK: - 语音（说话 + 教师朗读）
+    // MARK: - 教师朗读（已并入模型管理中心的教师语音板块）
 
-    private var voiceCard: some View {
-        card(title: "语音", systemImage: "waveform") {
-            VStack(alignment: .leading, spacing: 12) {
-                // 两个能力的在线状态
-                HStack(spacing: 16) {
-                    voiceStatusDot("识别", state.asrHealth)
-                    voiceStatusDot("教师朗读", state.ttsHealth)
-                    Spacer()
-                    Button {
-                        Task { await state.bootstrapVoice() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .buttonStyle(.plain)
-                    .help("重新检测语音服务")
+    /// 语音服务的在线状态 + 重新检测 + 最近错误。
+    ///
+    /// 原来是独立「语音」卡片的头部。卡片合并进模型管理中心后，这段仍然要有：
+    /// 它是唯一能一眼看到「识别 / 教师朗读 现在通不通」的地方。
+    private var voiceServiceStatus: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 16) {
+                voiceStatusDot("识别", state.asrHealth)
+                voiceStatusDot("教师朗读", state.ttsHealth)
+                Spacer()
+                Button {
+                    Task { await state.bootstrapVoice() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
                 }
-
-                if let error = state.voiceError {
-                    Text(error)
-                        .font(.system(size: 12, design: .rounded))
-                        .foregroundStyle(.orange)
-                }
-
-                // 教师音色 + 自动试听小喇叭
-                HStack(spacing: 10) {
-                    Picker("老师的声音", selection: Binding(
-                        get: { state.teacherVoice },
-                        set: { voice in Task { await state.setVoice(voice) } }
-                    )) {
-                        ForEach(state.availableVoices, id: \.self) { voice in
-                            Text(voice.capitalized).tag(voice)
-                        }
-                    }
-
-                    // 小喇叭：开启后切换音色自动试听
-                    Button {
-                        Task { await state.setVoicePreview(!state.voicePreviewEnabled) }
-                    } label: {
-                        Image(systemName: state.voicePreviewEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(state.voicePreviewEnabled ? theme.accent : theme.secondaryText)
-                            .frame(width: 28, height: 28)
-                            .background(Circle().fill(theme.surfaceAlt))
-                            .overlay(Circle().strokeBorder(state.voicePreviewEnabled ? theme.accent.opacity(0.4) : theme.divider, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    .help(state.voicePreviewEnabled ? "自动试听已开启：切换音色即朗读示例（点此关闭）" : "自动试听已关闭（点此开启，切换音色即朗读示例）")
-
-                    // 立即试听
-                    Button {
-                        Task { await state.speak("Nice to meet you!") }
-                    } label: {
-                        Image(systemName: "play.circle")
-                            .font(.system(size: 14))
-                            .foregroundStyle(theme.accent)
-                    }
-                    .buttonStyle(.plain)
-                    .help("立即试听当前音色")
-                }
-
-                // 朗读语速：与对话区「听老师读」右侧的选择器共用同一份配置
-                HStack(spacing: 10) {
-                    Text("朗读语速")
-                        .font(.system(size: 13, design: .rounded))
-                        .foregroundStyle(theme.primaryText)
-                    HStack(spacing: 6) {
-                        ForEach(SpeechRate.allCases) { option in
-                            Button {
-                                Task { await state.setSpeechRate(option.rawValue) }
-                            } label: {
-                                Text(option.label)
-                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                    .foregroundStyle(isSelected(rate: option) ? Color.white : theme.primaryText)
-                                    .padding(.horizontal, 10)
-                                    .frame(height: 26)
-                                    .background(
-                                        Capsule().fill(isSelected(rate: option) ? theme.accent : theme.surfaceAlt)
-                                    )
-                                    .overlay(
-                                        Capsule().strokeBorder(
-                                            isSelected(rate: option) ? theme.accent : theme.divider,
-                                            lineWidth: 1
-                                        )
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                            .help("以 \(option.label) 语速朗读")
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-
-                // 自动朗读
-                Toggle("老师回复后自动朗读", isOn: Binding(
-                    get: { state.autoSpeak },
-                    set: { enabled in Task { await state.setAutoSpeak(enabled) } }
-                ))
-                .font(.system(size: 13, design: .rounded))
-
-                Text("在聊天框点 🎤 说话，松开后文字会填进输入框；每条老师回复下方可点「听老师读」，右侧小胶囊可切换朗读语速（只改快慢、不变音调）。语音完全在本地处理。")
-                    .font(.system(size: 11, design: .rounded))
-                    .foregroundStyle(theme.secondaryText)
+                .buttonStyle(.plain)
+                .help("重新检测语音服务")
             }
+
+            if let error = state.voiceError {
+                Text(error)
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.surfaceAlt.opacity(0.6)))
+    }
+
+    /// 老师朗读的行为设置：音色 / 语速 / 自动朗读。
+    ///
+    /// 从原独立「语音」卡片整体搬进**教师语音**能力区块——模型与朗读行为放在一起，
+    /// 配完模型顺手就能调「怎么读」，不用在两个卡片之间来回找。
+    @ViewBuilder
+    private var teacherVoiceControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Divider().overlay(theme.divider.opacity(0.6))
+
+            HStack(spacing: 6) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.accent)
+                Text("老师怎么读")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                Spacer()
+            }
+
+            // 教师音色 + 自动试听小喇叭
+            HStack(spacing: 10) {
+                Picker("老师的声音", selection: Binding(
+                    get: { state.teacherVoice },
+                    set: { voice in Task { await state.setVoice(voice) } }
+                )) {
+                    ForEach(state.availableVoices, id: \.self) { voice in
+                        Text(voice.capitalized).tag(voice)
+                    }
+                }
+
+                // 小喇叭：开启后切换音色自动试听
+                Button {
+                    Task { await state.setVoicePreview(!state.voicePreviewEnabled) }
+                } label: {
+                    Image(systemName: state.voicePreviewEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(state.voicePreviewEnabled ? theme.accent : theme.secondaryText)
+                        .frame(width: 28, height: 28)
+                        .background(Circle().fill(theme.surfaceAlt))
+                        .overlay(Circle().strokeBorder(state.voicePreviewEnabled ? theme.accent.opacity(0.4) : theme.divider, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .help(state.voicePreviewEnabled ? "自动试听已开启：切换音色即朗读示例（点此关闭）" : "自动试听已关闭（点此开启，切换音色即朗读示例）")
+
+                // 立即试听
+                Button {
+                    Task { await state.speak("Nice to meet you!") }
+                } label: {
+                    Image(systemName: "play.circle")
+                        .font(.system(size: 14))
+                        .foregroundStyle(theme.accent)
+                }
+                .buttonStyle(.plain)
+                .help("立即试听当前音色")
+            }
+
+            // 朗读语速：与对话区「听老师读」右侧的选择器共用同一份配置
+            HStack(spacing: 10) {
+                Text("朗读语速")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                HStack(spacing: 6) {
+                    ForEach(SpeechRate.allCases) { option in
+                        Button {
+                            Task { await state.setSpeechRate(option.rawValue) }
+                        } label: {
+                            Text(option.label)
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .foregroundStyle(isSelected(rate: option) ? Color.white : theme.primaryText)
+                                .padding(.horizontal, 10)
+                                .frame(height: 26)
+                                .background(
+                                    Capsule().fill(isSelected(rate: option) ? theme.accent : theme.surfaceAlt)
+                                )
+                                .overlay(
+                                    Capsule().strokeBorder(
+                                        isSelected(rate: option) ? theme.accent : theme.divider,
+                                        lineWidth: 1
+                                    )
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .help("以 \(option.label) 语速朗读")
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+
+            Toggle("老师回复后自动朗读", isOn: Binding(
+                get: { state.autoSpeak },
+                set: { enabled in Task { await state.setAutoSpeak(enabled) } }
+            ))
+            .font(.system(size: 13, design: .rounded))
+
+            // 朗读方式随当前生效的语音模型自动切换，在这里说清楚，免得用户以为是 bug。
+            Text("\(state.speechDelivery.explanation)在聊天框点 🎤 说话，松开后文字会填进输入框；每条老师回复下方可点「听老师读」，右侧小胶囊可切换朗读语速（只改快慢、不变音调）。")
+                .font(.system(size: 11, design: .rounded))
+                .foregroundStyle(theme.secondaryText)
+                .lineSpacing(3)
         }
     }
 

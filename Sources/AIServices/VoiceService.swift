@@ -1,3 +1,4 @@
+import AIDomain
 import AIInfrastructure
 import AIInterfaces
 import AIProviders
@@ -205,13 +206,17 @@ public actor VoiceService {
 
     // MARK: - 朗读（听）
 
-    /// 朗读文本。采用分句流水线：首句先出声，其余边播边合成。
+    /// 朗读文本。投递方式由当前 TTS Provider 的 runtime 决定（见 `SpeechDelivery`）：
+    ///
+    /// - **本地模型** → 分句流水线：首句先出声，其余边播边合成，把首句等待降到最低。
+    /// - **云端模型** → 整段一次合成：每句独立请求会割裂韵律，整段才读得连贯自然。
     ///
     /// 再次调用会**打断**上一段（用户重复点击 = 重新读，而不是被静默忽略）。
     /// - Parameter rate: 播放倍速（1 = 原速，由设置里的语速决定）。
     public func speak(_ text: String, voice: String, language: String = "English", rate: Float = 1.0) async {
-        let sentences = SentenceSplitter.split(Self.cleanForSpeech(text))
-        guard !sentences.isEmpty else { return }
+        let delivery = await tts.delivery
+        let cleaned = Self.cleanForSpeech(text, limit: delivery.maxCharacters)
+        guard !cleaned.isEmpty else { return }
 
         // 作废上一段朗读并停声，保证「再点一次」立即生效
         let token = UUID()
@@ -233,7 +238,40 @@ public actor VoiceService {
             }
         }
 
-        // 首句立即开合成
+        switch delivery {
+        case .whole:
+            await speakWhole(cleaned, token: token, voice: voice, language: language, rate: rate)
+        case .segmented:
+            await speakSegmented(cleaned, token: token, voice: voice, language: language, rate: rate)
+        }
+    }
+
+    /// 整段一次合成（云端）：只有一个请求，读完就是读完，句间韵律不被请求边界切断。
+    private func speakWhole(_ text: String, token: UUID, voice: String, language: String, rate: Float) async {
+        let task = prefetchTask(text, voice: voice, language: language)
+        inflight = task
+        let wav: Data
+        do {
+            wav = try await task.value
+        } catch {
+            if speakToken == token { lastError = Self.describe(error) }
+            return
+        }
+        guard speakToken == token else { return }
+        inflight = nil
+        setPhase(.speaking, speakingSource)
+        do {
+            try await playback.playAndWait(wavData: wav, rate: rate)
+        } catch {
+            if speakToken == token { lastError = Self.describe(error) }
+        }
+    }
+
+    /// 分句流水线（本地）：首句立即开合成，播放期间预取下一句。
+    private func speakSegmented(_ text: String, token: UUID, voice: String, language: String, rate: Float) async {
+        let sentences = SentenceSplitter.split(text)
+        guard !sentences.isEmpty else { return }
+
         var pending: Task<Data, Error>? = prefetchTask(sentences[0], voice: voice, language: language)
         inflight = pending
 
@@ -257,7 +295,7 @@ public actor VoiceService {
                 inflight = nil
             }
 
-            setPhase(.speaking, text)
+            setPhase(.speaking, speakingSource)
             do {
                 try await playback.playAndWait(wavData: wav, rate: rate)
             } catch {
@@ -332,6 +370,11 @@ public actor VoiceService {
         await tts.runtimeDescription()
     }
 
+    /// 当前朗读投递方式（云端整段 / 本地分句），设置页展示用。
+    public func deliveryMode() async -> SpeechDelivery {
+        await tts.delivery
+    }
+
     // MARK: - 内部
 
     private func setPhase(_ next: SpeechPhase, _ text: String?) {
@@ -366,7 +409,13 @@ public actor VoiceService {
     }
 
     /// 去掉不适合朗读的标记（`[[FIX]]` 块、markdown 等），保留自然语句。
-    public nonisolated static func cleanForSpeech(_ text: String) -> String {
+    ///
+    /// - Parameter limit: 截断上限。默认是**本地分句**的上限（400 字符，控制用户等待）；
+    ///   云端整段合成时由调用方传入更宽松的上限（见 `SpeechDelivery.maxCharacters`）。
+    public nonisolated static func cleanForSpeech(
+        _ text: String,
+        limit: Int = SpeechDelivery.segmented.maxCharacters
+    ) -> String {
         var lines: [String] = []
         for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(rawLine)
@@ -378,8 +427,10 @@ public actor VoiceService {
             .replacingOccurrences(of: "`", with: "")
             .replacingOccurrences(of: "#", with: "")
         let trimmed = joined.trimmingCharacters(in: .whitespacesAndNewlines)
-        // 上限 400 字符：合成总时长与文本长度成正比（实测 RTF≈2.7），放宽只会让用户等更久。
-        return trimmed.count > 400 ? String(trimmed.prefix(400)) : trimmed
+        // 上限由调用方给：本地 400（合成总时长与文本长度成正比，实测 RTF≈2.7，
+        // 放宽只会让用户等更久）；云端 2000（响应快，长段落也读得完、读得连贯）。
+        guard trimmed.count > limit else { return trimmed }
+        return String(trimmed.prefix(limit))
     }
 
     /// 优先使用 runtime 原始 WAV；否则由采样重新封装。

@@ -253,6 +253,19 @@ public actor CoachServices {
         )
     }
 
+    /// 记住某云端 Provider 探测到的模型列表（写进 `candidateModels`）。
+    ///
+    /// 探测本身仍是只读的（`fetchRemoteModels` 不写配置），但把结果留下来能让用户
+    /// **重开设置时选择器直接可用**——否则「验证并获取模型」每次都要重点一遍。
+    public func rememberRemoteModels(_ models: [DiscoveredModel], providerID: String, kind: AIProviderKind) async {
+        let ids = models.map(\.id)
+        guard !ids.isEmpty else { return }
+        guard await config.current.providers.contains(where: { $0.id == providerID && $0.kind == kind }) else { return }
+        try? await config.mutateProvider(id: providerID) { p in
+            p.candidateModels = ids
+        }
+    }
+
     /// 保存云端 Provider 的 API Key / 模型 / 推理强度，并把该能力切换到这个 Provider。
     ///
     /// **只写配置，不做重装配**（重装配见 `applyRemoteProvider`）。拆成两步是为了让
@@ -272,6 +285,11 @@ public actor CoachServices {
             p.apiKey = apiKey
             p.model = model
             p.reasoningEffort = reasoningEffort
+            // 用过的模型并入候选集：下次打开设置时选择器要能直接列出它，
+            // 不必再点一次「验证并获取模型」才能切换（产品要求见需求 ①）。
+            if !model.isEmpty, !p.candidateModels.contains(model) {
+                p.candidateModels.insert(model, at: 0)
+            }
         }
         try await config.mutateProduct { product in
             product.activateProvider(providerID, for: kind)
