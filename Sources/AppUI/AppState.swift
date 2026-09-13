@@ -183,6 +183,8 @@ public final class AppState {
     public private(set) var cacheSnapshot: CacheSnapshot = .empty
     /// 上一次清理释放的字节数（展示用，0 = 无）。
     public private(set) var cacheFreedBytes: Int64 = 0
+    /// 隐私状况（设置页「隐私与安全」卡片）：有无外发、发往哪里、本地数据在哪。
+    public private(set) var privacyReport: PrivacyReport = .empty
     /// 情景结算奖励提示（nil = 不显示）。UI 展示数秒后自动消失。
     public private(set) var lastReward: ScenarioReward?
     // MARK: 模型启停（设置页「启动 / 关闭」）
@@ -765,6 +767,9 @@ public final class AppState {
         spellingNote = await services.spellingCorrectionNote()
         // 顺带刷新云端调用审计：设置页的「对外调用记录」卡片要和模型信息同时是最新的。
         await refreshRemoteCalls()
+        // 供应商一变，外发口径就变了：这里顺手重算，避免隐私卡片停留在旧结论上
+        //（用户刚切回本地模型，卡片却还写着「正在使用云端服务」是不可接受的）。
+        await refreshPrivacy()
     }
 
     // MARK: - 云端调用审计（费用护栏留痕）
@@ -1909,6 +1914,11 @@ public final class AppState {
 
     public func refreshCacheInfo() async {
         cacheSnapshot = await services.cacheSnapshot()
+    }
+
+    /// 刷新隐私状况（打开设置页时调用；切换供应商时由 `refreshCapabilityInfos` 自动带上）。
+    public func refreshPrivacy() async {
+        privacyReport = await services.privacyReport()
     }
 
     /// 清理可再生的缓存（学习记忆与配置始终保留）。

@@ -1,6 +1,8 @@
 import AIDomain
 import AIInterfaces
+import AIServices
 import AppCore
+import AppKit
 import SwiftUI
 
 /// 设置里的伙伴角色：老师（侧边栏/聊天区 AI）与 小学员（聊天区学员位/树上攀爬者）。
@@ -68,6 +70,7 @@ public struct SettingsView: View {
                     voiceModelCenterCard
                     learningCard
                     vocabularyCard
+                    privacyCard
                     cacheCard
                     advancedCard
                     logsCard
@@ -84,6 +87,7 @@ public struct SettingsView: View {
             // 必须在 loadRuntimeValues 之后（后者决定 selectedProviderID）。
             await state.prefillExternalDrafts()
             await state.refreshCacheInfo()
+            await state.refreshPrivacy()
             await state.loadVocabularyBankIfNeeded()
         }
         .confirmationDialog("确定重置每日推荐学习进度吗？", isPresented: $showVocabularyResetConfirm, titleVisibility: .visible) {
@@ -1301,6 +1305,97 @@ public struct SettingsView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
         return "上次重置：\(formatter.string(from: date)) · 上次已学 \(state.dailyProgressResetLearned) / \(total) 词"
+    }
+
+    // MARK: - 隐私与安全（本地优先 + 外发披露）
+
+    private var privacyCard: some View {
+        card(title: "隐私与安全", systemImage: "lock.shield.fill") {
+            VStack(alignment: .leading, spacing: 10) {
+                let report = state.privacyReport
+                let disclosure = report.disclosure
+
+                HStack(spacing: 6) {
+                    Image(systemName: disclosure.isLocalOnly ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(disclosure.isLocalOnly ? .green : .orange)
+                    Text(disclosure.summary)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                }
+
+                // 有外发就得把「谁、发到哪、发了什么」摊开给用户看——
+                // 这是 §33 的硬要求：云端功能必须显式启用并明确披露。
+                if !disclosure.flows.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(disclosure.flows) { flow in
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Text(flow.kind.displayName)
+                                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(theme.accent)
+                                Text(flow.displayName)
+                                    .font(.system(size: 11, design: .rounded))
+                                    .foregroundStyle(theme.primaryText)
+                                Text(flow.host)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(theme.secondaryText)
+                                Spacer(minLength: 4)
+                                Text(flow.categories.map(\.displayName).joined(separator: "、"))
+                                    .font(.system(size: 10, design: .rounded))
+                                    .foregroundStyle(theme.secondaryText)
+                            }
+                        }
+                    }
+                }
+
+                Divider().overlay(theme.divider)
+
+                Text("数据存放位置")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+
+                ForEach(report.locations) { item in
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 5) {
+                            Image(systemName: item.isSensitive ? "lock.fill" : "doc")
+                                .font(.system(size: 9))
+                                .foregroundStyle(item.isSensitive ? theme.accent : theme.secondaryText)
+                            Text(item.title)
+                                .font(.system(size: 12, design: .rounded))
+                                .foregroundStyle(theme.primaryText)
+                        }
+                        Text(item.detail)
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundStyle(theme.secondaryText)
+                        Text(item.path)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(theme.secondaryText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                if !report.dataDirectory.isEmpty {
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: report.dataDirectory)])
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "folder").font(.system(size: 11))
+                            Text("在 Finder 中打开数据目录")
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundStyle(theme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .help(report.dataDirectory)
+                }
+
+                Text("默认全部在本机处理：录音、转写、学习记忆与配置都不上传。只有你在「模型管理中心」启用了云端供应商，对应能力的数据才会发往上面列出的域名；日志与留痕只记录元数据，不记录你说的话。")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+            }
+        }
     }
 
     // MARK: - 缓存管理（大小 / 目录显示 + 清除）

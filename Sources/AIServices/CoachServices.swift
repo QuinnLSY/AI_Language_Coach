@@ -1015,6 +1015,21 @@ public actor CoachServices {
         await CacheManager.clearCaches(database: learning)
     }
 
+    // MARK: - 隐私（设置页「隐私与安全」）
+
+    /// 隐私状况：当前有没有数据外发、发往哪里，以及本地数据都存在哪。
+    ///
+    /// 每次都**实时从配置推导**——用户切回本地模型后，这里必须立刻变回「纯本地」，
+    /// 不能停留在上一次的快照上（否则等于谎报）。
+    public func privacyReport() async -> PrivacyReport {
+        let configuration = await config.current
+        return PrivacyReport(
+            disclosure: PrivacyPolicy.disclosure(for: configuration),
+            locations: PrivacyDataLocator.locations(),
+            dataDirectory: PrivacyDataLocator.dataDirectory()
+        )
+    }
+
     // MARK: - 云端调用审计（费用护栏留痕）
 
     /// 本次运行的对外调用汇总：计费 / 探测 / 拦截次数、涉及模型、异常扇出预警。
