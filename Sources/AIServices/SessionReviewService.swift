@@ -66,7 +66,11 @@ public actor SessionReviewService {
                 model: options.model,
                 temperature: options.temperature ?? 0.3,
                 maxTokens: options.maxTokens,
-                streaming: false
+                streaming: false,
+                // 复盘是**确定性结构化输出**（固定字段的总结），与翻译/拼写/释义同为短任务：
+                // 推理模型（qwen3 / deepseek-r1）默认会先把 max_tokens 花在思考段上，
+                // 实测同一请求 12s 且正文为空，关思考后 0.8–5.8s 正常返回。
+                reasoningEffort: LLMRequest.noThinkingEffort
             )
             let response = try await llm.generate(request)
             guard let parsed = Self.parse(response.text) else {
