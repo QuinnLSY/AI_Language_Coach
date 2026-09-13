@@ -1,0 +1,27 @@
+{
+  "note": "发布就绪静态检查的规则表。刻意放在仓库配置而非代码里：规则本身含路径/端口/遥测域名等字面量，写进 Swift 源码会被自己的检查扫出来（自指）。和模型名、端点一样——不能写死在代码里的东西就进配置。",
+  "absolutePathPatterns": [
+    "\"/Users/",
+    "\"/usr/local/",
+    "file:///Users"
+  ],
+  "hardcodedPortPatterns": [
+    "127\\.0\\.0\\.1:",
+    "localhost:",
+    ":11434",
+    "://0\\.0\\.0\\.0:"
+  ],
+  "telemetryHostPatterns": [
+    "google-analytics",
+    "analytics\\.google",
+    "sentry\\.io",
+    "mixpanel",
+    "segment\\.io",
+    "amplitude\\.com",
+    "bugsnag"
+  ],
+  "audioLogPatterns": [
+    "AppLog\\.\\w+\\([^\\n]*(audioData|pcmBuffer|audioBuffer|samples)"
+  ],
+  "minimumLocalLocations": 3
+}

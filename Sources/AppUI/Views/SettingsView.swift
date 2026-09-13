@@ -41,6 +41,8 @@ public struct SettingsView: View {
 
     @State private var partnerRole: PartnerRole = .teacher
     @State private var endpointDraft: String = ""
+    /// 输入框的占位提示：**取自当前供应商的端点**，不在 UI 里写死任何地址/端口。
+    @State private var endpointPlaceholder: String = ""
     @State private var temperatureDraft: Double = 0.7
     @State private var logs: [LogEntry] = []
     @State private var showAdvanced = false
@@ -88,6 +90,7 @@ public struct SettingsView: View {
             await state.prefillExternalDrafts()
             await state.refreshCacheInfo()
             await state.refreshPrivacy()
+            await state.refreshBackups()
             await state.loadVocabularyBankIfNeeded()
         }
         .confirmationDialog("确定重置每日推荐学习进度吗？", isPresented: $showVocabularyResetConfirm, titleVisibility: .visible) {
@@ -1377,23 +1380,63 @@ public struct SettingsView: View {
                 }
 
                 if !report.dataDirectory.isEmpty {
-                    Button {
-                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: report.dataDirectory)])
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "folder").font(.system(size: 11))
-                            Text("在 Finder 中打开数据目录")
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        }
-                        .foregroundStyle(theme.accent)
-                    }
-                    .buttonStyle(.plain)
-                    .help(report.dataDirectory)
+                    FinderRevealButton(path: report.dataDirectory)
                 }
 
                 Text("默认全部在本机处理：录音、转写、学习记忆与配置都不上传。只有你在「模型管理中心」启用了云端供应商，对应能力的数据才会发往上面列出的域名；日志与留痕只记录元数据，不记录你说的话。")
                     .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
+            }
+        }
+    }
+
+    /// 「在 Finder 中打开」按钮。
+    ///
+    /// 打开目录这件事在 App 内部是**零副作用的**——界面哪里都不会变。
+    /// 不给即时反馈，用户会以为自己没点上（Finder 窗口也可能藏在其它窗口后面）。
+    /// 所以：按住缩一下 + 松开回弹，打开后短暂显示「已在 Finder 中打开」。
+    private struct FinderRevealButton: View {
+        @Environment(\.forestTheme) private var theme
+        @State private var isPressing = false
+        @State private var didOpen = false
+        @State private var revertTask: Task<Void, Never>?
+
+        let path: String
+
+        var body: some View {
+            Button(action: reveal) {
+                HStack(spacing: 5) {
+                    Image(systemName: didOpen ? "checkmark.circle.fill" : (isPressing ? "folder.fill" : "folder"))
+                        .font(.system(size: 11))
+                    Text(didOpen ? "已在 Finder 中打开" : "在 Finder 中打开数据目录")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                }
+                .foregroundStyle(didOpen ? .green : theme.accent)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(theme.surfaceAlt))
+                .scaleEffect(isPressing ? 0.94 : 1)
+            }
+            .buttonStyle(.plain)
+            .help(path)
+            // simultaneous 而非 gesture：保留 Button 自身的点击语义。
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in withAnimation(.easeOut(duration: 0.1)) { isPressing = true } }
+                    .onEnded { _ in
+                        withAnimation(.spring(response: 0.24, dampingFraction: 0.6)) { isPressing = false }
+                    }
+            )
+            .animation(.easeOut(duration: 0.2), value: didOpen)
+        }
+
+        private func reveal() {
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+            didOpen = true
+            revertTask?.cancel()
+            revertTask = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1.6))
+                withAnimation(.easeOut(duration: 0.25)) { didOpen = false }
             }
         }
     }
@@ -1498,6 +1541,82 @@ public struct SettingsView: View {
                 Text("清除只影响可再生的对话流水与数据库碎片；学习记忆（错题本、进度）和配置始终保留。")
                     .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
+
+                Divider().overlay(theme.divider)
+
+                // 学习库被隔离重建必须让用户看见：不说，用户会以为旧记录还在。
+                if let note = state.databaseRecoveryNote {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.orange)
+                        Text(note)
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(theme.primaryText)
+                    }
+                    Divider().overlay(theme.divider)
+                }
+
+                Text("数据备份")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+
+                HStack(spacing: 10) {
+                    Button {
+                        Task { await state.exportBackup() }
+                    } label: {
+                        HStack(spacing: 5) {
+                            if state.isExportingBackup {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "square.and.arrow.down.fill").font(.system(size: 11))
+                            }
+                            Text("导出备份")
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .frame(height: 30)
+                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(theme.accent))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(state.isExportingBackup)
+                    .help("把学习库、配置和调用留痕打包成一个带时间戳的 zip")
+
+                    if let first = state.backupSnapshots.first {
+                        Text("最近备份：\(first.fileName)")
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(theme.secondaryText)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                }
+
+                ForEach(state.backupSnapshots.prefix(3)) { item in
+                    HStack(spacing: 6) {
+                        Image(systemName: "archivebox.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(theme.secondaryText)
+                        Text(item.createdAt.formatted(date: .abbreviated, time: .shortened))
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(theme.primaryText)
+                        Spacer()
+                        Text(item.sizeDisplay)
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(theme.secondaryText)
+                            .monospacedDigit()
+                    }
+                }
+
+                if let error = state.backupError {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(.orange)
+                }
+
+                Text("备份包含学习库（含 -wal）、配置与调用留痕，存在本机，不上传任何地方。")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
             }
         }
     }
@@ -1510,7 +1629,7 @@ public struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Text("服务端点").frame(width: 88, alignment: .leading)
-                        TextField("http://127.0.0.1:11434", text: $endpointDraft)
+                        TextField(endpointPlaceholder, text: $endpointDraft)
                             .textFieldStyle(.roundedBorder)
                         Button("应用") {
                             Task { await state.setLLMEndpoint(endpointDraft) }
@@ -1617,6 +1736,7 @@ public struct SettingsView: View {
     private func loadRuntimeValues() async {
         let configuration = await state.services.configuration
         endpointDraft = configuration.resolvedProvider(for: .llm)?.endpoint ?? ""
+        endpointPlaceholder = configuration.resolvedProvider(for: .llm)?.endpoint ?? ""
         temperatureDraft = configuration.resolvedProvider(for: .llm)?.temperature ?? 0.7
         providerOptions = await state.llmProviderOptions()
         if state.selectedProviderID.isEmpty, let first = providerOptions.first {

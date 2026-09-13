@@ -185,6 +185,14 @@ public final class AppState {
     public private(set) var cacheFreedBytes: Int64 = 0
     /// 隐私状况（设置页「隐私与安全」卡片）：有无外发、发往哪里、本地数据在哪。
     public private(set) var privacyReport: PrivacyReport = .empty
+    /// 已导出的备份（设置页「存储与缓存」卡片），新的在前。
+    public private(set) var backupSnapshots: [BackupRecord] = []
+    /// 备份导出中的标记（按钮 loading）。
+    public private(set) var isExportingBackup = false
+    /// 最近一次导出失败的原因（nil = 没失败过）。
+    public private(set) var backupError: String?
+    /// 学习库被隔离重建时的说明（nil = 一切正常）——**必须让用户看见**。
+    public private(set) var databaseRecoveryNote: String?
     /// 情景结算奖励提示（nil = 不显示）。UI 展示数秒后自动消失。
     public private(set) var lastReward: ScenarioReward?
     // MARK: 模型启停（设置页「启动 / 关闭」）
@@ -1927,6 +1935,29 @@ public final class AppState {
         let after = await services.cacheSnapshot()
         cacheSnapshot = after
         cacheFreedBytes = max(before.totalBytes - after.totalBytes, 0)
+    }
+
+    // MARK: - 数据备份（第 30 步）
+
+    /// 刷新备份清单与学习库健康状况。
+    public func refreshBackups() async {
+        backupSnapshots = await services.backups()
+        databaseRecoveryNote = await services.recoveryNote
+    }
+
+    /// 导出一份完整备份，成功后刷新清单。失败要把原因显示出来，
+    /// 否则用户会以为「备份做好了」——那比没有备份更危险。
+    public func exportBackup() async {
+        guard !isExportingBackup else { return }
+        isExportingBackup = true
+        defer { isExportingBackup = false }
+        do {
+            _ = try await services.exportBackup()
+            backupError = nil
+            await refreshBackups()
+        } catch {
+            backupError = error.localizedDescription
+        }
     }
 
     // MARK: - 高级（普通用户不需要）

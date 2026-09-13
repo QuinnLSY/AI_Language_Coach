@@ -43,6 +43,14 @@ let package = Package(
             ],
             path: "Sources/ALCBench"
         ),
+        .executableTarget(
+            name: "alc-release-check",
+            dependencies: [
+                "AppCore", "AIDomain", "AIInterfaces",
+                "AIInfrastructure", "AIProviders", "AIServices",
+            ],
+            path: "Sources/ALCReleaseCheck"
+        ),
         .testTarget(
             name: "AILanguageCoachTests",
             dependencies: [

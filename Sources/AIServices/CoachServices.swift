@@ -32,6 +32,12 @@ public actor CoachServices {
 
     /// 学习数据库。打开失败时为 nil（功能降级为不持久化，不影响对话）。
     public private(set) var learning: LearningDatabase?
+    /// 学习库被**隔离重建**时给用户看的说明（nil = 一切正常）。
+    ///
+    /// 沉默重建是发布级事故：用户会以为旧记录还在。这里必须如实说出来。
+    public private(set) var databaseRecoveryNote: String?
+    /// 数据备份开关第 30 步）：导出 / 清单都在项目空间 `.workbuddy/backups/`。
+    private let backup: DataBackup
     private let config: ConfigStore
     private var llmProvider: (any LLMProvider)?
     /// 场景目录缓存（资源文件，进程内读一次即可）。
@@ -52,8 +58,12 @@ public actor CoachServices {
         self.tts = TTSManager()
         self.voice = VoiceService(asr: self.asr, tts: self.tts)
         let path = databasePath ?? LearningDatabase.defaultURL().path
-        let database = try? LearningDatabase(path: path)
+        // 坏库不等于「不能用」：先把可疑文件隔离保住证据，再重建空库继续服务，
+        // 并通过 `databaseRecoveryNote` 把这件事如实告诉用户（沉默降级比崩溃更糟）。
+        let opened = Self.openLearningDatabase(at: path)
+        let database = opened.database
         self.learning = database
+        self.databaseRecoveryNote = opened.note
         self.reviewer = SessionReviewService(llm: self.llm, learning: database)
         self.spellingCorrector = SpellingCorrectionService(llm: self.llm)
         self.translator = TranslationService(llm: self.llm)
@@ -63,9 +73,35 @@ public actor CoachServices {
         self.shadowing = ShadowingService(voice: self.voice, pronunciation: self.pronunciation, learning: database)
         self.vocabulary = VocabularyService(llm: self.llm, learning: database)
         self.progress = ProgressService(learning: database)
+        self.backup = DataBackup()
         if self.learning == nil {
-            AppLog.warning("学习数据库打开失败，持久化已降级关闭: \(path)", category: "database")
+            AppLog.warning("学习数据库不可用（已尝试隔离重建）: \(path)", category: "database")
         }
+    }
+
+    /// 打开学习库；坏库先隔离再重建，并返回要给用户看的说明。
+    private static func openLearningDatabase(at path: String) -> (database: LearningDatabase?, note: String?) {
+        do {
+            let result = try DataResilience.openLearningDatabase(path: path)
+            let note = result.recovered ? Self.recoveryNote(path: path) : nil
+            return (result.database, note)
+        } catch {
+            AppLog.error("学习数据库隔离重建失败: \(path) — \(error.localizedDescription)", category: "database")
+            return (nil, Self.unavailableNote(path: path))
+        }
+    }
+
+    private static func recoveryNote(path: String) -> String {
+        """
+        学习数据库损坏，已自动隔离并重建。
+
+        损坏的文件保留在 corrupt 目录里（\(DataResilience.quarantineDirectory(base: URL(fileURLWithPath: path).deletingLastPathComponent()).lastPathComponent)/），没有被删除；
+        这段时间之外的历史记录需要从那里找回，新的学习记录会正常保存。
+        """
+    }
+
+    private static func unavailableNote(path: String) -> String {
+        "学习数据库无法打开，本轮的进度与复盘不会保存：\(URL(fileURLWithPath: path).lastPathComponent)"
     }
 
     public var configuration: AppConfiguration {
@@ -1029,6 +1065,27 @@ public actor CoachServices {
             dataDirectory: PrivacyDataLocator.dataDirectory()
         )
     }
+
+    // MARK: - 数据备份（第 30 步：Release checklist / Data）
+
+    /// 导出一份完整备份（学习库 + 配置 + 调用留痕），返回压缩包位置。
+    @discardableResult
+    public func exportBackup() async throws -> BackupRecord {
+        BackupRecord(try await backup.export())
+    }
+
+    /// 已有备份，新的在前。
+    public func backups() async -> [BackupRecord] {
+        await backup.snapshots().map(BackupRecord.init)
+    }
+
+    /// 备份放在哪儿（UI 直达用）。
+    public var backupDirectory: URL {
+        get async { await backup.directory }
+    }
+
+    /// 学习库出过什么状况（nil = 一切正常）。界面要把它显示出来。
+    public var recoveryNote: String? { databaseRecoveryNote }
 
     // MARK: - 云端调用审计（费用护栏留痕）
 
