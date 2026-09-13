@@ -35,12 +35,28 @@ let package = Package(
                 "AIInfrastructure", "AIProviders", "AIServices", "AppUI",
             ]
         ),
+        .executableTarget(
+            name: "alc-bench",
+            dependencies: [
+                "AppCore", "AIDomain", "AIInterfaces",
+                "AIInfrastructure", "AIProviders", "AIServices",
+            ],
+            path: "Sources/ALCBench"
+        ),
         .testTarget(
             name: "AILanguageCoachTests",
             dependencies: [
                 "AppCore", "AIDomain", "AIInterfaces",
                 "AIInfrastructure", "AIProviders", "AIServices", "AppUI",
             ]
+        ),
+        .testTarget(
+            name: "BenchmarkTests",
+            dependencies: [
+                "AppCore", "AIDomain", "AIInterfaces",
+                "AIInfrastructure", "AIProviders", "AIServices",
+            ],
+            path: "Tests/Benchmark"
         ),
     ],
     swiftLanguageModes: [.v6]
