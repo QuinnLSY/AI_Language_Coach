@@ -95,6 +95,10 @@ public actor RemoteCallAudit {
     ) {
         if outcome == .blocked {
             blockedTotal += 1
+        } else if !intent.billable {
+            // 免费调用（Provider 声明 billable=false）：照常留痕，但不进计费统计——
+            // 「计费 N 次」必须始终等于用户真正花过钱的次数。
+            discoveryTotal += 1
         } else {
             switch intent.operation {
             case .models:
@@ -108,7 +112,8 @@ public actor RemoteCallAudit {
         append(RemoteCallRecord(
             at: now, kind: intent.kind, providerID: intent.providerID, model: intent.model,
             host: intent.host, endpoint: intent.endpoint, operation: intent.operation, outcome: outcome,
-            detail: httpStatus.map { "HTTP \($0)" }
+            detail: httpStatus.map { "HTTP \($0)" },
+            isFreeCall: !intent.billable
         ))
     }
 
@@ -186,6 +191,8 @@ public actor RemoteCallAudit {
         let operation: String
         let outcome: String
         let detail: String?
+        /// true = 免费调用（不计入计费统计，照常留痕）。
+        let free: Bool
 
         init(_ record: RemoteCallRecord) {
             self.at = record.at
@@ -197,6 +204,7 @@ public actor RemoteCallAudit {
             self.operation = record.operation.rawValue
             self.outcome = record.outcome.rawValue
             self.detail = record.detail
+            self.free = record.isFreeCall
         }
     }
 }

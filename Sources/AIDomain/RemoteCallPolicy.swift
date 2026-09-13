@@ -60,6 +60,10 @@ public enum RemoteCallPolicy {
         public var operation: Operation
         /// 实际请求路径（如 `/v1/audio/speech`）。
         public var endpoint: String
+        /// 这次调用**会不会花钱**。免密钥的公共服务（自建 Edge TTS 代理等）
+        /// 在配置里声明 `billable = false` 后，调用照常放行、留痕，但**不计入计费统计**——
+        /// 用户对账卡片上的「计费 N 次」就始终是真正花过钱的次数。
+        public var billable: Bool
 
         public init(
             kind: AIProviderKind,
@@ -67,7 +71,8 @@ public enum RemoteCallPolicy {
             model: String,
             host: String,
             operation: Operation,
-            endpoint: String = ""
+            endpoint: String = "",
+            billable: Bool = true
         ) {
             self.kind = kind
             self.providerID = providerID
@@ -75,6 +80,7 @@ public enum RemoteCallPolicy {
             self.host = host
             self.operation = operation
             self.endpoint = endpoint.isEmpty ? operation.endpointPath : endpoint
+            self.billable = billable
         }
     }
 
@@ -324,6 +330,8 @@ public struct RemoteCallRecord: Sendable, Equatable, Identifiable {
     public let outcome: Outcome
     /// 极简补充说明（HTTP 状态码等），不含响应正文。
     public let detail: String?
+    /// 免费调用（Provider 配置 `billable = false`）：照常留痕，不计入计费统计。
+    public let isFreeCall: Bool
 
     public init(
         id: UUID = UUID(),
@@ -335,7 +343,8 @@ public struct RemoteCallRecord: Sendable, Equatable, Identifiable {
         endpoint: String = "",
         operation: RemoteCallPolicy.Operation,
         outcome: Outcome,
-        detail: String? = nil
+        detail: String? = nil,
+        isFreeCall: Bool = false
     ) {
         self.id = id
         self.at = at
@@ -347,10 +356,11 @@ public struct RemoteCallRecord: Sendable, Equatable, Identifiable {
         self.operation = operation
         self.outcome = outcome
         self.detail = detail
+        self.isFreeCall = isFreeCall
     }
 
-    /// 是否是一次真正发出去的（计费）请求。被拦截的记录不计费。
-    public var isBillable: Bool { operation.isBillable && outcome != .blocked }
+    /// 是否是一次真正花过钱的请求。被拦截的记录没发出去，免费调用没花钱——都不算。
+    public var isBillable: Bool { operation.isBillable && !isFreeCall && outcome != .blocked }
 }
 
 /// 本次运行的对外调用汇总——给用户一条「应用到底调了什么」的可核对结论。

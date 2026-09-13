@@ -4,12 +4,15 @@ import AIInfrastructure
 import AppCore
 import Foundation
 
-/// 云端教师语音 Adapter（OpenAI 兼容 `POST /audio/speech`）。
+/// 云端教师语音 Adapter。
 ///
-/// 与本地 `Qwen3TTSAdapter` 同构（同一个 OpenAI 风格路径），差别在：
-/// - 鉴权：Bearer API Key；
-/// - 音色：来自配置的 `voices`（本地音色名在云端不一定存在，见 `resolvedVoice`）；
-/// - 返回：直接把 runtime 原始音频交给播放链路（可能是 mp3），不再解码成采样。
+/// 支持**三种请求形态**（由配置 `speech_request_style` 决定，代码不猜厂商字段名）：
+/// - `openAISpeech`（默认）：`POST <speech_path>`，JSON `{model, input, voice, response_format}`；
+/// - `textJSON`：`POST <speech_path>`，JSON `{text, voice, rate}`（无 model 概念的网关服务）；
+/// - `textQuery`：`GET <speech_path>?text=…&voice=…&rate=…`。
+///
+/// 与本地 `Qwen3TTSAdapter` 同构的部分：返回 runtime 原始音频（可能是 mp3），交播放链路按容器嗅探解码。
+/// 鉴权：需要 Key 的走 Bearer；免密钥服务（`api_key_required = false`）不带 Authorization。
 public final class RemoteTTSAdapter: TTSProvider, VoiceCatalogProvider, RuntimeInfoProvider, @unchecked Sendable {
 
     public let providerID: String
@@ -81,34 +84,66 @@ public final class RemoteTTSAdapter: TTSProvider, VoiceCatalogProvider, RuntimeI
         let resolved = try await resolved()
         let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { throw AIProviderError.invalidRequest("没有可朗读的文本") }
+        let style = resolved.config.resolvedSpeechRequestStyle
+        let speechPath = "/" + resolved.config.resolvedSpeechPath
 
-        // 铁律：只调用**用户选定的那个**模型；没选就拒绝，绝不回退候选列表。
-        // 这一次「朗读」= 一个模型 + 一次请求，且全程留痕（见 RemoteCallAudit）。
+        // 铁律：只调用**显式选定**的那一个（OpenAI 形态是模型，网关形态是音色）；
+        // 没选就拒绝，绝不回退候选列表。这一次「朗读」= 一个模型 + 一次请求，全程留痕。
+        let voice = await resolvedVoice(request: request)
         let intent = try await RemoteCommon.beginBillableCall(
             kind: .tts,
             providerID: providerID,
-            selectedModel: resolved.config.model,
-            // 这家供应商的模型 = 配置里的那一个。闸门的白名单以**探测到的候选清单**为准
-            // （它才是这家账号真的暴露过的模型）；候选清单为空时才退回 providerModel。
+            selectedModel: style.usesModelField ? resolved.config.model : (voice ?? resolved.config.model),
             providerModel: resolved.config.model,
-            candidateModels: resolved.config.candidateModels,
+            // 白名单：探测到的候选清单 + 配置里的音色清单（语音服务的「模型」就是音色）。
+            candidateModels: resolved.config.candidateModels + (resolved.config.voices ?? []),
             base: resolved.base,
-            operation: .speech
+            operation: .speech,
+            endpoint: speechPath,
+            billable: resolved.config.isBillable
         )
 
-        var urlRequest = RemoteCommon.request(
-            url: RemoteEndpoint.url(base: resolved.base, path: "v1/audio/speech"),
-            apiKey: resolved.apiKey,
-            method: "POST",
-            contentType: "application/json"
-        )
-        let body = SpeechRequest(
-            model: intent.model,
-            input: text,
-            voice: await resolvedVoice(request: request),
-            responseFormat: "wav"
-        )
-        urlRequest.httpBody = try RemoteCommon.makeEncoder().encode(body)
+        var urlRequest: URLRequest
+        switch style {
+        case .openAISpeech:
+            urlRequest = RemoteCommon.request(
+                url: RemoteCommon.speechURL(config: resolved.config, base: resolved.base),
+                apiKey: resolved.apiKey,
+                method: "POST",
+                contentType: "application/json"
+            )
+            let body = SpeechRequest(
+                model: intent.model,
+                input: text,
+                voice: voice,
+                responseFormat: "wav"
+            )
+            urlRequest.httpBody = try RemoteCommon.makeEncoder().encode(body)
+        case .textJSON:
+            urlRequest = RemoteCommon.request(
+                url: RemoteCommon.speechURL(config: resolved.config, base: resolved.base),
+                apiKey: resolved.apiKey,
+                method: "POST",
+                contentType: "application/json"
+            )
+            // 语速由播放侧统一控制（时间拉伸），合成侧固定中性值，避免双重变速。
+            let body = TextSpeechRequest(text: text, voice: voice, rate: SpeechRequestStyle.neutralRate)
+            urlRequest.httpBody = try RemoteCommon.makeEncoder().encode(body)
+        case .textQuery:
+            var components = URLComponents(
+                url: RemoteCommon.speechURL(config: resolved.config, base: resolved.base),
+                resolvingAgainstBaseURL: false
+            )
+            var items = [URLQueryItem(name: "text", value: text)]
+            if let voice { items.append(URLQueryItem(name: "voice", value: voice)) }
+            items.append(URLQueryItem(name: "rate", value: SpeechRequestStyle.neutralRate))
+            components?.queryItems = items
+            guard let url = components?.url else {
+                await RemoteCommon.endBillableCall(intent, outcome: .failed)
+                throw AIProviderError.invalidRequest("无法构造合成请求的查询串")
+            }
+            urlRequest = RemoteCommon.request(url: url, apiKey: resolved.apiKey, method: "GET")
+        }
 
         let data: Data
         let response: HTTPURLResponse
@@ -150,13 +185,18 @@ public final class RemoteTTSAdapter: TTSProvider, VoiceCatalogProvider, RuntimeI
         return try RemoteCommon.resolve(config)
     }
 
-    /// 本地音色名在云端未必存在（如 `serena`）：命中配置里的音色就用它，
-    /// 否则退回该供应商的第一个可用音色，避免切换云端后一句话都读不出来。
+    /// 音色解析（三种形态通用）。
+    ///
+    /// 旧实现的问题：本地音色名（`serena`）在云端根本不存在，遇「不在清单里」就盲取第一个——
+    /// 中文清单的第一个恰好是中文音色，于是英文朗读全被读成中文腔。
+    /// 现在交给 `RemoteVoiceResolver`：命中就用、否则**按请求语言**挑、再否则清单第一个。
     private func resolvedVoice(request: TTSRequest) async -> String? {
-        let voices = await state.currentConfig?.voices ?? []
-        if let voice = request.voice, voices.contains(voice) { return voice }
-        if let first = voices.first { return first }
-        return request.voice
+        guard let config = await state.currentConfig else { return request.voice }
+        return RemoteVoiceResolver.pick(
+            requested: request.voice,
+            language: request.language,
+            voices: config.voices ?? []
+        )
     }
 
     private struct SpeechRequest: Encodable {
@@ -175,6 +215,25 @@ public final class RemoteTTSAdapter: TTSProvider, VoiceCatalogProvider, RuntimeI
             try container.encode(input, forKey: .input)
             try container.encodeIfPresent(voice, forKey: .voice)
             try container.encode(responseFormat, forKey: .responseFormat)
+        }
+    }
+
+    /// 网关类（Edge TTS 代理等）的 JSON 形态：`{text, voice, rate}`。
+    /// ⚠️ 字段名就是 `text`（不是 `input`）——实测服务端只认它，给 `input` 会读出空内容。
+    private struct TextSpeechRequest: Encodable {
+        let text: String
+        let voice: String?
+        let rate: String
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(text, forKey: .text)
+            try container.encodeIfPresent(voice, forKey: .voice)
+            try container.encode(rate, forKey: .rate)
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case text, voice, rate
         }
     }
 }

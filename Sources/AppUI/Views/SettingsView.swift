@@ -888,9 +888,10 @@ public struct SettingsView: View {
                     HStack(spacing: 8) {
                         ForEach(options, id: \.id) { option in
                             let selected = state.externalSelectedProvider[kind.rawValue] == option.id
-                            // 已经存过 API Key 的供应商：右上角点一颗小绿点，
-                            // 一眼看出「这家配好了，不用重新填」，不必逐个点开确认。
-                            let configured = state.hasKeyDraft(option.id)
+                            // 绿点 = **正在使用**（当前生效的 Provider 就是它）。
+                            // 不再用「有 Key 草稿」当判定：用户切走本地后草稿还在，
+                            // 绿点却亮着会让人误以为还在用那家（2026-09-13 实测反馈）。
+                            let configured = state.capabilityInfos[kind]?.providerID == option.id
                             Button {
                                 state.externalSelectedProvider[kind.rawValue] = option.id
                             } label: {
@@ -915,46 +916,70 @@ public struct SettingsView: View {
                             }
                             .buttonStyle(.plain)
                             .help(configured
-                                  ? "\(option.name)：输入框里有 API Key，可直接选择模型"
-                                  : "\(option.name)：尚未填写 API Key")
+                                  ? "\(option.name)：当前正在使用"
+                                  : "\(option.name)：未在使用")
                         }
                         Spacer()
                     }
 
                     if let providerID = state.externalSelectedProvider[kind.rawValue] {
-                        // Key + 验证
-                        HStack(spacing: 8) {
-                            SecureField("API Key", text: Binding(
-                                get: { state.keyDraft(for: providerID) },
-                                set: { state.setKeyDraft($0, providerID: providerID, kind: kind) }
-                            ))
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 12, design: .rounded))
-                            .help("API Key 以这个输入框为准：清空即表示不使用该供应商（保存的旧密钥会被清除）。")
-                            Button {
-                                Task { await state.fetchExternalModels(kind: kind, providerID: providerID) }
-                            } label: {
-                                HStack(spacing: 4) {
-                                    if state.isFetchingExternal {
-                                        ProgressView().controlSize(.small)
-                                    } else {
-                                        Image(systemName: "key.horizontal")
+                        let keyless = state.keylessProviders.contains(providerID)
+                        // Key + 验证（免密钥供应商没有这一行：没有 Key 可填）
+                        if !keyless {
+                            HStack(spacing: 8) {
+                                SecureField("API Key", text: Binding(
+                                    get: { state.keyDraft(for: providerID) },
+                                    set: { state.setKeyDraft($0, providerID: providerID, kind: kind) }
+                                ))
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 12, design: .rounded))
+                                .help("API Key 以这个输入框为准：清空即表示不使用该供应商（保存的旧密钥会被清除）。")
+                                Button {
+                                    Task { await state.fetchExternalModels(kind: kind, providerID: providerID) }
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        if state.isFetchingExternal {
+                                            ProgressView().controlSize(.small)
+                                        } else {
+                                            Image(systemName: "key.horizontal")
+                                        }
+                                        Text("验证并获取模型")
                                     }
-                                    Text("验证并获取模型")
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
                                 }
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .buttonStyle(.plain)
+                                .disabled(state.isFetchingExternal)
                             }
-                            .buttonStyle(.plain)
-                            .disabled(state.isFetchingExternal)
-                        }
 
-                        // 当前已保存的密钥指纹（只露末 4 位）。
-                        // ⚠️ 只在**输入框里确实有 Key** 时显示：框是空的就不该出现
-                        // 「当前使用的密钥」，否则用户会以为应用还在用旧密钥（实测反馈）。
-                        if state.hasKeyDraft(providerID), let fingerprint = state.externalKeyFingerprints[providerID] {
-                            Text("当前使用的密钥：\(fingerprint)")
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(theme.secondaryText)
+                            // 当前已保存的密钥指纹（只露末 4 位）。
+                            // ⚠️ 只在**输入框里确实有 Key** 时显示：框是空的就不该出现
+                            // 「当前使用的密钥」，否则用户会以为应用还在用旧密钥（实测反馈）。
+                            if state.hasKeyDraft(providerID), let fingerprint = state.externalKeyFingerprints[providerID] {
+                                Text("当前使用的密钥：\(fingerprint)")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(theme.secondaryText)
+                            }
+                        } else {
+                            HStack(spacing: 8) {
+                                Button {
+                                    Task { await state.fetchExternalModels(kind: kind, providerID: providerID) }
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        if state.isFetchingExternal {
+                                            ProgressView().controlSize(.small)
+                                        } else {
+                                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                        }
+                                        Text("接入音色列表")
+                                    }
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(state.isFetchingExternal)
+                                Text("免密钥公共服务，无需 API Key")
+                                    .font(.system(size: 11, design: .rounded))
+                                    .foregroundStyle(theme.secondaryText)
+                            }
                         }
 
                         // 模型列表

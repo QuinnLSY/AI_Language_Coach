@@ -274,6 +274,32 @@ final class CloudCallIsolationTests: XCTestCase {
         }
     }
 
+    /// 免密钥供应商（`api_key_required = false`，如自建 Edge TTS 代理）：
+    /// 没有 Key 也能走「验证 → 应用」链路激活，且费用护栏把它的调用记为免费。
+    func testKeylessProviderActivatesWithoutKeyAndAppliesVoice() async throws {
+        let (services, directory) = try await makeServices { store in
+            try await store.mutateProvider(id: "remote.kina-tts") { p in
+                p.model = "en-US-AriaNeural"
+            }
+        }
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let keyless = await services.isKeyless(providerID: "remote.kina-tts", kind: .tts)
+        XCTAssertTrue(keyless)
+
+        // 无 Key 激活 + 选音色（applyRemoteProvider 对空 Key 不再拒绝）
+        try await services.applyRemoteProvider(
+            providerID: "remote.kina-tts", apiKey: "", model: "en-US-AriaNeural", kind: .tts
+        )
+        let configuration = await services.configuration
+        let kina = try XCTUnwrap(configuration.providers.first { $0.id == "remote.kina-tts" })
+        XCTAssertTrue(kina.enabled)
+        XCTAssertNil(kina.apiKey)
+        XCTAssertEqual(kina.model, "en-US-AriaNeural")
+        XCTAssertEqual(configuration.resolvedProvider(for: .tts)?.id, "remote.kina-tts")
+        XCTAssertEqual(configuration.resolvedModel(for: .tts), "en-US-AriaNeural")
+    }
+
     // MARK: - 空 API Key 框不再被当成旧密钥
 
     /// 输入框为空 = 清除已保存的密钥；有内容才保存。

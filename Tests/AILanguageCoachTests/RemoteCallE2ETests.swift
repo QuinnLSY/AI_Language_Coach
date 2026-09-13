@@ -89,6 +89,7 @@ final class RemoteCallE2ETests: XCTestCase {
             let method: String
             let path: String
             let body: String
+            let authorization: String?
         }
 
         func records() throws -> [Record] {
@@ -100,7 +101,8 @@ final class RemoteCallE2ETests: XCTestCase {
                 return Record(
                     method: object["method"] as? String ?? "",
                     path: object["path"] as? String ?? "",
-                    body: object["body"] as? String ?? ""
+                    body: object["body"] as? String ?? "",
+                    authorization: object["authorization"] as? String
                 )
             }
         }
@@ -132,14 +134,16 @@ final class RemoteCallE2ETests: XCTestCase {
 
             def do_GET(self):
                 with open(log_file, "a") as handle:
-                    handle.write(json.dumps({"method": "GET", "path": self.path, "body": ""}) + "\n")
+                    handle.write(json.dumps({"method": "GET", "path": self.path, "body": "",
+                                             "authorization": self.headers.get("Authorization")}) + "\n")
                 self._reply({"data": []}, "application/json")
 
             def do_POST(self):
                 length = int(self.headers.get("Content-Length") or 0)
                 raw = self.rfile.read(length).decode("utf-8", "replace")
                 with open(log_file, "a") as handle:
-                    handle.write(json.dumps({"method": "POST", "path": self.path, "body": raw}) + "\n")
+                    handle.write(json.dumps({"method": "POST", "path": self.path, "body": raw,
+                                             "authorization": self.headers.get("Authorization")}) + "\n")
                 self._reply(b"RIFF\x00\x00\x00\x00WAVE", "audio/wav")
 
             def log_message(self, *args):
@@ -263,5 +267,94 @@ final class RemoteCallE2ETests: XCTestCase {
         }
 
         XCTAssertEqual(try server.records().count, 0, "被拒绝时一个请求都不该发出去")
+    }
+
+    // MARK: - 免密钥语音服务（Edge TTS 代理形态）
+
+    /// 免密钥网关（`textJSON` 形态）端到端：
+    /// ① 无 Key 也能初始化并发请求（不带 Authorization）；
+    /// ② 请求体是 `{text, voice, rate}`（不是 OpenAI 的 `{model, input}`）；
+    /// ③ 端点是配置的 `/tts`；
+    /// ④ 审计记为**免费调用**——不计入「计费次数」，但对账文件照常留痕。
+    func testKeylessVoiceGatewaySendsTextBodyAndIsNotCountedAsBillable() async throws {
+        let server = try StubServer.start()
+        defer { server.cleanUp() }
+        let port = try server.waitForPort()
+
+        let config = ProviderConfig(
+            id: "test.kina-tts", kind: .tts, enabled: true, runtime: .remoteAPI,
+            endpoint: "http://127.0.0.1:\(port)",
+            apiKey: nil,                       // 免密钥：没有 Key
+            model: "en-US-AriaNeural",
+            requestTimeout: 10,
+            voices: ["en-US-AriaNeural", "zh-CN-XiaoxiaoNeural"],
+            speechPath: "tts",
+            speechRequestStyle: .textJSON,
+            apiKeyRequired: false,
+            billable: false
+        )
+        let adapter = RemoteTTSAdapter(providerID: "test.kina-tts", client: HTTPClient(useSystemProxy: false))
+        try await adapter.initialize(config: config)
+
+        let before = await RemoteCallAudit.shared.summary()
+        _ = try await adapter.synthesize(
+            TTSRequest(text: "Good morning!", voice: "en-US-AriaNeural", language: "en-US")
+        )
+        let after = await RemoteCallAudit.shared.summary()
+        let recent = await RemoteCallAudit.shared.recent(limit: 1)
+
+        let records = try server.records()
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records[0].method, "POST")
+        XCTAssertEqual(records[0].path, "/tts", "端点应来自配置的 speech_path")
+        XCTAssertNil(records[0].authorization, "免密钥服务不能带 Authorization 头")
+
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(records[0].body.utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(json["text"] as? String, "Good morning!", "网关形态读的是 text 字段")
+        XCTAssertEqual(json["voice"] as? String, "en-US-AriaNeural")
+        XCTAssertNil(json["model"], "网关形态没有 model 概念")
+        XCTAssertEqual(json["rate"] as? String, "+0%", "合成侧固定中性语速（变速由播放侧负责）")
+
+        // 免费调用：不进「计费次数」，但留痕里要能看到（free = true、端点 = /tts）
+        XCTAssertEqual(after.billableTotal, before.billableTotal, "免费调用绝不能计入计费统计")
+        XCTAssertEqual(recent.first?.isFreeCall, true)
+        XCTAssertEqual(recent.first?.endpoint, "/tts")
+        XCTAssertEqual(recent.first?.outcome, .ok)
+    }
+
+    /// 免密钥 + 音色不在配置清单里（比如本地音色名 `serena` 被传了进来）：
+    /// 必须按**请求语言**回退到清单里的音色，而不是把不存在的名字发出去。
+    func testKeylessVoiceFallsBackByLanguageWhenVoiceIsUnknown() async throws {
+        let server = try StubServer.start()
+        defer { server.cleanUp() }
+        let port = try server.waitForPort()
+
+        let config = ProviderConfig(
+            id: "test.kina-tts", kind: .tts, enabled: true, runtime: .remoteAPI,
+            endpoint: "http://127.0.0.1:\(port)",
+            apiKey: nil,
+            model: "en-US-AriaNeural",
+            requestTimeout: 10,
+            voices: ["en-US-AriaNeural", "en-US-GuyNeural", "zh-CN-XiaoxiaoNeural"],
+            speechPath: "tts",
+            speechRequestStyle: .textJSON,
+            apiKeyRequired: false,
+            billable: false
+        )
+        let adapter = RemoteTTSAdapter(providerID: "test.kina-tts", client: HTTPClient(useSystemProxy: false))
+        try await adapter.initialize(config: config)
+
+        // 请求带的是本地音色名（云端不存在），语言是英语 → 应回退到英语音色
+        _ = try await adapter.synthesize(TTSRequest(text: "Hi!", voice: "serena", language: "en-US"))
+
+        let records = try server.records()
+        XCTAssertEqual(records.count, 1)
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(records[0].body.utf8)) as? [String: Any]
+        )
+        let voice = try XCTUnwrap(json["voice"] as? String)
+        XCTAssertTrue(voice.hasPrefix("en-US"), "英语朗读必须回退到英语音色，实际：\(voice)")
     }
 }

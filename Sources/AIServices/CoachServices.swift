@@ -329,6 +329,43 @@ public actor CoachServices {
         }
     }
 
+    /// 拉取供应商自报的音色清单（`voice_list_path`，如 Edge TTS 代理的 `/voices`），
+    /// 并把「音色 id → 友好名」写进配置（原子局部更新），UI 据此显示晓晓 / 云希这类名字。
+    ///
+    /// - 若配置里还没有静态音色清单，把探测结果补进去（选择器从此直接可用）。
+    /// - 探测失败原样抛错：调用方（设置页）把错误显示给用户即可。
+    @discardableResult
+    public func discoverRemoteVoices(providerID: String, kind: AIProviderKind = .tts) async throws -> [RemoteVoiceCatalog.Voice] {
+        let configuration = await config.current
+        guard var providerConfig = configuration.providers.first(where: { $0.id == providerID && $0.kind == kind }) else {
+            throw AppError.configuration("找不到 Provider：\(providerID)")
+        }
+        let voices = try await RemoteCommon.discoverVoices(config: providerConfig, client: HTTPClient(useSystemProxy: true))
+        guard !voices.isEmpty else { return [] }
+        let names = Dictionary(uniqueKeysWithValues: voices.map { ($0.id, $0.name) })
+        let ids = voices.map(\.id)
+        try? await config.mutateProvider(id: providerID) { p in
+            p.voiceNames = names
+            if (p.voices ?? []).isEmpty { p.voices = ids }
+        }
+        return voices
+    }
+
+    /// 配置里已存的音色友好名（id → 名字；没有则原样返回 id）。
+    public func voiceLabel(providerID: String, voice: String, kind: AIProviderKind = .tts) async -> String {
+        let configuration = await config.current
+        guard let provider = configuration.providers.first(where: { $0.id == providerID && $0.kind == kind }) else {
+            return voice
+        }
+        return provider.voiceLabel(for: voice) ?? voice
+    }
+
+    /// 某供应商是否**免密钥**（UI 据此隐藏 Key 输入框、放行无 Key 的接入）。
+    public func isKeyless(providerID: String, kind: AIProviderKind) async -> Bool {
+        let configuration = await config.current
+        return configuration.providers.first { $0.id == providerID && $0.kind == kind }?.requiresAPIKey == false
+    }
+
     /// 保存云端 Provider 的 API Key / 模型 / 推理强度，并把该能力切换到这个 Provider。
     ///
     /// **只写配置，不做重装配**（重装配见 `applyRemoteProvider`）。拆成两步是为了让

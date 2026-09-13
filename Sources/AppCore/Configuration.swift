@@ -91,6 +91,38 @@ public enum RuntimeKind: String, Codable, Sendable, CaseIterable {
     case mock
 }
 
+/// 云端语音合成的**请求形态**：各家协议不同，由配置文件决定（`speech_request_style`），
+/// 代码里不猜任何厂商的字段名。
+///
+/// 为什么必须可配：网关类服务（如 Edge TTS 代理）的字段名与 OpenAI 兼容接口不同——
+/// 它要 `text` 而不是 `input`，且**没有 `model` 概念**。字段名猜错的表现是
+/// 服务端 422 `Field required`，而错误信息里根本看不出是字段名的问题。
+public enum SpeechRequestStyle: String, Codable, Sendable, CaseIterable {
+    /// OpenAI 兼容：`POST <speech_path>`，JSON `{model, input, voice, response_format}`。
+    case openAISpeech
+    /// 文本 JSON：`POST <speech_path>`，JSON `{text, voice, rate}`。
+    case textJSON
+    /// 文本查询串：`GET <speech_path>?text=…&voice=…&rate=…`。
+    case textQuery
+
+    public var displayName: String {
+        switch self {
+        case .openAISpeech: "OpenAI 兼容（POST JSON）"
+        case .textJSON: "文本 JSON（POST）"
+        case .textQuery: "文本查询串（GET）"
+        }
+    }
+
+    /// 该协议是否需要传 `model`：只有 OpenAI 兼容接口有这个概念。
+    public var usesModelField: Bool { self == .openAISpeech }
+
+    /// 中性语速参数。
+    ///
+    /// ⚠️ 朗读语速由**播放侧**统一控制（`ProductConfig.speechRate` → `AudioPlayback` 的时间拉伸），
+    /// 合成时再传一次就会双重变速。所以这里固定中性值，不做语速映射。
+    public static let neutralRate = "+0%"
+}
+
 // MARK: - Provider 配置
 
 /// Provider 配置。**所有字段来自配置文件**，代码里不得出现端点 / 模型名字面量。
@@ -128,6 +160,28 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
     public var modelsPath: String?
     /// 云端 TTS 可用音色。来自配置文件，代码里不出现任何音色名字面量。
     public var voices: [String]?
+    /// 音色展示名（id → 友好名，如 `zh-CN-XiaoxiaoNeural` → 「晓晓（女，温柔）」）。
+    /// 由音色目录探测写入，UI 优先展示它；同样**不出现任何音色名字面量**。
+    public var voiceNames: [String: String]?
+    /// 语音合成路径（相对端点）。nil = OpenAI 兼容默认 `v1/audio/speech`。
+    public var speechPath: String?
+    /// 语音请求形态。nil = OpenAI 兼容。
+    public var speechRequestStyle: SpeechRequestStyle?
+    /// 音色目录路径（相对端点，如 `voices`）。
+    /// 配了它，这个 Provider 就**自报音色清单**（而不是靠 OpenAI 的 `/models`），
+    /// 界面可以拉取并按友好名展示。
+    public var voiceListPath: String?
+    /// 健康检查路径（相对端点，如 `health`）。配了它就用它探活，
+    /// 而不是去拉模型/音色列表（省一次请求，也更贴近服务本身的就绪语义）。
+    public var healthPath: String?
+    /// 是否需要 API Key。nil = 按 runtime 推断（云端默认需要）。
+    /// 免密钥的公共服务（如本机代理的 Edge TTS）显式配 `false`。
+    public var apiKeyRequired: Bool?
+    /// 该 Provider 的调用**是否会产生费用**。nil = 视为计费。
+    ///
+    /// 免密钥的公共服务配 `false`：审计里就会记成「免费调用」而不是「计费请求」，
+    /// 免得用户在自己的对账卡片上看到一堆没花过的钱，反而以为失控了。
+    public var billable: Bool?
     /// 向量维度（embedding）。nil = 由首次响应推断。
     public var dimensions: Int?
 
@@ -152,7 +206,14 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         serviceStopCommand: String? = nil,
         modelsPath: String? = nil,
         voices: [String]? = nil,
-        dimensions: Int? = nil
+        dimensions: Int? = nil,
+        voiceNames: [String: String]? = nil,
+        speechPath: String? = nil,
+        speechRequestStyle: SpeechRequestStyle? = nil,
+        voiceListPath: String? = nil,
+        healthPath: String? = nil,
+        apiKeyRequired: Bool? = nil,
+        billable: Bool? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -175,12 +236,22 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         self.modelsPath = modelsPath
         self.voices = voices
         self.dimensions = dimensions
+        self.voiceNames = voiceNames
+        self.speechPath = speechPath
+        self.speechRequestStyle = speechRequestStyle
+        self.voiceListPath = voiceListPath
+        self.healthPath = healthPath
+        self.apiKeyRequired = apiKeyRequired
+        self.billable = billable
     }
 
     public var userFacingName: String { displayName ?? id }
 
-    /// 是否需要 API Key（云端 OpenAI 兼容接口一律需要）。
-    public var requiresAPIKey: Bool { runtime == .remoteAPI }
+    /// 是否需要 API Key：配置里的显式声明优先，否则云端 OpenAI 兼容接口一律需要。
+    public var requiresAPIKey: Bool { apiKeyRequired ?? (runtime == .remoteAPI) }
+
+    /// 这次调用会不会产生费用（审计归类用）。
+    public var isBillable: Bool { billable ?? true }
 
     /// 配置是否**真的能用**：云端 Provider 必须已经填了 API Key。
     ///
@@ -197,6 +268,19 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
 
     /// 模型列表路径：配置文件优先，缺省用 OpenAI 兼容默认路径。
     public var resolvedModelsPath: String { modelsPath ?? "v1/models" }
+
+    /// 语音合成路径：配置文件优先，缺省用 OpenAI 兼容默认路径。
+    public var resolvedSpeechPath: String { speechPath ?? "v1/audio/speech" }
+
+    /// 语音请求形态（默认 OpenAI 兼容）。
+    public var resolvedSpeechRequestStyle: SpeechRequestStyle { speechRequestStyle ?? .openAISpeech }
+
+    /// 音色的展示名（没有友好名时返回 nil，由 UI 决定怎么显示 id）。
+    public func voiceLabel(for voice: String) -> String? {
+        guard let label = voiceNames?[voice] else { return nil }
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 
     /// 密钥指纹：只暴露末 4 位（如 `••••1a2b`）。
     ///

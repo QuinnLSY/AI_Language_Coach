@@ -19,6 +19,9 @@ public struct CapabilityModelInfo: Sendable, Equatable {
     public let isRemote: Bool
     /// 当前生效 Provider 的展示名（如「本地模型」「OpenAI 语音识别」）。
     public let providerName: String?
+    /// 当前生效 Provider 的 id（设置页用它给「正在使用的那家」点绿点——
+    /// 有 Key 草稿 ≠ 在用：用户切走后草稿还在，绿点却不该亮，2026-09-13 反馈）。
+    public let providerID: String?
     /// ~/AI_Models 下自动检测到的本地模型。
     public let localModels: [LocalModel]
 
@@ -30,6 +33,7 @@ public struct CapabilityModelInfo: Sendable, Equatable {
         sourceDescription: String,
         isRemote: Bool,
         providerName: String?,
+        providerID: String? = nil,
         localModels: [LocalModel]
     ) {
         self.kind = kind
@@ -39,6 +43,7 @@ public struct CapabilityModelInfo: Sendable, Equatable {
         self.sourceDescription = sourceDescription
         self.isRemote = isRemote
         self.providerName = providerName
+        self.providerID = providerID
         self.localModels = localModels
     }
 }
@@ -142,6 +147,8 @@ public final class AppState {
     public var externalSelectedProvider: [String: String] = [:]
     /// 外部 Provider 候选缓存（kind -> options，设置页打开时拉一次）。
     public var externalProviderCache: [String: [(id: String, name: String)]] = [:]
+    /// 免密钥供应商集合（配置 `api_key_required = false`）：设置页对它们隐藏 Key 输入框。
+    public private(set) var keylessProviders: Set<String> = []
     public private(set) var isFetchingExternal = false
     /// 外部模型操作结果消息（providerID -> message）。
     public var externalMessages: [String: String] = [:]
@@ -739,6 +746,7 @@ public final class AppState {
                 sourceDescription: source,
                 isRemote: provider?.isRemote ?? false,
                 providerName: provider?.userFacingName,
+                providerID: provider?.id,
                 localModels: localModels
             )
         }
@@ -846,12 +854,24 @@ public final class AppState {
             externalKeyFingerprints[provider.id] = hasKeyDraft(provider.id) ? provider.keyFingerprint : nil
             // 候选模型 + 该 Provider 当前模型 + 该能力产品层选中的模型：
             // 三者合并去重，保证选择器既能列出历史候选，也能显示「现在用的是哪个」。
-            var ids = provider.candidateModels
-            for extra in [provider.model, configuration.product.selectedModel(for: provider.kind)] {
-                guard let extra, !extra.isEmpty, !ids.contains(extra) else { continue }
-                ids.insert(extra, at: 0)
+            // ⚠️ 语音供应商优先用**音色清单**（friendly 名）：它们的「模型」就是音色，
+            // 且静态清单随配置分发——打开设置就能选，不必先点一次「接入音色列表」。
+            var models: [DiscoveredModel]
+            if provider.kind == .tts, let voices = provider.voices, !voices.isEmpty {
+                models = voices.map { voice in
+                    DiscoveredModel(id: voice, name: provider.voiceLabel(for: voice) ?? voice)
+                }
+                if let model = provider.model, !model.isEmpty, !voices.contains(model) {
+                    models.insert(DiscoveredModel(id: model, name: model), at: 0)
+                }
+            } else {
+                var ids = provider.candidateModels
+                for extra in [provider.model, configuration.product.selectedModel(for: provider.kind)] {
+                    guard let extra, !extra.isEmpty, !ids.contains(extra) else { continue }
+                    ids.insert(extra, at: 0)
+                }
+                models = ids.map { DiscoveredModel(id: $0, name: $0) }
             }
-            let models = ids.map { DiscoveredModel(id: $0, name: $0) }
             guard !models.isEmpty else { continue }
             if (externalModels[provider.id] ?? []).isEmpty { externalModels[provider.id] = models }
             if (remoteModels[provider.id] ?? []).isEmpty { remoteModels[provider.id] = models }
@@ -915,23 +935,39 @@ public final class AppState {
     }
 
     /// 外部模型：校验 API Key 并拉取模型列表（不落盘）。
+    ///
+    /// 免密钥供应商（`api_key_required = false`，如自建 Edge TTS 代理）不需要 Key：
+    /// TTS 且配置了 `voice_list_path` 的拉**音色目录**（友好名一并落盘），否则按普通模型列表处理。
     public func fetchExternalModels(kind: AIProviderKind, providerID: String) async {
-        let apiKey = await resolvedExternalAPIKey(providerID: providerID)
-        guard !apiKey.isEmpty else {
-            // 输入框为空 = 用户没有配置这个供应商。这里顺手把配置里的旧 Key 清掉，
-            // 不让它继续留在「已配置」状态里（用户明确要求：空框不再被识别成旧密钥）。
-            await syncKeyDraft(providerID, kind: kind)
-            externalMessages[providerID] = "请先填写 API Key。输入框为空时应用不会使用任何已保存的旧密钥，该供应商的密钥已清除。"
-            return
+        let keyless = await services.isKeyless(providerID: providerID, kind: kind)
+        if !keyless {
+            let apiKey = await resolvedExternalAPIKey(providerID: providerID)
+            guard !apiKey.isEmpty else {
+                // 输入框为空 = 用户没有配置这个供应商。这里顺手把配置里的旧 Key 清掉，
+                // 不让它继续留在「已配置」状态里（用户明确要求：空框不再被识别成旧密钥）。
+                await syncKeyDraft(providerID, kind: kind)
+                externalMessages[providerID] = "请先填写 API Key。输入框为空时应用不会使用任何已保存的旧密钥，该供应商的密钥已清除。"
+                return
+            }
         }
         isFetchingExternal = true
         externalMessages[providerID] = nil
         do {
-            let models = try await services.fetchRemoteModels(providerID: providerID, apiKey: apiKey, kind: kind)
-            externalModels[providerID] = models.filter { !$0.isEmbeddingOnly }
-            externalMessages[providerID] = "验证成功，获取到 \(models.count) 个模型。选好模型后点「应用」才会启用。"
-            // 把探测结果留下来：重开设置时选择器直接可用，不必再点一次验证。
-            await services.rememberRemoteModels(models, providerID: providerID, kind: kind)
+            if kind == .tts, keyless {
+                let voices = try await services.discoverRemoteVoices(providerID: providerID, kind: kind)
+                // 音色进模型选择器：name 显示友好名（晓晓…），tag 是真音色 id。
+                externalModels[providerID] = voices.map {
+                    DiscoveredModel(id: $0.id, name: $0.name, isEmbeddingOnly: false, contextLength: nil)
+                }
+                externalMessages[providerID] = "接入成功，获取到 \(voices.count) 个音色。选好音色后会自动启用。"
+            } else {
+                let apiKey = await resolvedExternalAPIKey(providerID: providerID)
+                let models = try await services.fetchRemoteModels(providerID: providerID, apiKey: apiKey, kind: kind)
+                externalModels[providerID] = models.filter { !$0.isEmbeddingOnly }
+                externalMessages[providerID] = "验证成功，获取到 \(models.count) 个模型。选好模型后点「应用」才会启用。"
+                // 把探测结果留下来：重开设置时选择器直接可用，不必再点一次验证。
+                await services.rememberRemoteModels(models, providerID: providerID, kind: kind)
+            }
         } catch {
             externalMessages[providerID] = error.localizedDescription
         }
@@ -942,18 +978,24 @@ public final class AppState {
     ///
     /// **Key 以输入框为准**：先把它落进配置（空 = 清除），再要求 Key 存在才允许启用。
     /// 这样不会出现「框里空着却被启用、并在背后用旧 Key 调用云端」的状态。
+    /// 免密钥供应商不在此列：没有 Key 可要求，直接启用。
     public func applyExternalModel(_ kind: AIProviderKind, providerID: String, model: String) async {
-        let hasKey = await syncKeyDraft(providerID, kind: kind)
-        guard hasKey else {
-            externalMessages[providerID] = "请先填写 API Key。输入框为空时应用不会使用任何已保存的旧密钥，该供应商的密钥已清除。"
-            await refreshCapabilityInfos()
-            return
+        let keyless = await services.isKeyless(providerID: providerID, kind: kind)
+        if !keyless {
+            let hasKey = await syncKeyDraft(providerID, kind: kind)
+            guard hasKey else {
+                externalMessages[providerID] = "请先填写 API Key。输入框为空时应用不会使用任何已保存的旧密钥，该供应商的密钥已清除。"
+                await refreshCapabilityInfos()
+                return
+            }
         }
         let apiKey = await resolvedExternalAPIKey(providerID: providerID)
         do {
             try await services.applyRemoteProvider(providerID: providerID, apiKey: apiKey, model: model, kind: kind)
             externalMessages[providerID] = "已启用 \(model)"
-            externalKeyFingerprints[providerID] = await remoteKeyFingerprint(providerID: providerID)
+            if !keyless {
+                externalKeyFingerprints[providerID] = await remoteKeyFingerprint(providerID: providerID)
+            }
             if kind == .asr || kind == .tts { await bootstrapVoice() }
         } catch {
             externalMessages[providerID] = error.localizedDescription

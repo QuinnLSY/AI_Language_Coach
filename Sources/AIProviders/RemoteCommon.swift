@@ -23,6 +23,9 @@ public enum RemoteCommon {
     }
 
     /// 端点 + Key 校验（云端调用前的统一前置检查）。
+    ///
+    /// 免密钥服务（配置声明 `apiKey_required = false`，如自建 Edge TTS 代理）
+    /// 不要求 Key：`apiKey` 为空串，`request` 也就不会带上 Authorization 头。
     public static func resolve(_ config: ProviderConfig) throws -> Resolved {
         guard let endpoint = config.endpoint, !endpoint.isEmpty else {
             throw AIProviderError.invalidConfiguration("缺少 API 端点")
@@ -30,13 +33,15 @@ public enum RemoteCommon {
         guard let base = RemoteEndpoint.base(endpoint) else {
             throw AIProviderError.invalidConfiguration("端点不是合法 URL")
         }
-        guard let apiKey = config.apiKey, !apiKey.isEmpty else {
+        let apiKey = (config.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if config.requiresAPIKey, apiKey.isEmpty {
             throw AIProviderError.invalidConfiguration("未填写 API Key")
         }
         return Resolved(config: config, base: base, apiKey: apiKey)
     }
 
-    /// 带 Bearer 鉴权的请求（云端一律走系统代理，否则出不了网）。
+    /// 带鉴权的请求（云端一律走系统代理，否则出不了网）。
+    /// Key 为空（免密钥服务）时不带 Authorization 头——带一个空 Bearer 反而可能被拒。
     public static func request(
         url: URL,
         apiKey: String,
@@ -45,7 +50,9 @@ public enum RemoteCommon {
     ) -> URLRequest {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = method
-        urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        if !apiKey.isEmpty {
+            urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
         if let contentType {
             urlRequest.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
@@ -55,6 +62,25 @@ public enum RemoteCommon {
     /// 模型列表地址（路径来自配置，兼容端点已含 `/v1` 的厂商）。
     public static func modelsURL(config: ProviderConfig, base: URL) -> URL {
         RemoteEndpoint.url(base: base, path: config.resolvedModelsPath)
+    }
+
+    /// 语音合成地址（路径来自配置：OpenAI 兼容 `/v1/audio/speech`，网关类可能是 `/tts`）。
+    public static func speechURL(config: ProviderConfig, base: URL) -> URL {
+        RemoteEndpoint.url(base: base, path: config.resolvedSpeechPath)
+    }
+
+    /// 音色目录地址（配置了 `voice_list_path` 的供应商自报音色清单）。
+    public static func voicesURL(config: ProviderConfig, base: URL) -> URL? {
+        guard let path = config.voiceListPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else { return nil }
+        return RemoteEndpoint.url(base: base, path: path)
+    }
+
+    /// 健康检查地址（配置了 `health_path` 就用它探活，省一次列表请求）。
+    public static func healthURL(config: ProviderConfig, base: URL) -> URL? {
+        guard let path = config.healthPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else { return nil }
+        return RemoteEndpoint.url(base: base, path: path)
     }
 
     // MARK: - 云端调用闸门（所有计费请求的唯一入口）
@@ -87,7 +113,9 @@ public enum RemoteCommon {
         providerModel: String?,
         candidateModels: [String] = [],
         base: URL,
-        operation: RemoteCallPolicy.Operation
+        operation: RemoteCallPolicy.Operation,
+        endpoint: String? = nil,
+        billable: Bool = true
     ) async throws -> RemoteCallPolicy.Intent {
         guard RemoteCallPolicy.operationMatches(kind: kind, operation: operation) else {
             throw AIProviderError.invalidRequest(
@@ -108,7 +136,8 @@ public enum RemoteCommon {
         }
         let intent = RemoteCallPolicy.Intent(
             kind: kind, providerID: providerID, model: model,
-            host: host(of: base), operation: operation
+            host: host(of: base), operation: operation,
+            endpoint: endpoint ?? "", billable: billable
         )
         if case .denied(let reason) = await RemoteCallAudit.shared.authorize(intent) {
             throw AIProviderError.invalidRequest(reason)
@@ -170,13 +199,56 @@ public enum RemoteCommon {
         return all.filter { kept.contains($0.id) }
     }
 
-    /// 云端健康检查：模型列表能拉到且（若已选模型）在列表里，才算就绪。
+    /// 拉取供应商自报的音色清单（`voice_list_path`，如 Edge TTS 代理的 `/voices`）。
+    ///
+    /// 与 `discoverModels` 的差别：**形态各家不同**，解析交给 `RemoteVoiceCatalog`（宽容解析，
+    /// 认不出返回空数组而不抛错）；且音色列表是只读探测，失败不该打断朗读主链路。
+    public static func discoverVoices(
+        config: ProviderConfig,
+        client: HTTPClient
+    ) async throws -> [RemoteVoiceCatalog.Voice] {
+        let resolved = try resolve(config)
+        guard let url = voicesURL(config: config, base: resolved.base) else { return [] }
+        let request = self.request(url: url, apiKey: resolved.apiKey)
+        let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? 20)
+        guard (200..<300).contains(response.statusCode) else {
+            throw AIProviderError.serverError(
+                status: response.statusCode,
+                message: String(data: data, encoding: .utf8)
+            )
+        }
+        await noteDiscovery(kind: .tts, providerID: config.id, base: resolved.base)
+        return RemoteVoiceCatalog.decode(data)
+    }
+
+    /// 云端健康检查。
+    ///
+    /// 优先级（配置决定，代码不猜）：
+    /// 1. 配了 `health_path` → 探它（最贴近服务本身的就绪语义，也最省）；
+    /// 2. 配了 `voice_list_path` 的语音供应商 → 能拉到音色清单就算就绪
+    ///    （这类网关服务往往没有 OpenAI 的 `/models`，拿它探活必然 404）；
+    /// 3. 其余 → 沿用模型列表探测 + 选中模型归属检查。
     public static func health(
         config: ProviderConfig,
         kind: AIProviderKind,
         client: HTTPClient
     ) async -> ProviderHealth {
         do {
+            let resolved = try resolve(config)
+            if let url = healthURL(config: config, base: resolved.base) {
+                let request = self.request(url: url, apiKey: resolved.apiKey)
+                let (_, response) = try await client.perform(request, timeout: config.requestTimeout ?? 20)
+                guard (200..<300).contains(response.statusCode) else {
+                    return .runtimeUnavailable(reason: "健康检查返回 HTTP \(response.statusCode)")
+                }
+                return .connected(model: config.model)
+            }
+            if kind == .tts, voicesURL(config: config, base: resolved.base) != nil {
+                // 选中音色不在自报清单里也算就绪：合成时 `RemoteVoiceResolver` 会按语言回退，
+                // 这里若报「模型不可用」反而会把一个能用的服务挡在门外。
+                _ = try await discoverVoices(config: config, client: client)
+                return .connected(model: config.model)
+            }
             let models = try await discoverModels(config: config, kind: kind, client: client)
             if let model = config.model, !model.isEmpty {
                 let ids = Set(models.map(\.id))
