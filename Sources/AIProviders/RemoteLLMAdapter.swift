@@ -119,14 +119,36 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
 
     public func generate(_ request: LLMRequest) async throws -> LLMResponse {
         let (config, base, apiKey) = try await resolved()
+        // 铁律：只调用用户选定的模型（没选就拒绝），并留痕。
+        let intent = try await RemoteCommon.beginBillableCall(
+            kind: .llm,
+            providerID: providerID,
+            selectedModel: request.model ?? config.model,
+            providerModel: config.model,
+            base: base,
+            operation: .chat
+        )
         var urlRequest = try Self.chatRequest(
             base: base, apiKey: apiKey, request: request, config: config, stream: false
         )
         urlRequest.httpBody = try Self.makeEncoder().encode(
-            Self.chatBody(request: request, config: config, stream: false)
+            Self.chatBody(request: request, config: config, stream: false, model: intent.model)
         )
-        let (data, response) = try await client.perform(urlRequest, timeout: config.requestTimeout ?? 120)
-        try Self.ensureSuccess(statusCode: response.statusCode, data: data)
+        let data: Data
+        let response: HTTPURLResponse
+        do {
+            (data, response) = try await client.perform(urlRequest, timeout: config.requestTimeout ?? 120)
+        } catch {
+            await RemoteCommon.endBillableCall(intent, outcome: .failed)
+            throw error
+        }
+        do {
+            try Self.ensureSuccess(statusCode: response.statusCode, data: data)
+        } catch {
+            await RemoteCommon.endBillableCall(intent, outcome: .httpError, httpStatus: response.statusCode)
+            throw error
+        }
+        await RemoteCommon.endBillableCall(intent, outcome: .ok, httpStatus: response.statusCode)
 
         let decoded = try Self.decode(ChatCompletion.self, from: data)
         guard let choice = decoded.choices.first else {
@@ -149,13 +171,23 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
     public func stream(_ request: LLMRequest) -> AsyncThrowingStream<LLMChunk, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
+                var intent: RemoteCallPolicy.Intent?
                 do {
                     let (config, base, apiKey) = try await resolved()
+                    let started = try await RemoteCommon.beginBillableCall(
+                        kind: .llm,
+                        providerID: self.providerID,
+                        selectedModel: request.model ?? config.model,
+                        providerModel: config.model,
+                        base: base,
+                        operation: .chat
+                    )
+                    intent = started
                     var urlRequest = try Self.chatRequest(
                         base: base, apiKey: apiKey, request: request, config: config, stream: true
                     )
                     urlRequest.httpBody = try Self.makeEncoder().encode(
-                        Self.chatBody(request: request, config: config, stream: true)
+                        Self.chatBody(request: request, config: config, stream: true, model: started.model)
                     )
 
                     let decoder = Self.makeDecoder()
@@ -178,8 +210,10 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
                             )
                         )
                     }
+                    if let intent { await RemoteCommon.endBillableCall(intent, outcome: .ok) }
                     continuation.finish()
                 } catch {
+                    if let intent { await RemoteCommon.endBillableCall(intent, outcome: .failed) }
                     continuation.finish(throwing: error)
                 }
             }
@@ -201,6 +235,7 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
         guard (200..<300).contains(response.statusCode) else {
             throw AIProviderError.serverError(status: response.statusCode, message: String(data: data, encoding: .utf8))
         }
+        await RemoteCommon.noteDiscovery(kind: .llm, providerID: providerID, base: base)
         let list = try Self.decode(ModelList.self, from: data)
         return list.data.map {
             DiscoveredModel(id: $0.id, name: $0.name ?? $0.id, contextLength: $0.contextLength)
@@ -228,9 +263,15 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
         return urlRequest
     }
 
-    private static func chatBody(request: LLMRequest, config: ProviderConfig, stream: Bool) -> ChatRequestBody {
+    /// 构造请求体。
+    ///
+    /// ⚠️ `model` 必须由调用方**显式传入**（来自闸门 `beginBillableCall` 的判定结果）。
+    /// 历史实现写成 `request.model ?? config.model ?? config.candidateModels.first`——
+    /// 在没有选中模型时会静默拿候选列表的第一个去发请求，那是本次费用事故里
+    /// 最必须杜绝的行为，这里不再保留任何回退分支。
+    private static func chatBody(request: LLMRequest, config: ProviderConfig, stream: Bool, model: String) -> ChatRequestBody {
         ChatRequestBody(
-            model: request.model ?? config.model ?? config.candidateModels.first ?? "",
+            model: model,
             messages: request.messages.map { .init(role: $0.role.rawValue, content: $0.content) },
             stream: stream,
             temperature: request.temperature ?? config.temperature,

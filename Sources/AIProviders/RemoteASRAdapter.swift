@@ -78,9 +78,16 @@ public final class RemoteASRAdapter: ASRProvider, @unchecked Sendable {
         guard !request.audioSamples.isEmpty else {
             throw AIProviderError.invalidRequest("没有可识别的音频")
         }
-        guard let model = resolved.config.model ?? resolved.config.candidateModels.first, !model.isEmpty else {
-            throw AIProviderError.invalidConfiguration("未选择语音识别模型")
-        }
+        // 铁律同上：只调用用户选定的识别模型，没选就拒绝（不回退候选列表）。
+        let intent = try await RemoteCommon.beginBillableCall(
+            kind: .asr,
+            providerID: providerID,
+            selectedModel: resolved.config.model,
+            providerModel: nil,
+            base: resolved.base,
+            operation: .transcriptions
+        )
+        let model = intent.model
         let wav = WhisperASRAdapter.wavData(samples: request.audioSamples, sampleRate: wireSampleRate)
 
         var urlRequest = RemoteCommon.request(
@@ -102,9 +109,22 @@ public final class RemoteASRAdapter: ASRProvider, @unchecked Sendable {
         body.append(Data("--\(Self.boundary)--\r\n".utf8))
         urlRequest.httpBody = body
 
-        let (data, response) = try await client.perform(urlRequest, timeout: resolved.config.requestTimeout ?? 60)
-        try RemoteCommon.ensureSuccess(statusCode: response.statusCode, data: data)
+        let data: Data
+        let response: HTTPURLResponse
+        do {
+            (data, response) = try await client.perform(urlRequest, timeout: resolved.config.requestTimeout ?? 60)
+        } catch {
+            await RemoteCommon.endBillableCall(intent, outcome: .failed)
+            throw error
+        }
+        do {
+            try RemoteCommon.ensureSuccess(statusCode: response.statusCode, data: data)
+        } catch {
+            await RemoteCommon.endBillableCall(intent, outcome: .httpError, httpStatus: response.statusCode)
+            throw error
+        }
         let decoded = try RemoteCommon.decode(TranscriptionResponse.self, from: data)
+        await RemoteCommon.endBillableCall(intent, outcome: .ok, httpStatus: response.statusCode)
         let text = decoded.text.trimmingCharacters(in: .whitespacesAndNewlines)
         return ASRResult(text: text, language: request.language, confidence: nil)
     }

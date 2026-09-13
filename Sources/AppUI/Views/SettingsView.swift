@@ -632,11 +632,102 @@ public struct SettingsView: View {
                 // 语音服务在线状态（原「语音」卡片头部，卡片已并入本板块）
                 voiceServiceStatus
 
+                remoteCallAuditCard
+
                 deploymentTips
             }
         }
         .task { await state.refreshCapabilityInfos() }
     }
+
+    /// 对外调用记录（费用护栏留痕）。
+    ///
+    /// 为什么必须放在设置页：用户的诉求是「我只点了一下朗读，别把我的账号跑一遍」。
+    /// 与其让他去猜，不如把应用**实际发出的每一次云端调用**摆出来——能力、模型、时间、结果，
+    /// 逐条能与服务商账单对上。异常扇出会被红色告警提示，超限调用则直接被打断（不会发出）。
+    private var remoteCallAuditCard: some View {
+        let summary = state.remoteCallSummary
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: summary.blockedTotal > 0 ? "exclamationmark.shield.fill" : "checkmark.shield.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(summary.blockedTotal > 0 ? Color.orange : Color.green)
+                Text("对外调用记录")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                Spacer()
+                Button("刷新") { Task { await state.refreshRemoteCalls() } }
+                    .font(.system(size: 11, design: .rounded))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.accent)
+                Button("清空") { Task { await state.clearRemoteCalls() } }
+                    .font(.system(size: 11, design: .rounded))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.secondaryText)
+            }
+
+            Text(summary.headline)
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundStyle(theme.primaryText)
+
+            Text("本次运行涉及模型：\(summary.models.isEmpty ? "无" : summary.models.joined(separator: "、"))")
+                .font(.system(size: 11, design: .rounded))
+                .foregroundStyle(theme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let warning = summary.fanOutWarning {
+                Text(warning)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if state.remoteCallRecords.isEmpty {
+                Text("暂无记录。应用每次调用云端模型都会记在这里（只记能力 / 模型 / 结果，不记内容）。")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+            } else {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(state.remoteCallRecords) { record in
+                        HStack(spacing: 8) {
+                            Text(Self.auditTimeFormatter.string(from: record.at))
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(theme.secondaryText)
+                            Text(record.operation.displayName)
+                                .font(.system(size: 10, design: .rounded))
+                                .foregroundStyle(theme.secondaryText)
+                            Text(record.model.isEmpty ? "—" : record.model)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(theme.primaryText)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Text(record.outcome.displayName)
+                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                .foregroundStyle(record.outcome == .ok ? Color.green : (record.outcome == .blocked ? Color.orange : Color.red))
+                        }
+                    }
+                }
+            }
+
+            Text("完整留痕：\(state.remoteCallLogPath)")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(theme.secondaryText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .help(state.remoteCallLogPath)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.surfaceAlt.opacity(0.6)))
+    }
+
+    private static let auditTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
 
     /// 「本地 / 云端」小徽章：云端走 API Key 与外部网络，本地跑在本机 runtime 上。
     private func sourceBadge(info: CapabilityModelInfo) -> some View {
@@ -832,6 +923,13 @@ public struct SettingsView: View {
                             }
                             .buttonStyle(.plain)
                             .disabled(state.isFetchingExternal)
+                        }
+
+                        // 当前已保存的密钥指纹（只露末 4 位）：换 Key 后一眼确认是否生效。
+                        if let fingerprint = state.externalKeyFingerprints[providerID] {
+                            Text("当前使用的密钥：\(fingerprint)")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(theme.secondaryText)
                         }
 
                         // 模型列表

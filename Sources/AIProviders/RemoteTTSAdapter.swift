@@ -74,9 +74,17 @@ public final class RemoteTTSAdapter: TTSProvider, VoiceCatalogProvider, RuntimeI
         let resolved = try await resolved()
         let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { throw AIProviderError.invalidRequest("没有可朗读的文本") }
-        guard let model = resolved.config.model ?? resolved.config.candidateModels.first, !model.isEmpty else {
-            throw AIProviderError.invalidConfiguration("未选择语音合成模型")
-        }
+
+        // 铁律：只调用**用户选定的那个**模型；没选就拒绝，绝不回退候选列表。
+        // 这一次「朗读」= 一个模型 + 一次请求，且全程留痕（见 RemoteCallAudit）。
+        let intent = try await RemoteCommon.beginBillableCall(
+            kind: .tts,
+            providerID: providerID,
+            selectedModel: resolved.config.model,
+            providerModel: nil,
+            base: resolved.base,
+            operation: .speech
+        )
 
         var urlRequest = RemoteCommon.request(
             url: RemoteEndpoint.url(base: resolved.base, path: "v1/audio/speech"),
@@ -85,16 +93,32 @@ public final class RemoteTTSAdapter: TTSProvider, VoiceCatalogProvider, RuntimeI
             contentType: "application/json"
         )
         let body = SpeechRequest(
-            model: model,
+            model: intent.model,
             input: text,
             voice: await resolvedVoice(request: request),
             responseFormat: "wav"
         )
         urlRequest.httpBody = try RemoteCommon.makeEncoder().encode(body)
 
-        let (data, response) = try await client.perform(urlRequest, timeout: resolved.config.requestTimeout ?? 180)
-        try RemoteCommon.ensureSuccess(statusCode: response.statusCode, data: data)
-        guard !data.isEmpty else { throw AIProviderError.invalidResponse("云端没有返回音频") }
+        let data: Data
+        let response: HTTPURLResponse
+        do {
+            (data, response) = try await client.perform(urlRequest, timeout: resolved.config.requestTimeout ?? 180)
+        } catch {
+            await RemoteCommon.endBillableCall(intent, outcome: .failed)
+            throw error
+        }
+        do {
+            try RemoteCommon.ensureSuccess(statusCode: response.statusCode, data: data)
+        } catch {
+            await RemoteCommon.endBillableCall(intent, outcome: .httpError, httpStatus: response.statusCode)
+            throw error
+        }
+        guard !data.isEmpty else {
+            await RemoteCommon.endBillableCall(intent, outcome: .failed, httpStatus: response.statusCode)
+            throw AIProviderError.invalidResponse("云端没有返回音频")
+        }
+        await RemoteCommon.endBillableCall(intent, outcome: .ok, httpStatus: response.statusCode)
         // 云端音频格式由厂商决定（wav / mp3），原样交给播放链路，由它按容器嗅探解码。
         return TTSResult(audioSamples: [], sampleRate: 24_000, audioData: data)
     }

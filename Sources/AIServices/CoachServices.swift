@@ -721,6 +721,29 @@ public actor CoachServices {
         await CacheManager.clearCaches(database: learning)
     }
 
+    // MARK: - 云端调用审计（费用护栏留痕）
+
+    /// 本次运行的对外调用汇总：计费 / 探测 / 拦截次数、涉及模型、异常扇出预警。
+    /// 用户拿它跟服务商账单对账——「应用到底调了什么」不再是个黑盒。
+    public func remoteCallSummary() async -> RemoteCallSummary {
+        await RemoteCallAudit.shared.summary()
+    }
+
+    /// 最近若干条对外调用记录（新的在前，只含元数据）。
+    public func recentRemoteCalls(limit: Int = 20) async -> [RemoteCallRecord] {
+        await RemoteCallAudit.shared.recent(limit: limit)
+    }
+
+    /// 清空内存记录（磁盘留痕保留，便于事后对账）。
+    public func resetRemoteCalls() async {
+        await RemoteCallAudit.shared.reset()
+    }
+
+    /// 审计文件位置（用户可直接打开核对）。
+    public nonisolated static func remoteCallLogURL() -> URL {
+        RemoteCallAudit.logURL()
+    }
+
     // MARK: - Provider 工厂（唯一允许 new 出 Adapter 的地方）
 
     private static func makeASRProvider(_ config: ProviderConfig) -> any ASRProvider {

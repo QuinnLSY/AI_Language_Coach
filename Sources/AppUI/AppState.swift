@@ -115,6 +115,11 @@ public final class AppState {
     public var externalKeyDrafts: [String: String] = [:]
     /// 已保存过 API Key 的云端 Provider（设置页给对应标签右上角加小绿点）。
     public private(set) var externalKeyConfigured: Set<String> = []
+    /// 已保存密钥的指纹（providerID -> `••••末4位`）。
+    ///
+    /// 只用来回答一个问题：「应用现在拿的是哪一把 Key」。
+    /// 换 Key 后如果指纹没变，说明改的不是当前生效的那一条 Provider——省下反复试错。
+    public private(set) var externalKeyFingerprints: [String: String] = [:]
     /// 外部模型探测结果（providerID -> models）。
     public private(set) var externalModels: [String: [DiscoveredModel]] = [:]
     /// 每个能力当前展开的外部 Provider 标签。
@@ -126,6 +131,14 @@ public final class AppState {
     public var externalMessages: [String: String] = [:]
     /// 手动填写模型名草稿（kind -> name）。
     public var customModelDrafts: [String: String] = [:]
+    // MARK: 云端调用审计（费用护栏留痕）
+    /// 本次运行的对外调用汇总（计费 / 探测 / 拦截 + 涉及模型 + 异常扇出预警）。
+    ///
+    /// 存在的意义只有一个：让「应用到底调了哪几个模型」变成可核对的事实，
+    /// 而不是等账单出来才发现不对。云端调用一条都不例外地记在这里。
+    public private(set) var remoteCallSummary: RemoteCallSummary = RemoteCallSummary()
+    /// 最近若干条对外调用记录（新的在前，只含元数据，不含任何请求正文）。
+    public private(set) var remoteCallRecords: [RemoteCallRecord] = []
     /// 中栏切换：学习记录页（false = 练习对话）。
     public var showingRecords = false
     /// 情景选择浮层开关（应用内 overlay，随日夜主题）。
@@ -691,7 +704,26 @@ public final class AppState {
             )
         }
         capabilityInfos = result
+        // 顺带刷新云端调用审计：设置页的「对外调用记录」卡片要和模型信息同时是最新的。
+        await refreshRemoteCalls()
     }
+
+    // MARK: - 云端调用审计（费用护栏留痕）
+
+    /// 刷新对外调用审计（打开设置 / 每次模型信息刷新时调用）。
+    public func refreshRemoteCalls() async {
+        remoteCallSummary = await services.remoteCallSummary()
+        remoteCallRecords = await services.recentRemoteCalls(limit: 12)
+    }
+
+    /// 清空本次运行的审计记录（磁盘上的留痕保留，便于事后与账单对账）。
+    public func clearRemoteCalls() async {
+        await services.resetRemoteCalls()
+        await refreshRemoteCalls()
+    }
+
+    /// 审计文件的绝对路径（用户可直接打开核对）。
+    public var remoteCallLogPath: String { CoachServices.remoteCallLogURL().path }
 
     /// 选择本地检测到的模型（~/AI_Models）并重装配。
     public func selectLocalModel(_ kind: AIProviderKind, name: String) async {
@@ -726,6 +758,7 @@ public final class AppState {
             let saved = (provider.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if !saved.isEmpty {
                 externalKeyConfigured.insert(provider.id)
+                externalKeyFingerprints[provider.id] = provider.keyFingerprint
                 if (externalKeyDrafts[provider.id] ?? "").isEmpty { externalKeyDrafts[provider.id] = saved }
                 if (apiKeyDrafts[provider.id] ?? "").isEmpty { apiKeyDrafts[provider.id] = saved }
             }

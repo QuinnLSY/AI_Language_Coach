@@ -57,6 +57,62 @@ public enum RemoteCommon {
         RemoteEndpoint.url(base: base, path: config.resolvedModelsPath)
     }
 
+    // MARK: - 云端调用闸门（所有计费请求的唯一入口）
+    //
+    // 铁律：**一次操作 = 一个模型、一次请求**。
+    // 任何发往云端、会产生费用的请求，都必须先过 `beginBillableCall`（准入）与
+    // `endBillableCall`（记账）。没有例外，也不允许在 Adapter 里自己发计费请求。
+    // 这样「只调用用户选定的模型」就是结构性保证，而不是靠自觉。
+
+    /// 端点主机名（审计展示用，不含路径与密钥）。
+    public static func host(of base: URL) -> String { base.host ?? base.absoluteString }
+
+    /// 计费调用的统一前置：模型必须是**显式选定**的那个，且必须通过费用护栏。
+    ///
+    /// - Returns: 审计用的调用意图（请求结束后原样传回 `endBillableCall`）。
+    /// - Throws: 没选模型 / 触发护栏时抛错——**此时请求一定没有发出去**。
+    public static func beginBillableCall(
+        kind: AIProviderKind,
+        providerID: String,
+        selectedModel: String?,
+        providerModel: String?,
+        base: URL,
+        operation: RemoteCallPolicy.Operation
+    ) async throws -> RemoteCallPolicy.Intent {
+        guard let model = RemoteCallPolicy.resolvedModel(selected: selectedModel, providerDefault: providerModel),
+              !model.isEmpty else {
+            throw AIProviderError.invalidConfiguration(
+                "未选择\(operation.displayName)模型：请先在设置里选定要调用的模型（应用不会自动改用候选列表里的其它模型）。"
+            )
+        }
+        let intent = RemoteCallPolicy.Intent(
+            kind: kind, providerID: providerID, model: model,
+            host: host(of: base), operation: operation
+        )
+        if case .denied(let reason) = await RemoteCallAudit.shared.authorize(intent) {
+            throw AIProviderError.invalidRequest(reason)
+        }
+        return intent
+    }
+
+    /// 记账：把这次调用的最终结果写进审计（成功 / 服务端拒绝 / 失败）。
+    public static func endBillableCall(
+        _ intent: RemoteCallPolicy.Intent,
+        outcome: RemoteCallRecord.Outcome,
+        httpStatus: Int? = nil
+    ) async {
+        await RemoteCallAudit.shared.record(intent, outcome: outcome, httpStatus: httpStatus)
+    }
+
+    /// 记账一次只读的模型列表探测（不计费，仅留痕，便于完整对账）。
+    public static func noteDiscovery(kind: AIProviderKind, providerID: String, base: URL) async {
+        let intent = RemoteCallPolicy.Intent(
+            kind: kind, providerID: providerID, model: "",
+            host: host(of: base), operation: .models
+        )
+        await RemoteCallAudit.shared.record(intent, outcome: .ok)
+    }
+
     /// 拉取模型列表并按能力归类（UI 只看到自己那类模型）。
     public static func discoverModels(
         config: ProviderConfig,
@@ -78,6 +134,7 @@ public enum RemoteCommon {
                 message: String(data: data, encoding: .utf8)
             )
         }
+        await noteDiscovery(kind: kind, providerID: config.id, base: resolved.base)
         let list = try decode(ModelList.self, from: data)
         let all = list.data.map {
             DiscoveredModel(

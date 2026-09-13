@@ -197,6 +197,16 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
 
     /// 模型列表路径：配置文件优先，缺省用 OpenAI 兼容默认路径。
     public var resolvedModelsPath: String { modelsPath ?? "v1/models" }
+
+    /// 密钥指纹：只暴露末 4 位（如 `••••1a2b`）。
+    ///
+    /// 用途：让用户一眼确认**应用当前拿的是哪一把** Key——换 Key 之后如果指纹没变，
+    /// 说明改的不是当前生效的那一条 Provider，而不是「改了没用」。
+    /// 绝不回显完整密钥（日志、截图、UI 都不允许）。
+    public var keyFingerprint: String? {
+        guard let key = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines), key.count >= 4 else { return nil }
+        return "••••" + String(key.suffix(4))
+    }
 }
 
 // MARK: - 产品配置
