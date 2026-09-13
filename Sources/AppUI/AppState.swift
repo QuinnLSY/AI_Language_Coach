@@ -294,6 +294,8 @@ public final class AppState {
     private var rewardDismissTask: Task<Void, Never>?
     /// 启停弹框的自动收起任务。
     private var toastDismissTask: Task<Void, Never>?
+    /// 资源管理巡检器（第 27 步）：start() 里创建并启动，随应用生命周期常驻。
+    private var lifecycle: ModelLifecycleManager?
 
     /// 注入外部装配好的服务（**测试专用**：真实 `CoachServices` 会去启停本机模型服务，
     /// 单测必须换掉它，否则会误杀用户正在运行的 TTS/ASR 进程）。
@@ -400,6 +402,13 @@ public final class AppState {
         refreshTodayTokens()
         modelRunStates = await services.modelRunStates()
         starterQuestions = await services.starterQuestions()
+        // 资源管理巡检（第 27 步）：按配置周期检查内存压力 / 空闲时长并自动挂起省内存；
+        // 被挂起的模型在下次被使用时会自动恢复（ChatService / 语音入口已接线）。
+        if lifecycle == nil {
+            let manager = ModelLifecycleManager(services: services)
+            lifecycle = manager
+            await manager.start()
+        }
         isBooting = false
         // 所有服务就绪后由**老师先开口**：学员看到老师说话，就知道现在开口一定有人回。
         // （以前是学员先发第一句，常常撞上还没装配完的 Provider，那句话就没了。）
@@ -550,7 +559,8 @@ public final class AppState {
     /// 点击麦克风：开始录音（录音期间流式把识别结果送到 `voiceTranscript`）。
     public func startVoiceInput() async {
         guard !isRecording else { return }
-        // 语音识别模型被关闭 → 别装成在录音，直接说清楚怎么打开。
+        // 语音识别模型不在运行 → 资源管理挂起的自动恢复；用户关闭的才提示怎么打开。
+        if !isModelRunning(.asr) { _ = (try? await services.resumeIfSuspended(.asr)) ?? false }
         guard isModelRunning(.asr) else {
             voiceError = "\(await services.modelLabel(for: .asr)) 已关闭，请在设置里点绿色的「启动」后再用语音输入。"
             return
@@ -598,7 +608,8 @@ public final class AppState {
     /// 预热在 LLM 生成期间会被挤到显存外，实测单次预热耗时可达 185s，还反过来拖慢回复。
     /// 因此朗读只依赖分句流水线 + 服务端自身的启动预热。
     public func speak(_ text: String) async {
-        // 教师语音模型被关闭 → 明确提示，而不是静默无声。
+        // 教师语音模型不在运行 → 资源管理挂起的自动恢复；用户关闭的才明确提示。
+        if !isModelRunning(.tts) { _ = (try? await services.resumeIfSuspended(.tts)) ?? false }
         guard isModelRunning(.tts) else {
             voiceError = "\(await services.modelLabel(for: .tts)) 已关闭，请在设置里点绿色的「启动」后再朗读。"
             return
@@ -1615,6 +1626,7 @@ public final class AppState {
     /// 听示范（老师的声音读这一句）。再点一次 = 重读。
     public func playShadowingExample() async {
         guard let drill = currentShadowingDrill else { return }
+        if !isModelRunning(.tts) { _ = (try? await services.resumeIfSuspended(.tts)) ?? false }
         guard isModelRunning(.tts) else {
             shadowingNotice = "\(await services.modelLabel(for: .tts)) 已关闭，请在设置里点绿色的「启动」后再听示范。"
             return
@@ -1640,6 +1652,7 @@ public final class AppState {
 
     public func startShadowingRecording() async {
         guard currentShadowingDrill != nil else { return }
+        if !isModelRunning(.asr) { _ = (try? await services.resumeIfSuspended(.asr)) ?? false }
         guard isModelRunning(.asr) else {
             shadowingNotice = "\(await services.modelLabel(for: .asr)) 已关闭，请在设置里点绿色的「启动」后再跟读。"
             return

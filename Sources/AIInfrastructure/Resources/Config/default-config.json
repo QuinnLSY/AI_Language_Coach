@@ -11,6 +11,14 @@
       "llm": "qwen3:8b"
     }
   },
+  "resource_policy": {
+    "llm_idle_unload_minutes": 15,
+    "asr_idle_unload_minutes": 10,
+    "tts_idle_unload_minutes": null,
+    "active_window_minutes": 2,
+    "min_available_memory_mb": 2048,
+    "tick_seconds": 60
+  },
   "providers": [
     {
       "id": "ollama.llm",

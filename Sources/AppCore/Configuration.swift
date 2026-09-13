@@ -434,16 +434,93 @@ extension ProductConfig: Codable {
 
 // MARK: - 顶层配置
 
+// MARK: - 资源管理策略（第 27 步）
+
+/// 资源管理的阈值配置（AUTO_MANAGED 级别：不进普通 UI，仅存配置文件可调）。
+///
+/// 语义见 `AIDomain.ResourcePolicy`：空闲超时挂起 + 内存压力挂起；
+/// TTS 重启成本高，默认 `ttsIdleUnloadMinutes = nil`（永不按空闲挂起，只在内存吃紧时让位）。
+public struct ResourcePolicyConfig: Codable, Sendable, Equatable {
+    /// LLM 空闲多久后挂起（分钟）。
+    public var llmIdleUnloadMinutes: Double
+    /// ASR 空闲多久后挂起（分钟）。
+    public var asrIdleUnloadMinutes: Double
+    /// TTS 空闲卸载阈值；nil = 永不按空闲挂起（只在内存压力下让位）。
+    public var ttsIdleUnloadMinutes: Double?
+    /// 对话活跃窗口（分钟）：窗口内用过的模型任何规则都不挂起。
+    public var activeWindowMinutes: Double
+    /// 内存预算下限（MB）：可用内存低于它 = 压力卸载生效。
+    public var minAvailableMemoryMB: Double
+    /// 巡检间隔（秒）。
+    public var tickSeconds: Double
+
+    public init(llmIdleUnloadMinutes: Double = 15,
+                asrIdleUnloadMinutes: Double = 10,
+                ttsIdleUnloadMinutes: Double? = nil,
+                activeWindowMinutes: Double = 2,
+                minAvailableMemoryMB: Double = 2048,
+                tickSeconds: Double = 60) {
+        self.llmIdleUnloadMinutes = llmIdleUnloadMinutes
+        self.asrIdleUnloadMinutes = asrIdleUnloadMinutes
+        self.ttsIdleUnloadMinutes = ttsIdleUnloadMinutes
+        self.activeWindowMinutes = activeWindowMinutes
+        self.minAvailableMemoryMB = minAvailableMemoryMB
+        self.tickSeconds = tickSeconds
+    }
+
+    public static let standard = ResourcePolicyConfig()
+
+    private enum CodingKeys: String, CodingKey {
+        case llmIdleUnloadMinutes, asrIdleUnloadMinutes, ttsIdleUnloadMinutes
+        case activeWindowMinutes, minAvailableMemoryMB, tickSeconds
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // 逐字段兜底：老配置文件没有这一节，或只写了部分字段，都用标准值补齐。
+        self.init()
+        llmIdleUnloadMinutes = try container.decodeIfPresent(Double.self, forKey: .llmIdleUnloadMinutes) ?? llmIdleUnloadMinutes
+        asrIdleUnloadMinutes = try container.decodeIfPresent(Double.self, forKey: .asrIdleUnloadMinutes) ?? asrIdleUnloadMinutes
+        ttsIdleUnloadMinutes = try container.decodeIfPresent(Double?.self, forKey: .ttsIdleUnloadMinutes) ?? ttsIdleUnloadMinutes
+        activeWindowMinutes = try container.decodeIfPresent(Double.self, forKey: .activeWindowMinutes) ?? activeWindowMinutes
+        minAvailableMemoryMB = try container.decodeIfPresent(Double.self, forKey: .minAvailableMemoryMB) ?? minAvailableMemoryMB
+        tickSeconds = try container.decodeIfPresent(Double.self, forKey: .tickSeconds) ?? tickSeconds
+    }
+}
+
 public struct AppConfiguration: Codable, Sendable, Equatable {
     public var product: ProductConfig
     public var providers: [ProviderConfig]
+    /// 资源管理策略（第 27 步）。老配置缺省时用标准值，不影响解码。
+    public var resourcePolicy: ResourcePolicyConfig
 
-    public init(product: ProductConfig = ProductConfig(), providers: [ProviderConfig] = []) {
+    public init(product: ProductConfig = ProductConfig(), providers: [ProviderConfig] = [],
+                resourcePolicy: ResourcePolicyConfig = .standard) {
         self.product = product
         self.providers = providers
+        self.resourcePolicy = resourcePolicy
     }
 
     public func provider(id: String) -> ProviderConfig? { providers.first { $0.id == id } }
+
+    // ⚠️ 不能用合成 Codable：`resourcePolicy` 是后加的非可选字段，合成版会对老配置文件
+    // 直接抛 keyNotFound → **整份配置解码回退**（default-config 漏键教训的同款事故）。
+    // 这里自定义解码：缺 resourcePolicy 一节时用标准值兜底，其余字段照常。
+    private enum TopLevelKeys: String, CodingKey { case product, providers, resourcePolicy }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: TopLevelKeys.self)
+        product = try container.decode(ProductConfig.self, forKey: .product)
+        providers = try container.decode([ProviderConfig].self, forKey: .providers)
+        resourcePolicy = try container.decodeIfPresent(ResourcePolicyConfig.self, forKey: .resourcePolicy) ?? .standard
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: TopLevelKeys.self)
+        try container.encode(product, forKey: .product)
+        try container.encode(providers, forKey: .providers)
+        try container.encode(resourcePolicy, forKey: .resourcePolicy)
+    }
 
     public func enabledProvider(for kind: AIProviderKind) -> ProviderConfig? {
         providers.first { $0.kind == kind && $0.enabled }

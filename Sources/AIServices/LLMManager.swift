@@ -5,8 +5,19 @@ import Foundation
 public actor LLMManager {
 
     private var provider: (any LLMProvider)?
+    /// 最近一次真实调用的时间（资源管理据此算空闲时长，第 27 步）。
+    public private(set) var lastUsedAt: Date?
 
     public init() {}
+
+    /// 距上次真实调用的秒数；nil = 注册后从未调用过（资源管理按「最冷」处理）。
+    public var idleSeconds: Double? {
+        lastUsedAt.map { Date().timeIntervalSince($0) }
+    }
+
+    private func noteUsed() {
+        lastUsedAt = Date()
+    }
 
     public func register(_ provider: any LLMProvider) {
         self.provider = provider
@@ -20,6 +31,7 @@ public actor LLMManager {
 
     public func generate(_ request: LLMRequest) async throws -> LLMResponse {
         guard let provider else { throw AIProviderError.notInitialized }
+        noteUsed()
         return try await provider.generate(request)
     }
 
@@ -27,6 +39,7 @@ public actor LLMManager {
         guard let provider else {
             return AsyncThrowingStream { $0.finish(throwing: AIProviderError.notInitialized) }
         }
+        noteUsed()
         return provider.stream(request)
     }
 

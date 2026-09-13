@@ -6,8 +6,19 @@ import Foundation
 public actor TTSManager {
 
     private var provider: (any TTSProvider)?
+    /// 最近一次真实合成的时间（资源管理据此算空闲时长，第 27 步）。
+    public private(set) var lastUsedAt: Date?
 
     public init() {}
+
+    /// 距上次真实合成的秒数；nil = 注册后从未调用过（资源管理按「最冷」处理）。
+    public var idleSeconds: Double? {
+        lastUsedAt.map { Date().timeIntervalSince($0) }
+    }
+
+    private func noteUsed() {
+        lastUsedAt = Date()
+    }
 
     public func register(_ provider: any TTSProvider) {
         self.provider = provider
@@ -31,6 +42,7 @@ public actor TTSManager {
 
     public func synthesize(_ request: TTSRequest) async throws -> TTSResult {
         guard let provider else { throw AIProviderError.notInitialized }
+        noteUsed()
         return try await provider.synthesize(request)
     }
 

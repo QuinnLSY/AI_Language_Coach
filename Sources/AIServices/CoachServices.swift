@@ -40,6 +40,10 @@ public actor CoachServices {
     private var llmReadyTask: Task<Void, Error>?
     /// 被用户显式「关闭」的模型能力。**仅进程内有效**：应用打开时全部为启动态。
     private var stoppedKinds: Set<AIProviderKind> = []
+    /// 被资源管理**自动挂起**的能力（第 27 步）：与用户关闭语义不同——
+    /// 挂起是省内存的临时状态，下次被使用时自动恢复（`resumeIfSuspended`）；
+    /// 用户关闭是明确意图，绝不自动拉起。两者都让 `isModelRunning` 变 false。
+    private var suspendedKinds: Set<AIProviderKind> = []
 
     public init(config: ConfigStore = .shared, llm: LLMManager = LLMManager(), databasePath: String? = nil) {
         self.config = config
@@ -432,8 +436,9 @@ public actor CoachServices {
     /// 某能力当前是否处于「启动」状态。
     ///
     /// 语义是**用户意图**：应用打开时所有模型默认为启动态（不会被持久化成关闭）。
+    /// 用户显式关闭与资源管理挂起都算「没在运行」，但恢复路径不同（见 `suspendedKinds`）。
     public func isModelRunning(_ kind: AIProviderKind) -> Bool {
-        !stoppedKinds.contains(kind)
+        !stoppedKinds.contains(kind) && !suspendedKinds.contains(kind)
     }
 
     /// 全部能力的启停快照（UI 展示用）。
@@ -459,6 +464,7 @@ public actor CoachServices {
 
         if running {
             stoppedKinds.remove(kind)
+            suspendedKinds.remove(kind)
             if let controller = await serviceController(for: kind) {
                 try await controller.startModelService()
                 await rebootstrap(kind: kind)
@@ -489,6 +495,104 @@ public actor CoachServices {
         case .tts: await tts.current as? any ModelServiceControlling
         default: nil
         }
+    }
+
+    // MARK: - 资源管理（第 27 步：ModelLifecycleManager 的落点）
+
+    /// 资源管理自动挂起一个能力（区别于用户关闭：下次被使用时自动恢复）。
+    ///
+    /// 本地模型真的把后台服务停掉（复用「关闭」的服务控制链路，如 Ollama `keep_alive:0`）；
+    /// 云端 / mock 只做应用层面挂起。返回面向用户的一句话说明。
+    @discardableResult
+    public func suspendModel(_ kind: AIProviderKind) async throws -> String {
+        guard !stoppedKinds.contains(kind) else { return "\(await modelLabel(for: kind)) 已被用户关闭，无需挂起。" }
+        guard !suspendedKinds.contains(kind) else { return "\(await modelLabel(for: kind)) 已处于挂起状态。" }
+
+        suspendedKinds.insert(kind)
+        if let controller = await serviceController(for: kind) {
+            do {
+                try await controller.stopModelService()
+                return "\(await modelLabel(for: kind)) 已自动挂起：空闲释放资源，需要时会自动恢复。"
+            } catch {
+                // 停服务失败就退回启动态，避免「服务还在跑却显示挂起」的假状态。
+                suspendedKinds.remove(kind)
+                throw AppError.unknown("\(await modelLabel(for: kind)) 自动挂起失败：\(error.localizedDescription)")
+            }
+        }
+        return "\(await modelLabel(for: kind)) 已自动挂起（应用层面）：不会再被调用。"
+    }
+
+    /// 若该能力被资源管理挂起，则自动恢复（拉起服务 + 重装配）。返回是否真的执行了恢复。
+    ///
+    /// 用户显式关闭的能力**不会**在这里被拉起（那是明确意图，交给用户自己点「启动」）。
+    @discardableResult
+    public func resumeIfSuspended(_ kind: AIProviderKind) async throws -> Bool {
+        guard suspendedKinds.contains(kind) else { return false }
+        _ = try await setModelRunning(kind, running: true)
+        return true
+    }
+
+    /// 资源管理视角下各能力的快照（供 `ResourcePolicy` 决策）。
+    public func resourceStates() async -> [ResourcePolicy.ModelState] {
+        var states: [ResourcePolicy.ModelState] = []
+        for kind in AIProviderKind.allCases {
+            // 云端 Provider 挂不挂是外部服务的事，本应用无从「释放内存」；
+            // 没有真实服务控制器的（云端 / mock / 未装配）一律视为不可挂起。
+            let unloadable = await serviceController(for: kind) != nil
+            let idle: Double?
+            switch kind {
+            case .llm: idle = await llm.idleSeconds
+            case .asr: idle = await asr.idleSeconds
+            case .tts: idle = await tts.idleSeconds
+            default: idle = nil
+            }
+            states.append(.init(
+                kind: kind,
+                isUnloadable: unloadable,
+                isUserStopped: stoppedKinds.contains(kind),
+                isSuspended: suspendedKinds.contains(kind),
+                idleSeconds: idle
+            ))
+        }
+        return states
+    }
+
+    /// 执行一次资源巡检：读内存压力 → 策略决策 → 逐个挂起。返回下次巡检间隔（秒）。
+    ///
+    /// 由 `ModelLifecycleManager` 周期调用；测试可注入假监控直接驱动。
+    @discardableResult
+    public func runResourceTick(monitor: any MemoryPressureMonitoring) async -> Double {
+        let configuration = await config.current
+        let policy = configuration.resourcePolicy
+        let idleTimeouts: [AIProviderKind: Double] = {
+            var timeouts: [AIProviderKind: Double] = [
+                .llm: policy.llmIdleUnloadMinutes * 60,
+                .asr: policy.asrIdleUnloadMinutes * 60,
+            ]
+            if let ttsMinutes = policy.ttsIdleUnloadMinutes {
+                timeouts[.tts] = ttsMinutes * 60
+            }
+            return timeouts
+        }()
+        let budget = ResourcePolicy.MemoryBudget(minAvailableBytes: policy.minAvailableMemoryMB * 1_048_576)
+        let available = monitor.availableMemoryBytes().map(Double.init)
+        let states = await resourceStates()
+        let decisions = ResourcePolicy.suspendDecisions(
+            states: states,
+            idleTimeouts: idleTimeouts,
+            activeWindowSeconds: policy.activeWindowMinutes * 60,
+            budget: budget,
+            availableMemoryBytes: available
+        )
+        for kind in decisions {
+            do {
+                let message = try await suspendModel(kind)
+                AppLog.info("资源管理：\(message)", category: "lifecycle")
+            } catch {
+                AppLog.warning("资源管理挂起 \(kind.displayName) 失败：\(error.localizedDescription)", category: "lifecycle")
+            }
+        }
+        return policy.tickSeconds
     }
 
     /// 生效 LLM 的「哪个模型」描述（如 `本地模型 · qwen3:8b`），错误提示统一用它。

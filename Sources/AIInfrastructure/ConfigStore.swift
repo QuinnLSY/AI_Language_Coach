@@ -137,6 +137,12 @@ public actor ConfigStore {
         try persist()
     }
 
+    /// 资源管理策略（第 27 步，AUTO_MANAGED 级别）：暂无 UI 入口，供配置与测试调整。
+    public func mutateResourcePolicy(_ body: @Sendable (inout ResourcePolicyConfig) -> Void) throws {
+        body(&configuration.resourcePolicy)
+        try persist()
+    }
+
     // MARK: - 持久化
 
     private func persist() throws {
@@ -170,6 +176,7 @@ public actor ConfigStore {
     private static func merge(base: AppConfiguration, override: AppConfiguration) -> AppConfiguration {
         var result = base
         result.product = override.product
+        result.resourcePolicy = override.resourcePolicy
         for provider in override.providers {
             if let index = result.providers.firstIndex(where: { $0.id == provider.id }) {
                 result.providers[index] = provider

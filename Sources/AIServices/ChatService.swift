@@ -178,10 +178,14 @@ public final class ChatService {
         let providerName = configuration.resolvedProvider(for: .llm)?.userFacingName
         let model = await services.currentLLMModel()
 
-        // ① 模型被用户显式关闭 → 立刻明确告诉他怎么办，而不是假装在生成。
+        // ① 模型不在运行 → 先判断是不是资源管理自动挂起的：是就静默恢复，不打扰用户；
+        //    只有用户显式关闭（恢复不了）才明确告诉他怎么办，而不是假装在生成。
         if !(await services.isModelRunning(.llm)) {
-            errorMessage = ModelDiagnostics.stoppedHint(providerName: providerName, model: model)
-            return nil
+            _ = (try? await services.resumeIfSuspended(.llm)) ?? false
+            if !(await services.isModelRunning(.llm)) {
+                errorMessage = ModelDiagnostics.stoppedHint(providerName: providerName, model: model)
+                return nil
+            }
         }
 
         // ② 应用还没装配好 Provider 就收到了消息（用户手速快于启动）：
@@ -388,15 +392,18 @@ public final class ChatService {
         translationError = nil
         let source = messages.first(where: { $0.id == messageID })?.content ?? ""
         guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        // 模型被显式关闭时，直接给「去哪打开」的提示，而不是笼统的「未就绪」——
-        // 与对话生成（generate）保持同一套口径。
+        // 模型不在运行时与对话生成同一套口径：资源管理挂起的静默恢复，
+        // 用户显式关闭的给「去哪打开」的提示，而不是笼统的「未就绪」。
         if !(await services.isModelRunning(.llm)) {
-            let configuration = await services.configuration
-            translationError = ModelDiagnostics.stoppedHint(
-                providerName: configuration.resolvedProvider(for: .llm)?.userFacingName,
-                model: await services.currentLLMModel()
-            )
-            return
+            _ = (try? await services.resumeIfSuspended(.llm)) ?? false
+            if !(await services.isModelRunning(.llm)) {
+                let configuration = await services.configuration
+                translationError = ModelDiagnostics.stoppedHint(
+                    providerName: configuration.resolvedProvider(for: .llm)?.userFacingName,
+                    model: await services.currentLLMModel()
+                )
+                return
+            }
         }
         do {
             let result = try await services.translate(source, targetLanguage: profile.nativeLanguage)

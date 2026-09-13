@@ -7,8 +7,19 @@ import Foundation
 public actor ASRManager {
 
     private var provider: (any ASRProvider)?
+    /// 最近一次真实转写的时间（资源管理据此算空闲时长，第 27 步）。
+    public private(set) var lastUsedAt: Date?
 
     public init() {}
+
+    /// 距上次真实转写的秒数；nil = 注册后从未调用过（资源管理按「最冷」处理）。
+    public var idleSeconds: Double? {
+        lastUsedAt.map { Date().timeIntervalSince($0) }
+    }
+
+    private func noteUsed() {
+        lastUsedAt = Date()
+    }
 
     public func register(_ provider: any ASRProvider) {
         self.provider = provider
@@ -35,6 +46,7 @@ public actor ASRManager {
 
     public func transcribe(_ request: ASRRequest) async throws -> ASRResult {
         guard let provider else { throw AIProviderError.notInitialized }
+        noteUsed()
         return try await provider.transcribe(request)
     }
 
