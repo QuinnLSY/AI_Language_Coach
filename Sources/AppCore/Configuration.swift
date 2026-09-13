@@ -390,11 +390,18 @@ public struct AppConfiguration: Codable, Sendable, Equatable {
         return enabled.first
     }
 
-    /// 解析某能力最终使用的模型：产品层选择 > Provider 默认 > 候选列表首个。
+    /// 解析某能力最终使用的模型：产品层选择 > Provider 默认模型。
+    ///
+    /// ⚠️ **绝不回退到 `candidateModels.first`**（29 步费用事故的同一类隐患）。
+    /// `candidateModels` 是「探测到的可选清单」，可能装着几十个账号里的模型；
+    /// 在用户没显式选定、Provider 也没配默认模型时，唯一正确的答案是 nil ——
+    /// 让云端 Adapter 的闸门拒绝发请求并提示用户去选，而不是替用户猜一个。
+    /// （历史上这里写过 `?? provider.candidateModels.first`，正是那次事故的形态。）
     public func resolvedModel(for kind: AIProviderKind) -> String? {
-        if let picked = product.selectedModel(for: kind) { return picked }
+        if let picked = product.selectedModel(for: kind), !picked.isEmpty { return picked }
         guard let provider = resolvedProvider(for: kind) else { return nil }
-        return provider.model ?? provider.candidateModels.first
+        guard let model = provider.model, !model.isEmpty else { return nil }
+        return model
     }
 
     /// 当前生效 Provider 的上下文窗口长度（token）。nil = 未知。

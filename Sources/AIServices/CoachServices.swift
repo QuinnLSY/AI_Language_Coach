@@ -228,7 +228,10 @@ public actor CoachServices {
         try await config.mutateProviders(kind: .llm) { p in
             p.enabled = (p.id == providerID)
         }
-        let defaultModel = target.model ?? target.candidateModels.first
+        // ⚠️ 只对齐到该 Provider **自己配的**默认模型，**不拿 `candidateModels.first` 顶替**
+        // （29 步费用事故同类隐患：候选清单里的第一个往往是账号里任意一个模型）。
+        // 没配就清空选择 —— 后续调用会被闸门拒绝并提示用户去设置里选定，而非静默乱调。
+        let defaultModel = target.model
         try await config.mutateProduct { product in
             product.activateProvider(providerID, for: .llm)
             product.selectModel(defaultModel, for: .llm)

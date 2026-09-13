@@ -173,6 +173,39 @@ final class ConfigPersistenceTests: XCTestCase {
         XCTAssertEqual(saved.resolvedProvider(for: .tts)?.id, "remote.openai-tts")
     }
 
+    // MARK: - 29 步费用事故：任何路径都不许「替用户」挑模型
+
+    /// 切到「有候选清单、但自己没配默认模型」的 Provider 时，
+    /// **绝不能**把 `candidateModels.first` 写成新的选中模型 —— 那等于替用户选了
+    /// 账号里任意一个模型去计费（正是这次事故的形态）。
+    ///
+    /// 用本地端口的无效地址装配：健康检查会立刻连接失败（不产生任何费用），
+    /// 正好验证「装配失败也不该悄悄塞一个模型进来」。
+    func testSwitchingProviderNeverInventsModelFromCandidateList() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("switch-provider-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = ConfigStore(fileURL: directory.appendingPathComponent("config.json"))
+        try await store.mutateProvider(id: "ollama.llm") { provider in
+            provider.model = nil                                   // 该 Provider 没配默认模型
+            provider.candidateModels = ["qwen3:8b", "llama3:8b"]     // 只有一份候选清单
+            provider.endpoint = "http://127.0.0.1:1"                 // 必然连不上，装机过程不产生费用
+        }
+        let services = CoachServices(
+            config: store,
+            databasePath: directory.appendingPathComponent("learning.db").path
+        )
+        try await services.switchLLMProvider("ollama.llm")
+
+        let configuration = await services.configuration
+        XCTAssertNil(configuration.product.selectedModel(for: .llm),
+                     "候选清单里的第一个模型不能变成「用户选中的模型」")
+        XCTAssertNil(configuration.resolvedModel(for: .llm),
+                     "什么都没选时就是没有模型 —— 交给闸门拒绝，而不是猜一个")
+    }
+
     // MARK: - 启动 / 关闭按钮的语义
 
     /// 按钮只在「用户没关掉 **且** 健康检查通过」时才是「关闭」。

@@ -679,7 +679,11 @@ public final class AppState {
             let source: String
             switch provider?.runtime {
             case .remoteAPI:
-                source = "\(provider?.userFacingName ?? "云端") 提供的云端模型"
+                // 没选定模型时要说清「现在不会调用任何云端模型」——这是费用护栏的对外口径，
+                // 不能让用户以为自己选好了、实际却在打账号里某个没选的模型。
+                source = current == nil
+                    ? "\(provider?.userFacingName ?? "云端") · 尚未选择模型（不会发起任何调用）"
+                    : "\(provider?.userFacingName ?? "云端") 提供的云端模型"
             case .externalLocalRuntime:
                 if let current, let path = LocalModelScanner.path(of: current, kind: kind) {
                     source = "本地 · \(path)"

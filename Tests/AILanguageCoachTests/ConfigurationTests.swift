@@ -28,6 +28,32 @@ final class ConfigurationTests: XCTestCase {
         XCTAssertEqual(configuration.resolvedModel(for: .llm), "custom-model")
     }
 
+    /// 回归（29 步费用事故同类隐患）：**候选清单不是「备胎」**。
+    /// 没显式选定、Provider 自己也没配默认模型时，必须返回 nil ——
+    /// 让云端闸门拒绝请求并提示用户去选，而不是替用户猜账号里的某个模型
+    /// （`candidateModels` 是探测出来的可选清单，可能装着几十个模型）。
+    func testResolvedModelNeverUsesCandidateListAsFallback() {
+        var configuration = AppConfiguration()
+        configuration.providers = [
+            ProviderConfig(
+                id: "remote.x-tts", kind: .tts, runtime: .remoteAPI,
+                endpoint: "https://example.invalid/v1", apiKey: "sk-test",
+                model: nil, candidateModels: ["fnlp/MOSS-TTSD-v0.5", "fishaudio/fish-speech-1.5"]
+            )
+        ]
+        XCTAssertNil(configuration.resolvedModel(for: .tts), "候选清单里的第一个模型绝不能替用户做主")
+
+        // 空字符串同样视为「没选」
+        configuration.product.selectModel("", for: .tts)
+        XCTAssertNil(configuration.resolvedModel(for: .tts))
+
+        // 依次验证 产品层选择 > Provider 默认模型 > nil
+        configuration.providers[0].model = "fishaudio/fish-speech-1.5"
+        XCTAssertEqual(configuration.resolvedModel(for: .tts), "fishaudio/fish-speech-1.5")
+        configuration.product.selectModel("fnlp/MOSS-TTSD-v0.5", for: .tts)
+        XCTAssertEqual(configuration.resolvedModel(for: .tts), "fnlp/MOSS-TTSD-v0.5")
+    }
+
     func testResolvedModelFallsBackToProviderDefault() {
         var configuration = AppConfiguration()
         configuration.providers = [

@@ -232,4 +232,34 @@ final class RemoteCallE2ETests: XCTestCase {
         }
         XCTAssertEqual(Set(uniqueModels), [selectedModel], "两次朗读用的必须是同一个模型")
     }
+
+    /// 回归（29 步事故最后一处隐患）：Provider 只探测出候选清单、**自己没配模型**、
+    /// 产品层也没选时，朗读必须**拒绝发请求**——桩服务收到 0 个请求，
+    /// 而不是拿 `candidateModels.first` 去打一个用户没选的模型。
+    func testSpeakWithoutSelectedModelRefusesInsteadOfGuessing() async throws {
+        let server = try StubServer.start()
+        defer { server.cleanUp() }
+        let port = try server.waitForPort()
+
+        let config = ProviderConfig(
+            id: "test.tts", kind: .tts, enabled: true, runtime: .remoteAPI,
+            endpoint: "http://127.0.0.1:\(port)/v1", apiKey: "sk-test-only",
+            model: nil,                                              // 没配默认模型
+            candidateModels: ["some/other-model", "another/model"]    // 只有探测来的候选清单
+        )
+        let adapter = RemoteTTSAdapter(providerID: "test.tts", client: HTTPClient(useSystemProxy: false))
+        try await adapter.initialize(config: config)
+
+        do {
+            _ = try await adapter.synthesize(TTSRequest(text: "Hello!"))
+            XCTFail("没选模型时必须拒绝，而不是替用户挑一个候选模型去计费")
+        } catch let error as AIProviderError {
+            guard case .invalidConfiguration(let reason) = error else {
+                return XCTFail("应当是配置类错误，实际：\(error)")
+            }
+            XCTAssertTrue(reason.contains("未选择"), "错误要说清原因，方便用户去设置里选：\(reason)")
+        }
+
+        XCTAssertEqual(try server.records().count, 0, "被拒绝时一个请求都不该发出去")
+    }
 }
