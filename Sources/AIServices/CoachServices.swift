@@ -172,16 +172,35 @@ public actor CoachServices {
     /// 语音识别结果的拼写纠正（**仅语音输入使用**；手打内容一律不经过这里）。
     ///
     /// 失败/模型不可用时返回原文——语音输入不能被纠正步骤卡住。
+    ///
+    /// ⚠️ **只在本地语言模型上执行**。拼写纠正是「用户说完一句话」之后**自动**发生的，
+    /// 用户既看不到、也不会预期它产生费用。如果语言模型是云端（按 token 计费），
+    /// 一次语音输入就会多打一次云端请求 —— 本次事故里「点的是语音，账单里却出现
+    /// 大量语言模型（glm 之类）」正是这条链路。所以云端一律跳过（直接返回原文），
+    /// 语音输入的云端费用因此变得可推算：一次录音 = 一次识别，仅此而已。
     public func correctSpelling(_ text: String) async -> String {
         guard isModelRunning(.llm) else { return text }
         let configuration = await config.current
         let provider = configuration.resolvedProvider(for: .llm)
+        guard provider?.isRemote != true else { return text }
         let options = SpellingCorrectionService.Options(
             model: configuration.resolvedModel(for: .llm),
             temperature: 0,
             maxTokens: min(provider?.maxTokens ?? 256, 256)
         )
         return await spellingCorrector.correct(text, options: options)
+    }
+
+    /// 拼写纠正当前的执行口径（设置页展示用，让「为什么没有纠正」有据可查）。
+    public func spellingCorrectionNote() async -> String {
+        let configuration = await config.current
+        guard let provider = configuration.resolvedProvider(for: .llm) else {
+            return "语音输入暂不做拼写纠正：还没有可用的语言模型。"
+        }
+        if provider.isRemote {
+            return "已跳过拼写纠正：它发生在语音输入之后，云端按 token 计费会产生你看不见的费用。切到本地语言模型后自动启用。"
+        }
+        return "拼写纠正使用本地语言模型，不产生云端费用。"
     }
 
     /// 把一条对话内容翻译成学员的母语（**按需**：点翻译按钮才调用）。
@@ -221,22 +240,63 @@ public actor CoachServices {
     /// 切换激活的 LLM Provider（本地 / 云端并存，二选一生效）。
     /// 同时把产品层选中模型对齐到该 Provider 的默认模型，避免跨 Provider 串模型名。
     public func switchLLMProvider(_ providerID: String) async throws {
-        guard let target = await config.current.providers.first(where: { $0.id == providerID && $0.kind == .llm }) else {
-            throw AppError.configuration("找不到 LLM Provider：\(providerID)")
+        try await setCapabilityProvider(.llm, providerID: providerID)
+    }
+
+    /// 把**任意能力**切换到指定 Provider（本地或云端），同类其它 Provider 一律停用。
+    ///
+    /// 这是「切到本地模型后没有关掉外部模型接口」的修复点。旧行为是：选本地模型时
+    /// 只把模型名写进**当前生效**的 Provider——而当前生效的往往是云端那家，
+    /// 于是云端既没被关掉，还被写进了一个本地模型名（实测 `remote.siliconflow-asr`
+    /// 的 model 变成了 `ggml-small.en`），界面也就显示成「SiliconFlow 语音识别 · ggml-small.en」。
+    ///
+    /// 现在「切换」= 真正换 Provider：
+    /// - 同类只留目标这一个 `enabled`，其余全部停用（**外部模型接口就此关闭**）；
+    /// - 云端 Provider 没有 Key 时直接拒绝，不允许出现「已启用却调不动」的状态；
+    /// - 产品层选中模型对齐到该 Provider 自己配的模型，没配就清空
+    ///   （交给云端闸门拒绝并提示用户去选，而不是拿候选清单第一个顶替）。
+    public func setCapabilityProvider(_ kind: AIProviderKind, providerID: String) async throws {
+        guard let target = await config.current.providers.first(where: { $0.id == providerID && $0.kind == kind }) else {
+            throw AppError.configuration("找不到\(kind.displayName) Provider：\(providerID)")
         }
-        // 同上：原子更新，顺序「先 enabled 后产品层」，避免用过期快照互相覆盖。
-        try await config.mutateProviders(kind: .llm) { p in
+        let hasKey = !((target.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        if target.isRemote, !hasKey {
+            throw AppError.configuration(
+                "请先填写 API Key 再启用「\(target.userFacingName)」：输入框为空时，应用不会使用任何已保存的旧密钥。"
+            )
+        }
+        try await config.mutateProviders(kind: kind) { p in
             p.enabled = (p.id == providerID)
         }
-        // ⚠️ 只对齐到该 Provider **自己配的**默认模型，**不拿 `candidateModels.first` 顶替**
-        // （29 步费用事故同类隐患：候选清单里的第一个往往是账号里任意一个模型）。
-        // 没配就清空选择 —— 后续调用会被闸门拒绝并提示用户去设置里选定，而非静默乱调。
-        let defaultModel = target.model
+        let aligned = (target.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         try await config.mutateProduct { product in
-            product.activateProvider(providerID, for: .llm)
-            product.selectModel(defaultModel, for: .llm)
+            product.activateProvider(providerID, for: kind)
+            product.selectModel(aligned.isEmpty ? nil : aligned, for: kind)
         }
-        try await bootstrapLLM()
+        await rebootstrap(kind: kind)
+    }
+
+    /// 只更新某个 Provider 的 API Key（空 = 清除），不动 enabled / model / 产品层选择。
+    ///
+    /// 「记住密钥」的唯一形式是**用户把它填进了输入框**。输入框为空即视为不配置：
+    /// 这里会把配置里的旧 Key 一并清掉，并让产品层不再指向一个没有 Key 的云端 Provider。
+    @discardableResult
+    public func setRemoteProviderKey(providerID: String, apiKey: String, kind: AIProviderKind) async throws -> Bool {
+        guard await config.current.providers.contains(where: { $0.id == providerID && $0.kind == kind }) else {
+            throw AppError.configuration("找不到 Provider：\(providerID)")
+        }
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        try await config.mutateProvider(id: providerID) { p in
+            p.apiKey = trimmed.isEmpty ? nil : trimmed
+        }
+        if trimmed.isEmpty {
+            try await config.mutateProduct { product in
+                if product.activeProvider(for: kind) == providerID {
+                    product.selectModel(nil, for: kind)
+                }
+            }
+        }
+        return !trimmed.isEmpty
     }
 
     /// 校验云端 API Key 并拉取可用模型（不落盘，仅探测）。
@@ -278,6 +338,14 @@ public actor CoachServices {
         guard await config.current.providers.contains(where: { $0.id == providerID && $0.kind == kind }) else {
             throw AppError.configuration("找不到 Provider：\(providerID)")
         }
+        // ⚠️ API Key **以输入框内容为唯一真相**：输入框为空 = 用户没有配置 Key，
+        // 这里就把已保存的 Key 一并清掉（连同产品层的选择）。
+        //
+        // 历史行为是「输入框为空则沿用配置里已保存的 Key」，于是界面上明明没填 Key，
+        // 应用却仍拿旧 Key 去调用云端——用户明确禁止这种情况（2026-09-13 反馈）。
+        // 记住一个 Key 的唯一形式是**把它填进输入框**，不是替用户保管。
+        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
         // 全部走**原子局部更新**：每步都基于 actor 内的最新值，字段之间不会互相覆盖。
         // 顺序也有讲究——先改 enabled（会遍历同类所有 Provider），再写这个 Provider 的
         // Key/模型，最后动产品层。反过来写就会出现「enabled 循环把刚保存的 Key 抹掉」。
@@ -285,18 +353,18 @@ public actor CoachServices {
             p.enabled = (p.id == providerID)
         }
         try await config.mutateProvider(id: providerID) { p in
-            p.apiKey = apiKey
-            p.model = model
+            p.apiKey = trimmedKey.isEmpty ? nil : trimmedKey
+            p.model = trimmedModel.isEmpty ? nil : trimmedModel
             p.reasoningEffort = reasoningEffort
             // 用过的模型并入候选集：下次打开设置时选择器要能直接列出它，
             // 不必再点一次「验证并获取模型」才能切换（产品要求见需求 ①）。
-            if !model.isEmpty, !p.candidateModels.contains(model) {
-                p.candidateModels.insert(model, at: 0)
+            if !trimmedModel.isEmpty, !p.candidateModels.contains(trimmedModel) {
+                p.candidateModels.insert(trimmedModel, at: 0)
             }
         }
         try await config.mutateProduct { product in
             product.activateProvider(providerID, for: kind)
-            product.selectModel(model, for: kind)
+            product.selectModel(trimmedModel.isEmpty ? nil : trimmedModel, for: kind)
         }
     }
 
@@ -426,9 +494,91 @@ public actor CoachServices {
         }
         // 原子更新：只改这个 Provider 的 model 与产品层的选中模型，
         // 不碰同一条记录上的 apiKey / endpoint（旧写法用过期快照整体写回，会连带覆盖）。
-        try await config.mutateProvider(id: provider.id) { $0.model = model }
+        try await config.mutateProvider(id: provider.id) { p in
+            p.model = model
+            // 手动填写的模型也要并入候选清单：云端调用的「模型白名单」以候选清单为准
+            // （见 `RemoteCallPolicy.allowedModelSet`），不并进去就会被自己的闸门拦下。
+            if p.isRemote, !p.candidateModels.contains(model) {
+                p.candidateModels.insert(model, at: 0)
+            }
+        }
         try await config.mutateProduct { $0.selectModel(model, for: kind) }
         await rebootstrap(kind: kind)
+    }
+
+    /// 修掉「本地模型名被写进云端供应商」的历史坏配置。
+    ///
+    /// 实测过的状态：`remote.siliconflow-asr` 的 model 变成了本地的 `ggml-small.en`，
+    /// 界面于是显示成「SiliconFlow 语音识别 · ggml-small.en 已就绪」——本地被关掉、
+    /// 外部接口却开着，而且这个模型名在云端**不可能**存在（要么 404，要么被路由到别的模型）。
+    ///
+    /// 判定依据是「这个名字确实是本机 `~/AI_Models` 里的模型」：这种串线只可能来自
+    /// 旧版本「选本地模型 → 写进当前生效的云端 Provider」那条路径。
+    ///
+    /// 处理方式（三件事一起做，缺一不可）：
+    /// 1. **清掉该 Provider 的 model** —— 这个名字在云端不存在，留着只会显示错误；
+    /// 2. **把这个云端接口关掉（`enabled = false`）** —— 用户反馈的原话是
+    ///    「切换本地模型后，没有关闭外部模型接口」：它上面写着本地模型名本来就调不通，
+    ///    却因为 `enabled = true` 一直占着生效位、害得本地 Provider 用不上；
+    ///    并让产品层不再指向它；
+    /// 3. **把该能力对应的本地 Provider 打开** —— 「切本地」当初只做了一半
+    ///    （名字写进云端、本地没启用），这里补完，避免落到「云端关了、本地也没开」的真空。
+    ///
+    /// 例外：如果这个名字出现在该 Provider **自己探测到的候选清单**里，说明它可能是用户
+    /// 正当地从云端列表里选的（本地恰好装了同名模型，如公开可下载的 Qwen3-TTS 系列），
+    /// 这种情况一律不动——不能为了修坏数据而误伤一份能用的云端配置。
+    ///
+    /// - Parameter localModelNames: 本机某能力已安装的模型名（可注入，便于脱机测试）。
+    /// - Returns: 被修掉的能力（供 UI 提示）。
+    @discardableResult
+    public func healCrossProviderModels(
+        localModelNames: (@Sendable (AIProviderKind) -> Set<String>)? = nil
+    ) async -> [AIProviderKind] {
+        let names: @Sendable (AIProviderKind) -> Set<String> = localModelNames ?? { kind in
+            Set(LocalModelScanner.scan(kind: kind).map(\.name))
+        }
+        let configuration = await config.current
+        var healed: [AIProviderKind] = []
+        for provider in configuration.providers where provider.isRemote {
+            let model = (provider.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !model.isEmpty, names(provider.kind).contains(model) else { continue }
+            // 例外：这家供应商**自己广告过**这个名字（探测进了候选清单）→ 它可能是
+            // 用户正当地从云端列表里选的（本地恰好装了同名模型，如 Qwen3-TTS 系列）。
+            // 这种情况不动它，免得误伤一个能用的云端配置。
+            guard !provider.candidateModels.contains(model) else { continue }
+            try? await config.mutateProvider(id: provider.id) { p in
+                p.model = nil
+                p.enabled = false   // 「外部模型接口」就此关闭，不再占着生效位
+            }
+            // 「切本地」这个动作在旧版本里只做了一半：本地模型名写进了云端，本地却没启用。
+            // 这里把它补完——找到该能力下**名字对得上的**本地 Provider 打开，
+            // 否则用户会落到「云端被关了、本地也没开」的真空状态。
+            let localCandidates = configuration.providers.filter {
+                $0.kind == provider.kind && !$0.isRemote && $0.runtime != .mock
+            }
+            if let local = localCandidates.first(where: { ($0.model ?? "") == model }) ?? localCandidates.first {
+                try? await config.mutateProvider(id: local.id) { p in
+                    p.enabled = true
+                    if (p.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        p.model = model   // 它本来就是本机的模型名，落到本地 Provider 上正好
+                    }
+                }
+            }
+            try? await config.mutateProduct { product in
+                if product.selectedModel(for: provider.kind) == model {
+                    product.selectModel(nil, for: provider.kind)
+                }
+                if product.activeProvider(for: provider.kind) == provider.id {
+                    product.activateProvider(nil, for: provider.kind)
+                }
+            }
+            if !healed.contains(provider.kind) { healed.append(provider.kind) }
+            AppLog.warning(
+                "云端 Provider \(provider.id) 的模型名「\(model)」是本地模型，已清除并关闭该接口（请重新选择云端模型或改用本地模型）",
+                category: "configuration"
+            )
+        }
+        return healed
     }
 
     /// 当前生效 LLM 的上下文窗口（token）。nil = 未知。

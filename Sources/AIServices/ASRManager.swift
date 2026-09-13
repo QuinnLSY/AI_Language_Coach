@@ -1,4 +1,6 @@
+import AIDomain
 import AIInterfaces
+import AppCore
 import Foundation
 
 /// ASR 统一入口。所有调用方只认 Manager，不认具体 Adapter。
@@ -18,6 +20,18 @@ public actor ASRManager {
 
     /// 当前注册的 Provider（供「启动 / 关闭」这类需要拿到实例的能力使用）。
     public var current: (any ASRProvider)? { provider }
+
+    /// 当前 Provider 自报的 runtime（nil = 未注册）。
+    ///
+    /// 录音链路据此决定**开不开流式中间识别**：云端每一次中间识别都是一次完整计费请求
+    /// （见 `VoiceCapturePolicy`），所以云端不做流式。
+    public var runtime: RuntimeKind? { provider?.metadata().runtime }
+
+    /// 是否允许录音期间做流式中间识别（本地 true / 云端 false）。
+    public var allowsStreamingPartials: Bool {
+        guard let runtime else { return true }
+        return VoiceCapturePolicy.allowsStreamingPartials(for: runtime)
+    }
 
     public func transcribe(_ request: ASRRequest) async throws -> ASRResult {
         guard let provider else { throw AIProviderError.notInitialized }

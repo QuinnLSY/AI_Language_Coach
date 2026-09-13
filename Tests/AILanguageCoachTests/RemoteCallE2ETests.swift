@@ -168,8 +168,10 @@ final class RemoteCallE2ETests: XCTestCase {
             endpoint: "http://127.0.0.1:\(port)/v1",
             apiKey: "sk-test-only",
             model: selectedModel,
-            // 候选列表里故意放别的模型：用来证明它们不会被误用。
-            candidateModels: ["some/other-model", "another/model"],
+            // 候选列表里故意夹着别的模型：用来证明它们不会被误用。
+            // （真实配置里选定模型总会被并入候选——`persistRemoteProvider` 就是这么写的，
+            //  所以这里是「选定模型 + 干扰项」的组合，也是闸门唯一会放行的形态。）
+            candidateModels: [selectedModel, "some/other-model", "another/model"],
             voices: ["FunAudioLLM/CosyVoice2-0.5B:bella"]
         )
         let adapter = RemoteTTSAdapter(providerID: "test.tts", client: HTTPClient(useSystemProxy: false))
@@ -210,7 +212,7 @@ final class RemoteCallE2ETests: XCTestCase {
         let config = ProviderConfig(
             id: "test.tts", kind: .tts, enabled: true, runtime: .remoteAPI,
             endpoint: "http://127.0.0.1:\(port)/v1", apiKey: "sk-test-only",
-            model: selectedModel, candidateModels: ["some/other-model"]
+            model: selectedModel, candidateModels: [selectedModel, "some/other-model"]
         )
         let adapter = RemoteTTSAdapter(providerID: "test.tts", client: HTTPClient(useSystemProxy: false))
         try await adapter.initialize(config: config)

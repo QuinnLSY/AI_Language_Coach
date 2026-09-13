@@ -28,6 +28,11 @@ public final class RemoteASRAdapter: ASRProvider, @unchecked Sendable {
     // MARK: - 生命周期
 
     public func initialize(config: ProviderConfig) async throws {
+        guard config.kind == kind else {
+            throw AIProviderError.invalidConfiguration(
+                "配置不匹配：\(config.id) 是\(config.kind.displayName)供应商，不能用于\(kind.displayName)。"
+            )
+        }
         _ = try RemoteCommon.resolve(config) // 端点 / Key 缺失时立刻给出明确原因
         await state.setConfig(config)
         await state.setLifecycle(.initialized)
@@ -83,7 +88,8 @@ public final class RemoteASRAdapter: ASRProvider, @unchecked Sendable {
             kind: .asr,
             providerID: providerID,
             selectedModel: resolved.config.model,
-            providerModel: nil,
+            providerModel: resolved.config.model,
+            candidateModels: resolved.config.candidateModels,
             base: resolved.base,
             operation: .transcriptions
         )

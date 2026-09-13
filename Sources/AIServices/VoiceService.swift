@@ -92,7 +92,13 @@ public actor VoiceService {
             try recorder.start()
             isRecording = true
             lastError = nil
-            startPartialLoop(language: partialLanguage)
+            // 流式中间识别只在**本地 ASR** 上开：云端每一次中间识别都是一次完整的计费请求，
+            // 一句话能被计成好几次（见 `VoiceCapturePolicy`）。云端只在松手时识别一次。
+            if await asr.allowsStreamingPartials {
+                startPartialLoop(language: partialLanguage)
+            } else {
+                stopPartialLoop()
+            }
         } catch {
             lastError = "无法开始录音：\(error.localizedDescription)"
         }

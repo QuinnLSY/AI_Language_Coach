@@ -67,23 +67,44 @@ public enum RemoteCommon {
     /// 端点主机名（审计展示用，不含路径与密钥）。
     public static func host(of base: URL) -> String { base.host ?? base.absoluteString }
 
-    /// 计费调用的统一前置：模型必须是**显式选定**的那个，且必须通过费用护栏。
+    /// 计费调用的统一前置：模型必须是**显式选定**的那个、必须**属于这家供应商**，且必须通过费用护栏。
+    ///
+    /// 三道门，缺一不可（都是真实事故留下的教训）：
+    /// 1. **操作 ↔ 能力必须匹配**：朗读只能打语音端点、识别只能打识别端点、对话只能打对话端点。
+    ///    结构上杜绝「点了语音，却产生了语言模型账单」这类串线。
+    /// 2. **模型必须显式选定**：没选就拒绝，绝不回退候选列表（那可以是账号里任意一个模型）。
+    /// 3. **模型必须属于这个 Provider**：白名单以**探测到的候选清单**为准
+    ///    （它才是这家账号真的暴露过的模型）；候选清单为空时才退回 `providerModel`。
+    ///    本地模型名（如 `ggml-small.en`）因此不可能被发去云端——哪怕它被旧 bug
+    ///    写进了 `provider.model` 也一样：被污染的名字不能给自己背书。
     ///
     /// - Returns: 审计用的调用意图（请求结束后原样传回 `endBillableCall`）。
-    /// - Throws: 没选模型 / 触发护栏时抛错——**此时请求一定没有发出去**。
+    /// - Throws: 以上任一不满足时抛错——**此时请求一定没有发出去**。
     public static func beginBillableCall(
         kind: AIProviderKind,
         providerID: String,
         selectedModel: String?,
         providerModel: String?,
+        candidateModels: [String] = [],
         base: URL,
         operation: RemoteCallPolicy.Operation
     ) async throws -> RemoteCallPolicy.Intent {
+        guard RemoteCallPolicy.operationMatches(kind: kind, operation: operation) else {
+            throw AIProviderError.invalidRequest(
+                "内部错误：\(operation.displayName)不能由「\(kind.displayName)」发起，已阻止这次云端调用。"
+            )
+        }
         guard let model = RemoteCallPolicy.resolvedModel(selected: selectedModel, providerDefault: providerModel),
               !model.isEmpty else {
             throw AIProviderError.invalidConfiguration(
                 "未选择\(operation.displayName)模型：请先在设置里选定要调用的模型（应用不会自动改用候选列表里的其它模型）。"
             )
+        }
+        guard RemoteCallPolicy.isModelAllowed(model, providerModel: providerModel, candidates: candidateModels) else {
+            throw AIProviderError.invalidConfiguration("""
+                「\(model)」不属于当前供应商（\(providerID)）的模型列表，已阻止这次云端调用。\
+                本地模型与云端模型不能混用，请到设置里重新选择模型后再试。
+                """)
         }
         let intent = RemoteCallPolicy.Intent(
             kind: kind, providerID: providerID, model: model,

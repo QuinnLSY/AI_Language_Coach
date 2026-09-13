@@ -26,6 +26,13 @@ public final class RemoteTTSAdapter: TTSProvider, VoiceCatalogProvider, RuntimeI
     // MARK: - 生命周期
 
     public func initialize(config: ProviderConfig) async throws {
+        // 结构防线：语音合成的配置**只能**装配成语音合成 Provider。
+        // 若哪天错把别的能力的配置传进来，这里立刻失败，而不是拿着它去打 /audio/speech。
+        guard config.kind == kind else {
+            throw AIProviderError.invalidConfiguration(
+                "配置不匹配：\(config.id) 是\(config.kind.displayName)供应商，不能用于\(kind.displayName)。"
+            )
+        }
         _ = try RemoteCommon.resolve(config)
         await state.setConfig(config)
         await state.setLifecycle(.initialized)
@@ -81,7 +88,10 @@ public final class RemoteTTSAdapter: TTSProvider, VoiceCatalogProvider, RuntimeI
             kind: .tts,
             providerID: providerID,
             selectedModel: resolved.config.model,
-            providerModel: nil,
+            // 这家供应商的模型 = 配置里的那一个。闸门的白名单以**探测到的候选清单**为准
+            // （它才是这家账号真的暴露过的模型）；候选清单为空时才退回 providerModel。
+            providerModel: resolved.config.model,
+            candidateModels: resolved.config.candidateModels,
             base: resolved.base,
             operation: .speech
         )

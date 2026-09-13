@@ -118,7 +118,7 @@ final class ExternalModelPrefillTests: XCTestCase {
 
         // ① Key 回填：界面上的框不再是空的，用户不用重新输。
         XCTAssertEqual(state.externalKeyDrafts[providerID], apiKey)
-        XCTAssertTrue(state.externalKeyConfigured.contains(providerID), "已配置的供应商要能点亮小绿点")
+        XCTAssertTrue(state.hasKeyDraft(providerID), "输入框里有 Key 才点亮小绿点")
         // ② 模型列表回填：选择器直接可用，能切换。
         let models = try XCTUnwrap(state.externalModels[providerID])
         XCTAssertEqual(models.first?.id, model, "当前模型排在最前")
@@ -137,11 +137,11 @@ final class ExternalModelPrefillTests: XCTestCase {
             providerID: providerID, apiKey: "sk-saved", model: "whisper-1", kind: .asr
         )
         let state = AppState(services: services)
-        state.externalKeyDrafts[providerID] = "sk-typing-now"
+        state.setKeyDraft("sk-typing-now", providerID: providerID, kind: .asr)
         await state.prefillExternalDrafts()
 
         XCTAssertEqual(state.externalKeyDrafts[providerID], "sk-typing-now")
-        XCTAssertTrue(state.externalKeyConfigured.contains(providerID), "存过 Key 就该点亮绿点")
+        XCTAssertTrue(state.hasKeyDraft(providerID), "框里有 Key 就该点亮绿点")
     }
 
     /// 选中的模型会被记进候选集，且探测到的整份列表会覆盖保存下来。

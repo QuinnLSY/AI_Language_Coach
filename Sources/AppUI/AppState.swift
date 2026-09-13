@@ -105,6 +105,15 @@ public final class AppState {
     public private(set) var speechDelivery: SpeechDelivery = .segmented
     /// 最近语音错误（nil = 正常）。
     public private(set) var voiceError: String?
+    /// 拼写纠正当前的执行口径（设置页展示）。
+    ///
+    /// 拼写纠正在「说完一句话」之后**自动**发生，用户看不到——所以必须把口径写出来：
+    /// 云端语言模型下一律跳过，避免一次语音输入多出一笔看不见的 token 账单。
+    public private(set) var spellingNote: String = ""
+    /// 历史坏配置的修复提示（「本地模型名被写进云端供应商」被就地清掉时出现）。
+    public private(set) var modelHealNotice: String?
+    /// 坏配置修复只在本次运行做一次（幂等，修完配置里就没有坏值了）。
+    private var didHealCrossProviderModels = false
     /// 语音服务健康状态。
     public private(set) var asrHealth: ProviderHealth = .configurationInvalid(reason: "尚未初始化")
     public private(set) var ttsHealth: ProviderHealth = .configurationInvalid(reason: "尚未初始化")
@@ -112,14 +121,21 @@ public final class AppState {
     /// 每个能力的模型信息（当前模型/来源/本地检测列表）。
     public private(set) var capabilityInfos: [AIProviderKind: CapabilityModelInfo] = [:]
     /// 外部模型 API Key 草稿（providerID -> key）。
+    ///
+    /// **输入框就是唯一真相**：绿点、指纹、能不能启用云端、调用时用哪把 Key，
+    /// 全部只看这里有没有内容。配置里存着的旧 Key 不会被隐式沿用
+    /// （用户明确要求：空框 = 不配置）。
     public var externalKeyDrafts: [String: String] = [:]
-    /// 已保存过 API Key 的云端 Provider（设置页给对应标签右上角加小绿点）。
-    public private(set) var externalKeyConfigured: Set<String> = []
     /// 已保存密钥的指纹（providerID -> `••••末4位`）。
     ///
     /// 只用来回答一个问题：「应用现在拿的是哪一把 Key」。
     /// 换 Key 后如果指纹没变，说明改的不是当前生效的那一条 Provider——省下反复试错。
     public private(set) var externalKeyFingerprints: [String: String] = [:]
+    /// 本次运行里被用户**主动清空**输入框的供应商。
+    ///
+    /// 用户清空输入框 = 明确表示「这个供应商不配置」。重开设置时不得再从配置里把旧 Key
+    /// 回填回来——否则「空框」总是被旧密钥复活，用户永远清不掉它。
+    private var clearedKeyDrafts: Set<String> = []
     /// 外部模型探测结果（providerID -> models）。
     public private(set) var externalModels: [String: [DiscoveredModel]] = [:]
     /// 每个能力当前展开的外部 Provider 标签。
@@ -639,6 +655,25 @@ public final class AppState {
 
     /// 刷新各能力的模型信息快照（设置页打开 / 检测按钮时调用）。
     public func refreshCapabilityInfos() async {
+        // 顺手修掉「本地模型名被写进云端供应商」的历史坏配置（只做一次，幂等）。
+        // 这种模型名在云端不可能成立，留着只会让界面显示错误、调用必然失败。
+        if !didHealCrossProviderModels {
+            didHealCrossProviderModels = true
+            let healed = await services.healCrossProviderModels()
+            if !healed.isEmpty {
+                modelHealNotice = "已修好 \(healed.map(\.displayName).joined(separator: "、")) 的配置：清掉云端上错写的本地模型名、关闭了那个外部接口，并切回本地模型"
+                    + "（云端没有这个模型，留着只会一直调用失败）。如需改用云端，请在这些能力的「外部模型」里重新验证并选择模型。"
+                // ⚠️ 配置换了 Provider，必须重新装配 + 重取健康状态。
+                // 否则界面会拿**上一个 Provider 的旧体检结果**去描述新的 Provider——
+                // 实测就是刚切回本地，卡片却写着「配置有误：API Key 无效或已过期」。
+                if healed.contains(where: { $0 == .asr || $0 == .tts }) {
+                    await bootstrapVoice()
+                }
+                for kind in healed where kind != .asr && kind != .tts {
+                    await services.rebootstrap(kind: kind)
+                }
+            }
+        }
         let configuration = await services.configuration
         // ⚠️ 顺手把本地 product 缓存对齐服务端。
         //
@@ -708,6 +743,7 @@ public final class AppState {
             )
         }
         capabilityInfos = result
+        spellingNote = await services.spellingCorrectionNote()
         // 顺带刷新云端调用审计：设置页的「对外调用记录」卡片要和模型信息同时是最新的。
         await refreshRemoteCalls()
     }
@@ -729,9 +765,21 @@ public final class AppState {
     /// 审计文件的绝对路径（用户可直接打开核对）。
     public var remoteCallLogPath: String { CoachServices.remoteCallLogURL().path }
 
-    /// 选择本地检测到的模型（~/AI_Models）并重装配。
+    /// 选择本地检测到的模型（~/AI_Models）：**先把该能力切回本地 Provider**，再设模型。
+    ///
+    /// 修的就是「切换本地模型后没有关闭外部模型接口、且显示错误」这件事：
+    /// 旧实现只调 `setCapabilityModel`，而它写的是「当前生效的 Provider」——
+    /// 云端正生效时，就把本地模型名（如 `ggml-small.en`）写进了**云端**供应商，
+    /// 云端既没被关掉，界面还显示成「SiliconFlow 语音识别 · ggml-small.en」。
     public func selectLocalModel(_ kind: AIProviderKind, name: String) async {
         do {
+            let configuration = await services.configuration
+            guard let local = Self.localProvider(for: kind, in: configuration) else {
+                throw AppError.configuration("该能力没有可用的本地 Provider，无法切换到本地模型。")
+            }
+            // ① 真正切到本地：同类其它 Provider 一律停用，云端接口就此关闭。
+            try await services.setCapabilityProvider(kind, providerID: local.id)
+            // ② 再把模型写到这个本地 Provider 上。
             try await services.setCapabilityModel(kind, model: name)
             bootMessage = nil
         } catch {
@@ -740,11 +788,33 @@ public final class AppState {
         await refreshCapabilityInfos()
     }
 
+    /// 某能力的本地 Provider（非云端那一个；本地 runtime 优先于 mock）。
+    nonisolated static func localProvider(
+        for kind: AIProviderKind,
+        in configuration: AppConfiguration
+    ) -> ProviderConfig? {
+        configuration.providers.first { $0.kind == kind && !$0.isRemote }
+    }
+
     /// 手动填写模型名并应用。
+    ///
+    /// 名字能在本地扫描结果里找到 → 按「切到本地」处理（顺带关掉云端接口）；
+    /// 否则视为给**当前生效的那家**供应商指定模型（本地 / 云端都合法），
+    /// 由云端闸门的「模型必须属于该供应商」兜住串线。
     public func applyCustomModel(_ kind: AIProviderKind, name: String) async {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        await selectLocalModel(kind, name: trimmed)
+        if LocalModelScanner.path(of: trimmed, kind: kind) != nil {
+            await selectLocalModel(kind, name: trimmed)
+        } else {
+            do {
+                try await services.setCapabilityModel(kind, model: trimmed)
+                bootMessage = nil
+            } catch {
+                bootMessage = error.localizedDescription
+            }
+            await refreshCapabilityInfos()
+        }
         customModelDrafts[kind.rawValue] = ""
     }
 
@@ -760,12 +830,20 @@ public final class AppState {
         let configuration = await services.configuration
         for provider in configuration.providers where provider.isRemote {
             let saved = (provider.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !saved.isEmpty {
-                externalKeyConfigured.insert(provider.id)
-                externalKeyFingerprints[provider.id] = provider.keyFingerprint
-                if (externalKeyDrafts[provider.id] ?? "").isEmpty { externalKeyDrafts[provider.id] = saved }
-                if (apiKeyDrafts[provider.id] ?? "").isEmpty { apiKeyDrafts[provider.id] = saved }
+            // Key 草稿按**卡片归属**分开填：语言模型走「云端 Provider」区块（apiKeyDrafts），
+            // 其余能力走各自卡片里的「外部模型」区块（externalKeyDrafts）。
+            // 两个字典都填会出事：用户在能力卡里清空输入框后，另一个字典里的旧值会把 Key「复活」，
+            // 于是又回到「框里空着，应用却还在用旧密钥」——那正是这次要杜绝的行为。
+            if !clearedKeyDrafts.contains(provider.id) {
+                if provider.kind == .llm {
+                    if (apiKeyDrafts[provider.id] ?? "").isEmpty { apiKeyDrafts[provider.id] = saved }
+                } else if (externalKeyDrafts[provider.id] ?? "").isEmpty {
+                    externalKeyDrafts[provider.id] = saved
+                }
             }
+            // 指纹只在**输入框里确实有 Key** 时才显示：框是空的就不该出现「当前使用的密钥」，
+            // 那会让用户以为应用还在用旧密钥（实测反馈，截图里就是这个状态）。
+            externalKeyFingerprints[provider.id] = hasKeyDraft(provider.id) ? provider.keyFingerprint : nil
             // 候选模型 + 该 Provider 当前模型 + 该能力产品层选中的模型：
             // 三者合并去重，保证选择器既能列出历史候选，也能显示「现在用的是哪个」。
             var ids = provider.candidateModels
@@ -785,6 +863,49 @@ public final class AppState {
         }
     }
 
+    // MARK: - API Key 输入框（唯一真相）
+
+    /// 输入框里当前的 Key（两个区块的草稿；同一 Provider 只会出现在其中一处）。
+    public func keyDraft(for providerID: String) -> String {
+        for draft in [externalKeyDrafts[providerID], apiKeyDrafts[providerID]] {
+            guard let draft, !draft.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
+            return draft
+        }
+        return ""
+    }
+
+    /// 输入框里**现在有没有** Key。绿点、指纹、能否启用云端、调用用哪把 Key，全看它。
+    public func hasKeyDraft(_ providerID: String) -> Bool {
+        !keyDraft(for: providerID).trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// 用户在输入框里的改动。清空 = 明确表示「这个供应商不配置」。
+    public func setKeyDraft(_ value: String, providerID: String, kind: AIProviderKind) {
+        if kind == .llm {
+            apiKeyDrafts[providerID] = value
+        } else {
+            externalKeyDrafts[providerID] = value
+        }
+        if value.trimmingCharacters(in: .whitespaces).isEmpty {
+            clearedKeyDrafts.insert(providerID)
+        } else {
+            clearedKeyDrafts.remove(providerID)
+        }
+        // 框空了就别再显示「当前使用的密钥」——否则用户以为应用还在用旧 Key。
+        if !hasKeyDraft(providerID) { externalKeyFingerprints[providerID] = nil }
+    }
+
+    /// 把输入框内容落进配置：**空 = 清除已保存的密钥**。返回是否留下可用的 Key。
+    @discardableResult
+    private func syncKeyDraft(_ providerID: String, kind: AIProviderKind) async -> Bool {
+        let draft = keyDraft(for: providerID).trimmingCharacters(in: .whitespacesAndNewlines)
+        let ok = (try? await services.setRemoteProviderKey(providerID: providerID, apiKey: draft, kind: kind)) ?? false
+        if !ok {
+            externalKeyFingerprints[providerID] = nil
+        }
+        return ok
+    }
+
     /// 某能力配置里的外部 Provider 候选（id + 展示名）。
     public func remoteProviderOptions(for kind: AIProviderKind) async -> [(id: String, name: String)] {
         let configuration = await services.configuration
@@ -797,7 +918,10 @@ public final class AppState {
     public func fetchExternalModels(kind: AIProviderKind, providerID: String) async {
         let apiKey = await resolvedExternalAPIKey(providerID: providerID)
         guard !apiKey.isEmpty else {
-            externalMessages[providerID] = "请先填写 API Key"
+            // 输入框为空 = 用户没有配置这个供应商。这里顺手把配置里的旧 Key 清掉，
+            // 不让它继续留在「已配置」状态里（用户明确要求：空框不再被识别成旧密钥）。
+            await syncKeyDraft(providerID, kind: kind)
+            externalMessages[providerID] = "请先填写 API Key。输入框为空时应用不会使用任何已保存的旧密钥，该供应商的密钥已清除。"
             return
         }
         isFetchingExternal = true
@@ -805,8 +929,7 @@ public final class AppState {
         do {
             let models = try await services.fetchRemoteModels(providerID: providerID, apiKey: apiKey, kind: kind)
             externalModels[providerID] = models.filter { !$0.isEmbeddingOnly }
-            externalMessages[providerID] = "验证成功，获取到 \(models.count) 个模型"
-            externalKeyConfigured.insert(providerID)
+            externalMessages[providerID] = "验证成功，获取到 \(models.count) 个模型。选好模型后点「应用」才会启用。"
             // 把探测结果留下来：重开设置时选择器直接可用，不必再点一次验证。
             await services.rememberRemoteModels(models, providerID: providerID, kind: kind)
         } catch {
@@ -816,16 +939,21 @@ public final class AppState {
     }
 
     /// 外部模型：保存 Key/模型并激活该 Provider。
+    ///
+    /// **Key 以输入框为准**：先把它落进配置（空 = 清除），再要求 Key 存在才允许启用。
+    /// 这样不会出现「框里空着却被启用、并在背后用旧 Key 调用云端」的状态。
     public func applyExternalModel(_ kind: AIProviderKind, providerID: String, model: String) async {
-        let apiKey = await resolvedExternalAPIKey(providerID: providerID)
-        guard !apiKey.isEmpty else {
-            externalMessages[providerID] = "请先填写 API Key"
+        let hasKey = await syncKeyDraft(providerID, kind: kind)
+        guard hasKey else {
+            externalMessages[providerID] = "请先填写 API Key。输入框为空时应用不会使用任何已保存的旧密钥，该供应商的密钥已清除。"
+            await refreshCapabilityInfos()
             return
         }
+        let apiKey = await resolvedExternalAPIKey(providerID: providerID)
         do {
             try await services.applyRemoteProvider(providerID: providerID, apiKey: apiKey, model: model, kind: kind)
             externalMessages[providerID] = "已启用 \(model)"
-            externalKeyConfigured.insert(providerID)
+            externalKeyFingerprints[providerID] = await remoteKeyFingerprint(providerID: providerID)
             if kind == .asr || kind == .tts { await bootstrapVoice() }
         } catch {
             externalMessages[providerID] = error.localizedDescription
@@ -833,21 +961,25 @@ public final class AppState {
         await refreshCapabilityInfos()
     }
 
+    /// 解析要使用的 Key：**只认输入框**。
+    ///
+    /// 历史实现会在输入框为空时回退到配置里已保存的 Key，于是出现「框里空着、
+    /// 应用却仍拿旧 Key 去调用云端」——用户明确禁止（2026-09-13 反馈）。
     private func resolvedExternalAPIKey(providerID: String) async -> String {
-        let draft = externalKeyDrafts[providerID] ?? ""
-        if !draft.trimmingCharacters(in: .whitespaces).isEmpty { return draft }
+        keyDraft(for: providerID).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 配置里这把 Key 的指纹（保存成功后刷新展示）。
+    private func remoteKeyFingerprint(providerID: String) async -> String? {
         let configuration = await services.configuration
-        return configuration.providers.first { $0.id == providerID }?.apiKey ?? ""
+        return configuration.providers.first { $0.id == providerID }?.keyFingerprint
     }
 
     // MARK: - 模型 Provider（本地 / 云端切换）
 
-    /// API Key 解析：草稿优先，为空则回退到已保存的密钥。
+    /// API Key 解析：**只认输入框**（见 `keyDraft`）。
     private func resolvedAPIKey(for providerID: String) async -> String {
-        let draft = apiKeyDrafts[providerID] ?? ""
-        if !draft.trimmingCharacters(in: .whitespaces).isEmpty { return draft }
-        let configuration = await services.configuration
-        return configuration.providers.first { $0.id == providerID }?.apiKey ?? ""
+        keyDraft(for: providerID).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// 设置页：切换选中的 Provider 标签（仅改 UI，不生效）。
@@ -858,8 +990,12 @@ public final class AppState {
     }
 
     /// 设置页：激活某个 Provider（本地或云端）。
+    ///
+    /// 先把输入框里的 Key 落进配置（空 = 清除该供应商的密钥），再切换。
+    /// 于是「框里没填 Key」就不可能启用云端——不会出现「已启用却用着旧 Key」的状态。
     public func activateProvider(_ id: String) async {
         do {
+            await syncKeyDraft(id, kind: .llm)
             try await services.switchLLMProvider(id)
             bootMessage = nil
             remoteMessage = nil
@@ -873,7 +1009,8 @@ public final class AppState {
     public func fetchRemoteModels() async {
         let apiKey = await resolvedAPIKey(for: selectedProviderID)
         guard !apiKey.isEmpty else {
-            remoteMessage = "请先填写 API Key"
+            await syncKeyDraft(selectedProviderID, kind: .llm)
+            remoteMessage = "请先填写 API Key。输入框为空时应用不会使用任何已保存的旧密钥，该供应商的密钥已清除。"
             return
         }
         isFetchingRemoteModels = true
@@ -881,8 +1018,7 @@ public final class AppState {
         do {
             let models = try await services.fetchRemoteModels(providerID: selectedProviderID, apiKey: apiKey)
             remoteModels[selectedProviderID] = models.filter { !$0.isEmbeddingOnly }
-            remoteMessage = "验证成功，获取到 \(models.count) 个模型"
-            externalKeyConfigured.insert(selectedProviderID)
+            remoteMessage = "验证成功，获取到 \(models.count) 个模型。选好模型后会自动启用。"
             await services.rememberRemoteModels(models, providerID: selectedProviderID, kind: .llm)
         } catch {
             remoteMessage = error.localizedDescription
@@ -891,12 +1027,16 @@ public final class AppState {
     }
 
     /// 设置页：保存云端配置（API Key + 模型 + 推理强度）并激活。
+    ///
+    /// Key 以输入框为准（空 = 清除），所以「保存」这个动作同时也承担「不再记住这把 Key」。
     public func applyRemoteProvider(model: String) async {
-        let apiKey = await resolvedAPIKey(for: selectedProviderID)
-        guard !apiKey.isEmpty else {
-            remoteMessage = "请先填写 API Key"
+        let hasKey = await syncKeyDraft(selectedProviderID, kind: .llm)
+        guard hasKey else {
+            remoteMessage = "请先填写 API Key。输入框为空时应用不会使用任何已保存的旧密钥，该供应商的密钥已清除。"
+            await refreshStatus()
             return
         }
+        let apiKey = await resolvedAPIKey(for: selectedProviderID)
         do {
             try await services.applyRemoteProvider(
                 providerID: selectedProviderID,
@@ -907,7 +1047,7 @@ public final class AppState {
             )
             bootMessage = nil
             remoteMessage = "已启用云端模型 \(model)"
-            externalKeyConfigured.insert(selectedProviderID)
+            externalKeyFingerprints[selectedProviderID] = await remoteKeyFingerprint(providerID: selectedProviderID)
         } catch {
             remoteMessage = error.localizedDescription
         }

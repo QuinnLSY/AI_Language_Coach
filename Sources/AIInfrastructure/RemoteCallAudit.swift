@@ -69,7 +69,7 @@ public actor RemoteCallAudit {
             append(RemoteCallRecord(
                 at: now, kind: intent.kind, providerID: intent.providerID,
                 model: intent.model.isEmpty ? "(未选择)" : intent.model,
-                host: intent.host, operation: intent.operation,
+                host: intent.host, endpoint: intent.endpoint, operation: intent.operation,
                 outcome: .blocked, detail: "费用护栏拦截"
             ))
             AppLog.warning(
@@ -107,7 +107,7 @@ public actor RemoteCallAudit {
         }
         append(RemoteCallRecord(
             at: now, kind: intent.kind, providerID: intent.providerID, model: intent.model,
-            host: intent.host, operation: intent.operation, outcome: outcome,
+            host: intent.host, endpoint: intent.endpoint, operation: intent.operation, outcome: outcome,
             detail: httpStatus.map { "HTTP \($0)" }
         ))
     }
@@ -181,6 +181,8 @@ public actor RemoteCallAudit {
         let provider: String
         let model: String
         let host: String
+        /// 实际请求路径——与服务商账单的计费项一一对应（如 `/v1/audio/speech`）。
+        let endpoint: String
         let operation: String
         let outcome: String
         let detail: String?
@@ -191,6 +193,7 @@ public actor RemoteCallAudit {
             self.provider = record.providerID
             self.model = record.model
             self.host = record.host
+            self.endpoint = record.endpoint
             self.operation = record.operation.rawValue
             self.outcome = record.outcome.rawValue
             self.detail = record.detail

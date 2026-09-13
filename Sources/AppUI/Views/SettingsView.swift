@@ -554,8 +554,8 @@ public struct SettingsView: View {
             // ① API Key（状态与「启动 / 关闭」在卡片右上角；云端模型无法被终止，开关只作用于应用层）
             HStack(spacing: 8) {
                 SecureField("API Key", text: Binding(
-                    get: { state.apiKeyDrafts[state.selectedProviderID] ?? "" },
-                    set: { state.apiKeyDrafts[state.selectedProviderID] = $0 }
+                    get: { state.keyDraft(for: state.selectedProviderID) },
+                    set: { state.setKeyDraft($0, providerID: state.selectedProviderID, kind: .llm) }
                 ))
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 13, design: .rounded))
@@ -621,6 +621,22 @@ public struct SettingsView: View {
     private var voiceModelCenterCard: some View {
         card(title: "模型管理中心", systemImage: "shippingbox.fill") {
             VStack(alignment: .leading, spacing: 14) {
+                // 历史坏配置修复提示：本地模型名曾经被写进云端供应商（云端没有这个模型），
+                // 已在启动时清掉——必须告诉用户为什么他的模型选择变空了。
+                if let notice = state.modelHealNotice {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.orange)
+                        Text(notice)
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(theme.primaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.orange.opacity(0.12)))
+                }
                 let kinds: [AIProviderKind] = [.asr, .tts, .vad, .embedding, .pronunciation]
                 ForEach(kinds) { kind in
                     if let info = state.capabilityInfos[kind] {
@@ -696,6 +712,12 @@ public struct SettingsView: View {
                             Text(record.operation.displayName)
                                 .font(.system(size: 10, design: .rounded))
                                 .foregroundStyle(theme.secondaryText)
+                            // 端点写出来：用户拿着这条记录就能与服务商账单里的计费项逐条对上
+                            // （`/v1/audio/speech` 是语音合成、`/v1/chat/completions` 是语言模型）。
+                            Text(record.endpoint)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(theme.secondaryText)
+                                .lineLimit(1)
                             Text(record.model.isEmpty ? "—" : record.model)
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(theme.primaryText)
@@ -868,7 +890,7 @@ public struct SettingsView: View {
                             let selected = state.externalSelectedProvider[kind.rawValue] == option.id
                             // 已经存过 API Key 的供应商：右上角点一颗小绿点，
                             // 一眼看出「这家配好了，不用重新填」，不必逐个点开确认。
-                            let configured = state.externalKeyConfigured.contains(option.id)
+                            let configured = state.hasKeyDraft(option.id)
                             Button {
                                 state.externalSelectedProvider[kind.rawValue] = option.id
                             } label: {
@@ -893,7 +915,7 @@ public struct SettingsView: View {
                             }
                             .buttonStyle(.plain)
                             .help(configured
-                                  ? "\(option.name)：API Key 已保存，可直接选择模型"
+                                  ? "\(option.name)：输入框里有 API Key，可直接选择模型"
                                   : "\(option.name)：尚未填写 API Key")
                         }
                         Spacer()
@@ -903,11 +925,12 @@ public struct SettingsView: View {
                         // Key + 验证
                         HStack(spacing: 8) {
                             SecureField("API Key", text: Binding(
-                                get: { state.externalKeyDrafts[providerID] ?? "" },
-                                set: { state.externalKeyDrafts[providerID] = $0 }
+                                get: { state.keyDraft(for: providerID) },
+                                set: { state.setKeyDraft($0, providerID: providerID, kind: kind) }
                             ))
                             .textFieldStyle(.roundedBorder)
                             .font(.system(size: 12, design: .rounded))
+                            .help("API Key 以这个输入框为准：清空即表示不使用该供应商（保存的旧密钥会被清除）。")
                             Button {
                                 Task { await state.fetchExternalModels(kind: kind, providerID: providerID) }
                             } label: {
@@ -925,8 +948,10 @@ public struct SettingsView: View {
                             .disabled(state.isFetchingExternal)
                         }
 
-                        // 当前已保存的密钥指纹（只露末 4 位）：换 Key 后一眼确认是否生效。
-                        if let fingerprint = state.externalKeyFingerprints[providerID] {
+                        // 当前已保存的密钥指纹（只露末 4 位）。
+                        // ⚠️ 只在**输入框里确实有 Key** 时显示：框是空的就不该出现
+                        // 「当前使用的密钥」，否则用户会以为应用还在用旧密钥（实测反馈）。
+                        if state.hasKeyDraft(providerID), let fingerprint = state.externalKeyFingerprints[providerID] {
                             Text("当前使用的密钥：\(fingerprint)")
                                 .font(.system(size: 11, design: .monospaced))
                                 .foregroundStyle(theme.secondaryText)
@@ -936,7 +961,12 @@ public struct SettingsView: View {
                         let models = state.externalModels[providerID] ?? []
                         if !models.isEmpty {
                             Picker("选择模型", selection: Binding(
-                                get: { state.capabilityInfos[kind]?.currentModel ?? models[0].id },
+                                get: {
+                                    // 选中值必须是**这家供应商名单里**的模型，否则 Picker 会显示空。
+                                    let current = state.capabilityInfos[kind]?.currentModel
+                                    if let current, models.contains(where: { $0.id == current }) { return current }
+                                    return models[0].id
+                                },
                                 set: { model in Task { await state.applyExternalModel(kind, providerID: providerID, model: model) } }
                             )) {
                                 ForEach(models) { model in
@@ -1020,6 +1050,15 @@ public struct SettingsView: View {
                 Text(error)
                     .font(.system(size: 12, design: .rounded))
                     .foregroundStyle(.orange)
+            }
+
+            // 语音链路的费用口径：拼写纠正在说完一句话后自动发生，用户看不见，
+            // 所以必须写出来——云端语言模型下一律跳过，语音输入不会产生 token 费用。
+            if !state.spellingNote.isEmpty {
+                Text(state.spellingNote)
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(12)

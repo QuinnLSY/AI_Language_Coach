@@ -28,6 +28,14 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
     // MARK: - 生命周期
 
     public func initialize(config: ProviderConfig) async throws {
+        // 结构防线：**只有语言模型能力的配置**能装配成对话 Provider。
+        // 这条断言把「语音供应商的配置被拿去打 /chat/completions」从结构上堵死——
+        // 本次事故里用户看到「点的是语音，账单里却全是语言模型」，正是这一类串线。
+        guard config.kind == kind else {
+            throw AIProviderError.invalidConfiguration(
+                "配置不匹配：\(config.id) 是\(config.kind.displayName)供应商，不能用于\(kind.displayName)。"
+            )
+        }
         guard let endpoint = config.endpoint, !endpoint.isEmpty else {
             throw AIProviderError.invalidConfiguration("缺少 API 端点")
         }
@@ -125,6 +133,7 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
             providerID: providerID,
             selectedModel: request.model ?? config.model,
             providerModel: config.model,
+            candidateModels: config.candidateModels,
             base: base,
             operation: .chat
         )
@@ -179,6 +188,7 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
                         providerID: self.providerID,
                         selectedModel: request.model ?? config.model,
                         providerModel: config.model,
+                        candidateModels: config.candidateModels,
                         base: base,
                         operation: .chat
                     )
