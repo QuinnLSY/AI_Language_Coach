@@ -1,3 +1,4 @@
+import AIDomain
 import AIInterfaces
 import AppCore
 import SwiftUI
@@ -388,7 +389,7 @@ public struct SettingsView: View {
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
                 .lineLimit(2)
-            modelRunButton(.llm)
+            modelRunButton(.llm, healthOK: state.health.isUsable)
             if !isSelectedProviderRemote {
                 Button {
                     isRefreshing = true
@@ -446,13 +447,25 @@ public struct SettingsView: View {
     ///
     /// 本地模型会真正启停后台服务；云端 / 内置模型只做应用层面的开关。
     @ViewBuilder
-    private func modelRunButton(_ kind: AIProviderKind) -> some View {
+    /// 模型「启动 / 关闭」按钮。
+    ///
+    /// 语义是「这个模型**现在真的能用**吗」，不是「用户有没有点过关闭」：
+    /// 只有「用户没关掉 **且** 健康检查通过」才显示红色的「关闭」；
+    /// 服务没启动 / 没填 API Key / 连不上时显示绿色的「启动」（本地点它真的会拉起后台服务，
+    /// 云端点它会重新校验连接）。否则会出现「明明写着服务未启动，却只有一个关闭按钮」的死角。
+    private func modelRunButton(_ kind: AIProviderKind, healthOK: Bool, hasModel: Bool = true) -> some View {
         let running = state.isModelRunning(kind)
+        let active = ModelRunControl.isActive(running: running, healthOK: healthOK)
         let switching = state.modelSwitching.contains(kind)
-        let tint: Color = running ? .red : .green
+        let tint: Color = active ? .red : .green
 
         Button {
-            Task { await state.setModelRunning(kind, running: !running) }
+            Task {
+                await state.setModelRunning(
+                    kind,
+                    running: ModelRunControl.nextRunningState(running: running, healthOK: healthOK)
+                )
+            }
         } label: {
             HStack(spacing: 4) {
                 if switching {
@@ -463,10 +476,10 @@ public struct SettingsView: View {
                         .frame(width: 10, height: 10)
                         .tint(tint)
                 } else {
-                    Image(systemName: running ? "stop.circle.fill" : "play.circle.fill")
+                    Image(systemName: ModelRunControl.systemImage(running: running, healthOK: healthOK))
                         .font(.system(size: 10, weight: .semibold))
                 }
-                Text(running ? "关闭" : "启动")
+                Text(ModelRunControl.title(running: running, healthOK: healthOK))
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
             }
             .foregroundStyle(tint)
@@ -477,9 +490,11 @@ public struct SettingsView: View {
         }
         .buttonStyle(.plain)
         .disabled(switching)
-        .help(running
+        .help(active
               ? "关闭该模型：本地模型会真正停掉后台服务"
-              : "启动该模型：本地模型会在本机后台拉起服务")
+              : (hasModel
+                 ? "启动该模型：本地模型会在本机后台拉起服务，云端会重新校验连接"
+                 : "启动该模型：先在下方选择模型（本地或云端）"))
     }
 
     private var isSelectedProviderRemote: Bool {
@@ -661,7 +676,7 @@ public struct SettingsView: View {
                     .foregroundStyle(theme.secondaryText)
                     .multilineTextAlignment(.trailing)
                     .fixedSize(horizontal: false, vertical: true)
-                modelRunButton(kind)
+                modelRunButton(kind, healthOK: info.healthOK, hasModel: info.currentModel != nil)
             }
             Text("当前：\(info.currentModel ?? "未配置")")
                 .font(.system(size: 12, weight: .medium, design: .rounded))

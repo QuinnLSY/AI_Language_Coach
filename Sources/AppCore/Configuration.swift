@@ -182,6 +182,16 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
     /// 是否需要 API Key（云端 OpenAI 兼容接口一律需要）。
     public var requiresAPIKey: Bool { runtime == .remoteAPI }
 
+    /// 配置是否**真的能用**：云端 Provider 必须已经填了 API Key。
+    ///
+    /// 只有 `enabled` 不足以说明能用——没填 Key 的云端会被装配链路判为「配置无效」，
+    /// 若还让它占着生效位，整个能力就废了（实测症状：卡片写「配置有误：未填写 API Key」，
+    /// 对话时语音直接不可用）。有了这个判断，解析生效 Provider 时会自动跳过它、回退到能用的本地模型。
+    public var isUsable: Bool {
+        guard requiresAPIKey else { return true }
+        return !(apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// 是否为云端 Provider（UI 用来区分「本地 / 云端」）。
     public var isRemote: Bool { runtime == .remoteAPI }
 
@@ -345,13 +355,29 @@ public struct AppConfiguration: Codable, Sendable, Equatable {
         providers.first { $0.kind == kind && $0.enabled }
     }
 
-    /// 解析某能力实际生效的 Provider：产品层激活的 id 优先，其次首个启用的。
+    /// 解析某能力实际生效的 Provider：产品层激活的 id 优先，其次首个**可用**的启用的。
+    ///
+    /// 「可用」= 本地 runtime 一律可用；云端必须已填 API Key（见 `ProviderConfig.isUsable`）。
+    /// 否则会出现「激活了一个没填 Key 的云端，整个能力（含本可用的本地模型）一起不可用」的死角。
     public func resolvedProvider(for kind: AIProviderKind) -> ProviderConfig? {
+        let candidates = providers.filter { $0.kind == kind }
+
+        // ① 产品层激活的那个——前提是真的可用
         if let activeID = product.activeProvider(for: kind),
-           let active = providers.first(where: { $0.id == activeID && $0.kind == kind }) {
+           let active = candidates.first(where: { $0.id == activeID && $0.isUsable }) {
             return active
         }
-        return enabledProvider(for: kind)
+        // ② 启用的里面挑可用的（无 Key 的云端会被跳过，自动回退到本地模型）
+        let enabled = candidates.filter(\.enabled)
+        if let usable = enabled.first(where: \.isUsable) { return usable }
+        if let usable = candidates.first(where: \.isUsable) { return usable }
+        // ③ 一个可用的都没有：仍然返回激活的 / 首个启用的，
+        //    让上层拿到它并报出「未填写 API Key」这类**具体**原因，而不是笼统的「没有 Provider」。
+        if let activeID = product.activeProvider(for: kind),
+           let active = candidates.first(where: { $0.id == activeID }) {
+            return active
+        }
+        return enabled.first
     }
 
     /// 解析某能力最终使用的模型：产品层选择 > Provider 默认 > 候选列表首个。

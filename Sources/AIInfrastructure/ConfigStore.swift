@@ -106,6 +106,37 @@ public actor ConfigStore {
         try persist()
     }
 
+    // MARK: - 原子局部更新
+    //
+    // ⚠️ 调用方**不要**在函数开头 `let configuration = await config.current` 然后再
+    // `updateProvider(...)` 逐个写回：那用的是**过期快照**，同一批写入里后一个字段会
+    // 把前一个刚写的字段覆盖回旧值（实测把刚保存的 API Key / 模型名抹成空，
+    // 表现为「显示已启用云端，卡片却写着未配置 / 未填写 API Key」）。
+    // 需要改配置时一律走下面三个方法：在 actor 内部对着**最新**值做局部修改。
+
+    /// 原子修改单个 Provider 的字段（基于最新配置，只动闭包里改过的字段）。
+    @discardableResult
+    public func mutateProvider(id: String, _ body: @Sendable (inout ProviderConfig) -> Void) throws -> Bool {
+        guard let index = configuration.providers.firstIndex(where: { $0.id == id }) else { return false }
+        body(&configuration.providers[index])
+        try persist()
+        return true
+    }
+
+    /// 原子修改某一类能力的**全部** Provider（如「只保留一个 enabled」）。
+    public func mutateProviders(kind: AIProviderKind, _ body: @Sendable (inout ProviderConfig) -> Void) throws {
+        for index in configuration.providers.indices where configuration.providers[index].kind == kind {
+            body(&configuration.providers[index])
+        }
+        try persist()
+    }
+
+    /// 原子修改产品配置（只动闭包里改过的字段）。
+    public func mutateProduct(_ body: @Sendable (inout ProductConfig) -> Void) throws {
+        body(&configuration.product)
+        try persist()
+    }
+
     // MARK: - 持久化
 
     private func persist() throws {

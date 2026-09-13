@@ -207,30 +207,32 @@ public actor CoachServices {
     /// 高级设置：修改 LLM Provider 的端点 / 温度后重新装配。
     public func setLLMProviderField(endpoint: String? = nil, temperature: Double? = nil) async throws {
         let configuration = await config.current
-        guard var provider = configuration.resolvedProvider(for: .llm) else {
+        guard let provider = configuration.resolvedProvider(for: .llm) else {
             throw AppError.configuration("没有可用的 LLM Provider")
         }
-        if let endpoint { provider.endpoint = endpoint }
-        if let temperature { provider.temperature = temperature }
-        try await config.updateProvider(provider)
+        // 原子更新：只动高级设置里这两个字段，避免整条写回覆盖 apiKey 等。
+        try await config.mutateProvider(id: provider.id) { p in
+            if let endpoint { p.endpoint = endpoint }
+            if let temperature { p.temperature = temperature }
+        }
         try await bootstrapLLM()
     }
 
     /// 切换激活的 LLM Provider（本地 / 云端并存，二选一生效）。
     /// 同时把产品层选中模型对齐到该 Provider 的默认模型，避免跨 Provider 串模型名。
     public func switchLLMProvider(_ providerID: String) async throws {
-        let configuration = await config.current
-        guard let target = configuration.providers.first(where: { $0.id == providerID && $0.kind == .llm }) else {
+        guard let target = await config.current.providers.first(where: { $0.id == providerID && $0.kind == .llm }) else {
             throw AppError.configuration("找不到 LLM Provider：\(providerID)")
         }
-        var product = configuration.product
-        for var provider in configuration.providers where provider.kind == .llm {
-            provider.enabled = provider.id == providerID
-            try await config.updateProvider(provider)
+        // 同上：原子更新，顺序「先 enabled 后产品层」，避免用过期快照互相覆盖。
+        try await config.mutateProviders(kind: .llm) { p in
+            p.enabled = (p.id == providerID)
         }
-        product.activateProvider(providerID, for: .llm)
-        product.selectModel(target.model ?? target.candidateModels.first, for: .llm)
-        try await config.updateProduct(product)
+        let defaultModel = target.model ?? target.candidateModels.first
+        try await config.mutateProduct { product in
+            product.activateProvider(providerID, for: .llm)
+            product.selectModel(defaultModel, for: .llm)
+        }
         try await bootstrapLLM()
     }
 
@@ -251,26 +253,39 @@ public actor CoachServices {
         )
     }
 
+    /// 保存云端 Provider 的 API Key / 模型 / 推理强度，并把该能力切换到这个 Provider。
+    ///
+    /// **只写配置，不做重装配**（重装配见 `applyRemoteProvider`）。拆成两步是为了让
+    /// 「配置到底写对没有」可以脱离 Provider 装配单独验证——历史上这里丢过 Key。
+    public func persistRemoteProvider(providerID: String, apiKey: String, model: String,
+                                      reasoningEffort: String? = nil, kind: AIProviderKind = .llm) async throws {
+        guard await config.current.providers.contains(where: { $0.id == providerID && $0.kind == kind }) else {
+            throw AppError.configuration("找不到 Provider：\(providerID)")
+        }
+        // 全部走**原子局部更新**：每步都基于 actor 内的最新值，字段之间不会互相覆盖。
+        // 顺序也有讲究——先改 enabled（会遍历同类所有 Provider），再写这个 Provider 的
+        // Key/模型，最后动产品层。反过来写就会出现「enabled 循环把刚保存的 Key 抹掉」。
+        try await config.mutateProviders(kind: kind) { p in
+            p.enabled = (p.id == providerID)
+        }
+        try await config.mutateProvider(id: providerID) { p in
+            p.apiKey = apiKey
+            p.model = model
+            p.reasoningEffort = reasoningEffort
+        }
+        try await config.mutateProduct { product in
+            product.activateProvider(providerID, for: kind)
+            product.selectModel(model, for: kind)
+        }
+    }
+
     /// 保存云端 Provider 的 API Key / 模型 / 推理强度，并激活 + 重装配（任意能力通用）。
     public func applyRemoteProvider(providerID: String, apiKey: String, model: String,
                                     reasoningEffort: String? = nil, kind: AIProviderKind = .llm) async throws {
-        let configuration = await config.current
-        guard var provider = configuration.providers.first(where: { $0.id == providerID && $0.kind == kind }) else {
-            throw AppError.configuration("找不到 Provider：\(providerID)")
-        }
-        provider.apiKey = apiKey
-        provider.model = model
-        provider.reasoningEffort = reasoningEffort
-        try await config.updateProvider(provider)
-        // 激活该能力的这个 Provider（同类其余全部停用）
-        var product = configuration.product
-        for var p in configuration.providers where p.kind == kind {
-            p.enabled = p.id == providerID
-            try await config.updateProvider(p)
-        }
-        product.activateProvider(providerID, for: kind)
-        product.selectModel(model, for: kind)
-        try await config.updateProduct(product)
+        try await persistRemoteProvider(
+            providerID: providerID, apiKey: apiKey, model: model,
+            reasoningEffort: reasoningEffort, kind: kind
+        )
         await rebootstrap(kind: kind)
     }
 
@@ -385,12 +400,13 @@ public actor CoachServices {
 
     /// 设置某能力当前使用的模型（本地检测选择 / 手动填写共用），并重装配。
     public func setCapabilityModel(_ kind: AIProviderKind, model: String) async throws {
-        let configuration = await config.current
-        try await config.selectModel(model, for: kind)
-        if var provider = configuration.resolvedProvider(for: kind) {
-            provider.model = model
-            try await config.updateProvider(provider)
+        guard let provider = await config.current.resolvedProvider(for: kind) else {
+            throw AppError.configuration("没有可用的 \(kind.displayName) Provider")
         }
+        // 原子更新：只改这个 Provider 的 model 与产品层的选中模型，
+        // 不碰同一条记录上的 apiKey / endpoint（旧写法用过期快照整体写回，会连带覆盖）。
+        try await config.mutateProvider(id: provider.id) { $0.model = model }
+        try await config.mutateProduct { $0.selectModel(model, for: kind) }
         await rebootstrap(kind: kind)
     }
 

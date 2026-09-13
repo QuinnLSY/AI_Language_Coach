@@ -621,6 +621,13 @@ public final class AppState {
     /// 刷新各能力的模型信息快照（设置页打开 / 检测按钮时调用）。
     public func refreshCapabilityInfos() async {
         let configuration = await services.configuration
+        // ⚠️ 顺手把本地 product 缓存对齐服务端。
+        //
+        // 这里必须同步：任何写配置的路径（切云端、选模型、启停）结束后都会调本方法，
+        // 若缓存留着旧的 activeProviders / selectedModels，之后任何一次 persistProduct
+        // （改主题、改语速、点动画开关…）都会用旧缓存**整体回写**，把刚生效的
+        // 「已启用云端模型」抹回未配置——实测症状就是卡片显示已启用、实际仍是未配置。
+        product = configuration.product
         var result: [AIProviderKind: CapabilityModelInfo] = [:]
         for kind in [AIProviderKind.asr, .tts, .vad, .embedding, .pronunciation] {
             let provider = configuration.resolvedProvider(for: kind)

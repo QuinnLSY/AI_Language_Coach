@@ -78,13 +78,36 @@ final class ConfigurationTests: XCTestCase {
         var configuration = AppConfiguration()
         configuration.providers = [
             ProviderConfig(id: "local.llm", kind: .llm, enabled: true, runtime: .ollama),
-            ProviderConfig(id: "remote.llm", kind: .llm, enabled: false, runtime: .remoteAPI)
+            ProviderConfig(id: "remote.llm", kind: .llm, enabled: false, runtime: .remoteAPI, apiKey: "sk-test")
         ]
         // 未激活时选首个启用的
         XCTAssertEqual(configuration.resolvedProvider(for: .llm)?.id, "local.llm")
         // 激活云端后（即使 enabled=false 也能被激活逻辑选中）
         configuration.product.activateProvider("remote.llm", for: .llm)
         XCTAssertEqual(configuration.resolvedProvider(for: .llm)?.id, "remote.llm")
+    }
+
+    /// 激活了一个**没填 API Key** 的云端 Provider 时，不能让整个能力一起废掉：
+    /// 应当自动回退到可用的本地模型（否则语音识别 / 对话会直接不可用）。
+    func testResolvedProviderSkipsCloudWithoutAPIKey() {
+        var configuration = AppConfiguration()
+        configuration.providers = [
+            ProviderConfig(id: "local.asr", kind: .asr, enabled: false, runtime: .externalLocalRuntime,
+                           model: "ggml-small.en"),
+            ProviderConfig(id: "remote.openai-asr", kind: .asr, enabled: true, runtime: .remoteAPI,
+                           endpoint: "https://api.openai.com/v1", model: "whisper-1")
+        ]
+        configuration.product.activateProvider("remote.openai-asr", for: .asr)
+
+        // 云端没 Key → 不算可用，回退到本地
+        XCTAssertEqual(configuration.resolvedProvider(for: .asr)?.id, "local.asr")
+        XCTAssertFalse(configuration.providers[1].isUsable)
+        XCTAssertTrue(configuration.providers[0].isUsable)
+
+        // 填上 Key 后立刻生效（无需重启）
+        configuration.providers[1].apiKey = "sk-test"
+        XCTAssertTrue(configuration.providers[1].isUsable)
+        XCTAssertEqual(configuration.resolvedProvider(for: .asr)?.id, "remote.openai-asr")
     }
 
     func testSwitchingProviderAlignsSelectedModel() throws {
