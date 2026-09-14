@@ -1,3 +1,4 @@
+import AIDomain
 import AIInterfaces
 import AIInfrastructure
 import AppCore
@@ -108,7 +109,9 @@ public final class Qwen3TTSAdapter: TTSProvider, VoiceCatalogProvider, @unchecke
         let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { throw AIProviderError.invalidRequest("没有可朗读的文本") }
 
-        var urlRequest = URLRequest(url: base.appendingPathComponent("v1/audio/speech"))
+        // 走统一的拼接规则：用户完全可能把端点填成 `…:8855/v1`，
+        // 直接 `appendingPathComponent("v1/audio/speech")` 会拼成 `/v1/v1/audio/speech`（404）。
+        var urlRequest = URLRequest(url: RemoteEndpoint.url(base: base, path: "v1/audio/speech"))
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = try JSONEncoder().encode(
@@ -138,7 +141,7 @@ public final class Qwen3TTSAdapter: TTSProvider, VoiceCatalogProvider, @unchecke
     /// runtime 侧可用音色；不可用时返回空数组（UI 回退到内置预设）。
     public func availableVoices() async -> [String] {
         guard let config = await state.currentConfig, let base = try? Self.base(config) else { return [] }
-        let request = URLRequest(url: base.appendingPathComponent("v1/voices"))
+        let request = URLRequest(url: RemoteEndpoint.url(base: base, path: "v1/voices"))
         guard let (data, response) = try? await client.perform(request, timeout: 6),
               (200..<300).contains(response.statusCode),
               let payload = try? JSONDecoder().decode(VoiceListPayload.self, from: data)

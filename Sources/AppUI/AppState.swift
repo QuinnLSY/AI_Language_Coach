@@ -1262,7 +1262,7 @@ public final class AppState {
                 let apiKey = await resolvedExternalAPIKey(providerID: providerID)
                 let models = try await services.fetchRemoteModels(providerID: providerID, apiKey: apiKey, kind: kind)
                 externalModels[providerID] = models.filter { !$0.isEmbeddingOnly }
-                externalMessages[providerID] = "验证成功，获取到 \(models.count) 个模型。选好模型后点「应用」才会启用。"
+                externalMessages[providerID] = "验证成功，获取到 \(models.count) 个模型。选好模型后点右下角「确认配置」才会启用。"
                 // 把探测结果留下来：重开设置时选择器直接可用，不必再点一次验证。
                 await services.rememberRemoteModels(models, providerID: providerID, kind: kind)
             }

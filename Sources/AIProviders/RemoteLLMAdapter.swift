@@ -88,12 +88,16 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
             return .configurationInvalid(reason: "未填写 API Key")
         }
 
-        var request = URLRequest(url: base.appendingPathComponent("v1/models"))
+        var request = URLRequest(url: RemoteEndpoint.modelsURL(base: base))
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         do {
             let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? 15)
             if response.statusCode == 401 {
-                return .configurationInvalid(reason: "API Key 无效或已过期")
+                return .configurationInvalid(reason: RemoteAuthDiagnostics.unauthorized(
+                    address: Self.address(of: request.url),
+                    keyDescription: CredentialText.safeDescription(apiKey),
+                    serverMessage: Self.serverMessage(from: data)
+                ))
             }
             guard (200..<300).contains(response.statusCode) else {
                 return .requestFailed(reason: "HTTP \(response.statusCode)")
@@ -166,7 +170,10 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
             throw error
         }
         do {
-            try Self.ensureSuccess(statusCode: response.statusCode, data: data)
+            try Self.ensureSuccess(
+                statusCode: response.statusCode, data: data,
+                url: urlRequest.url, apiKey: apiKey
+            )
         } catch {
             await RemoteCommon.endBillableCall(intent, outcome: .httpError, httpStatus: response.statusCode)
             throw error
@@ -248,16 +255,20 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
         }
     }
 
-    /// 模型发现：`GET /v1/models`。OpenRouter 附带 name / context_length。
+    /// 模型发现：`GET {base}/v1/models`（端点自带 `/v1` 时自动去重，见 `RemoteEndpoint.modelsURL`）。
     public func discoverModels() async throws -> [DiscoveredModel] {
         let (config, base, apiKey) = try await resolved()
-        var request = URLRequest(url: base.appendingPathComponent("v1/models"))
+        var request = URLRequest(url: RemoteEndpoint.modelsURL(base: base))
         request.httpMethod = "GET"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
 
         let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? 20)
         if response.statusCode == 401 {
-            throw AIProviderError.invalidConfiguration("API Key 无效或已过期")
+            throw AIProviderError.invalidConfiguration(RemoteAuthDiagnostics.unauthorized(
+                address: Self.address(of: request.url),
+                keyDescription: CredentialText.safeDescription(apiKey),
+                serverMessage: Self.serverMessage(from: data)
+            ))
         }
         guard (200..<300).contains(response.statusCode) else {
             throw AIProviderError.serverError(status: response.statusCode, message: String(data: data, encoding: .utf8))
@@ -276,14 +287,17 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
         guard let endpoint = config.endpoint, let base = Self.normalizedBase(endpoint) else {
             throw AIProviderError.invalidConfiguration("端点缺失或非法")
         }
-        guard let apiKey = config.apiKey, !apiKey.isEmpty else {
+        // Key 统一走粘贴清洗：控制台复制出来的引号 / 「Bearer 」前缀 / 夹带的换行，
+        // 都会让服务端回「Invalid token」，而用户看不出自己贴的哪里不对。
+        let apiKey = CredentialText.normalizedKey(config.apiKey ?? "")
+        guard !apiKey.isEmpty else {
             throw AIProviderError.invalidConfiguration("未填写 API Key")
         }
         return (config, base, apiKey)
     }
 
     private static func chatRequest(base: URL, apiKey: String, request: LLMRequest, config: ProviderConfig, stream: Bool) throws -> URLRequest {
-        var urlRequest = URLRequest(url: base.appendingPathComponent("v1/chat/completions"))
+        var urlRequest = URLRequest(url: RemoteEndpoint.chatURL(base: base))
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -326,18 +340,46 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
         return url
     }
 
-    private static func ensureSuccess(statusCode: Int, data: Data) throws {
+    private static func ensureSuccess(
+        statusCode: Int, data: Data, url: URL? = nil, apiKey: String? = nil
+    ) throws {
         guard !(200..<300).contains(statusCode) else { return }
         let body = String(data: data, encoding: .utf8)
         let message = (try? makeDecoder().decode(ErrorPayload.self, from: data))?.error?.message ?? body
         switch statusCode {
-        case 401: throw AIProviderError.invalidConfiguration("API Key 无效或已过期")
+        case 401:
+            // 带上「请求地址 + 本次送出的 Key 概况 + 服务端原文」：401 的笼统说法
+            // 分不清「没带 Key」和「Key 不对」，而这两件事的处置完全不同。
+            if let url, let apiKey {
+                throw AIProviderError.invalidConfiguration(RemoteAuthDiagnostics.unauthorized(
+                    address: Self.address(of: url),
+                    keyDescription: CredentialText.safeDescription(apiKey),
+                    serverMessage: message
+                ))
+            }
+            throw AIProviderError.invalidConfiguration("API Key 无效或已过期")
         case 402: throw AIProviderError.invalidConfiguration("账户余额不足")
         case 404: throw AIProviderError.modelUnavailable(message ?? "模型不存在")
         case 408: throw AIProviderError.timeout(message ?? "请求超时")
         case 429: throw AIProviderError.serverError(status: statusCode, message: "请求过于频繁或额度受限")
         default: throw AIProviderError.serverError(status: statusCode, message: message)
         }
+    }
+
+    /// 请求地址（host + path）：报错里给得出「打到了哪里」，排查才有的放矢。
+    /// **不含** query，避免把可能带上的参数泄露到界面文案里。
+    private static func address(of url: URL?) -> String {
+        guard let url else { return "（未知地址）" }
+        return "\(url.host ?? "?")\(url.path)"
+    }
+
+    /// 服务端自己给的说明（OpenAI 兼容的 `{"error":{"message":…}}`，认不出就退回原文）。
+    private static func serverMessage(from data: Data) -> String? {
+        if let decoded = (try? makeDecoder().decode(ErrorPayload.self, from: data))?.error?.message,
+           !decoded.isEmpty {
+            return decoded
+        }
+        return String(data: data, encoding: .utf8)
     }
 
     private static func makeDecoder() -> JSONDecoder {

@@ -33,7 +33,9 @@ public enum RemoteCommon {
         guard let base = RemoteEndpoint.base(endpoint) else {
             throw AIProviderError.invalidConfiguration("端点不是合法 URL")
         }
-        let apiKey = (config.apiKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        // Key 统一走粘贴清洗：厂商控制台复制出来的引号 / 「Bearer 」前缀 / 夹带的换行，
+        // 发出去就是 `Bearer "sk-…"`，服务端回「Invalid token」而用户看不出哪里不对。
+        let apiKey = CredentialText.normalizedKey(config.apiKey ?? "")
         if config.requiresAPIKey, apiKey.isEmpty {
             throw AIProviderError.invalidConfiguration("未填写 API Key")
         }
@@ -163,6 +165,29 @@ public enum RemoteCommon {
         await RemoteCallAudit.shared.record(intent, outcome: .ok)
     }
 
+    /// 记账一次**失败**的模型列表探测。
+    ///
+    /// 只记成功会让「为什么验证不过」在审计里无迹可寻——用户反复重建 Key 时，
+    /// 日志里连一条被拒记录都没有（2026-09-14 排查 Agnes 时就是这样）。
+    public static func recordDiscoveryFailure(
+        kind: AIProviderKind, providerID: String, base: URL, status: Int
+    ) async {
+        let intent = RemoteCallPolicy.Intent(
+            kind: kind, providerID: providerID, model: "",
+            host: host(of: base), operation: .models
+        )
+        await RemoteCallAudit.shared.record(intent, outcome: .httpError, httpStatus: status)
+    }
+
+    /// 服务端自己给的说明（OpenAI 兼容的 `{"error":{"message":…}}`，认不出就退回原文）。
+    public static func serverMessage(from data: Data) -> String? {
+        if let decoded = (try? makeDecoder().decode(ErrorPayload.self, from: data))?.error?.message,
+           !decoded.isEmpty {
+            return decoded
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
     /// 拉取模型列表并按能力归类（UI 只看到自己那类模型）。
     public static func discoverModels(
         config: ProviderConfig,
@@ -176,9 +201,21 @@ public enum RemoteCommon {
         )
         let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? 20)
         if response.statusCode == 401 {
-            throw AIProviderError.invalidConfiguration("API Key 无效或已过期")
+            // 探测失败也要留痕：以前只在成功时记账，于是「到底被拒了几次、被谁拒的」
+            // 在审计里完全看不到，排查只能靠猜（2026-09-14 排查 Agnes 时踩到）。
+            await recordDiscoveryFailure(
+                kind: kind, providerID: config.id, base: resolved.base, status: response.statusCode
+            )
+            throw AIProviderError.invalidConfiguration(RemoteAuthDiagnostics.unauthorized(
+                address: "\(resolved.base.host ?? "?")\(request.url?.path ?? "")",
+                keyDescription: CredentialText.safeDescription(resolved.apiKey),
+                serverMessage: serverMessage(from: data)
+            ))
         }
         guard (200..<300).contains(response.statusCode) else {
+            await recordDiscoveryFailure(
+                kind: kind, providerID: config.id, base: resolved.base, status: response.statusCode
+            )
             throw AIProviderError.serverError(
                 status: response.statusCode,
                 message: String(data: data, encoding: .utf8)
@@ -270,12 +307,22 @@ public enum RemoteCommon {
     }
 
     /// 统一错误映射（401 / 402 / 404 / 429 各有各的说法，别让用户看 HTTP 数字）。
-    public static func ensureSuccess(statusCode: Int, data: Data) throws {
+    public static func ensureSuccess(
+        statusCode: Int, data: Data, url: URL? = nil, apiKey: String? = nil
+    ) throws {
         guard !(200..<300).contains(statusCode) else { return }
         let body = String(data: data, encoding: .utf8)
-        let message = (try? makeDecoder().decode(ErrorPayload.self, from: data))?.error?.message ?? body
+        let message = serverMessage(from: data) ?? body
         switch statusCode {
-        case 401: throw AIProviderError.invalidConfiguration("API Key 无效或已过期")
+        case 401:
+            if let url, let apiKey {
+                throw AIProviderError.invalidConfiguration(RemoteAuthDiagnostics.unauthorized(
+                    address: "\(url.host ?? "?")\(url.path)",
+                    keyDescription: CredentialText.safeDescription(apiKey),
+                    serverMessage: message
+                ))
+            }
+            throw AIProviderError.invalidConfiguration("API Key 无效或已过期")
         case 402: throw AIProviderError.invalidConfiguration("账户余额不足")
         case 404: throw AIProviderError.modelUnavailable(message ?? "模型不存在")
         case 408: throw AIProviderError.timeout(message ?? "请求超时")

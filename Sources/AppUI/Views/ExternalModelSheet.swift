@@ -249,6 +249,17 @@ struct ExternalModelSheet: View {
                         .focused($isKeyFieldFocused)
                         .help("API Key 以这个输入框为准：清空即表示不使用该供应商（保存的旧密钥会被清除）。")
 
+                        if state.hasKeyDraft(selectedVendor) {
+                            Button("清空") {
+                                isKeyFieldFocused = false
+                                state.setKeyDraft("", providerID: selectedVendor, kind: kind)
+                            }
+                            .font(.system(size: 11, design: .rounded))
+                            .buttonStyle(.plain)
+                            .foregroundStyle(theme.secondaryText)
+                            .help("清空输入框（同时清除已保存的旧密钥），然后重新粘贴一把完整的 Key")
+                        }
+
                         Button {
                             isKeyFieldFocused = false
                             Task { await state.fetchExternalModels(kind: kind, providerID: selectedVendor) }
@@ -258,14 +269,11 @@ struct ExternalModelSheet: View {
                         .buttonStyle(.plain)
                         .disabled(state.isFetchingExternal)
                     }
-                    // 指纹只在**框里确实有 Key** 时显示：框空着却写「当前使用的密钥」，
-                    // 用户会以为应用还在用旧密钥（那是实测反馈过的状态）。
-                    if state.hasKeyDraft(selectedVendor),
-                       let fingerprint = state.externalKeyFingerprints[selectedVendor] {
-                        Text("当前使用的密钥：\(fingerprint)")
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(theme.secondaryText)
-                    }
+                    // 输入框是 SecureField，里面全是圆点 —— 用户看不到到底是旧 Key
+                    // 还是刚粘贴的新 Key。实测「重新创建了 key 也是无效」最常见的成因
+                    // 就是框里留着上一次保存的 Key（或旧 Key 后面又贴了一段），
+                    // 界面看上去却「明明填了」。给出长度与末四位，一眼就能核对。
+                    keyStatusLine(selectedVendor)
                     Text("Key 只存在本机配置里，不会随对话内容外发。填入后点左侧按钮验证并拉取该账号可用的模型。")
                         .font(.system(size: 10, design: .rounded))
                         .foregroundStyle(theme.secondaryText)
@@ -289,6 +297,41 @@ struct ExternalModelSheet: View {
 
     private func vendorName(_ id: String) -> String {
         vendors.first { $0.id == id }?.name ?? id
+    }
+
+    /// 输入框里**现在**到底是什么 Key（只说长度与末四位，不泄露本体）。
+    ///
+    /// 三态一眼可分：未保存 / 已保存 / **与已保存的不一致**。
+    /// 最后一种正是「在旧 Key 后面又贴了一段」的典型，也是 401 反复出现时
+    /// 最容易忽略的原因 —— 用户以为在用新 Key，实际发出去的是两把拼在一起。
+    @ViewBuilder
+    private func keyStatusLine(_ vendor: String) -> some View {
+        if state.hasKeyDraft(vendor) {
+            let draft = CredentialText.normalizedKey(state.keyDraft(for: vendor))
+            let saved = state.externalKeyFingerprints[vendor]
+            let suffixFingerprint = "••••" + String(draft.suffix(4))
+            HStack(spacing: 5) {
+                Image(systemName: "key.horizontal").font(.system(size: 9))
+                Text("输入框内：\(CredentialText.safeDescription(draft))")
+                if CredentialText.needsCleaning(state.keyDraft(for: vendor)) {
+                    // 粘进来的引号 / 「Bearer 」前缀 / 换行会被自动去掉：
+                    // 说清楚做过什么，用户才不会以为「我贴的和发出去的一样」。
+                    Text("· 已自动去掉引号/前缀/换行")
+                        .foregroundStyle(Color.orange)
+                }
+                switch saved {
+                case .some(let value) where value == suffixFingerprint:
+                    Text("· 已保存到本机并生效")
+                case .some(let value):
+                    Text("· 与已保存的 \(value) 不同，点「确认配置」才会保存")
+                        .foregroundStyle(Color.orange)
+                case .none:
+                    Text("· 尚未保存，点「确认配置」后生效")
+                }
+            }
+            .font(.system(size: 10.5, design: .monospaced))
+            .foregroundStyle(theme.secondaryText)
+        }
     }
 
     // MARK: - ③ 模型与可配置项

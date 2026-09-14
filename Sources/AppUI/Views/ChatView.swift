@@ -907,6 +907,14 @@ public struct ChatView: View {
         let rate: Double
         let onSelect: (Double) -> Void
 
+        /// 控件宽度：按**最宽的档位标签**（`2.5×` / `0.5×`）实测得出。
+        ///
+        /// 2026-09-14 反馈「老师朗读的速率未正常显示」：原先写死 62pt，
+        /// 而图标 + 内边距 + 间隙 + 箭头已占约 47pt，留给「2.5×」的不到 16pt，
+        /// 值被压成「2…」。改成实测量宽后，字体或档位再变也不会重演。
+        private static let chipWidth = ForestSelect<Double>.Metrics.compact
+            .widthFitting(SpeechRate.allCases.map(\.label))
+
         var body: some View {
             ForestSelect(
                 icon: "speedometer",
@@ -918,7 +926,7 @@ public struct ChatView: View {
                     ForestSelectOption(value: $0.rawValue, title: $0.label)
                 },
                 metrics: .compact,
-                width: 62,
+                width: Self.chipWidth,
                 help: "教师朗读语速（当前 \(SpeechRate.nearest(to: rate).label)）"
             )
         }
@@ -1258,12 +1266,11 @@ public struct ChatView: View {
     /// 让用户先说明「我要加的是哪一类」比让他从一堆不可选的文件里找要快得多
     /// （这也是主流 Agent 输入框的做法）。
     ///
-    /// ⚠️ **外观层必须放在 `Menu` 外面**：macOS 不渲染 `Menu` label 上的自定义
-    /// 底色 / 描边 / 前景色（实测：裸菜单只剩一个深色图标，连 `foregroundStyle`
-    /// 都被忽略）。曾经把样式贴在 label 上，结果「+」是个没有底的裸加号，
-    /// 与旁边的麦克风完全不像一套 —— 需求要的「两个按钮外观一致」当场落空。
-    /// 所以外观由菜单**之外**的一层提供；`Menu` 的 label 保留原来那个同款图标
-    /// （点击区与过去完全一致，不在点击上冒险），只是几乎不可见。
+    /// ⚠️ **菜单不能交给 SwiftUI `Menu` 弹**（2026-09-14 与 ForestSelect 同一批修）：
+    /// 它的 label 必须近乎透明（外观层在 ZStack 下层自绘），而透明 label 的
+    /// `Menu` 命中区退化成 6×14 ——「+」看着有 34×34，实际只有中间一小条能点。
+    /// 现在弹菜单的活交给 `MenuPopUpHitArea`（与 ForestSelect 同一份实现），
+    /// `isCircular: true` 让命中范围与圆形按钮重合，不抢旁边麦克风的点击。
     private var attachButton: some View {
         ZStack {
             // 外观：与麦克风共用同一份修饰器 —— 一致性因此是结构性的。
@@ -1285,26 +1292,24 @@ public struct ChatView: View {
             }
             .allowsHitTesting(false)
 
-            Menu {
-                Button { pickAttachments(kind: .image) } label: {
-                    Label("添加图片", systemImage: "photo")
-                }
-                Button { pickAttachments(kind: .video) } label: {
-                    Label("添加视频", systemImage: "film")
-                }
-                Button { pickAttachments(kind: nil) } label: {
-                    Label("添加文件", systemImage: "doc")
-                }
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(width: ComposerButtonChrome.side, height: ComposerButtonChrome.side)
-                    .contentShape(Circle())
-                    .opacity(0.001)
+            if !isImportingAttachments {
+                MenuPopUpHitArea(
+                    titles: ["添加图片", "添加视频", "添加文件"],
+                    selectedIndex: nil,
+                    isEnabled: !isImportingAttachments,
+                    accessibilityTitle: "添加附件",
+                    tooltip: "添加图片 / 视频 / 文件",
+                    isCircular: true,
+                    onSelect: { index in
+                        switch index {
+                        case 0: pickAttachments(kind: .image)
+                        case 1: pickAttachments(kind: .video)
+                        default: pickAttachments(kind: nil)
+                        }
+                    }
+                )
+                .frame(width: ComposerButtonChrome.side, height: ComposerButtonChrome.side)
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
         }
         .fixedSize()
         .disabled(isImportingAttachments)

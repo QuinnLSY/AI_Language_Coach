@@ -107,4 +107,19 @@ public enum RemoteEndpoint {
         }
         return base.appendingPathComponent(relative)
     }
+
+    /// OpenAI 兼容的模型列表地址。
+    ///
+    /// ⚠️ 之所以要有这两个具名入口：适配器里曾各自写 `base.appendingPathComponent("v1/models")`，
+    /// 端点自带 `/v1` 的厂商（AgnesAI 国内/国际站、OpenAI）会被拼成 `/v1/v1/models`，
+    /// 服务端回 `Invalid URL`，用户看到的是「模型不可用 / 密钥无效」这类**指错方向**的提示。
+    /// 所有云端适配器一律走这里，把「有没有版本前缀」的判断收敛到一处。
+    public static func modelsURL(base: URL) -> URL {
+        url(base: base, path: "v1/models")
+    }
+
+    /// OpenAI 兼容的对话补全地址。
+    public static func chatURL(base: URL) -> URL {
+        url(base: base, path: "v1/chat/completions")
+    }
 }

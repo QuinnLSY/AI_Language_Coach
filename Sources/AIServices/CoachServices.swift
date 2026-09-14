@@ -612,7 +612,9 @@ public actor CoachServices {
         guard await config.current.providers.contains(where: { $0.id == providerID && $0.kind == kind }) else {
             throw AppError.configuration("找不到 Provider：\(providerID)")
         }
-        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 落盘前统一做粘贴清洗：控制台复制出来的引号 / 「Bearer 」前缀 / 换行
+        // 会让每一次调用都被服务端判为「Invalid token」，而用户看不出哪里不对。
+        let trimmed = CredentialText.normalizedKey(apiKey)
         try await config.mutateProvider(id: providerID) { p in
             p.apiKey = trimmed.isEmpty ? nil : trimmed
         }
@@ -633,7 +635,7 @@ public actor CoachServices {
         guard var providerConfig = configuration.providers.first(where: { $0.id == providerID && $0.kind == kind }) else {
             throw AppError.configuration("找不到 Provider：\(providerID)")
         }
-        providerConfig.apiKey = apiKey
+        providerConfig.apiKey = CredentialText.normalizedKey(apiKey)
         // 发现流程对任意能力通用（llm / asr / tts …）：同一套 OpenAI 兼容 `/models`，
         // 只是按能力过滤掉不属于这一类模型的条目（云端返回的是混合列表）。
         return try await RemoteCommon.discoverModels(
@@ -708,7 +710,7 @@ public actor CoachServices {
         // 历史行为是「输入框为空则沿用配置里已保存的 Key」，于是界面上明明没填 Key，
         // 应用却仍拿旧 Key 去调用云端——用户明确禁止这种情况（2026-09-13 反馈）。
         // 记住一个 Key 的唯一形式是**把它填进输入框**，不是替用户保管。
-        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedKey = CredentialText.normalizedKey(apiKey)
         let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
         // 全部走**原子局部更新**：每步都基于 actor 内的最新值，字段之间不会互相覆盖。
         // 顺序也有讲究——先改 enabled（会遍历同类所有 Provider），再写这个 Provider 的
