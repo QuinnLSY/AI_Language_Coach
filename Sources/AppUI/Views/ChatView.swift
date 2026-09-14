@@ -902,40 +902,25 @@ public struct ChatView: View {
         }
     }
 
-    /// 语速选择：样式与「听老师读」一致的小胶囊，点开即选倍速。
+    /// 语速选择：与设置页共用同一套下拉控件（形状/描边/箭头都由 `ForestSelect` 保证）。
     private struct SpeechRateMenu: View {
-        @Environment(\.forestTheme) private var theme
-
         let rate: Double
         let onSelect: (Double) -> Void
 
         var body: some View {
-            Menu {
-                ForEach(SpeechRate.allCases) { option in
-                    Button {
-                        onSelect(option.rawValue)
-                    } label: {
-                        if abs(option.rawValue - rate) < 0.01 {
-                            Label(option.label, systemImage: "checkmark")
-                        } else {
-                            Text(option.label)
-                        }
-                    }
-                }
-            } label: {
-                HStack(spacing: 3) {
-                    Image(systemName: "speedometer")
-                    Text(SpeechRate.nearest(to: rate).label)
-                }
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .foregroundStyle(theme.secondaryText)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Capsule().fill(theme.surfaceAlt))
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("教师朗读语速（当前 \(SpeechRate.nearest(to: rate).label)）")
+            ForestSelect(
+                icon: "speedometer",
+                selection: Binding(
+                    get: { SpeechRate.nearest(to: rate).rawValue },
+                    set: { onSelect($0) }
+                ),
+                options: SpeechRate.allCases.map {
+                    ForestSelectOption(value: $0.rawValue, title: $0.label)
+                },
+                metrics: .compact,
+                width: 62,
+                help: "教师朗读语速（当前 \(SpeechRate.nearest(to: rate).label)）"
+            )
         }
     }
 

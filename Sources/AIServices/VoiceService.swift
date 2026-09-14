@@ -459,7 +459,11 @@ public actor VoiceService {
             .replacingOccurrences(of: "*", with: "")
             .replacingOccurrences(of: "`", with: "")
             .replacingOccurrences(of: "#", with: "")
-        let trimmed = joined.trimmingCharacters(in: .whitespacesAndNewlines)
+        // emoji / 装饰符号在**朗读这一侧**去掉：合成器会把它们念成奇怪的词或吐碎音，
+        // 而它们在文字气泡里是有意义的（语气、表情），所以正文一个字不动、只清洗送去合成的文本。
+        // （这也是本方法的唯一收口点：本地分句与云端整段都从这里拿文本。）
+        let speakable = SpeechTextSanitizer.strip(joined)
+        let trimmed = speakable.trimmingCharacters(in: .whitespacesAndNewlines)
         // 上限由调用方给：本地 400（合成总时长与文本长度成正比，实测 RTF≈2.7，
         // 放宽只会让用户等更久）；云端 2000（响应快，长段落也读得完、读得连贯）。
         guard trimmed.count > limit else { return trimmed }

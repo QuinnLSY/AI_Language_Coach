@@ -150,6 +150,15 @@ public final class AppState {
     // MARK: 模型管理中心（本地检测 ~/AI_Models + 外部模型统一入口）
     /// 每个能力的模型信息（当前模型/来源/本地检测列表）。
     public private(set) var capabilityInfos: [AIProviderKind: CapabilityModelInfo] = [:]
+    /// 各能力**当前生效**的 Provider id / 模型名（覆盖**全部**能力，含 `llm`）。
+    ///
+    /// ⚠️ 不能拿 `capabilityInfos` 代替：它只覆盖 asr / tts / vad / embedding / pronunciation
+    /// 五项，「AI 大脑」不在其中。外部模型面板曾经按它判断「谁是当前生效的供应商」，
+    /// 于是 llm 这条路上永远查不到 —— 表现为绿点不亮、面板不定位当前供应商、
+    /// 选好的模型跳回默认（2026-09-14 反馈的第三组问题）。
+    /// 这里存的是**生效结果**（`resolvedProvider` / `resolvedModel`），不是草稿、不是意图。
+    public private(set) var activeProviderIDs: [AIProviderKind: String] = [:]
+    public private(set) var activeModels: [AIProviderKind: String] = [:]
     /// 外部模型 API Key 草稿（providerID -> key）。
     ///
     /// **输入框就是唯一真相**：绿点、指纹、能不能启用云端、调用时用哪把 Key，
@@ -895,6 +904,14 @@ public final class AppState {
         contextLimit = availableModels.first(where: { $0.id == modelDraft })?.contextLength ?? configured
         // 生效模型的推理强度（头部胶囊展示用）。
         activeReasoningEffort = await services.activeReasoningEffort()
+        // 「AI 大脑」当前生效的 Provider / 模型也要进快照：外部模型面板与模型卡片都读它。
+        // （`refreshCapabilityInfos` 覆盖另外五项能力，这里补 llm。）
+        if let provider = activeProvider {
+            activeProviderIDs[.llm] = provider.id
+        } else {
+            activeProviderIDs[.llm] = nil
+        }
+        if !modelDraft.isEmpty { activeModels[.llm] = modelDraft }
         // 关键：同步本地 product 缓存。否则切换 Provider 后，任何一次 persistProduct
         // 都会用旧缓存回写配置，把 activeProviders/apiKey 决策抹掉（重启回到 qwen3 的根源）。
         product = await services.configuration.product
@@ -993,6 +1010,21 @@ public final class AppState {
             )
         }
         capabilityInfos = result
+        // 「各能力当前生效的 Provider / 模型」快照：**覆盖全部能力**（含 llm，
+        // 它不在 `capabilityInfos` 里但同样需要）。外部模型面板的预选、绿点、
+        // 模型回填与模型卡片的展示都读它，因此必须是「配置里生效的结果」而不是草稿。
+        var activeIDs: [AIProviderKind: String] = [:]
+        var activeModelNames: [AIProviderKind: String] = [:]
+        for kind in AIProviderKind.allCases {
+            if let provider = configuration.resolvedProvider(for: kind) {
+                activeIDs[kind] = provider.id
+            }
+            if let model = configuration.resolvedModel(for: kind), !model.isEmpty {
+                activeModelNames[kind] = model
+            }
+        }
+        activeProviderIDs = activeIDs
+        activeModels = activeModelNames
         spellingNote = await services.spellingCorrectionNote()
         // 顺带刷新云端调用审计：设置页的「对外调用记录」卡片要和模型信息同时是最新的。
         await refreshRemoteCalls()
@@ -1271,6 +1303,19 @@ public final class AppState {
                 externalKeyFingerprints[providerID] = await remoteKeyFingerprint(providerID: providerID)
             }
             if kind == .asr || kind == .tts { await bootstrapVoice() }
+            // ⚠️ 面板是「配置入口」，卡片是「结果展示」，两者必须同时前进。
+            //
+            // 应用成功只更新 `externalMessages` 是不够的：卡片读的是
+            // `activeProvider` / `modelDraft` / `activeReasoningEffort`，而它们由
+            // `refreshStatus()` 填充 —— 不刷新就会出现「面板里明明已启用，关掉弹窗后
+            // 卡片还停在旧模型 / 未接入」（2026-09-14 反馈的第三组问题）。
+            selectedProviderID = providerID
+            externalSelectedProvider[kind.rawValue] = providerID
+            if kind == .llm {
+                // 顺手清掉卡片上可能残留的上一次报错，再换成这次的结论。
+                remoteMessage = "已启用云端模型 \(model)"
+                await refreshStatus()
+            }
         } catch {
             externalMessages[providerID] = error.localizedDescription
         }

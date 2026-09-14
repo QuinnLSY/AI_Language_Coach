@@ -91,6 +91,9 @@ public struct SettingsView: View {
             }
         }
         .background(theme.panel)
+        // 设置页里散落着好几个文本输入（学习语言 / 母语 / 教师音色 / 手动模型名…）：
+        // 点它们之外的地方就该交出焦点，否则快捷键会一直被输入框吃掉。
+        .releaseKeyboardFocusOnOutsideClick()
         .task {
             await loadRuntimeValues()
             // 用已保存的配置回填外部模型草稿：Key、模型列表、选中的供应商。
@@ -432,10 +435,21 @@ public struct SettingsView: View {
                 }
             }
         }
-        .task {
-            // 首次打开：标签跟着**当前生效**的 Provider 走（在用云端就停在「外部模型」）。
+        // 首次打开：标签跟着**当前生效**的 Provider 走（在用云端就停在「外部模型」）。
+        //
+        // ⚠️ 必须用 `.task(id:)` 跟着候选清单走，不能只 `.task {}`：`providerOptions` 是在
+        // 上一层的 `.task` 里异步备好的，固定 `.task` 很可能在「清单还是空」的那一帧就跑完
+        // （`guard !providerOptions.isEmpty` 直接返回），标签于是永远停在默认的「本地模型」
+        // —— 实测症状就是「实际在用云端，卡片却显示本地」。
+        .task(id: providerOptions.map(\.id)) {
             guard !didInitLLMTab, !providerOptions.isEmpty else { return }
             didInitLLMTab = true
+            llmUsesExternal = isSelectedProviderRemote
+        }
+        // 生效的 Provider 一变（例如刚在外部模型面板里点完「确认配置」），标签与卡片
+        // 立刻跟过去。缺这一条时卡片会停在旧状态：明明已经启用云端，还显示「还没有接入外部模型」。
+        .onChange(of: state.activeProvider?.id) { _, _ in
+            guard !providerOptions.isEmpty else { return }
             llmUsesExternal = isSelectedProviderRemote
         }
     }
@@ -554,8 +568,40 @@ public struct SettingsView: View {
                  : "启动该模型：先在下方选择模型（本地或云端）"))
     }
 
+    /// 当前**生效**的是不是云端 Provider。
+    ///
+    /// 优先看生效的 Provider，而不是「标签停在哪家」：后者在打开设置时可能还停在候选第一家
+    /// （本地），于是「实际在用云端、卡片却显示本地」—— 界面与真实调用对不上。
     private var isSelectedProviderRemote: Bool {
-        providerOptions.first { $0.id == state.selectedProviderID }?.isRemote ?? false
+        if let active = state.activeProvider { return active.isRemote }
+        return providerOptions.first { $0.id == state.selectedProviderID }?.isRemote ?? false
+    }
+
+    /// 本地模型下拉的选项：把当前模型补进去。
+    ///
+    /// 不补的话，当 `modelDraft` 不在扫描结果里（模型被删了 / 还没扫到）下拉会显示成
+    /// 「未选择」，用户看到的是「我明明选过」。修的是显示，不改配置。
+    private var localModelOptions: [ForestSelectOption<String>] {
+        var options = state.availableModels.map {
+            ForestSelectOption(value: $0.id, title: $0.name)
+        }
+        let current = state.modelDraft
+        if !current.isEmpty, !options.contains(where: { $0.id == current }) {
+            options.insert(ForestSelectOption(value: current, title: current), at: 0)
+        }
+        return options
+    }
+
+    /// 教师音色下拉的选项：当前音色可能不在静态清单里（云端拉回来的音色），同样补进去。
+    private var teacherVoiceOptions: [ForestSelectOption<String>] {
+        var options = state.availableVoices.map {
+            ForestSelectOption(value: $0, title: $0.capitalized)
+        }
+        let current = state.teacherVoice
+        if !current.isEmpty, !options.contains(where: { $0.id == current }) {
+            options.insert(ForestSelectOption(value: current, title: current.capitalized), at: 0)
+        }
+        return options
     }
 
     /// 本地模型（Ollama）：状态 + 模型选择。
@@ -566,15 +612,16 @@ public struct SettingsView: View {
                     .font(.system(size: 12, design: .rounded))
                     .foregroundStyle(.orange)
             } else {
-                Picker("选择模型", selection: Binding(
-                    get: { state.modelDraft },
-                    set: { name in Task { await state.applyModel(name) } }
-                )) {
-                    ForEach(state.availableModels) { model in
-                        Text(model.name).tag(model.id)
-                    }
-                }
-                .labelsHidden()
+                ForestSelect(
+                    "模型",
+                    icon: "cpu",
+                    selection: Binding(
+                        get: { state.modelDraft },
+                        set: { name in Task { await state.applyModel(name) } }
+                    ),
+                    options: localModelOptions,
+                    width: 240
+                )
             }
 
             HStack(spacing: 8) {
@@ -616,7 +663,7 @@ public struct SettingsView: View {
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .foregroundStyle(theme.primaryText)
                     Text(isRemoteActive
-                         ? "模型：\(state.modelDraft.isEmpty ? "未选择" : state.modelDraft)\(state.reasoningEffortDraft.map { " · 推理强度\(reasoningText($0))" } ?? "")"
+                         ? "模型：\(state.modelDraft.isEmpty ? "未选择" : state.modelDraft)\(state.activeReasoningEffort.map { " · 推理强度\(reasoningText($0))" } ?? "")"
                          : "点右边的按钮选一家厂商、填入该厂商的 API Key 即可接入。")
                         .font(.system(size: 11, design: .rounded))
                         .foregroundStyle(theme.secondaryText)
@@ -861,18 +908,18 @@ public struct SettingsView: View {
             // ② 本地检测模型选择
             if !info.localModels.isEmpty {
                 HStack(spacing: 8) {
-                    Image(systemName: "folder.badge.gearshape")
-                        .font(.system(size: 11))
-                        .foregroundStyle(theme.accent)
-                    Picker("本地模型", selection: Binding(
-                        get: { info.currentModel ?? info.localModels[0].name },
-                        set: { name in Task { await state.selectLocalModel(kind, name: name) } }
-                    )) {
-                        ForEach(info.localModels) { model in
-                            Text(model.name).tag(model.name)
-                        }
-                    }
-                    .labelsHidden()
+                    ForestSelect(
+                        "本地模型",
+                        icon: "folder.badge.gearshape",
+                        selection: Binding(
+                            get: { info.currentModel ?? info.localModels[0].name },
+                            set: { name in Task { await state.selectLocalModel(kind, name: name) } }
+                        ),
+                        options: info.localModels.map {
+                            ForestSelectOption(value: $0.name, title: $0.name)
+                        },
+                        width: 200
+                    )
                     Spacer()
                     Button {
                         Task { await state.refreshCapabilityInfos() }
@@ -1242,14 +1289,17 @@ public struct SettingsView: View {
 
             // 教师音色 + 自动试听小喇叭
             HStack(spacing: 10) {
-                Picker("老师的声音", selection: Binding(
-                    get: { state.teacherVoice },
-                    set: { voice in Task { await state.setVoice(voice) } }
-                )) {
-                    ForEach(state.availableVoices, id: \.self) { voice in
-                        Text(voice.capitalized).tag(voice)
-                    }
-                }
+                ForestSelect(
+                    "老师的声音",
+                    icon: "waveform",
+                    selection: Binding(
+                        get: { state.teacherVoice },
+                        set: { voice in Task { await state.setVoice(voice) } }
+                    ),
+                    options: teacherVoiceOptions,
+                    width: 170,
+                    help: "教师朗读时使用的声音；云端音色由供应商决定，切换后会自动重读。"
+                )
 
                 // 小喇叭：开启后切换音色自动试听
                 Button {
@@ -1344,13 +1394,20 @@ public struct SettingsView: View {
     private var learningCard: some View {
         card(title: "学习设置", systemImage: "leaf.fill") {
             VStack(alignment: .leading, spacing: 12) {
-                Picker("练习模式", selection: Binding(
-                    get: { state.productPracticeMode },
-                    set: { mode in Task { await state.setPracticeMode(mode) } }
-                )) {
-                    ForEach(PracticeMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
+                HStack(spacing: 8) {
+                    ForestSelect(
+                        "练习模式",
+                        icon: "leaf",
+                        selection: Binding(
+                            get: { state.productPracticeMode },
+                            set: { mode in Task { await state.setPracticeMode(mode) } }
+                        ),
+                        options: PracticeMode.allCases.map {
+                            ForestSelectOption(value: $0, title: $0.displayName)
+                        },
+                        width: 170
+                    )
+                    Spacer()
                 }
 
                 HStack {
