@@ -10,9 +10,17 @@ public struct HTTPClient: Sendable {
     /// 是否沿用系统代理设置。**本地 runtime 必须绕开代理**（防 502 劫持），
     /// 云端 API（DeepSeek / OpenRouter）通常需要系统代理才能出网。
     private let useSystemProxy: Bool
+    /// 测试注入点：给出后 `perform` 直接走它，**不发起真实网络**。
+    /// 生产代码永远不传（nil = 真实 URLSession）。
+    private let transport: Transport?
 
-    public init(useSystemProxy: Bool = false) {
+    /// 传输抽象：测试用它把适配器完整跑一遍（请求形状 / 响应解析 / 错误映射），
+    /// 无需真的起一个 runtime。
+    public typealias Transport = @Sendable (_ request: URLRequest, _ timeout: TimeInterval) async throws -> (Data, HTTPURLResponse)
+
+    public init(useSystemProxy: Bool = false, transport: Transport? = nil) {
         self.useSystemProxy = useSystemProxy
+        self.transport = transport
     }
 
     private func makeSession(timeout: TimeInterval) -> URLSession {
@@ -29,6 +37,10 @@ public struct HTTPClient: Sendable {
 
     /// 发起请求并返回原始数据与响应，便于 Adapter 自行做状态码与错误体映射。
     public func perform(_ request: URLRequest, timeout: TimeInterval) async throws -> (Data, HTTPURLResponse) {
+        // 测试注入：走假传输，不碰真实网络。
+        if let transport {
+            return try await transport(request, timeout)
+        }
         let session = makeSession(timeout: timeout)
         defer { session.invalidateAndCancel() }
 

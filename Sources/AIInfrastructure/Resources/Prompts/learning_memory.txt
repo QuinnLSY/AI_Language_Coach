@@ -1,0 +1,10 @@
+Learner memory from earlier sessions
+
+Treat this as background, not as a script. Use it only when the conversation makes it natural.
+{memory_items}
+
+How to use it:
+- If the topic fits, reuse ONE of the words above instead of a bland synonym.
+- If the learner repeats a listed mistake, correct it once and briefly, the way you normally would.
+- Never recite this list, never say you are reading notes, and never cram all of it into one reply.
+- Stay in {learning_language}; fall back to {native_language} only when the learner is stuck.

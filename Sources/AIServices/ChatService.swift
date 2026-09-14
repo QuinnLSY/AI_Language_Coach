@@ -200,14 +200,25 @@ public final class ChatService {
         return TeacherContext(configuration: configuration, providerName: providerName, model: model)
     }
 
-    /// 老师的人设提示词（含情景角色叠加）。
-    private func systemPrompt(for configuration: AppConfiguration) -> String {
+    /// 老师的人设提示词（含跨会话学习记忆 + 情景角色叠加）。
+    ///
+    /// 记忆由 `MemoryRetriever` 从本地库算出来（无模型请求），再折成一小段背景：
+    /// 让老师记得学员反复犯的错、该复习的词与偏弱的发音，而不是每个会话都从零开始。
+    private func systemPrompt(for configuration: AppConfiguration, memory: LearningMemory) -> String {
         var systemPrompt = PromptBuilder.teacherSystemPrompt(
             learningLanguage: profile.learningLanguage,
             nativeLanguage: profile.nativeLanguage,
             proficiency: profile.proficiency.displayName,
             practiceMode: configuration.product.practiceMode
         )
+        let memoryBlock = PromptBuilder.learningMemoryBlock(
+            memory,
+            learningLanguage: profile.learningLanguage,
+            nativeLanguage: profile.nativeLanguage
+        )
+        if !memoryBlock.isEmpty {
+            systemPrompt += "\n\n" + memoryBlock
+        }
         // 情景对话：在老师人设之后再叠一层角色扮演指令（场景数据驱动，不写死在业务里）。
         if let progress = scenarioProgress {
             let block = PromptBuilder.scenarioBlock(
@@ -219,6 +230,11 @@ public final class ChatService {
             systemPrompt += "\n\n" + block
         }
         return systemPrompt
+    }
+
+    /// 学员最近说的一句，作为学习记忆检索的查询串（没有则 nil = 只走结构化记忆）。
+    private func latestUserMessage() -> String? {
+        messages.last(where: { $0.role == .user })?.content
     }
 
     private func request(context: TeacherContext, systemPrompt: String, history: [LLMMessage]) -> LLMRequest {
@@ -244,9 +260,10 @@ public final class ChatService {
         let providerName = context.providerName
         let model = context.model
 
+        let memory = await services.learningMemory(query: latestUserMessage())
         let request = self.request(
             context: context,
-            systemPrompt: systemPrompt(for: configuration),
+            systemPrompt: systemPrompt(for: configuration, memory: memory),
             history: messages.map { LLMMessage(role: $0.role, content: $0.content) }
         )
         let tokensBefore = estimatedContextTokens
@@ -346,9 +363,10 @@ public final class ChatService {
             if !Task.isCancelled { isGenerating = false }
         }
         guard let context = await resolveTeacherContext() else { return }
+        let memory = await services.learningMemory(query: latestUserMessage())
         var request = self.request(
             context: context,
-            systemPrompt: systemPrompt(for: context.configuration),
+            systemPrompt: systemPrompt(for: context.configuration, memory: memory),
             // 带上已有历史：恢复的会话里老师会自然地说「欢迎回来」，而不是重复自我介绍。
             history: messages.map { LLMMessage(role: $0.role, content: $0.content) }
                 + [LLMMessage(role: .user,

@@ -42,19 +42,33 @@ public struct ProviderCapabilities: Sendable, Equatable {
     public var toolCalling: Bool
     public var vision: Bool
     public var multilingual: Bool
+    /// 语音能力（第 24 步）：**只声明能/不能，不暴露任何供应商专属 API**。
+    /// 应用层据此决定是否开放克隆 / 风格 / 情感 / 音高控制。
+    public var voiceCloning: Bool
+    public var style: Bool
+    public var emotion: Bool
+    public var pitchControl: Bool
 
     public init(
         streaming: Bool = false,
         structuredOutput: Bool = false,
         toolCalling: Bool = false,
         vision: Bool = false,
-        multilingual: Bool = false
+        multilingual: Bool = false,
+        voiceCloning: Bool = false,
+        style: Bool = false,
+        emotion: Bool = false,
+        pitchControl: Bool = false
     ) {
         self.streaming = streaming
         self.structuredOutput = structuredOutput
         self.toolCalling = toolCalling
         self.vision = vision
         self.multilingual = multilingual
+        self.voiceCloning = voiceCloning
+        self.style = style
+        self.emotion = emotion
+        self.pitchControl = pitchControl
     }
 }
 

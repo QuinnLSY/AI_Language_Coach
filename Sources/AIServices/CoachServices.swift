@@ -29,6 +29,10 @@ public actor CoachServices {
     public let vocabulary: VocabularyService
     /// 学习进度（Dashboard，第 25 步）：会话 / 纠错 / 跟读 / 词汇按天汇总。
     public let progress: ProgressService
+    /// 语义索引（Embedding，第 15 步）：把历史学习记忆按「与当前话题的相关度」取回来。
+    /// 默认配置下装配的是 mock（不具语义），此时 `supportsSemanticRanking == false`，
+    /// 记忆退回结构化路径 —— 不引入任何额外开销。
+    public let embedding: EmbeddingManager
 
     /// 学习数据库。打开失败时为 nil（功能降级为不持久化，不影响对话）。
     public private(set) var learning: LearningDatabase?
@@ -50,12 +54,15 @@ public actor CoachServices {
     /// 挂起是省内存的临时状态，下次被使用时自动恢复（`resumeIfSuspended`）；
     /// 用户关闭是明确意图，绝不自动拉起。两者都让 `isModelRunning` 变 false。
     private var suspendedKinds: Set<AIProviderKind> = []
+    /// 语义索引是否已尝试装配过（每进程只试一次，避免 runtime 没起时每轮重试）。
+    private var embeddingBootstrapAttempted = false
 
     public init(config: ConfigStore = .shared, llm: LLMManager = LLMManager(), databasePath: String? = nil) {
         self.config = config
         self.llm = llm
         self.asr = ASRManager()
         self.tts = TTSManager()
+        self.embedding = EmbeddingManager()
         self.voice = VoiceService(asr: self.asr, tts: self.tts)
         let path = databasePath ?? LearningDatabase.defaultURL().path
         // 坏库不等于「不能用」：先把可疑文件隔离保住证据，再重建空库继续服务，
@@ -209,6 +216,18 @@ public actor CoachServices {
     public func ttsHealth() async -> ProviderHealth { await tts.healthCheck() }
     public func availableVoices() async -> [String] { await voice.refreshVoices() }
 
+    /// 音色能否启用 / 为什么不能（第 24 步）：把产品口径（显式授权 / 本地文件 / 供应商能力）
+    /// 落到一处，UI 与测试都只认它。返回空数组 = 可以启用。
+    public func voiceAccessViolations(for profile: VoiceProfile) async -> [VoiceAccessPolicy.Violation] {
+        let supportsCloning = await tts.current?.capabilities().voiceCloning ?? false
+        return VoiceAccessPolicy.violations(for: profile, providerSupportsCloning: supportsCloning)
+    }
+
+    /// 当前音色的可见提示（克隆音色必须让用户看得见；nil = 内置音色，无需提示）。
+    public func voiceActiveIndicator(for profile: VoiceProfile) -> String? {
+        VoiceAccessPolicy.activeIndicator(for: profile)
+    }
+
     /// 语音识别结果的拼写纠正（**仅语音输入使用**；手打内容一律不经过这里）。
     ///
     /// 失败/模型不可用时返回原文——语音输入不能被纠正步骤卡住。
@@ -261,6 +280,98 @@ public actor CoachServices {
     /// 输入框的预设学员提问（数据来自资源文件，代码零硬编码）。
     public func starterQuestions() async -> [String] {
         StarterQuestionCatalog.bundled()
+    }
+
+    /// 跨会话学习记忆（第 15 步）：把库里的纠错 / 词汇 / 跟读发音收敛成老师可用的背景。
+    ///
+    /// 只读本地库、**不发起任何模型请求**（除非给了 `query` 且装配了真实语义索引）。
+    /// 排序 / 折算口径都在 `MemoryRetriever` 的纯函数里，这里只负责把原始事实取出来。
+    ///
+    /// - Parameter query: 学员当前这句话。给了它、且语义索引可用时，记忆会按**相关度**
+    ///   重排并丢掉明显不相关的条目；否则保持结构化结果（默认 mock 即走这条路）。
+    public func learningMemory(
+        query: String? = nil,
+        correctionLimit: Int = 200,
+        pronunciationLimit: Int = 100,
+        sessionLimit: Int = 500
+    ) async -> LearningMemory {
+        guard let learning else { return .empty }
+        let corrections = (try? await learning.correctionRecords(since: .distantPast, limit: correctionLimit)) ?? []
+        let vocabulary = (try? await learning.allVocabulary()) ?? []
+        let attempts = (try? await learning.recentShadowingAttempts(limit: pronunciationLimit)) ?? []
+        let sessions = (try? await learning.recentSessions(limit: sessionLimit)) ?? []
+        let memory = MemoryRetriever.brief(
+            corrections: corrections,
+            vocabulary: vocabulary,
+            reports: attempts.compactMap(\.pronunciation),
+            sessionCount: sessions.count
+        )
+        guard let query, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !memory.isEmpty else {
+            return memory
+        }
+        await ensureEmbeddingReady()
+        // mock 的向量没有语义，按它排序等于乱排 —— 只认真实 runtime。
+        guard await embedding.supportsSemanticRanking else { return memory }
+        return await semanticallyRanked(memory, query: query) ?? memory
+    }
+
+    /// 按与 `query` 的语义相似度重排记忆。任何失败都返回 nil（调用方保留结构化结果）——
+    /// 语义索引是增强，绝不能因为它挂了就让老师失忆。
+    private func semanticallyRanked(_ memory: LearningMemory, query: String) async -> LearningMemory? {
+        let errors = memory.recurringErrors
+        let words = memory.focusWords
+        var texts = [query]
+        texts.append(contentsOf: errors.map { "\($0.original) -> \($0.corrected)" })
+        texts.append(contentsOf: words)
+        guard texts.count > 1 else { return memory }
+        do {
+            let vectors = try await embedding.embed(texts)
+            guard vectors.count == texts.count, let queryVector = vectors.first else { return nil }
+            var relevance: [String: Double] = [:]
+            for (index, error) in errors.enumerated() {
+                relevance[error.id] = SemanticRanking.cosineSimilarity(queryVector, vectors[index + 1])
+            }
+            let wordOffset = 1 + errors.count
+            for (index, word) in words.enumerated() {
+                relevance[word] = SemanticRanking.cosineSimilarity(queryVector, vectors[wordOffset + index])
+            }
+            return MemoryRetriever.reranked(memory, relevance: relevance)
+        } catch {
+            return nil
+        }
+    }
+
+    /// 按需装配语义索引（幂等）。
+    ///
+    /// 每个进程只尝试一次：runtime 没起时不做「每轮重试」的网络风暴；
+    /// 装配失败就是「没有语义索引」，结构化记忆照常工作，不打扰用户。
+    public func ensureEmbeddingReady() async {
+        guard !embeddingBootstrapAttempted else { return }
+        embeddingBootstrapAttempted = true
+        guard !(await embedding.isUsable) else { return }
+        let configuration = await config.current
+        guard let providerConfig = configuration.resolvedProvider(for: .embedding),
+              let provider = Self.makeEmbeddingProvider(providerConfig) else { return }
+        do {
+            try await provider.initialize(config: providerConfig)
+            try await provider.load()
+            await embedding.register(provider)
+        } catch {
+            AppLog.warning("语义索引装配失败（记忆退回结构化路径）: \(error.localizedDescription)", category: "memory")
+        }
+    }
+
+    private static func makeEmbeddingProvider(_ config: ProviderConfig) -> (any EmbeddingProvider)? {
+        switch config.runtime {
+        case .ollama:
+            OllamaEmbeddingAdapter(providerID: config.id, dimensions: config.dimensions ?? 768)
+        case .mock:
+            MockEmbeddingProvider()
+        default:
+            // 其余 runtime（remoteAPI / MLX / llama.cpp …）V1 未实现嵌入适配器。
+            // **不注册**，而不是拿 mock 冒充 —— 语义索引缺席，记忆退回结构化。
+            nil
+        }
     }
 
     /// 高级设置：修改 LLM Provider 的端点 / 温度后重新装配。

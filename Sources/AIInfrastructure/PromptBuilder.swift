@@ -23,6 +23,59 @@ public enum PromptBuilder {
             .replacingOccurrences(of: "{practice_mode}", with: practiceMode.displayName)
     }
 
+    /// 跨会话学习记忆（第 15 步）：把 `LearningMemory` 折成给老师的一小段背景。
+    ///
+    /// **没有内容时返回空串** —— 调用方据此不追加任何东西，新学员看到的就是干净的老师人设。
+    /// 模板走 `Resources/Prompts/learning_memory.txt`，缺失时用等价内联兜底。
+    public static func learningMemoryBlock(
+        _ memory: LearningMemory,
+        learningLanguage: String,
+        nativeLanguage: String
+    ) -> String {
+        guard !memory.isEmpty else { return "" }
+        let items = memoryItems(memory)
+        guard !items.isEmpty else { return "" }
+        let template: String
+        if let url = AppResourceBundle.module.url(forResource: "Prompts/learning_memory", withExtension: "txt"),
+           let loaded = try? String(contentsOf: url, encoding: .utf8) {
+            template = loaded
+        } else {
+            template = """
+            Learner memory from earlier sessions — use it lightly, never recite it:
+            {memory_items}
+            - Stay in {learning_language}; use {native_language} only when the learner is stuck.
+            """
+        }
+        return template
+            .replacingOccurrences(of: "{memory_items}", with: items.joined(separator: "\n"))
+            .replacingOccurrences(of: "{learning_language}", with: learningLanguage)
+            .replacingOccurrences(of: "{native_language}", with: nativeLanguage)
+    }
+
+    /// 记忆条目的人类可读行：**只渲染有内容的段落**（空段落连标题都不出现，
+    /// 否则老师会读到「Recurring mistakes:」这种空标题而去编内容）。
+    static func memoryItems(_ memory: LearningMemory) -> [String] {
+        var lines: [String] = []
+        if !memory.recurringErrors.isEmpty {
+            let text = memory.recurringErrors.prefix(5).map { error -> String in
+                let times = error.count > 1 ? " (x\(error.count))" : ""
+                let note = error.explanation.isEmpty ? "" : " — \(error.explanation)"
+                return "\"\(error.original)\" -> \"\(error.corrected)\"\(times)\(note)"
+            }.joined(separator: "; ")
+            lines.append("- Recurring mistakes: \(text)")
+        }
+        if !memory.focusWords.isEmpty {
+            lines.append("- Words worth reusing: \(memory.focusWords.joined(separator: ", "))")
+        }
+        if !memory.weakDimensions.isEmpty {
+            let text = memory.weakDimensions
+                .map { "\($0.displayName) (\(Int($0.averageScore.rounded()))/100)" }
+                .joined(separator: ", ")
+            lines.append("- Pronunciation to work on: \(text)")
+        }
+        return lines
+    }
+
     /// 练习复盘：把一次练习的流水 + 老师批注交给模型，产出结构化总结（JSON）。
     public static func sessionReviewPrompt(
         learningLanguage: String,
