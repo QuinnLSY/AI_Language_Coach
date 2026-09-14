@@ -98,7 +98,13 @@ public struct RecordsView: View {
     // MARK: - 练习复盘（学习记忆：一次练习沉淀一份总结）
 
     private var reviewCard: some View {
-        card(title: "练习复盘", systemImage: "sparkles", trailing: { reviewActionButton }) {
+        card(title: "练习复盘", systemImage: "sparkles", trailing: {
+            // 标题行右侧两个胶囊：**生成**（主色）+ **跳去练**（冷紫次色）。
+            HStack(spacing: 8) {
+                reviewActionButton
+                vocabularyJumpButton
+            }
+        }) {
             VStack(alignment: .leading, spacing: 12) {
                 if state.isGeneratingReview {
                     HStack(spacing: 8) {
@@ -121,22 +127,45 @@ public struct RecordsView: View {
 
     /// 「生成本次复盘 / 重新生成」：挂在卡片标题行右侧（不额外占一行）。
     private var reviewActionButton: some View {
-        Button {
+        headerCapsule(
+            state.latestReview == nil ? "生成本次复盘" : "重新生成",
+            systemImage: "wand.and.stars",
+            tint: theme.accent
+        ) {
             Task { await state.generateSessionReview() }
-        } label: {
+        }
+        .disabled(state.isGeneratingReview || state.chat.messages.isEmpty)
+        .help(state.chat.messages.isEmpty ? "先和老师聊几句，再来复盘" : "让本地模型回看这次练习并生成总结")
+    }
+
+    /// 「前往词汇本练习」：复盘给的是结论，练才是把结论变成本事的一步 —— 把这条
+    /// 路做成一个按钮，而不是让用户自己回去找词汇本在哪。
+    ///
+    /// 图标用「转出去」的箭头（与「重新生成」的魔杖同类角色：左侧一个图标 + 文字），
+    /// 颜色取冷紫 `theme.accentCool`：与主操作区分，又不会因为变浅而看不清。
+    private var vocabularyJumpButton: some View {
+        headerCapsule("前往词汇本练习", systemImage: "arrowshape.turn.up.right.fill", tint: theme.accentCool) {
+            Task { await state.openVocabulary() }
+        }
+        .help("去词汇本背/考这次复盘里的新词")
+    }
+
+    /// 卡片标题行胶囊按钮的统一版式（两个操作共用，改样子只需改这里）。
+    private func headerCapsule(
+        _ title: String, systemImage: String, tint: Color, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
             HStack(spacing: 5) {
-                Image(systemName: "wand.and.stars")
-                Text(state.latestReview == nil ? "生成本次复盘" : "重新生成")
+                Image(systemName: systemImage)
+                Text(title)
             }
             .font(.system(size: 12, weight: .semibold, design: .rounded))
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
             .frame(height: 26)
-            .background(Capsule().fill(theme.accent))
+            .background(Capsule().fill(tint))
         }
         .buttonStyle(.plain)
-        .disabled(state.isGeneratingReview || state.chat.messages.isEmpty)
-        .help(state.chat.messages.isEmpty ? "先和老师聊几句，再来复盘" : "让本地模型回看这次练习并生成总结")
     }
 
     private func reviewBody(_ review: SessionReview) -> some View {

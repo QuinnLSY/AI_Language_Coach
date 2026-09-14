@@ -66,6 +66,10 @@ public struct ForestTheme: Sendable, Equatable {
     // 强调
     public var accent: Color { isNight ? Color(hex: 0xFFD98A) : Color(hex: 0xFFB703) }
     public var accentAlt: Color { isNight ? Color(hex: 0x8AB6FF) : Color(hex: 0xFF8FA3) }
+    /// 次要强调色（冷紫）：给「跳去别处」这类**次要但要看得见**的动作用，
+    /// 与主 `accent`（琥珀）明确区分——同一行里两个按钮不该抢同一个颜色。
+    /// 两档都取偏深的紫：胶囊里是白字，太浅（如 0xA79BFF）实测白字对比只有 2.5:1。
+    public var accentCool: Color { isNight ? Color(hex: 0x7E6BEF) : Color(hex: 0x6F5CE8) }
     public var star: Color { Color(hex: 0xFFF3C4) }
 
     // 文本 / 表面
