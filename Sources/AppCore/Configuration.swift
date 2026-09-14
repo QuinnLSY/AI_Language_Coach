@@ -123,6 +123,30 @@ public enum SpeechRequestStyle: String, Codable, Sendable, CaseIterable {
     public static let neutralRate = "+0%"
 }
 
+/// 语音相关的**泛化能力位**（Implementation Plan §28 Phase 24）。
+///
+/// 刻意只有这四个通用名，没有任何厂商概念：供应商在配置里声明「我能做音色克隆 /
+/// 风格 / 情感 / 音高控制」，应用据此决定是否开放对应入口。
+/// 需求原文就是「expose generic capabilities … and not expose provider-specific APIs」——
+/// 一旦这里出现 `gpt_sovits` 之类的名字，红线就破了。
+public enum VoiceCapability: String, Codable, Sendable, CaseIterable, Identifiable {
+    case voiceCloning
+    case style
+    case emotion
+    case pitchControl
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .voiceCloning: "音色克隆"
+        case .style: "风格控制"
+        case .emotion: "情感控制"
+        case .pitchControl: "音高控制"
+        }
+    }
+}
+
 // MARK: - Provider 配置
 
 /// Provider 配置。**所有字段来自配置文件**，代码里不得出现端点 / 模型名字面量。
@@ -184,6 +208,11 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
     public var billable: Bool?
     /// 向量维度（embedding）。nil = 由首次响应推断。
     public var dimensions: Int?
+    /// **泛化能力声明**（第 24 步）：该供应商自报支持哪些通用能力，取值见 `VoiceCapability`。
+    ///
+    /// 应用据此开放 / 关闭克隆音色这类入口，**不暴露任何厂商专属 API**。
+    /// 缺省 nil = 什么都不声明（等于这些能力全关）—— 保守默认，绝不替用户假设「应该支持」。
+    public var capabilities: [String]?
 
     public init(
         id: String,
@@ -213,7 +242,8 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         voiceListPath: String? = nil,
         healthPath: String? = nil,
         apiKeyRequired: Bool? = nil,
-        billable: Bool? = nil
+        billable: Bool? = nil,
+        capabilities: [String]? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -243,9 +273,19 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         self.healthPath = healthPath
         self.apiKeyRequired = apiKeyRequired
         self.billable = billable
+        self.capabilities = capabilities
     }
 
     public var userFacingName: String { displayName ?? id }
+
+    /// 配置声明的泛化语音能力（未声明的名字一律忽略，不报错也不猜测）。
+    public var declaredVoiceCapabilities: Set<VoiceCapability> {
+        Set((capabilities ?? []).compactMap(VoiceCapability.init(rawValue:)))
+    }
+
+    public func supportsVoiceCapability(_ capability: VoiceCapability) -> Bool {
+        declaredVoiceCapabilities.contains(capability)
+    }
 
     /// 是否需要 API Key：配置里的显式声明优先，否则云端 OpenAI 兼容接口一律需要。
     public var requiresAPIKey: Bool { apiKeyRequired ?? (runtime == .remoteAPI) }
@@ -326,6 +366,11 @@ public struct ProductConfig: Sendable, Equatable {
     public var speechRate: Double
     /// 每日练习目标（分钟）。Dashboard 的「Learning goals」用它算完成度。
     public var dailyGoalMinutes: Int
+    /// 当前启用的**克隆音色档案 id**（第 24 步；nil = 用内置音色 `teacherVoice`）。
+    ///
+    /// 这里只存 id —— 档案本体（参考音频路径 + 授权记录）在 `VoiceProfileStore` 里。
+    /// 在配置里再放一份拷贝，迟早会与档案本体不一致，而那种不一致正是「明明没授权却在用」的雏形。
+    public var activeVoiceProfileID: String?
 
     public init(
         learningLanguage: String = "en-US",
@@ -344,7 +389,8 @@ public struct ProductConfig: Sendable, Equatable {
         voicePreview: Bool = true,
         autoSpeak: Bool = true,
         speechRate: Double = SpeechRate.x1.rawValue,
-        dailyGoalMinutes: Int = 15
+        dailyGoalMinutes: Int = 15,
+        activeVoiceProfileID: String? = nil
     ) {
         self.learningLanguage = learningLanguage
         self.nativeLanguage = nativeLanguage
@@ -363,6 +409,7 @@ public struct ProductConfig: Sendable, Equatable {
         self.autoSpeak = autoSpeak
         self.speechRate = SpeechRate.nearest(to: speechRate).rawValue
         self.dailyGoalMinutes = min(max(dailyGoalMinutes, 5), 180)
+        self.activeVoiceProfileID = activeVoiceProfileID
     }
 
     public func selectedModel(for kind: AIProviderKind) -> String? { selectedModels[kind.rawValue] }
@@ -384,7 +431,7 @@ extension ProductConfig: Codable {
         case selectedModels, teacherAnimal, studentAnimal, activeProviders
         case teacherBubbles, animalBubbles, animalActivity
         case animalActivityFrequency, voicePreview, autoSpeak, speechRate
-        case dailyGoalMinutes
+        case dailyGoalMinutes, activeVoiceProfileID
     }
 
     public init(from decoder: Decoder) throws {
@@ -408,6 +455,7 @@ extension ProductConfig: Codable {
             to: try container.decodeIfPresent(Double.self, forKey: .speechRate) ?? SpeechRate.x1.rawValue
         ).rawValue
         dailyGoalMinutes = min(max(try container.decodeIfPresent(Int.self, forKey: .dailyGoalMinutes) ?? 15, 5), 180)
+        activeVoiceProfileID = try container.decodeIfPresent(String.self, forKey: .activeVoiceProfileID)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -429,6 +477,7 @@ extension ProductConfig: Codable {
         try container.encode(autoSpeak, forKey: .autoSpeak)
         try container.encode(speechRate, forKey: .speechRate)
         try container.encode(dailyGoalMinutes, forKey: .dailyGoalMinutes)
+        try container.encodeIfPresent(activeVoiceProfileID, forKey: .activeVoiceProfileID)
     }
 }
 

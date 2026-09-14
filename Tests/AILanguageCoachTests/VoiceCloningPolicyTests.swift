@@ -54,11 +54,22 @@ final class VoiceCloningPolicyTests: XCTestCase {
         makeProfile(kind: .cloned, reference: homeVoicePath, consent: VoiceConsent(statement: "本人声音"))
     }
 
-    private func makeServices() -> CoachServices {
+    /// 造一套「**没有**任何供应商声明克隆能力」的装配中心。
+    ///
+    /// 必须显式清掉声明，而不是指望默认配置恰好没有：默认配置里 `local.tts`
+    /// 是**声明了** `voiceCloning` 的（否则整条克隆链路不可达）。
+    /// 让用例依赖「默认配置碰巧没有能力位」，默认配置一改测试就红，
+    /// 而且红得莫名其妙 —— 那时真正该验的规则反倒没人验了。
+    private func makeServices() async -> CoachServices {
         let store = ConfigStore(
             fileURL: FileManager.default.temporaryDirectory
                 .appendingPathComponent("voice-policy-\(UUID().uuidString).json")
         )
+        try? await store.mutate { configuration in
+            for index in configuration.providers.indices where configuration.providers[index].kind == .tts {
+                configuration.providers[index].capabilities = nil
+            }
+        }
         return CoachServices(config: store, databasePath: ":memory:")
     }
 
@@ -151,7 +162,7 @@ final class VoiceCloningPolicyTests: XCTestCase {
     // MARK: - 经装配中心的裁决
 
     func testServicesViolationsFollowProviderCapability() async {
-        let services = makeServices()
+        let services = await makeServices()
         let profile = validCloned()
 
         // 未注册任何 TTS（或注册的不支持克隆）→ 明确拒绝，而不是假装能克隆。
@@ -167,7 +178,7 @@ final class VoiceCloningPolicyTests: XCTestCase {
     }
 
     func testServicesStillRequireConsentEvenWithCapableProvider() async {
-        let services = makeServices()
+        let services = await makeServices()
         await services.tts.register(StubTTSProvider(cloning: true))
 
         let profile = makeProfile(kind: .cloned, reference: homeVoicePath, consent: nil)

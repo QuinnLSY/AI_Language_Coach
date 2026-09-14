@@ -220,6 +220,19 @@ public actor VoiceService {
     /// 再次调用会**打断**上一段（用户重复点击 = 重新读，而不是被静默忽略）。
     /// - Parameter rate: 播放倍速（1 = 原速，由设置里的语速决定）。
     public func speak(_ text: String, voice: String, language: String = "English", rate: Float = 1.0) async {
+        await speak(text, voice: SpeechVoiceSelection.builtin(voice), language: language, rate: rate)
+    }
+
+    /// 朗读文本，音色用**选择结果**（含克隆音色的参考音频）。
+    ///
+    /// 与上面的 `String` 版本是同一件事：克隆音色除了音色名还要把参考音频交给 runtime，
+    /// 所以真正的入口收的是 `SpeechVoiceSelection`，`String` 版本只是「内置音色」的简写。
+    public func speak(
+        _ text: String,
+        voice: SpeechVoiceSelection,
+        language: String = "English",
+        rate: Float = 1.0
+    ) async {
         let delivery = await tts.delivery
         let cleaned = Self.cleanForSpeech(text, limit: delivery.maxCharacters)
         guard !cleaned.isEmpty else { return }
@@ -253,7 +266,13 @@ public actor VoiceService {
     }
 
     /// 整段一次合成（云端）：只有一个请求，读完就是读完，句间韵律不被请求边界切断。
-    private func speakWhole(_ text: String, token: UUID, voice: String, language: String, rate: Float) async {
+    private func speakWhole(
+        _ text: String,
+        token: UUID,
+        voice: SpeechVoiceSelection,
+        language: String,
+        rate: Float
+    ) async {
         let task = prefetchTask(text, voice: voice, language: language)
         inflight = task
         let wav: Data
@@ -274,7 +293,13 @@ public actor VoiceService {
     }
 
     /// 分句流水线（本地）：首句立即开合成，播放期间预取下一句。
-    private func speakSegmented(_ text: String, token: UUID, voice: String, language: String, rate: Float) async {
+    private func speakSegmented(
+        _ text: String,
+        token: UUID,
+        voice: SpeechVoiceSelection,
+        language: String,
+        rate: Float
+    ) async {
         let sentences = SentenceSplitter.split(text)
         guard !sentences.isEmpty else { return }
 
@@ -389,15 +414,17 @@ public actor VoiceService {
     }
 
     /// 后台合成一句（命中缓存则瞬时返回）。
-    private func prefetchTask(_ sentence: String, voice: String, language: String) -> Task<Data, Error> {
+    private func prefetchTask(_ sentence: String, voice: SpeechVoiceSelection, language: String) -> Task<Data, Error> {
         Task { [weak self] in
             guard let self else { throw AIProviderError.notInitialized }
             return try await self.synthesizeCached(sentence, voice: voice, language: language)
         }
     }
 
-    private func synthesizeCached(_ text: String, voice: String, language: String) async throws -> Data {
-        let key = "\(voice)|\(language)|\(text)"
+    private func synthesizeCached(_ text: String, voice: SpeechVoiceSelection, language: String) async throws -> Data {
+        // 缓存键必须带上参考音频：换了克隆音色（或换了参考音频）就是另一个声音，
+        // 沿用旧键会让「刚换的音色」听起来毫无变化，且怎么查都查不出原因。
+        let key = "\(voice.voice)|\(voice.referenceAudioPath ?? "")|\(language)|\(text)"
         if let hit = audioCache[key] { return hit }
 
         let result = try await tts.synthesize(

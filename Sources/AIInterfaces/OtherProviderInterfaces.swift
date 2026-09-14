@@ -30,15 +30,76 @@ public protocol ASRProvider: AIProvider {
 
 // MARK: - TTS
 
+/// 朗读要用哪个声音（第 24 步）。
+///
+/// 它把「用内置音色」与「用克隆音色」收成**同一个入参**，调用方（UI / 服务）不必各写一条分支，
+/// 也不会出现「克隆音色启用了，但朗读链路还在用内置音色名」这种两处口径漂移。
+///
+/// 克隆音色之所以必须带上 `referenceAudioPath`：克隆runtime 需要参考音频才能复现音色。
+/// 只给一个本地生成的 id，任何 runtime 都无法还原出那是谁的声音 —— 那样「启用克隆」
+/// 就只是个看起来生效的开关。
+public struct SpeechVoiceSelection: Sendable, Equatable {
+    /// 传给 runtime 的音色标识（内置音色名，或克隆音色档案 id）。
+    public var voice: String
+    /// 参考音频的**本地路径**。非克隆音色为 nil。
+    public var referenceAudioPath: String?
+    /// 参考音频对应的文本（部分克隆模型需要）。nil = runtime 自行转录。
+    public var referenceText: String?
+
+    public init(voice: String, referenceAudioPath: String? = nil, referenceText: String? = nil) {
+        self.voice = voice
+        self.referenceAudioPath = referenceAudioPath
+        self.referenceText = referenceText
+    }
+
+    /// 内置音色（随模型发布，无需参考音频）。
+    public static func builtin(_ voice: String) -> SpeechVoiceSelection {
+        SpeechVoiceSelection(voice: voice)
+    }
+
+    public var isCloned: Bool {
+        guard let path = referenceAudioPath else { return false }
+        return !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
 public struct TTSRequest: Sendable {
     public var text: String
     public var voice: String?
     public var language: String?
+    /// 参考音频本地路径（音色克隆）。非克隆请求为 nil。
+    public var referenceAudioPath: String?
+    /// 参考音频对应的文本（可选）。
+    public var referenceText: String?
 
-    public init(text: String, voice: String? = nil, language: String? = nil) {
+    public init(
+        text: String,
+        voice: String? = nil,
+        language: String? = nil,
+        referenceAudioPath: String? = nil,
+        referenceText: String? = nil
+    ) {
         self.text = text
         self.voice = voice
         self.language = language
+        self.referenceAudioPath = referenceAudioPath
+        self.referenceText = referenceText
+    }
+
+    public init(text: String, voice: SpeechVoiceSelection, language: String? = nil) {
+        self.init(
+            text: text,
+            voice: voice.voice,
+            language: language,
+            referenceAudioPath: voice.referenceAudioPath,
+            referenceText: voice.referenceText
+        )
+    }
+
+    /// 是否要用克隆音色合成。
+    public var usesClonedVoice: Bool {
+        guard let path = referenceAudioPath else { return false }
+        return !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 

@@ -56,6 +56,10 @@ public struct SettingsView: View {
     /// 「外部模型」折叠区的展开状态（kind.rawValue -> 是否展开）。
     /// 没记过时按「该能力当前是否走云端」决定默认值。
     @State private var expandedExternal: [String: Bool] = [:]
+    // 克隆音色（第 24 步）：选中的参考音频 + 新建表单的两个输入。
+    @State private var pendingReferenceURL: URL?
+    @State private var pendingVoiceName: String = ""
+    @State private var pendingConsent: String = ""
 
     public init(state: AppState) { self.state = state }
 
@@ -865,6 +869,7 @@ public struct SettingsView: View {
             //    并入本板块后「配模型」与「怎么读」在同一处完成）
             if kind == .tts {
                 teacherVoiceControls
+                clonedVoiceControls
             }
         }
     }
@@ -1096,6 +1101,202 @@ public struct SettingsView: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.surfaceAlt.opacity(0.6)))
+    }
+
+    // MARK: - 克隆音色（第 24 步：音色定制与克隆）
+
+    /// 音色克隆：显式授权 + 本地参考音频 + 启用时可见提示。
+    ///
+    /// 需求原文（Phase 24）就是这几条，界面上一步都不能省：
+    /// 授权说明必填、参考音频只能从本机选、启用后必须看得见正在用哪个克隆音色。
+    /// 至于「怎么拿参考音频做克隆」属于 runtime 的实现 —— 应用只交给它一个通用音色标识。
+    @ViewBuilder
+    private var clonedVoiceControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Divider().overlay(theme.divider.opacity(0.6))
+
+            HStack(spacing: 6) {
+                Image(systemName: "waveform.badge.mic")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.accent)
+                Text("克隆音色")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                Spacer(minLength: 4)
+                Text(state.voiceCloningSupported ? "当前供应商支持克隆" : "当前供应商未声明支持克隆")
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundStyle(state.voiceCloningSupported ? theme.accent : theme.secondaryText)
+            }
+
+            Text("只用本人或已获授权的声音。参考音频会复制进本机应用目录，不上传；启用后老师就用它朗读。")
+                .font(.system(size: 10, design: .rounded))
+                .foregroundStyle(theme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let indicator = state.activeVoiceIndicator {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(theme.accent)
+                    Text(indicator)
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                    Spacer(minLength: 4)
+                    Button("切回内置") { Task { await state.deactivateClonedVoice() } }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.accent)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 7).fill(theme.accent.opacity(0.10)))
+            }
+
+            let cloned = state.voiceProfiles.filter(\.isCloned)
+            if cloned.isEmpty, pendingReferenceURL == nil {
+                Text("还没有克隆音色。")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+            }
+            ForEach(cloned) { profile in
+                clonedVoiceRow(profile)
+            }
+
+            if let url = pendingReferenceURL {
+                pendingVoiceForm(referenceURL: url)
+            } else {
+                Button {
+                    pickReferenceAudio()
+                } label: {
+                    Label("从本地音频新建…", systemImage: "plus.circle")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.accent)
+            }
+
+            if let notice = state.voiceProfileNotice {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 10))
+                        .foregroundStyle(theme.accent)
+                    Text(notice)
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button {
+                        state.clearVoiceProfileNotice()
+                    } label: {
+                        Image(systemName: "xmark").font(.system(size: 9))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.secondaryText)
+                }
+            }
+        }
+    }
+
+    /// 一条克隆音色档案：启用 / 停用 / 删除。
+    @ViewBuilder
+    private func clonedVoiceRow(_ profile: VoiceProfile) -> some View {
+        let isActive = state.activeClonedVoice?.id == profile.id
+        HStack(spacing: 8) {
+            Image(systemName: isActive ? "waveform.circle.fill" : "waveform.circle")
+                .font(.system(size: 13))
+                .foregroundStyle(isActive ? theme.accent : theme.secondaryText)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(profile.displayName)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                Text(profile.consent?.statement ?? "")
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            Button(isActive ? "停用" : "启用") {
+                Task {
+                    if isActive {
+                        await state.deactivateClonedVoice()
+                    } else {
+                        await state.activateClonedVoice(id: profile.id)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .foregroundStyle(isActive ? theme.secondaryText : theme.accent)
+
+            Button {
+                Task { await state.deleteClonedVoice(id: profile.id) }
+            } label: {
+                Image(systemName: "trash").font(.system(size: 10))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(theme.secondaryText)
+            .help("删除这个音色档案")
+        }
+    }
+
+    /// 新建表单：音频已选定，等用户填名字与授权说明。
+    @ViewBuilder
+    private func pendingVoiceForm(referenceURL: URL) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(referenceURL.lastPathComponent)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(theme.secondaryText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            TextField("音色名字（如「我的声音」）", text: $pendingVoiceName)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12, design: .rounded))
+            TextField("授权说明：声音来源与使用范围（必填）", text: $pendingConsent)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12, design: .rounded))
+            HStack(spacing: 10) {
+                Button("保存") {
+                    let url = referenceURL
+                    Task {
+                        await state.createClonedVoice(
+                            name: pendingVoiceName,
+                            referenceURL: url,
+                            consentStatement: pendingConsent
+                        )
+                        pendingReferenceURL = nil
+                        pendingVoiceName = ""
+                        pendingConsent = ""
+                    }
+                }
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .disabled(pendingVoiceName.trimmingCharacters(in: .whitespaces).isEmpty
+                          || pendingConsent.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button("取消") {
+                    pendingReferenceURL = nil
+                    pendingVoiceName = ""
+                    pendingConsent = ""
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 11, design: .rounded))
+                .foregroundStyle(theme.secondaryText)
+            }
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 7).fill(theme.surfaceAlt))
+    }
+
+    /// 选择参考音频：只认本机文件 —— 面板给不出 URL 之外的来源，
+    /// 从入口上就堵死了「填一个远端地址做克隆」这条路。
+    private func pickReferenceAudio() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = "选择一段本地录音作为参考音频（仅使用本人或已获授权的声音）"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        pendingVoiceName = ""
+        pendingConsent = ""
+        pendingReferenceURL = url
     }
 
     /// 老师朗读的行为设置：音色 / 语速 / 自动朗读。

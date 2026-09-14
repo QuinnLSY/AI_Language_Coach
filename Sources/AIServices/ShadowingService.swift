@@ -51,13 +51,19 @@ public actor ShadowingService {
     // MARK: - 听示范 / 跟读 / 回放
 
     /// 听示范：复用朗读链路（分句流水线 + 变速），与对话区听到的是同一个老师声音。
+    ///
+    /// 收 `SpeechVoiceSelection` 而不是音色名：启用了克隆音色时，示范也必须用同一个声音
+    /// （只换对话区的音色、跟读示范仍是内置音色，是最容易被忽略的「一半生效」）。
+    ///
+    /// 入参叫 `selection` 而不是 `voice`：本类型的 `voice` 是 VoiceService 属性，
+    /// 再挂一个同名参数会让 `voice.speak` 到底指谁都看不出来。
     public func playReference(
         _ drill: ShadowingDrill,
-        voiceName: String,
+        selection: SpeechVoiceSelection,
         language: String,
         rate: Float
     ) async {
-        await voice.speak(drill.text, voice: voiceName, language: language, rate: rate)
+        await voice.speak(drill.text, voice: selection, language: language, rate: rate)
     }
 
     /// 开始跟读录音（录音期间 VoiceService 会流式把识别结果推给 UI）。

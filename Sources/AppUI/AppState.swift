@@ -110,6 +110,31 @@ public final class AppState {
     public private(set) var speechDelivery: SpeechDelivery = .segmented
     /// 最近语音错误（nil = 正常）。
     public private(set) var voiceError: String?
+
+    // MARK: - 克隆音色（第 24 步）
+
+    /// 全部音色档案（内置 + 克隆）。
+    public private(set) var voiceProfiles: [VoiceProfile] = []
+    /// 当前 TTS 供应商是否支持音色克隆（不支持时 UI 直接说明，而不是让用户配完才发现不行）。
+    public private(set) var voiceCloningSupported = false
+    /// 克隆音色操作的结果提示（成功 / 失败，可关闭）。
+    public private(set) var voiceProfileNotice: String?
+    /// 正在试听 / 启用的克隆音色 id（按钮转圈用）。
+    public private(set) var busyVoiceProfileID: String?
+
+    /// 当前启用的克隆音色（nil = 内置音色）。
+    public var activeClonedVoice: VoiceProfile? {
+        guard let id = product.activeVoiceProfileID else { return nil }
+        return voiceProfiles.first { $0.id == id }
+    }
+
+    /// 「正在使用克隆音色」的可见提示（内置音色返回 nil）。
+    ///
+    /// 需求原文就是「clear indication when a cloned/custom voice is active」——
+    /// 用户任何时候都该知道自己在听的是不是克隆音色。
+    public var activeVoiceIndicator: String? {
+        activeClonedVoice.flatMap { VoiceAccessPolicy.activeIndicator(for: $0) }
+    }
     /// 拼写纠正当前的执行口径（设置页展示）。
     ///
     /// 拼写纠正在「说完一句话」之后**自动**发生，用户看不到——所以必须把口径写出来：
@@ -550,6 +575,7 @@ public final class AppState {
         ttsRuntimeInfo = await services.voice.ttsRuntimeDescription()
         // 朗读投递方式随 Provider 变化：云端整段、本地分句（设置页会说明当前用的是哪种）。
         speechDelivery = await services.voice.deliveryMode()
+        await refreshVoiceProfiles()
     }
 
     /// 把配置里的音色对齐到 runtime 自报列表（大小写不敏感），避免选择器空选。
@@ -625,8 +651,10 @@ public final class AppState {
             return
         }
         isSpeaking = true
-        await services.voice.speak(text, voice: product.teacherVoice, language: "English",
-                                   rate: Float(product.speechRate))
+        // 音色取值统一走 `effectiveSpeechVoiceSelection()`：启用克隆音色时它带档案 id **和参考音频**，
+        // 否则是内置音色名。UI 不自己判断该用哪个 —— 那会让两处口径漂移。
+        await services.voice.speak(text, voice: await services.effectiveSpeechVoiceSelection(),
+                                   language: "English", rate: Float(product.speechRate))
         isSpeaking = await services.voice.isSpeaking
         speechPhase = await services.voice.phase
         voiceError = await services.voice.lastError
@@ -647,6 +675,13 @@ public final class AppState {
 
     /// 音色切换时自动试听一句短示例（受设置开关控制）。
     public func setVoice(_ voice: String) async {
+        // 选内置音色 = 停用克隆音色。否则 `effectiveSpeechVoice()` 仍会返回克隆档案 id，
+        // 用户看到的表现是「换了个音色，老师却还用克隆的声音说话」。
+        if product.activeVoiceProfileID != nil {
+            try? await services.deactivateClonedVoice()
+            await reloadProduct()
+            await refreshVoiceProfiles()
+        }
         product.teacherVoice = voice
         await persistProduct()
         if product.voicePreview {
@@ -655,6 +690,96 @@ public final class AppState {
             voiceError = await services.voice.lastError
         }
     }
+
+    // MARK: - 克隆音色（第 24 步）
+
+    /// 刷新音色档案，以及「当前供应商是否支持克隆」。
+    public func refreshVoiceProfiles() async {
+        voiceProfiles = await services.voiceProfiles()
+        voiceCloningSupported = await services.ttsSupportsVoiceCloning()
+    }
+
+    /// 新建一份克隆音色档案：把选中的本地参考音频**复制**进应用目录，并记下授权说明。
+    ///
+    /// 只存不启用 —— 启用要单独走 `activateClonedVoice`（那里做合规校验）。
+    /// 这样「先填好、以后再开」不会被合规闸门拦住，而「真的要用」时一道都少不了。
+    @discardableResult
+    public func createClonedVoice(
+        name: String,
+        referenceURL: URL,
+        consentStatement: String,
+        referenceText: String? = nil
+    ) async -> VoiceProfile? {
+        let displayName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let statement = consentStatement.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !displayName.isEmpty else {
+            voiceProfileNotice = "请先给这个音色起个名字。"
+            return nil
+        }
+        guard !statement.isEmpty else {
+            voiceProfileNotice = VoiceAccessPolicy.Violation.emptyConsent.userMessage
+            return nil
+        }
+        do {
+            let path = try await services.importVoiceReference(from: referenceURL)
+            let profile = VoiceProfile(
+                id: "cloned." + UUID().uuidString.prefix(8).lowercased(),
+                displayName: displayName,
+                kind: .cloned,
+                referenceAudioPath: path,
+                referenceText: referenceText?.trimmingCharacters(in: .whitespacesAndNewlines),
+                consent: VoiceConsent(statement: statement)
+            )
+            try await services.saveVoiceProfile(profile)
+            await refreshVoiceProfiles()
+            voiceProfileNotice = "已保存音色「\(profile.displayName)」，启用后老师就用它说话。"
+            return profile
+        } catch {
+            voiceProfileNotice = "保存音色失败：\(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    /// 启用克隆音色。违规时给出**可读原因**（缺授权 / 参考音频不是本地文件 / 供应商不支持），
+    /// 不静默失败，也不「先启用再说」。
+    public func activateClonedVoice(id: String) async {
+        busyVoiceProfileID = id
+        defer { busyVoiceProfileID = nil }
+        do {
+            try await services.activateVoiceProfile(id: id)
+            await reloadProduct()
+            await refreshVoiceProfiles()
+            voiceProfileNotice = activeVoiceIndicator
+        } catch {
+            voiceProfileNotice = error.localizedDescription
+        }
+    }
+
+    /// 停用克隆音色，回到内置音色。
+    public func deactivateClonedVoice() async {
+        do {
+            try await services.deactivateClonedVoice()
+            await reloadProduct()
+            await refreshVoiceProfiles()
+            voiceProfileNotice = "已切回内置音色「\(product.teacherVoice)」。"
+        } catch {
+            voiceProfileNotice = error.localizedDescription
+        }
+    }
+
+    /// 删除音色档案（若正被使用会一并停用）。
+    public func deleteClonedVoice(id: String) async {
+        do {
+            try await services.deleteVoiceProfile(id: id)
+            await reloadProduct()
+            await refreshVoiceProfiles()
+            voiceProfileNotice = "已删除这个音色档案。"
+        } catch {
+            voiceProfileNotice = error.localizedDescription
+        }
+    }
+
+    public func clearVoiceProfileNotice() { voiceProfileNotice = nil }
 
     public func refreshStatus() async {
         health = await services.llmHealth()
@@ -1647,7 +1772,7 @@ public final class AppState {
         shadowingNotice = nil
         isShadowingBusy = true
         await services.shadowing.playReference(
-            drill, voiceName: product.teacherVoice, language: "English",
+            drill, selection: await services.effectiveSpeechVoiceSelection(), language: "English",
             rate: Float(product.speechRate)
         )
         shadowingNotice = await services.shadowing.lastError()
@@ -1982,5 +2107,12 @@ public final class AppState {
 
     private func persistProduct() async {
         try? await services.updateProduct(product)
+    }
+
+    /// 配置在 Services 侧被改过之后，把 UI 的缓存对齐。
+    ///
+    /// `product` 是 UI 缓存：别处（如启用克隆音色）写了配置却不重读，界面就会一直显示旧值。
+    private func reloadProduct() async {
+        product = await services.configuration.product
     }
 }

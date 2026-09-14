@@ -120,7 +120,9 @@ public enum MemoryRetriever {
             let corrected = correction.corrected.trimmingCharacters(in: .whitespacesAndNewlines)
             // 空原句 / 空改正没有教学信息，丢弃。
             guard !original.isEmpty, !corrected.isEmpty else { continue }
-            let key = normalize(original) + "\u{1}" + normalize(corrected)
+            // 指纹口径与 `GrammarAgent.pattern` 保持一致：忽略大小写 / 空白 / 标点，
+            // 否则同一条错误在库里分桶、在分析层判重会得到两个不同的结论。
+            let key = matchKey(original) + "\u{1}" + matchKey(corrected)
             if var existing = buckets[key] {
                 existing.count += 1
                 if record.createdAt > existing.lastSeen {
@@ -255,9 +257,25 @@ public enum MemoryRetriever {
     }
 
     /// 归一键：小写 + 首尾去空白 + 连续空白压成一个空格。
-    static func normalize(_ text: String) -> String {
+    ///
+    /// 公开出来的理由：界面上「同一个错误」的去重口径也必须跟这里一致
+    /// （否则同一个错会因为大小写差异显示成两行），各处各写一套必然漂移。
+    public static func normalize(_ text: String) -> String {
         text.lowercased()
             .split(whereSeparator: { $0.isWhitespace })
             .joined(separator: " ")
+    }
+
+    /// 判重键：`normalize` 之后**再去掉标点**。
+    ///
+    /// 专门用于「是不是同一处错误」的指纹与去重（`GrammarAgent.pattern`、
+    /// `recurringErrors` 分桶、已知错误列表）。老师把同一处标成 `He go home.`
+    /// 还是 `he go home` 说的是同一处，标点差异不该算成两处。
+    ///
+    /// ⚠️ **不要拿它判断「有没有发生变化」**——那必须保留标点，否则
+    /// `Hello world → Hello, world.` 这种标点纠错会被当成「没变」丢掉。
+    /// 那个场景继续用 `normalize`。
+    public static func matchKey(_ text: String) -> String {
+        normalize(text.components(separatedBy: CharacterSet.punctuationCharacters).joined(separator: " "))
     }
 }

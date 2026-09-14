@@ -42,6 +42,8 @@ public actor CoachServices {
     public private(set) var databaseRecoveryNote: String?
     /// 数据备份开关第 30 步）：导出 / 清单都在项目空间 `.workbuddy/backups/`。
     private let backup: DataBackup
+    /// 克隆音色档案（第 24 步）：独立持久化，与 config.json 分开存放（见 `VoiceProfileStore`）。
+    private let voiceProfileStore: VoiceProfileStore
     private let config: ConfigStore
     private var llmProvider: (any LLMProvider)?
     /// 场景目录缓存（资源文件，进程内读一次即可）。
@@ -57,9 +59,15 @@ public actor CoachServices {
     /// 语义索引是否已尝试装配过（每进程只试一次，避免 runtime 没起时每轮重试）。
     private var embeddingBootstrapAttempted = false
 
-    public init(config: ConfigStore = .shared, llm: LLMManager = LLMManager(), databasePath: String? = nil) {
+    public init(
+        config: ConfigStore = .shared,
+        llm: LLMManager = LLMManager(),
+        databasePath: String? = nil,
+        voiceProfileStore: VoiceProfileStore = .shared
+    ) {
         self.config = config
         self.llm = llm
+        self.voiceProfileStore = voiceProfileStore
         self.asr = ASRManager()
         self.tts = TTSManager()
         self.embedding = EmbeddingManager()
@@ -219,13 +227,121 @@ public actor CoachServices {
     /// 音色能否启用 / 为什么不能（第 24 步）：把产品口径（显式授权 / 本地文件 / 供应商能力）
     /// 落到一处，UI 与测试都只认它。返回空数组 = 可以启用。
     public func voiceAccessViolations(for profile: VoiceProfile) async -> [VoiceAccessPolicy.Violation] {
-        let supportsCloning = await tts.current?.capabilities().voiceCloning ?? false
+        let supportsCloning = await ttsSupportsVoiceCloning()
         return VoiceAccessPolicy.violations(for: profile, providerSupportsCloning: supportsCloning)
     }
 
     /// 当前音色的可见提示（克隆音色必须让用户看得见；nil = 内置音色，无需提示）。
     public func voiceActiveIndicator(for profile: VoiceProfile) -> String? {
         VoiceAccessPolicy.activeIndicator(for: profile)
+    }
+
+    // MARK: - 克隆音色（第 24 步）
+
+    /// 当前 TTS 供应商是否支持音色克隆。
+    ///
+    /// 两个来源取「或」：**配置声明**（供应商 / 用户在配置里自报，权威）与
+    /// **适配器自报**（代码级能力）。任一侧坏了另一个还能兜住，
+    /// 而两边都关时结论明确是「不支持」—— 不会出现「以为能用、点了才发现不行」。
+    public func ttsSupportsVoiceCloning() async -> Bool {
+        if await config.current.resolvedProvider(for: .tts)?.supportsVoiceCapability(.voiceCloning) == true {
+            return true
+        }
+        return await tts.current?.capabilities().voiceCloning ?? false
+    }
+
+    /// 全部音色档案。
+    public func voiceProfiles() async -> [VoiceProfile] { await voiceProfileStore.all }
+
+    /// 当前启用的**克隆**音色档案（nil = 用内置音色）。
+    public func activeClonedVoice() async -> VoiceProfile? {
+        guard let id = await config.current.product.activeVoiceProfileID else { return nil }
+        return await voiceProfileStore.profile(id: id)
+    }
+
+    /// 朗读时实际要传给 TTS runtime 的音色选择（克隆音色真正生效的唯一落点）。
+    ///
+    /// 返回的是**通用音色标识 + 参考音频**：给 runtime 的是「这是谁的音色 + 参考音频在哪」，
+    /// 至于它内部怎么用（缓存音色 / 每次现场克隆）属于 runtime 的实现。
+    /// 应用侧因此不出现任何厂商专属调用手段 —— 这正是 Phase 24 的红线。
+    ///
+    /// ⚠️ 只给一个档案 id 是**不够**的：那是应用本地生成的 UUID，任何 provider 都无法
+    /// 据此还原音色，那样「已启用克隆音色」就只是个看起来生效的开关。
+    public func effectiveSpeechVoiceSelection() async -> SpeechVoiceSelection {
+        let configuration = await config.current
+        guard let id = configuration.product.activeVoiceProfileID,
+              let profile = await voiceProfileStore.profile(id: id),
+              // 只有克隆音色才带参考音频；内置音色即使误登在档案里也不该走克隆链路。
+              profile.isCloned,
+              let reference = profile.referenceAudioPath,
+              !reference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .builtin(configuration.product.teacherVoice)
+        }
+        return SpeechVoiceSelection(
+            voice: profile.id,
+            referenceAudioPath: reference,
+            referenceText: profile.referenceText
+        )
+    }
+
+    /// 朗读用的音色标识（内置音色名，或克隆音色档案 id）。
+    ///
+    /// 只有需要「名字」的场景（诊断、日志、UI 文案）才用它；**真正朗读请走
+    /// `effectiveSpeechVoiceSelection()`** —— 单给名字会丢掉克隆所需的参考音频。
+    public func effectiveSpeechVoice() async -> String {
+        await effectiveSpeechVoiceSelection().voice
+    }
+
+    /// 保存（新增 / 覆盖）一份音色档案。这里**只存不校验**：
+    /// 校验发生在启用时（`activateVoiceProfile`），因为「能不能用」取决于当时的供应商能力。
+    public func saveVoiceProfile(_ profile: VoiceProfile) async throws {
+        try await voiceProfileStore.upsert(profile)
+    }
+
+    /// 把用户选中的参考音频**复制**进应用数据目录，返回新路径。
+    ///
+    /// 为什么必须复制而不是记下原路径：
+    /// 原文件可能被移动 / 删除 / 在云端盘上被驱逐，那时克隆音色会莫名其妙地失效却查不出原因；
+    /// 而且「引用任意外部路径」本身就是「拿别人的音频做克隆」的入口，
+    /// 复制进应用自己的目录后，来源与生命周期都可控（删档案时可一并清理）。
+    public func importVoiceReference(from sourceURL: URL) throws -> String {
+        let manager = FileManager.default
+        let directory = AppPaths.userDataDirectory().appendingPathComponent("voices", isDirectory: true)
+        try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let ext = sourceURL.pathExtension.isEmpty ? "wav" : sourceURL.pathExtension.lowercased()
+        let destination = directory.appendingPathComponent("\(UUID().uuidString).\(ext)")
+        if manager.fileExists(atPath: destination.path) {
+            try manager.removeItem(at: destination)
+        }
+        try manager.copyItem(at: sourceURL, to: destination)
+        return destination.path
+    }
+
+    /// 删除音色档案；若它正是当前启用的那个，一并停用 ——
+    /// 否则配置里会留下一个指向不存在档案的 id，表现为「朗读时音色突然变回内置」却查不出原因。
+    public func deleteVoiceProfile(id: String) async throws {
+        _ = try await voiceProfileStore.remove(id: id)
+        if await config.current.product.activeVoiceProfileID == id {
+            try await config.mutateProduct { $0.activeVoiceProfileID = nil }
+        }
+    }
+
+    /// 启用克隆音色。**违反合规口径就直接抛错**并带上可读原因，
+    /// 绝不「先启用再说」—— `VoiceAccessPolicy` 是不可绕过的硬闸门。
+    public func activateVoiceProfile(id: String) async throws {
+        guard let profile = await voiceProfileStore.profile(id: id) else {
+            throw AppError.configuration("找不到这个音色档案。")
+        }
+        let violations = await voiceAccessViolations(for: profile)
+        guard violations.isEmpty else {
+            throw AppError.configuration(violations.map(\.userMessage).joined(separator: " "))
+        }
+        try await config.mutateProduct { $0.activeVoiceProfileID = id }
+    }
+
+    /// 停用克隆音色（回到内置音色）。
+    public func deactivateClonedVoice() async throws {
+        try await config.mutateProduct { $0.activeVoiceProfileID = nil }
     }
 
     /// 语音识别结果的拼写纠正（**仅语音输入使用**；手打内容一律不经过这里）。
@@ -416,15 +532,38 @@ public actor CoachServices {
                 "请先填写 API Key 再启用「\(target.userFacingName)」：输入框为空时，应用不会使用任何已保存的旧密钥。"
             )
         }
-        try await config.mutateProviders(kind: kind) { p in
-            p.enabled = (p.id == providerID)
-        }
-        let aligned = (target.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        try await config.mutateProduct { product in
-            product.activateProvider(providerID, for: kind)
-            product.selectModel(aligned.isEmpty ? nil : aligned, for: kind)
+        try await config.mutate { configuration in
+            // 用注册表的语义做这次写入（同类只留一个 enabled + 产品层指向与模型对齐）。
+            // 注册表是**纯函数**：它只给出变换，落盘仍只走 ConfigStore 这一条路，
+            // 因此不会长出「配置 vs 注册表」两份互相漂移的真相。
+            _ = ModelRegistry.enable(&configuration, providerID: providerID)
         }
         await rebootstrap(kind: kind)
+    }
+
+    // MARK: - 模型注册表（Phase 3）
+
+    /// 全部可选 Provider 的配置视图（只读投影：可用性 / 是否生效都在这里问）。
+    public func modelConfigs(kind: AIProviderKind? = nil) async -> [ModelConfig] {
+        ModelRegistry.listAvailable(await config.current, kind: kind)
+    }
+
+    /// 某能力当前**生效**的那一个。
+    public func defaultModelConfig(for kind: AIProviderKind) async -> ModelConfig? {
+        ModelRegistry.getDefault(await config.current, for: kind)
+    }
+
+    /// 该能力应当由谁去探活。
+    ///
+    /// 注册表只回答「该探谁」——真探活在 `llmHealth()` / `asrHealth()` / `ttsHealth()`
+    /// （要发网络请求、要看 runtime 进程），**不在纯逻辑层假装探过**。
+    public func healthTarget(for kind: AIProviderKind) async -> HealthTarget? {
+        ModelRegistry.healthTarget(await config.current, for: kind)
+    }
+
+    /// 配置一致性体检：找出会让「生效 Provider 解析不出来」的问题。
+    public func registryInconsistencies(for kind: AIProviderKind) async -> [String] {
+        ModelRegistry.inconsistencies(await config.current, kind: kind)
     }
 
     /// 只更新某个 Provider 的 API Key（空 = 清除），不动 enabled / model / 产品层选择。
@@ -488,7 +627,7 @@ public actor CoachServices {
     @discardableResult
     public func discoverRemoteVoices(providerID: String, kind: AIProviderKind = .tts) async throws -> [RemoteVoiceCatalog.Voice] {
         let configuration = await config.current
-        guard var providerConfig = configuration.providers.first(where: { $0.id == providerID && $0.kind == kind }) else {
+        guard let providerConfig = configuration.providers.first(where: { $0.id == providerID && $0.kind == kind }) else {
             throw AppError.configuration("找不到 Provider：\(providerID)")
         }
         let voices = try await RemoteCommon.discoverVoices(config: providerConfig, client: HTTPClient(useSystemProxy: true))
@@ -996,6 +1135,15 @@ public actor CoachServices {
     public func recentCorrections(limit: Int = 50) async -> [GrammarCorrection] {
         guard let learning else { return [] }
         return (try? await learning.recentCorrections(limit: limit)) ?? []
+    }
+
+    /// 历史纠错**原始记录**（时间新 → 旧）。语法分析判重与教学决策都用它。
+    ///
+    /// 与 `recentCorrections` 的区别：带上时间戳与原句上下文，
+    /// 「同一个错犯了几次」要按记录算，不能先丢时间信息再回头猜。
+    public func recentCorrectionRecords(limit: Int = 100) async -> [CorrectionRecord] {
+        guard let learning else { return [] }
+        return (try? await learning.correctionRecords(since: .distantPast, limit: limit)) ?? []
     }
 
     public func recentSessions(limit: Int = 20) async -> [SessionSummary] {

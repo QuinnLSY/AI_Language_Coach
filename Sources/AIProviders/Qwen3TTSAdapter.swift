@@ -19,6 +19,11 @@ public final class Qwen3TTSAdapter: TTSProvider, VoiceCatalogProvider, @unchecke
 
     private let state = ProviderStateBox()
     private let client: HTTPClient
+    /// 配置声明的泛化语音能力（第 24 步）。
+    ///
+    /// 在 `initialize` 里写入一次、之后只读 —— 因此用 `nonisolated(unsafe)` 而不是再套一层锁，
+    /// 让同步的 `capabilities()` 也能读到它。
+    nonisolated(unsafe) private var declaredVoiceCapabilities: Set<VoiceCapability> = []
 
     public init(providerID: String = "local.tts", client: HTTPClient = HTTPClient()) {
         self.providerID = providerID
@@ -34,6 +39,7 @@ public final class Qwen3TTSAdapter: TTSProvider, VoiceCatalogProvider, @unchecke
         guard URL(string: endpoint) != nil else {
             throw AIProviderError.invalidConfiguration("端点不是合法 URL")
         }
+        declaredVoiceCapabilities = config.declaredVoiceCapabilities
         await state.setConfig(config)
         await state.setLifecycle(.initialized)
     }
@@ -87,6 +93,7 @@ public final class Qwen3TTSAdapter: TTSProvider, VoiceCatalogProvider, @unchecke
 
     public func capabilities() -> ProviderCapabilities {
         ProviderCapabilities(streaming: false, structuredOutput: false, multilingual: true)
+            .applyingVoiceCapabilities(declaredVoiceCapabilities)
     }
 
     public func metadata() -> ProviderMetadata {
@@ -109,7 +116,11 @@ public final class Qwen3TTSAdapter: TTSProvider, VoiceCatalogProvider, @unchecke
                 text: text,
                 voice: request.voice ?? config.model ?? "Serena",
                 language: request.language ?? "English",
-                speed: 1.0
+                speed: 1.0,
+                // 克隆音色：参考音频的原样路径一并交给 runtime，由它决定缓不缓存、
+                // 什么时候建音色。应用侧不碰厂商细节（Phase 24 红线）。
+                referenceAudio: request.referenceAudioPath,
+                referenceText: request.referenceText
             )
         )
 
@@ -218,6 +229,10 @@ public final class Qwen3TTSAdapter: TTSProvider, VoiceCatalogProvider, @unchecke
         let voice: String
         let language: String
         let speed: Float
+        /// 音色克隆用（第 24 步）：参考音频的本地路径与可选参考文本。
+        /// 非克隆请求为 nil，`Encodable` 的合成实现会**整键省略**，老 runtime 收到原样的请求。
+        let referenceAudio: String?
+        let referenceText: String?
     }
 
     private struct HealthPayload: Decodable {

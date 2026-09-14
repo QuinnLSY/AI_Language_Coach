@@ -43,6 +43,15 @@ public final class ChatService {
     }
 
     private let services: CoachServices
+
+    /// 对话引擎（第 6–10 步）：状态机 + 上下文 + 各 Agent 的编排点。
+    ///
+    /// 只装纯逻辑，**不发任何模型请求**：UI 可直接读 `engine.state` 来显示
+    /// 「正在听 / 正在想 / 正在说」，而不是靠几个布尔量拼凑。
+    public let engine: ConversationEngine
+    /// 本轮教学计划（生成前算出）。UI / 调试可读；它不参与持久化。
+    public private(set) var lastTurnPlan: TurnPlan?
+
     private var generationTask: Task<Void, Never>?
     /// 会话是否已落库。**启动时不建空会话**——否则「最近会话」永远是新会话，
     /// 上次的练习记录与情景就再也恢复不回来了；首条消息 / 首次进情景时才建行。
@@ -55,6 +64,7 @@ public final class ChatService {
     public init(services: CoachServices) {
         self.services = services
         self.sessionID = UUID()
+        self.engine = ConversationEngine()
     }
 
     public func send(_ text: String) {
@@ -68,6 +78,9 @@ public final class ChatService {
         persist(message)
         // 情景对话：学员每发一次言记一轮，用于给老师「还剩几轮」的收尾提示。
         if scenarioProgress != nil { scenarioProgress?.turnsUsed += 1 }
+        // 状态机 + 上下文：这一轮学员说了什么，是后续决策的输入。
+        engine.recordLearner(trimmed, at: message.createdAt)
+        engine.send(.learnerSpoke)
         streamingText = ""
         errorMessage = nil
         isGenerating = true
@@ -88,6 +101,7 @@ public final class ChatService {
         isThinking = false
         errorMessage = nil
         scenarioProgress = ScenarioProgress(scenario: scenario)
+        syncEngineScenario()
         persistScenarioBinding(scenario.id)
         let opening = scenario.opening.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !opening.isEmpty else { return }
@@ -99,6 +113,14 @@ public final class ChatService {
     /// 退出情景，回到普通练习（已产生的对话保留）。
     public func endScenario() {
         scenarioProgress = nil
+        syncEngineScenario()
+    }
+
+    /// 把情景进度同步给对话引擎（决策要知道「还剩几轮 / 目标词是什么」）。
+    private func syncEngineScenario() {
+        engine.syncScenario(
+            scenarioProgress.map { ScenarioFocus(scenario: $0.scenario, turnsRemaining: $0.turnsRemaining) }
+        )
     }
 
     private func persistScenarioBinding(_ scenarioID: String?) {
@@ -130,6 +152,9 @@ public final class ChatService {
         generationTask?.cancel()
         generationTask = nil
         isGenerating = false
+        // 取消后回到「可以再次开口」的状态。上下文**保留** ——
+        // 学员画像、跨会话记忆、已练到第几轮都不该因为一次取消而清空。
+        engine.send(.reset)
     }
 
     /// 启动时恢复上次会话：消息回流 + 继续往同一会话里追加。
@@ -140,12 +165,16 @@ public final class ChatService {
         sessionID = restored.session.id
         didPersistSession = true
         messages = restored.messages
+        // 把恢复出来的历史灌进引擎上下文：老师要知道「刚才聊到哪」，
+        // 决策（难度 / 学员答得长短）也才有依据。
+        engine.replaceTurns(restored.messages)
         if let scenarioID = restored.session.scenarioID,
            let scenario = await services.scenario(id: scenarioID) {
             scenarioProgress = ScenarioProgress(
                 scenario: scenario,
                 turnsUsed: messages.filter { $0.role == .user }.count
             )
+            syncEngineScenario()
         }
     }
 
@@ -160,6 +189,15 @@ public final class ChatService {
         translationsByMessage.removeAll()
         translatingMessageIDs.removeAll()
         translationError = nil
+        lastTurnPlan = nil
+        // 开一段全新的练习：状态复位、上下文里的对话轨迹清空。
+        // 学员画像与跨会话记忆**不动** —— 那是「这个人」的属性，不是「这段会话」的。
+        engine.reset()
+        engine.updateContext { context in
+            context.recentTurns.removeAll()
+            context.scenario = nil
+            context.currentTopic = nil
+        }
     }
 
     // MARK: - 内部
@@ -200,11 +238,15 @@ public final class ChatService {
         return TeacherContext(configuration: configuration, providerName: providerName, model: model)
     }
 
-    /// 老师的人设提示词（含跨会话学习记忆 + 情景角色叠加）。
+    /// 老师的人设提示词（含跨会话学习记忆 + 情景角色叠加 + 本轮教学计划）。
     ///
-    /// 记忆由 `MemoryRetriever` 从本地库算出来（无模型请求），再折成一小段背景：
-    /// 让老师记得学员反复犯的错、该复习的词与偏弱的发音，而不是每个会话都从零开始。
-    private func systemPrompt(for configuration: AppConfiguration, memory: LearningMemory) -> String {
+    /// 顺序即优先级：人设 → 长期记忆 → 情景角色 → 本轮计划。
+    /// 计划放最后是有意的——离生成最近的指令权重最高，而它正是「这一轮该怎么教」。
+    private func systemPrompt(
+        for configuration: AppConfiguration,
+        memory: LearningMemory,
+        plan: TurnPlan?
+    ) -> String {
         var systemPrompt = PromptBuilder.teacherSystemPrompt(
             learningLanguage: profile.learningLanguage,
             nativeLanguage: profile.nativeLanguage,
@@ -228,6 +270,17 @@ public final class ChatService {
                 nativeLanguage: profile.nativeLanguage
             )
             systemPrompt += "\n\n" + block
+        }
+        // 本轮教学计划：教学逻辑在 Agent 层算好，这里只是它的渲染目标。
+        if let plan, plan.hasAnythingToTeach {
+            let block = PromptBuilder.responsePlanBlock(
+                plan.plan,
+                decision: plan.decision,
+                direction: plan.direction,
+                learningLanguage: profile.learningLanguage,
+                nativeLanguage: profile.nativeLanguage
+            )
+            if !block.isEmpty { systemPrompt += "\n\n" + block }
         }
         return systemPrompt
     }
@@ -255,15 +308,26 @@ public final class ChatService {
         // 被取消时**不要**顺手清掉 isGenerating：见 generateGreeting() 的同款注释。
         defer { if !Task.isCancelled { isGenerating = false } }
 
-        guard let context = await resolveTeacherContext() else { return }
+        guard let context = await resolveTeacherContext() else {
+            engine.send(.generationFailed)
+            return
+        }
         let configuration = context.configuration
         let providerName = context.providerName
         let model = context.model
 
+        // 本轮教学计划：状态/记忆/情景 → 决策 → 方向 → 响应计划。
+        // **纯函数、零模型请求**，因此每轮都算也不会有额外开销或计费。
+        engine.send(.generationStarted)
+        syncEngineScenario()
         let memory = await services.learningMemory(query: latestUserMessage())
+        let learnerText = latestUserMessage() ?? ""
+        let plan = engine.planTurn(learnerText: learnerText, memory: memory, profile: profile)
+        lastTurnPlan = plan
+
         let request = self.request(
             context: context,
-            systemPrompt: systemPrompt(for: configuration, memory: memory),
+            systemPrompt: systemPrompt(for: configuration, memory: memory, plan: plan),
             history: messages.map { LLMMessage(role: $0.role, content: $0.content) }
         )
         let tokensBefore = estimatedContextTokens
@@ -279,6 +343,8 @@ public final class ChatService {
                     streamingReasoning = reasoning
                 }
                 if !chunk.textDelta.isEmpty {
+                    // 首个正文增量的时刻 = 「正在说」的开始。
+                    if accumulated.isEmpty { engine.send(.firstToken) }
                     accumulated += chunk.textDelta
                     streamingText = accumulated
                 }
@@ -314,9 +380,14 @@ public final class ChatService {
             )
             messages.append(message)
             persist(message)
+            engine.recordTeacher(parsed.cleanText, at: message.createdAt)
+            engine.send(.generationFinished)
             if !parsed.corrections.isEmpty {
                 correctionsByMessage[message.id] = parsed.corrections
                 persistCorrections(parsed.corrections)
+                // 结构化分析（分类 / 定级 / 判重）——同样零请求：
+                // 结果进「已知错误」，成为**下一轮**决策的依据（「反复错误 → 集中练」由此生效）。
+                _ = engine.analyzeReply(parsed.corrections, history: await services.recentCorrectionRecords())
             }
             // 今日全局 token 用量（上下文增量估算，供黑板/督促气泡）。
             DailyTokenCounter.add(max(estimatedContextTokens - tokensBefore, 0))
@@ -328,10 +399,12 @@ public final class ChatService {
             if !(failure is CancellationError) {
                 errorMessage = ModelDiagnostics.describe(providerName: providerName, model: model, error: failure)
             }
+            if !(failure is CancellationError) { engine.send(.generationFailed) }
             return
         }
         // ⑤ 请求成功但正文为空：绝大多数是推理模型把输出预算全用在思考上了。
         if Task.isCancelled { return }
+        engine.send(.generationFinished)
         errorMessage = ModelDiagnostics.label(providerName: providerName, model: model)
             + " 这次没有给出回复（可能把输出额度都用在思考上了）。请再发一次，或换个模型试试。"
     }
@@ -350,6 +423,7 @@ public final class ChatService {
         isGreeting = true
         isGenerating = true
         errorMessage = nil
+        engine.send(.generationStarted)
         generationTask = Task { [weak self] in
             await self?.generateGreeting()
         }
@@ -362,11 +436,16 @@ public final class ChatService {
             // 这里若顺手清掉 isGenerating，新消息刚点亮的「生成中」会立刻被抹掉。
             if !Task.isCancelled { isGenerating = false }
         }
-        guard let context = await resolveTeacherContext() else { return }
+        guard let context = await resolveTeacherContext() else {
+            engine.send(.generationFailed)
+            return
+        }
         let memory = await services.learningMemory(query: latestUserMessage())
         var request = self.request(
             context: context,
-            systemPrompt: systemPrompt(for: context.configuration, memory: memory),
+            // 开场招呼**不带教学计划**：此刻还没有学员发言可依据，
+            // 硬套一份「本轮该纠错」的计划会让老师一开口就找错。
+            systemPrompt: systemPrompt(for: context.configuration, memory: memory, plan: nil),
             // 带上已有历史：恢复的会话里老师会自然地说「欢迎回来」，而不是重复自我介绍。
             history: messages.map { LLMMessage(role: $0.role, content: $0.content) }
                 + [LLMMessage(role: .user,
@@ -378,14 +457,25 @@ public final class ChatService {
         request.streaming = false
 
         let tokensBefore = estimatedContextTokens
-        guard let response = try? await services.llm.generate(request) else { return }
+        guard let response = try? await services.llm.generate(request) else {
+            engine.send(.generationFailed)
+            return
+        }
         let text = Self.stripThinking(response.text).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !Task.isCancelled else { return }
+        guard !text.isEmpty, !Task.isCancelled else {
+            if !Task.isCancelled { engine.send(.generationFailed) }
+            return
+        }
         let parsed = Self.extractCorrections(text)
-        guard !parsed.cleanText.isEmpty else { return }
+        guard !parsed.cleanText.isEmpty else {
+            engine.send(.generationFailed)
+            return
+        }
         let message = ChatMessage(role: .assistant, content: parsed.cleanText)
         messages.append(message)
         persist(message)
+        engine.recordTeacher(parsed.cleanText, at: message.createdAt)
+        engine.send(.generationFinished)
         if !parsed.corrections.isEmpty {
             correctionsByMessage[message.id] = parsed.corrections
             persistCorrections(parsed.corrections)

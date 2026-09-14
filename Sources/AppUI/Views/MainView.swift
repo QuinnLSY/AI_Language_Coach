@@ -266,6 +266,7 @@ public struct MainView: View {
                     speechPhase: state.speechPhase,
                     speakingText: state.speakingText,
                     speechRate: state.speechRate,
+                    voiceIndicator: state.activeVoiceIndicator,
                     onSpeechRateChange: { rate in Task { await state.setSpeechRate(rate) } },
                     scenario: state.activeScenario,
                     onOpenScenarios: { Task { await state.openScenarios() } },

@@ -43,6 +43,11 @@ public struct ChatView: View {
     var speakingText: String? = nil
     /// 当前教师朗读语速（倍速，1 = 正常）；nil = 不显示速度选择器。
     var speechRate: Double = SpeechRate.x1.rawValue
+    /// 克隆音色生效提示（nil = 内置音色）。
+    ///
+    /// 需求要求「cleared indication when a cloned voice is active」——
+    /// 用户在任何一句被朗读的时候都该知道那不是内置声音，而这里正是他听的地方。
+    var voiceIndicator: String? = nil
     /// 切换语速（设置页与对话区共用同一份配置，双向同步）。
     var onSpeechRateChange: ((Double) -> Void)? = nil
     /// 进行中的情景对话（nil = 普通练习）：头部显示场景胶囊，下方显示目标条。
@@ -94,6 +99,7 @@ public struct ChatView: View {
                 speechPhase: SpeechPhase = .idle,
                 speakingText: String? = nil,
                 speechRate: Double = SpeechRate.x1.rawValue,
+                voiceIndicator: String? = nil,
                 onSpeechRateChange: ((Double) -> Void)? = nil,
                 scenario: ScenarioProgress? = nil,
                 onOpenScenarios: (() -> Void)? = nil,
@@ -124,6 +130,7 @@ public struct ChatView: View {
         self.speechPhase = speechPhase
         self.speakingText = speakingText
         self.speechRate = speechRate
+        self.voiceIndicator = voiceIndicator
         self.onSpeechRateChange = onSpeechRateChange
         self.scenario = scenario
         self.onOpenScenarios = onOpenScenarios
@@ -210,6 +217,21 @@ public struct ChatView: View {
             }
 
             Spacer()
+
+            // 克隆音色生效提示：与情景胶囊并列，位置显眼但不抢戏。
+            if let voiceIndicator {
+                HStack(spacing: 4) {
+                    Image(systemName: "waveform.badge.mic")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text(voiceIndicator)
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                }
+                .foregroundStyle(theme.accent)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(theme.accent.opacity(0.14)))
+                .help("当前使用的是克隆音色，不是内置音色")
+            }
 
             if let scenario {
                 HStack(spacing: 6) {

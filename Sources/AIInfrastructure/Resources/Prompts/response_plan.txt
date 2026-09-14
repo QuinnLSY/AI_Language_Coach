@@ -1,0 +1,13 @@
+Teaching plan for this turn. Follow it quietly — never mention that a plan exists.
+
+- Response mode: {response_mode}
+- Intent: {intent}
+- Correction intensity: {correction_level}
+{direction_line}
+{correction_line}
+{explanation_line}
+{focus_line}
+{vocabulary_line}
+{question_line}
+{engagement_line}
+Keep your reply in {learning_language}; use {native_language} only when the learner is clearly stuck.

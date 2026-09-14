@@ -72,8 +72,23 @@ public struct ProviderCapabilities: Sendable, Equatable {
     }
 }
 
-public struct ProviderMetadata: Sendable, Equatable {
-    public var id: String
+extension ProviderCapabilities {
+    /// 用**配置声明的**泛化语音能力补齐这些位（第 24 步）。
+    ///
+    /// 为什么能力来自配置而不是适配器硬编码：同一个适配器可以连不同的 runtime 部署，
+    /// 有的部署开了克隆、有的没开。把「这个部署能不能克隆」写在配置里，
+    /// 换部署就不用改代码，也不会出现「适配器说有、运行时其实没有」的假能力。
+    public func applyingVoiceCapabilities(_ declared: Set<VoiceCapability>) -> ProviderCapabilities {
+        var result = self
+        if declared.contains(.voiceCloning) { result.voiceCloning = true }
+        if declared.contains(.style) { result.style = true }
+        if declared.contains(.emotion) { result.emotion = true }
+        if declared.contains(.pitchControl) { result.pitchControl = true }
+        return result
+    }
+}
+
+public struct ProviderMetadata: Sendable, Equatable {    public var id: String
     public var displayName: String
     public var runtime: RuntimeKind
     public var version: String?

@@ -137,6 +137,16 @@ public actor ConfigStore {
         try persist()
     }
 
+    /// 原子应用一次**整份配置**变换。
+    ///
+    /// 供 `ModelRegistry` 这类纯逻辑层使用：变换在 actor 内部对着**最新**值执行
+    /// （不会出现「取快照再写回」覆盖并发写入的老问题），
+    /// 而落盘依然只有这一条路 —— 注册表不持有状态，也就不会长出第二份真相。
+    public func mutate(_ body: @Sendable (inout AppConfiguration) -> Void) throws {
+        body(&configuration)
+        try persist()
+    }
+
     /// 资源管理策略（第 27 步，AUTO_MANAGED 级别）：暂无 UI 入口，供配置与测试调整。
     public func mutateResourcePolicy(_ body: @Sendable (inout ResourcePolicyConfig) -> Void) throws {
         body(&configuration.resourcePolicy)

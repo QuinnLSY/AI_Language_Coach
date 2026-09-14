@@ -20,6 +20,8 @@ public final class RemoteTTSAdapter: TTSProvider, VoiceCatalogProvider, RuntimeI
 
     private let state = ProviderStateBox()
     private let client: HTTPClient
+    /// 配置声明的泛化语音能力（第 24 步）：`initialize` 写入一次、之后只读。
+    nonisolated(unsafe) private var declaredVoiceCapabilities: Set<VoiceCapability> = []
 
     public init(providerID: String, client: HTTPClient = HTTPClient(useSystemProxy: true)) {
         self.providerID = providerID
@@ -37,6 +39,7 @@ public final class RemoteTTSAdapter: TTSProvider, VoiceCatalogProvider, RuntimeI
             )
         }
         _ = try RemoteCommon.resolve(config)
+        declaredVoiceCapabilities = config.declaredVoiceCapabilities
         await state.setConfig(config)
         await state.setLifecycle(.initialized)
     }
@@ -72,6 +75,7 @@ public final class RemoteTTSAdapter: TTSProvider, VoiceCatalogProvider, RuntimeI
 
     public func capabilities() -> ProviderCapabilities {
         ProviderCapabilities(streaming: false, multilingual: true)
+            .applyingVoiceCapabilities(declaredVoiceCapabilities)
     }
 
     public func metadata() -> ProviderMetadata {
@@ -84,6 +88,14 @@ public final class RemoteTTSAdapter: TTSProvider, VoiceCatalogProvider, RuntimeI
         let resolved = try await resolved()
         let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { throw AIProviderError.invalidRequest("没有可朗读的文本") }
+        // 结构防线（Phase 24 红线：**不接第三方声音克隆流程**）：
+        // 云端供应商一律拒绝参考音频，而不是把它塞进请求体祈求对方忽略。
+        // 把「不上传用户声音」交给调用方自律，迟早会有人在这里加个「顺便发过去」。
+        guard !request.usesClonedVoice else {
+            throw AIProviderError.invalidRequest(
+                "云端语音供应商不接入声音克隆：请改用本地克隆音色的供应商。"
+            )
+        }
         let style = resolved.config.resolvedSpeechRequestStyle
         let speechPath = "/" + resolved.config.resolvedSpeechPath
 

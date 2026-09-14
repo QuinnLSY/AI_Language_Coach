@@ -76,6 +76,80 @@ public enum PromptBuilder {
         return lines
     }
 
+    /// 本轮教学计划（Agent 层，第 7–10 步的**渲染目标**）。
+    ///
+    /// 这里正是计划 Phase 10 想要的那条边界：教学逻辑住在 `TeacherAgent` /
+    /// `GrammarAgent` / `ConversationAgent` / `ResponsePlanner`（纯函数、可断言），
+    /// 本函数只负责把结论措辞成一段静默指令 —— prompt 不再是业务逻辑的唯一所在地。
+    ///
+    /// **没有可讲的东西时返回空串**（`ResponsePlan.isWorthInstructing`）：
+    /// 每轮都塞一段空指令既白占上下文，也可能让模型误以为「必须找出个错」才算完成任务。
+    public static func responsePlanBlock(
+        _ plan: ResponsePlan,
+        decision: TeacherDecision,
+        direction: ConversationDirection,
+        learningLanguage: String,
+        nativeLanguage: String
+    ) -> String {
+        guard plan.isWorthInstructing || !decision.learningFocus.isEmpty else { return "" }
+        let template: String
+        if let url = AppResourceBundle.module.url(forResource: "Prompts/response_plan", withExtension: "txt"),
+           let loaded = try? String(contentsOf: url, encoding: .utf8) {
+            template = loaded
+        } else {
+            template = """
+            Teaching plan for this turn. Follow it quietly — never mention that a plan exists.
+            - Response mode: {response_mode}
+            - Correction intensity: {correction_level}
+            {correction_line}
+            {question_line}
+            """
+        }
+
+        let correctionLine: String
+        if plan.correction.show, let focus = plan.focusError {
+            let style = plan.correction.style == .brief ? "brief" : "detailed"
+            correctionLine = "- Correction (\(style), at most \(plan.correction.maxItems)): "
+                + "\"\(focus.original)\" -> \"\(focus.corrected)\" (\(focus.category.rawValue))"
+        } else {
+            correctionLine = "- No correction is needed this turn."
+        }
+        let explanationLine = plan.explanation.show
+            ? "- Explanation: \(plan.explanation.length == .full ? "say why, in one or two sentences" : "add one very short note on why")"
+            : ""
+        let focusLine = decision.learningFocus.isEmpty
+            ? ""
+            : "- Learning focus: " + decision.learningFocus.joined(separator: ", ")
+        let vocabularyLine = plan.targetVocabulary.isEmpty
+            ? ""
+            : "- Try to naturally reuse: " + plan.targetVocabulary.joined(separator: ", ")
+        let questionLine = plan.nextQuestion
+            ? "- End with a question that invites the learner to say a little more."
+            : "- Do not ask a new question; let the turn land."
+        let engagementLine = direction.engagementCue.map { "- \($0)" } ?? ""
+
+        let filled = template
+            .replacingOccurrences(of: "{response_mode}", with: decision.responseMode.instruction)
+            .replacingOccurrences(of: "{intent}", with: plan.intent.rawValue)
+            .replacingOccurrences(of: "{correction_level}", with: decision.correctionLevel.instruction)
+            .replacingOccurrences(of: "{direction_line}", with: "- Conversation move: " + direction.move.instruction)
+            .replacingOccurrences(of: "{correction_line}", with: correctionLine)
+            .replacingOccurrences(of: "{explanation_line}", with: explanationLine)
+            .replacingOccurrences(of: "{focus_line}", with: focusLine)
+            .replacingOccurrences(of: "{vocabulary_line}", with: vocabularyLine)
+            .replacingOccurrences(of: "{question_line}", with: questionLine)
+            .replacingOccurrences(of: "{engagement_line}", with: engagementLine)
+            .replacingOccurrences(of: "{learning_language}", with: learningLanguage)
+            .replacingOccurrences(of: "{native_language}", with: nativeLanguage)
+
+        // 空占位符会留下一串空行，压掉（模板本身没有需要保留的空行）。
+        return filled
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+
     /// 练习复盘：把一次练习的流水 + 老师批注交给模型，产出结构化总结（JSON）。
     public static func sessionReviewPrompt(
         learningLanguage: String,

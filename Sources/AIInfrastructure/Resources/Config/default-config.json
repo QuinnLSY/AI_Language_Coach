@@ -190,6 +190,7 @@
       "candidate_models": ["serena", "vivian", "ryan", "aiden", "eric"],
       "streaming": false,
       "request_timeout": 180,
+      "capabilities": ["voiceCloning"],
       "service_start_command": "nohup \"$HOME/AI_Models/bin/start-tts.sh\" >/dev/null 2>&1 &",
       "service_stop_command": "pkill -f services/tts_server.py"
     },
