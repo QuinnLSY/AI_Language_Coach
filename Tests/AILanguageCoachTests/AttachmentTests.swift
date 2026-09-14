@@ -64,6 +64,14 @@ final class AttachmentTests: XCTestCase {
         XCTAssertEqual(AttachmentPolicy.remainingSlots(current: 99), 0, "超出上限不该给出负数槽位")
     }
 
+    func testPerMessageLimitIsTen() {
+        // 产品口径：一条消息最多 10 个附件（本轮需求）。钉住这个数字 ——
+        // 它是「托盘换行」之外的另一半事实（用户能一次带多少东西）。
+        XCTAssertEqual(AttachmentPolicy.maxPerMessage, 10)
+        XCTAssertEqual(AttachmentPolicy.remainingSlots(current: 9), 1)
+        XCTAssertEqual(AttachmentPolicy.remainingSlots(current: 10), 0)
+    }
+
     func testOnlyImagesAreInlined() {
         XCTAssertTrue(AttachmentPolicy.isInlined(kind: .image))
         // 视频不懂内联是**刻意的**：OpenAI 兼容的 /chat/completions 不收视频字节。

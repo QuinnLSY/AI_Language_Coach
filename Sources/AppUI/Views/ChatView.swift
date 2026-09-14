@@ -1127,59 +1127,98 @@ public struct ChatView: View {
     }
 
     /// 上下两段之间的浅灰分隔线（需求 3：添加项与输入区之间要有线以示区分）。
+    ///
+    /// ⚠️ 只用「隐约看得见」的浓度：直接用 `theme.divider` 全浓度在浅色主题下太抢，
+    /// 一条实线会把输入框切成两个框、看不出是一个整体。降到约一半浓度即可
+    /// （需求：提高透明度，肉眼能区分上下段就行，不要太明显）。
+    /// ⚠️ 两端各留一小段渐变收进框线：实色线生硬地顶到圆角边框会「撞线」，
+    /// 渐变收尾才像从左右框线上自然长出来（需求：两端做很短的透明渐变连接到框线）。
     private var composerSeparator: some View {
-        Rectangle()
-            .fill(theme.divider)
-            .frame(height: 1)
+        // 用同一个颜色的「零透明度」而不是 `.clear`（黑色零透明）：后者的中间过渡
+        // 会偏暗，渐变段看起来比实线段脏一点。
+        let line = theme.divider.opacity(0.5)
+        return HStack(spacing: 0) {
+            LinearGradient(
+                colors: [line.opacity(0), line],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: Self.separatorFadeLength)
+            Rectangle().fill(line).frame(height: 1)
+            LinearGradient(
+                colors: [line, line.opacity(0)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: Self.separatorFadeLength)
+        }
+        .frame(height: 1)
     }
 
-    /// 待发附件：贴在矩形**顶部**，放不下时横向滚动。
+    /// 分隔线两端的渐变长度（pt）。用**固定值**而不是比例：需求要的是「很短」，
+    /// 按比例做会让宽窗口上的渐变拖成一大段，失去「收到框线上」的意思。
+    private static let separatorFadeLength: CGFloat = 18
+
+    /// 待发附件：贴在矩形**顶部**，一行放不下时自动换行（不再横向滚动）。
+    ///
+    /// 原来用横向 `ScrollView`：chip 一多就被窗口右边裁掉，用户看不到「还有几个」，
+    /// 也点不到被裁掉那个的移除按钮。换成流式换行后，「一共选了几个」一眼可见。
+    /// 行划分规则见 `AIDomain/AttachmentTrayLayout`（纯函数），
+    /// `FlowLayout` 只负责把行划分落成位置。
     private var attachmentTray: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(pendingAttachments) { attachment in
-                    AttachmentChip(
-                        attachment: attachment,
-                        fileURL: attachmentLocation?(attachment)
-                    ) {
-                        onRemoveAttachment?(attachment.id)
-                    }
+        FlowLayout(spacing: 8, lineSpacing: 8) {
+            ForEach(pendingAttachments) { attachment in
+                AttachmentChip(
+                    attachment: attachment,
+                    fileURL: attachmentLocation?(attachment)
+                ) {
+                    onRemoveAttachment?(attachment.id)
                 }
             }
-            .padding(.horizontal, 12)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
         .padding(.top, 12)
         .padding(.bottom, 10)
     }
 
     /// 下排：功能按钮 + 信息显示。
     ///
-    /// 顺序与主流 Agent 一致 —— 左边「+」，右侧依次是当前模型/上下文占用、麦克风、发送。
+    /// 布局（需求）：左边「+」，信息显示**正中间**，右侧麦克风 + 发送。
     /// ⚠️ 三个按钮**共用同一个外观修饰器** `ComposerButtonChrome`：
     /// 「形状、大小统一」因此是结构上被保证的，而不是靠改代码时记得同步三处。
     private var composerToolbar: some View {
-        HStack(spacing: 8) {
-            attachButton
-            Spacer(minLength: 8)
-
-            // 信息显示：当前生效的 Provider · 模型 + 上下文占用圆环。
-            // 不放最左侧是刻意的：宽度不够时先被挤掉的是「信息」，而不是功能按钮。
+        ZStack {
+            // 信息显示：当前生效的 Provider · 模型 + 上下文占用圆环，**正中间**。
+            //
+            // 为什么用 ZStack 而不是「两侧各加一个 Spacer」：左右两组按钮宽度不等
+            // （左 1 个、右 2 个），Spacer 只能让信息落在「剩余空间的中心」，
+            // 实测会明显偏左；ZStack 让它相对**整条栏**居中，与两侧宽度无关。
+            // 放在底层：按钮那层在上，重叠时点击优先给按钮，而圆环自身仍可悬停。
             if !contextSummary.isEmpty {
-                Text(contextSummary)
-                    .font(.system(size: 10, design: .rounded))
-                    .foregroundStyle(theme.secondaryText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                HStack(spacing: 6) {
+                    Text(contextSummary)
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    ContextGauge(
+                        used: chat.estimatedContextTokens,
+                        limit: contextLimit,
+                        tooltip: contextDescription,
+                        track: theme.divider
+                    )
+                }
+                // 限宽：窗口很窄时信息只截断自己，不会把两侧功能按钮挤出去。
+                .frame(maxWidth: 280)
             }
-            ContextGauge(
-                used: chat.estimatedContextTokens,
-                limit: contextLimit,
-                tooltip: contextDescription,
-                track: theme.divider
-            )
 
-            micButton
-            sendButton
+            HStack(spacing: 8) {
+                attachButton
+                Spacer(minLength: 8)
+                micButton
+                sendButton
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

@@ -153,7 +153,10 @@ public enum AttachmentPolicy {
     public static let maxBytes = 20 * 1024 * 1024
 
     /// 一条消息最多带几个附件（主流 Agent 输入框的做法，也避免请求体失控）。
-    public static let maxPerMessage = 6
+    ///
+    /// 定为 10：一次把「几张图 + 几个笔记文件」都放进去是常见用法；
+    /// 再多就该考虑分批发送了 —— 托盘放不下也会自动换行，不是靠横向滚动硬塞。
+    public static let maxPerMessage = 10
 
     /// 会**内联进请求**的类型：只有图片。
     ///
