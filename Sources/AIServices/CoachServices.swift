@@ -788,15 +788,32 @@ public actor CoachServices {
         let who = ModelDiagnostics.label(providerName: providerName, model: model)
 
         if running {
+            // 记住点击前的状态：启动失败必须回滚，否则界面会显示「已启动」骗人。
+            let wasRunning = isModelRunning(kind)
             stoppedKinds.remove(kind)
             suspendedKinds.remove(kind)
-            if let controller = await serviceController(for: kind) {
-                try await controller.startModelService()
+            do {
+                if let controller = await serviceController(for: kind) {
+                    try await controller.startModelService()
+                    await rebootstrap(kind: kind)
+                    return "\(who) 已启动：后台服务已拉起。"
+                }
                 await rebootstrap(kind: kind)
-                return "\(who) 已启动：后台服务已拉起。"
+                // ⚠️ 应用层面的「启动」不能无条件报成功（2026-09-14 反馈：Key 已失效，
+                // 弹窗却写「已启动」）。没有后台服务可拉的能力，启动的实质是
+                // 「确认这条链路现在真的可用」——所以这里做一次真实健康探测，
+                // 不通就按失败处理（红色弹窗 + 原因），而不是提前弹绿。
+                if let health = await currentHealth(for: kind) {
+                    guard health.isUsable else {
+                        throw Self.startFailure(health)
+                    }
+                    return "\(who) 已启动（应用层面）：连接校验通过。"
+                }
+                return "\(who) 已启动（应用层面）。"
+            } catch {
+                if !wasRunning { stoppedKinds.insert(kind) }
+                throw error
             }
-            await rebootstrap(kind: kind)
-            return "\(who) 已启动（应用层面）：本地无需启动服务。"
         }
 
         stoppedKinds.insert(kind)
@@ -819,6 +836,40 @@ public actor CoachServices {
         case .asr: await asr.current as? any ModelServiceControlling
         case .tts: await tts.current as? any ModelServiceControlling
         default: nil
+        }
+    }
+
+    /// 该能力当前生效 Provider 的真实健康状态；尚无真实 runtime 的能力返回 nil。
+    ///
+    /// 「启动」按钮对云端 / 无后台服务的能力必须用**真实探测**说话——
+    /// 弹窗与实际连通性脱节就是 2026-09-14 反馈的第四组问题。
+    private func currentHealth(for kind: AIProviderKind) async -> ProviderHealth? {
+        switch kind {
+        case .llm: await llmHealth()
+        case .asr: await asrHealth()
+        case .tts: await ttsHealth()
+        default: nil
+        }
+    }
+
+    /// 健康状态 → 抛给「启动」弹窗的错误。
+    ///
+    /// 用 `AIProviderError` 而不是 `AppError`：失败弹窗走 `ModelDiagnostics.describe`，
+    /// 它对 `AIProviderError` 会产出「谁 · 配置有误：<服务端原话>」这类完整句子；
+    /// 传 `AppError` 会多包一层「配置错误：」前缀。注意这里传的是**未加前缀的原始原因**
+    /// （`userFacingDescription` 自带「配置有误：」，再传就重复了）。
+    private static func startFailure(_ health: ProviderHealth) -> AIProviderError {
+        switch health {
+        case .connected:
+            return .invalidConfiguration("未知原因")
+        case .configurationInvalid(let reason):
+            return .invalidConfiguration(reason)
+        case .runtimeUnavailable(let reason):
+            return .runtimeUnavailable(reason)
+        case .modelUnavailable(let model):
+            return .modelUnavailable(model)
+        case .requestFailed(let reason):
+            return .connectionFailed(reason)
         }
     }
 

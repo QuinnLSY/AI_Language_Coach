@@ -186,6 +186,11 @@ public final class AppState {
     public private(set) var isFetchingExternal = false
     /// 外部模型操作结果消息（providerID -> message）。
     public var externalMessages: [String: String] = [:]
+    /// 最近一次**认证通过**的 Key（providerID -> 清洗后的 Key）。
+    ///
+    /// 「确认配置」必须建立在真实认证之上：只有刚才用同一把 Key 验证成功过才免二次探测，
+    /// 否则应用前先打一次真实验证——失败就整路失败，卡片维持原样（2026-09-14 反馈）。
+    public private(set) var externalVerifiedKeys: [String: String] = [:]
     /// 手动填写模型名草稿（kind -> name）。
     public var customModelDrafts: [String: String] = [:]
     // MARK: 云端调用审计（费用护栏留痕）
@@ -1204,6 +1209,11 @@ public final class AppState {
         }
         // 框空了就别再显示「当前使用的密钥」——否则用户以为应用还在用旧 Key。
         if !hasKeyDraft(providerID) { externalKeyFingerprints[providerID] = nil }
+        // ⚠️ 输入框内容一变，「已验证」记录立即作废：否则「验证 A → 改成 B → 确认配置」
+        // 会拿 A 的认证记录放行 B（认证闸门的漏洞，2026-09-14 反馈系列修复）。
+        if CredentialText.normalizedKey(value) != externalVerifiedKeys[providerID] {
+            externalVerifiedKeys[providerID] = nil
+        }
     }
 
     /// 把输入框内容落进配置：**空 = 清除已保存的密钥**。返回是否留下可用的 Key。
@@ -1263,10 +1273,14 @@ public final class AppState {
                 let models = try await services.fetchRemoteModels(providerID: providerID, apiKey: apiKey, kind: kind)
                 externalModels[providerID] = models.filter { !$0.isEmbeddingOnly }
                 externalMessages[providerID] = "验证成功，获取到 \(models.count) 个模型。选好模型后点右下角「确认配置」才会启用。"
+                // 这把 Key 刚刚真实通过认证：记下来，「确认配置」用它免二次探测（费用护栏）。
+                externalVerifiedKeys[providerID] = CredentialText.normalizedKey(apiKey)
                 // 把探测结果留下来：重开设置时选择器直接可用，不必再点一次验证。
                 await services.rememberRemoteModels(models, providerID: providerID, kind: kind)
             }
         } catch {
+            // 认证/探测失败：清掉「已验证」记录，保证「确认配置」会重新走真实认证。
+            externalVerifiedKeys[providerID] = nil
             externalMessages[providerID] = error.localizedDescription
         }
         isFetchingExternal = false
@@ -1277,6 +1291,10 @@ public final class AppState {
     /// **Key 以输入框为准**：先把它落进配置（空 = 清除），再要求 Key 存在才允许启用。
     /// 这样不会出现「框里空着却被启用、并在背后用旧 Key 调用云端」的状态。
     /// 免密钥供应商不在此列：没有 Key 可要求，直接启用。
+    ///
+    /// ⚠️ **认证是硬闸门**（2026-09-14 反馈）：除非刚才用同一把 Key 真实验证成功过，
+    /// 否则启用前先打一次真实请求——认证不过就整路失败：不落盘激活、不改模型卡片、
+    /// 也不写任何成功文案。失败的配置必须「维持之前的模型调用」。
     public func applyExternalModel(
         _ kind: AIProviderKind,
         providerID: String,
@@ -1294,6 +1312,9 @@ public final class AppState {
         }
         let apiKey = await resolvedExternalAPIKey(providerID: providerID)
         do {
+            try await validateExternalKeyIfNeeded(
+                kind: kind, providerID: providerID, apiKey: apiKey, keyless: keyless
+            )
             try await services.applyRemoteProvider(
                 providerID: providerID, apiKey: apiKey, model: model,
                 reasoningEffort: reasoningEffort, kind: kind
@@ -1313,13 +1334,32 @@ public final class AppState {
             externalSelectedProvider[kind.rawValue] = providerID
             if kind == .llm {
                 // 顺手清掉卡片上可能残留的上一次报错，再换成这次的结论。
-                remoteMessage = "已启用云端模型 \(model)"
                 await refreshStatus()
+                // ⚠️ 成功文案必须与真实健康状态一致（2026-09-14 反馈：右上角「配置有误」
+                // 左下角却写「已启用云端模型」）。这里不再写死成功，而是**读真实健康状态**：
+                // 体检通过才说「已启用」，否则原样呈现失败原因，两处口径永远同源。
+                remoteMessage = health.isUsable
+                    ? "已启用云端模型 \(model)"
+                    : health.userFacingDescription
             }
         } catch {
+            // 失败：什么都不改（配置激活被跳过、卡片保持原 Provider），只把原因留在面板里。
             externalMessages[providerID] = error.localizedDescription
         }
         await refreshCapabilityInfos()
+    }
+
+    /// 「确认配置」前的认证闸门：同一把 Key 刚验证成功过才免二次探测。
+    ///
+    /// 验证失败会抛错（含服务端原话），调用方据此整路失败、不落盘激活。
+    private func validateExternalKeyIfNeeded(
+        kind: AIProviderKind, providerID: String, apiKey: String, keyless: Bool
+    ) async throws {
+        guard !keyless else { return }
+        let normalized = CredentialText.normalizedKey(apiKey)
+        if externalVerifiedKeys[providerID] == normalized { return }
+        _ = try await services.fetchRemoteModels(providerID: providerID, apiKey: apiKey, kind: kind)
+        externalVerifiedKeys[providerID] = normalized
     }
 
     /// 解析要使用的 Key：**只认输入框**。
@@ -1380,8 +1420,11 @@ public final class AppState {
             let models = try await services.fetchRemoteModels(providerID: selectedProviderID, apiKey: apiKey)
             remoteModels[selectedProviderID] = models.filter { !$0.isEmbeddingOnly }
             remoteMessage = "验证成功，获取到 \(models.count) 个模型。选好模型后会自动启用。"
+            // 这把 Key 刚刚真实通过认证：「保存并启用」用它免二次探测（费用护栏）。
+            externalVerifiedKeys[selectedProviderID] = CredentialText.normalizedKey(apiKey)
             await services.rememberRemoteModels(models, providerID: selectedProviderID, kind: .llm)
         } catch {
+            externalVerifiedKeys[selectedProviderID] = nil
             remoteMessage = error.localizedDescription
         }
         isFetchingRemoteModels = false
@@ -1390,6 +1433,8 @@ public final class AppState {
     /// 设置页：保存云端配置（API Key + 模型 + 推理强度）并激活。
     ///
     /// Key 以输入框为准（空 = 清除），所以「保存」这个动作同时也承担「不再记住这把 Key」。
+    /// ⚠️ 与外部模型面板同一条认证闸门：同一把 Key 刚验证成功过才免二次探测，
+    /// 否则先真实验证——不过就整路失败，卡片维持原样（2026-09-14 反馈）。
     public func applyRemoteProvider(model: String) async {
         let hasKey = await syncKeyDraft(selectedProviderID, kind: .llm)
         guard hasKey else {
@@ -1399,6 +1444,9 @@ public final class AppState {
         }
         let apiKey = await resolvedAPIKey(for: selectedProviderID)
         do {
+            try await validateExternalKeyIfNeeded(
+                kind: .llm, providerID: selectedProviderID, apiKey: apiKey, keyless: false
+            )
             try await services.applyRemoteProvider(
                 providerID: selectedProviderID,
                 apiKey: apiKey,
@@ -1407,8 +1455,12 @@ public final class AppState {
                 kind: .llm
             )
             bootMessage = nil
-            remoteMessage = "已启用云端模型 \(model)"
             externalKeyFingerprints[selectedProviderID] = await remoteKeyFingerprint(providerID: selectedProviderID)
+            await refreshStatus()
+            // 成功文案与真实健康状态同源（与外部模型面板一致，见 `applyExternalModel`）。
+            remoteMessage = health.isUsable
+                ? "已启用云端模型 \(model)"
+                : health.userFacingDescription
         } catch {
             remoteMessage = error.localizedDescription
         }
