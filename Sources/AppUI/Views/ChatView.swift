@@ -101,6 +101,9 @@ public struct ChatView: View {
     /// 录音中且尚未发送：只有这段时间才允许流式结果往输入框里写。
     /// （发送后必须彻底断开，否则正在录音时发送会被下一轮流式结果原样填回来。）
     @State private var isMergingVoice = false
+    /// 聊天区是否处于「上翻」状态（距底部超过阈值）——
+    /// 决定「回到底部」按钮与输入框上方的虚化是否出现。
+    @State private var isScrolledUp = false
 
     /// 每条预设提问停留的秒数。
     private let rotationInterval: Double = 3.4
@@ -203,9 +206,7 @@ public struct ChatView: View {
             voiceErrorBanner
             translationErrorBanner
             attachmentErrorBanner
-            pendingAttachmentStrip
-            inputBar
-            contextStrip
+            composer
         }
         .background(theme.surfaceAlt.opacity(0.35))
         // 教师回复完成后自动朗读（设置里可关）；挂在最外层，空态切换分支也不丢事件。
@@ -433,6 +434,25 @@ public struct ChatView: View {
                     .padding(.vertical, 16)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                // 需求 2：聊天区上翻时，输入框**正上方**出现快速回底按钮，
+                // 并且输入框上方那一条文字有轻微虚化（见 `messageFadeMask`）。
+                .mask { messageFadeMask }
+                .overlay(alignment: .bottom) { jumpToBottomButton(proxy) }
+                // 「在上翻吗」由滚动几何量决定，不靠监听手势：
+                // 触控板惯性滚动、拖滚动条、程序化 scrollTo 都会更新 contentOffset，
+                // 只有读几何量才三种情况都跟得上。
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    ChatScrollMetrics.distanceFromBottom(
+                        contentHeight: geometry.contentSize.height,
+                        containerHeight: geometry.containerSize.height,
+                        contentOffsetY: geometry.contentOffset.y,
+                        bottomInset: geometry.contentInsets.bottom
+                    )
+                } action: { _, distance in
+                    isScrolledUp = ChatScrollMetrics.shouldOfferJumpToBottom(
+                        distanceFromBottom: distance
+                    )
+                }
                 .onChange(of: chat.messages.count) { _, _ in scrollToBottom(proxy) }
                 .onChange(of: chat.streamingText) { scrollToBottom(proxy) }
                 .onChange(of: chat.streamingReasoning) { _, _ in
@@ -440,6 +460,63 @@ public struct ChatView: View {
                     if chat.streamingText.isEmpty { scrollToBottom(proxy) }
                 }
             }
+        }
+    }
+
+    /// 「回到底部」按钮：与主流 Agent 一致 —— 一条消息都没错过时不出现，
+    /// 一旦上翻就浮在**输入框正上方居中**，点一下回到最新。
+    @ViewBuilder
+    private func jumpToBottomButton(_ proxy: ScrollViewProxy) -> some View {
+        if isScrolledUp {
+            Button {
+                // 不在这里手工把 `isScrolledUp` 置回 false：滚动过程本身会持续上报距离，
+                // 越滚越近时它会自然跨过阈值。手工抢先置位反而会在动画途中闪一下。
+                scrollToBottom(proxy)
+            } label: {
+                Image(systemName: "arrow.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(theme.secondaryText)
+                    .frame(width: 28, height: 28)
+                    .background(Circle().fill(theme.surface))
+                    .overlay(Circle().strokeBorder(theme.divider, lineWidth: 1))
+                    .shadow(color: Color.black.opacity(0.14), radius: 4, y: 2)
+            }
+            .buttonStyle(.plain)
+            .help("回到最新消息")
+            .padding(.bottom, 10)
+            .transition(.opacity.combined(with: .scale(scale: 0.85)))
+        }
+    }
+
+    /// 输入框上方那层「轻微虚化」：把聊天区最底下的一条渐隐掉。
+    ///
+    /// 用**渐变蒙版**而不是盖一块底色：对话框的背景是 `surfaceAlt.opacity(0.35)`
+    /// 叠在窗口底色上，想在日夜两套主题下都配出一模一样的实色几乎不可能，
+    /// 一旦差一点就会看到一条色带。蒙版是让文字自己淡出、露出**它本来就在的那层背景**，
+    /// 天然不可能有色差。
+    private var messageFadeMask: some View {
+        GeometryReader { geometry in
+            let start = ChatScrollMetrics.fadeStartFraction(containerHeight: geometry.size.height)
+            ZStack {
+                // 没上翻时这一层是实心黑 → 蒙版全开（完全不虚化）；
+                // 上翻时它淡到 0，只剩下面那层渐变 → 底部渐隐。
+                //
+                // ⚠️ 必须这样叠，不能只留渐变：`mask` 按 **alpha** 生效，
+                // 若底层也是半透明，两层会在合成时互相「补」回来（alpha 混合是
+                // out = top + bottom×(1-top)）→ 渐隐根本看不出来。
+                Color.black.opacity(isScrolledUp ? 0 : 1)
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black, location: start),
+                        .init(color: .black.opacity(0), location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .opacity(isScrolledUp ? 1 : 0)
+            }
+            .animation(.easeOut(duration: 0.2), value: isScrolledUp)
         }
     }
 
@@ -1008,34 +1085,147 @@ public struct ChatView: View {
         }
     }
 
-    private var inputBar: some View {
-        // `.bottom` 对齐：输入框向上拓宽时，麦克风与发送按钮**留在底部**不动，
-        // 否则它们会跟着往上飘，整条输入栏看起来在跳。
-        HStack(alignment: .bottom, spacing: 10) {
+    // MARK: - 输入区（整体布局参考主流 Agent 的输入区）
+
+    /// 输入区：**一个圆角矩形，上下两段**。
+    ///
+    /// ```
+    /// ┌──────────────────────────────────────────────┐
+    /// │ [附件][附件]              ← 有添加项时才出现    │
+    /// ├──────────────────────────────────────────────┤ ← 浅灰分隔线
+    /// │ 输入框（1…5 行，超过可滚动）                    │
+    /// ├──────────────────────────────────────────────┤ ← 浅灰分隔线
+    /// │ [+]            「本地模型 · qwen3:8b」◎ 🎤 ➤  │
+    /// └──────────────────────────────────────────────┘
+    /// ```
+    ///
+    /// 为什么把添加项放进**同一个矩形内部**而不是浮在上方：
+    /// 浮在上方时「粘在输入框上的那几块」与「输入框本身」是两套边界，
+    /// 用户看不出哪些内容会跟着这条消息一起发出去。同一个圆角框 + 一条浅灰分隔线，
+    /// 「这些会一起发」这件事一眼可见；矩形上边框也随添加项自动上抬（需求 3）。
+    private var composer: some View {
+        VStack(spacing: 0) {
+            if !pendingAttachments.isEmpty {
+                attachmentTray
+                composerSeparator
+            }
+            inputField
+            composerSeparator
+            composerToolbar
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(theme.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(theme.divider, lineWidth: 1)
+        )
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+        .padding(.bottom, 10)
+    }
+
+    /// 上下两段之间的浅灰分隔线（需求 3：添加项与输入区之间要有线以示区分）。
+    private var composerSeparator: some View {
+        Rectangle()
+            .fill(theme.divider)
+            .frame(height: 1)
+    }
+
+    /// 待发附件：贴在矩形**顶部**，放不下时横向滚动。
+    private var attachmentTray: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(pendingAttachments) { attachment in
+                    AttachmentChip(
+                        attachment: attachment,
+                        fileURL: attachmentLocation?(attachment)
+                    ) {
+                        onRemoveAttachment?(attachment.id)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+        }
+        .padding(.top, 12)
+        .padding(.bottom, 10)
+    }
+
+    /// 下排：功能按钮 + 信息显示。
+    ///
+    /// 顺序与主流 Agent 一致 —— 左边「+」，右侧依次是当前模型/上下文占用、麦克风、发送。
+    /// ⚠️ 三个按钮**共用同一个外观修饰器** `ComposerButtonChrome`：
+    /// 「形状、大小统一」因此是结构上被保证的，而不是靠改代码时记得同步三处。
+    private var composerToolbar: some View {
+        HStack(spacing: 8) {
             attachButton
+            Spacer(minLength: 8)
+
+            // 信息显示：当前生效的 Provider · 模型 + 上下文占用圆环。
+            // 不放最左侧是刻意的：宽度不够时先被挤掉的是「信息」，而不是功能按钮。
+            if !contextSummary.isEmpty {
+                Text(contextSummary)
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            ContextGauge(
+                used: chat.estimatedContextTokens,
+                limit: contextLimit,
+                tooltip: contextDescription,
+                track: theme.divider
+            )
 
             micButton
-
-            inputField
-
-            Button {
-                chat.isGenerating ? chat.cancel() : send()
-            } label: {
-                Image(systemName: chat.isGenerating ? "stop.fill" : "paperplane.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 38)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(chat.isGenerating ? Color.red.opacity(0.85) : theme.accent)
-                    )
-            }
-            .buttonStyle(.plain)
-            .disabled(chat.isGenerating ? false : !canSend)
-            .help(chat.isGenerating ? "停止" : (modelStoppedNotice != nil ? "请先启动对话模型" : "发送"))
+            sendButton
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    /// 发送 / 停止。与左侧按钮**同形状同大小**，只靠「实心强调色」表达主操作。
+    private var sendButton: some View {
+        Button {
+            chat.isGenerating ? chat.cancel() : send()
+        } label: {
+            Image(systemName: chat.isGenerating ? "stop.fill" : "paperplane.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .modifier(ComposerButtonChrome(
+                    tint: .white,
+                    fill: chat.isGenerating ? Color.red.opacity(0.85) : theme.accent,
+                    border: .clear
+                ))
+        }
+        .buttonStyle(.plain)
+        .disabled(chat.isGenerating ? false : !canSend)
+        .help(chat.isGenerating ? "停止" : (modelStoppedNotice != nil ? "请先启动对话模型" : "发送"))
+    }
+
+    /// 输入区下排按钮的统一外观：**同一形状（圆）、同一尺寸、同一描边**。
+    ///
+    /// 需求要求「添加文件」与「说话」两个按钮外观一致、下排功能按钮形状大小统一。
+    /// 把它做成一个修饰器而不是各自写一遍 `frame + background + overlay`，
+    /// 是为了让这件事成为**结构性约束** —— 三处不可能再各自漂移。
+    private struct ComposerButtonChrome: ViewModifier {
+
+        /// 按钮直径：下排所有按钮共用这一个值。
+        static let side: CGFloat = 32
+
+        var tint: Color
+        var fill: Color
+        var border: Color
+
+        func body(content: Content) -> some View {
+            content
+                .foregroundStyle(tint)
+                .frame(width: Self.side, height: Self.side)
+                .background(Circle().fill(fill))
+                .overlay(Circle().strokeBorder(border, lineWidth: 1))
+                // 圆形按钮的点击区要显式声明：默认的矩形命中区会与相邻按钮抢点击。
+                .contentShape(Circle())
+        }
     }
 
     /// 「+」添加附件（图片 / 视频 / 文件）。
@@ -1043,38 +1233,55 @@ public struct ChatView: View {
     /// 用菜单而不是一个「添加任意文件」的按钮：macOS 的文件面板按类型过滤要显式声明，
     /// 让用户先说明「我要加的是哪一类」比让他从一堆不可选的文件里找要快得多
     /// （这也是主流 Agent 输入框的做法）。
+    ///
+    /// ⚠️ **外观层必须放在 `Menu` 外面**：macOS 不渲染 `Menu` label 上的自定义
+    /// 底色 / 描边 / 前景色（实测：裸菜单只剩一个深色图标，连 `foregroundStyle`
+    /// 都被忽略）。曾经把样式贴在 label 上，结果「+」是个没有底的裸加号，
+    /// 与旁边的麦克风完全不像一套 —— 需求要的「两个按钮外观一致」当场落空。
+    /// 所以外观由菜单**之外**的一层提供；`Menu` 的 label 保留原来那个同款图标
+    /// （点击区与过去完全一致，不在点击上冒险），只是几乎不可见。
     private var attachButton: some View {
-        Menu {
-            Button { pickAttachments(kind: .image) } label: {
-                Label("添加图片", systemImage: "photo")
-            }
-            Button { pickAttachments(kind: .video) } label: {
-                Label("添加视频", systemImage: "film")
-            }
-            Button { pickAttachments(kind: nil) } label: {
-                Label("添加文件", systemImage: "doc")
-            }
-        } label: {
+        ZStack {
+            // 外观：与麦克风共用同一份修饰器 —— 一致性因此是结构性的。
+            Color.clear.modifier(ComposerButtonChrome(
+                tint: theme.accent,
+                fill: theme.surfaceAlt,
+                border: theme.divider
+            ))
+            .allowsHitTesting(false)
+
             Group {
                 if isImportingAttachments {
                     ProgressView().controlSize(.small)
                 } else {
                     Image(systemName: "plus")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(theme.accent)
                 }
             }
-            .foregroundStyle(theme.accent)
-            .frame(width: 40, height: 38)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous).fill(theme.surfaceAlt)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(theme.divider, lineWidth: 1)
-            )
+            .allowsHitTesting(false)
+
+            Menu {
+                Button { pickAttachments(kind: .image) } label: {
+                    Label("添加图片", systemImage: "photo")
+                }
+                Button { pickAttachments(kind: .video) } label: {
+                    Label("添加视频", systemImage: "film")
+                }
+                Button { pickAttachments(kind: nil) } label: {
+                    Label("添加文件", systemImage: "doc")
+                }
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: ComposerButtonChrome.side, height: ComposerButtonChrome.side)
+                    .contentShape(Circle())
+                    .opacity(0.001)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
         .fixedSize()
         .disabled(isImportingAttachments)
         .help("添加图片 / 视频 / 文件")
@@ -1106,31 +1313,14 @@ public struct ChatView: View {
         onAddAttachments?(panel.urls)
     }
 
-    /// 待发附件（输入框上方一行，可横向滚动）。
-    @ViewBuilder
-    private var pendingAttachmentStrip: some View {
-        if !pendingAttachments.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(pendingAttachments) { attachment in
-                        AttachmentChip(
-                            attachment: attachment,
-                            fileURL: attachmentLocation?(attachment)
-                        ) {
-                            onRemoveAttachment?(attachment.id)
-                        }
-                    }
-                }
-                .padding(.horizontal, 18)
-            }
-            .padding(.top, 8)
-        }
-    }
-
     /// 输入框：空着的时候用浅灰字**轮换**展示预设提问（点发送即发送当前这一条）。
     ///
     /// 多行规则见 `MultilineComposerField` / `ComposerMetrics`：
-    /// 固定行宽、超宽换行、向上拓宽、最多 5 行，超过则只显示最后 5 行 + 滚动条。
+    /// 固定行宽、超宽换行、向上拓宽、最多 5 行，超过则只显示最后 5 行 + 下拉条
+    /// （未超过 5 行时**不显示**下拉条）。
+    ///
+    /// ⚠️ 这里**不再自带底色与描边**：它已经是 `composer` 圆角矩形的上段，
+    /// 再画一层框就会出现「框里套框」，上下两段也分不开了。
     private var inputField: some View {
         ZStack(alignment: .topLeading) {
             MultilineComposerField(
@@ -1148,14 +1338,6 @@ public struct ChatView: View {
             .frame(height: max(inputHeight, ComposerMetrics.lineHeight(fontSize: 14)))
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(theme.surface)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(theme.divider, lineWidth: 1)
-            )
 
             if input.isEmpty, let hint = currentStarterQuestion {
                 rollingQuestion(hint)
@@ -1217,45 +1399,22 @@ public struct ChatView: View {
                     ProgressView().controlSize(.small)
                 } else {
                     Image(systemName: isRecording ? "waveform" : "mic.fill")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                 }
             }
-            .foregroundStyle(isRecording ? Color.red : theme.accent)
-            .frame(width: 40, height: 38)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isRecording ? Color.red.opacity(0.12) : theme.surfaceAlt)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(isRecording ? Color.red.opacity(0.5) : theme.divider, lineWidth: 1)
-            )
+            // ⚠️ 尺寸/形状/描边全部来自 `ComposerButtonChrome`（与「+」同一份）：
+            // 需求要求这两个按钮外观一致，各自写一套样式迟早会漂。
+            .modifier(ComposerButtonChrome(
+                tint: isRecording ? Color.red : theme.accent,
+                fill: isRecording ? Color.red.opacity(0.12) : theme.surfaceAlt,
+                border: isRecording ? Color.red.opacity(0.5) : theme.divider
+            ))
         }
         .buttonStyle(.plain)
         .help(isRecording ? "停止并识别" : "点击说话")
     }
 
-    // MARK: - 上下文状态栏（输入框下方：整体居中，占用用圆环表示）
-
-    private var contextStrip: some View {
-        HStack(spacing: 8) {
-            Spacer()
-            Text(contextSummary)
-                .font(.system(size: 10, design: .rounded))
-                .foregroundStyle(theme.secondaryText)
-                .lineLimit(1)
-            ContextGauge(
-                used: chat.estimatedContextTokens,
-                limit: contextLimit,
-                tooltip: contextDescription,
-                track: theme.divider
-            )
-            Spacer()
-        }
-        .padding(.horizontal, 18)
-        .padding(.top, 2)
-        .padding(.bottom, 6)
-    }
+    // MARK: - 输入区信息显示
 
     /// 「本地模型 · qwen3:8b」
     private var contextSummary: String {

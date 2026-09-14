@@ -33,12 +33,13 @@ struct MultilineComposerField: NSViewRepresentable {
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
-        // 滚动条：内容超过 5 行时**常显**，让「还能往下看」这件事看得见。
+        // 下拉条：**只在内容真的超过 5 行时才出现**（需求 4）。
         //
         // 这里敢关掉 `autohidesScrollers`，是因为样式固定为 `.overlay` ——
         // 滚动条浮在文字之上、**不参与布局**，因此不会出现「滚动条一出现就把文字挤窄、
         // 行数变化又让滚动条消失」的抖动循环（那才是自动隐藏要避免的问题）。
-        scrollView.hasVerticalScroller = true
+        // 显隐本身改由 `reportHeight` 按「内容 > 封顶」判定，不再常显。
+        scrollView.hasVerticalScroller = false
         scrollView.autohidesScrollers = false
         scrollView.scrollerStyle = .overlay
         scrollView.verticalScrollElasticity = .allowed
@@ -65,7 +66,14 @@ struct MultilineComposerField: NSViewRepresentable {
         textView.isVerticallyResizable = false
         textView.autoresizingMask = [.width]
         textView.minSize = NSSize(width: 0, height: 0)
-        textView.textContainerInset = NSSize(width: 0, height: 3)
+        // ⚠️ 文字的上下呼吸位**必须放在滚动区之外**（SwiftUI 侧的 `.padding`），
+        // 这里的 inset 只能是 0。
+        //
+        // 用 inset 给呼吸位的后果是「可视区比 maxLines 行文字更高」——
+        // 高出来的那几 pt 会露出**相邻行的一线字头/字尾**（实测：5 行输入框下方
+        // 露出第 6 行的上半截），而且行高封顶也跟着算不准。
+        // 归零后可视区高度 = 行数 × 行高，正好切在行边界上，第 6 行一点都不露。
+        textView.textContainerInset = NSSize(width: 0, height: 0)
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = true
         textView.string = text
@@ -183,6 +191,16 @@ struct MultilineComposerField: NSViewRepresentable {
             let clamped = ComposerMetrics.clampedHeight(
                 contentHeight: natural, lineHeight: lineHeight, inset: inset
             )
+
+            // 需求 4：**没超过五行就不显示下拉条**。
+            // 判据与上面那次夹取同源（都问 `ComposerMetrics`），内容正好 5 行时
+            // clamped == natural → 不显示；第 6 行一开始占位就立刻出现。
+            let overflows = ComposerMetrics.isScrollable(
+                contentHeight: natural, lineHeight: lineHeight, inset: inset
+            )
+            if scrollView.hasVerticalScroller != overflows {
+                scrollView.hasVerticalScroller = overflows
+            }
 
             let visibleHeight = scrollView.contentSize.height
             let documentHeight = max(natural, visibleHeight)

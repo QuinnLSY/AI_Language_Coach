@@ -38,9 +38,21 @@ public enum ComposerMetrics {
         return min(max(contentHeight, oneLine), ceiling)
     }
 
-    /// 是否已经超过可见行数（UI 据此决定要不要常显滚动条）。
-    public static func isScrollable(contentHeight: CGFloat, lineHeight: CGFloat) -> Bool {
-        contentHeight > lineHeight * CGFloat(maxLines) + 0.5
+    /// 内容是否已经**真的被夹掉**（UI 据此决定要不要显示下拉条）。
+    ///
+    /// 需求明确要求「未超过五行时不显示下拉条」——
+    /// 判据必须与 `clampedHeight` **同源**：都拿「封顶高度」比较，
+    /// 而不是各算一遍行数。分两处算的下场是「封顶没夹、滚动条却在闪」，
+    /// 或者反过来「已经能滚了却看不见滚动条」（后者更糟：第 6 行像凭空消失了）。
+    ///
+    /// - Parameter inset: 文本上下内边距，与 `clampedHeight` 保持一致。
+    public static func isScrollable(
+        contentHeight: CGFloat,
+        lineHeight: CGFloat,
+        inset: CGFloat = 0
+    ) -> Bool {
+        contentHeight
+            > clampedHeight(contentHeight: contentHeight, lineHeight: lineHeight, inset: inset) + 0.5
     }
 
     /// 可见行数（1...maxLines）——UI 显示「第 3/5 行」这类提示或调试时可读。

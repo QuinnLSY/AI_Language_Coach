@@ -57,6 +57,59 @@ final class ComposerMetricsTests: XCTestCase {
         )
     }
 
+    // MARK: - 下拉条只在「真的被夹掉」时出现（需求 4）
+
+    /// 判据必须与 `clampedHeight` 同源。真实输入的自然高度是**含**上下 inset 的
+    /// （`naturalContentHeight` 会把 inset 算进去），若 `isScrollable` 还按
+    /// `lineHeight × 5` 比，就会出现「正好 5 行就已经在闪下拉条」——
+    /// 用户看到的是「明明没超却有个滚动条」。
+    func testExactlyMaxLinesWithInsetIsNotScrollable() {
+        let inset: CGFloat = 3
+        let fiveLines = lineHeight * CGFloat(ComposerMetrics.maxLines) + inset * 2
+        XCTAssertFalse(
+            ComposerMetrics.isScrollable(
+                contentHeight: fiveLines, lineHeight: lineHeight, inset: inset
+            ),
+            "含 inset 的正好 5 行不该出现下拉条"
+        )
+        XCTAssertTrue(
+            ComposerMetrics.isScrollable(
+                contentHeight: fiveLines + 1, lineHeight: lineHeight, inset: inset
+            ),
+            "第 6 行一开始占位就必须能滚"
+        )
+    }
+
+    /// `isScrollable` 与 `clampedHeight` 同源：只有「夹取真的发生了」才算可滚。
+    func testScrollableAgreesWithClampingAcrossManySizes() {
+        let lineHeight: CGFloat = 17
+        for inset in [CGFloat(0), 3, 6] {
+            let oneLine = lineHeight + inset * 2
+            for lines in 0...9 {
+                let content = CGFloat(lines) * lineHeight + inset * 2
+                let clamped = ComposerMetrics.clampedHeight(
+                    contentHeight: content, lineHeight: lineHeight, inset: inset
+                )
+                let clampedByContent = clamped + 0.5 < content
+                XCTAssertEqual(
+                    ComposerMetrics.isScrollable(
+                        contentHeight: content, lineHeight: lineHeight, inset: inset
+                    ),
+                    clampedByContent,
+                    "inset=\(inset) / \(lines) 行：滚动条必须与「高度被夹掉」完全一致"
+                )
+                XCTAssertGreaterThanOrEqual(clamped, oneLine)
+            }
+        }
+    }
+
+    func testNegativeInsetBehavesLikeZeroForScrollability() {
+        XCTAssertEqual(
+            ComposerMetrics.isScrollable(contentHeight: lineHeight * 6, lineHeight: lineHeight, inset: -3),
+            ComposerMetrics.isScrollable(contentHeight: lineHeight * 6, lineHeight: lineHeight, inset: 0)
+        )
+    }
+
     func testVisibleLineCountIsClampedToOneThroughMax() {
         XCTAssertEqual(ComposerMetrics.visibleLineCount(contentHeight: 0, lineHeight: lineHeight), 1)
         XCTAssertEqual(
