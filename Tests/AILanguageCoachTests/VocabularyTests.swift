@@ -629,7 +629,8 @@ final class VocabularyTests: XCTestCase {
     func testUpsertDeduplicatesByWordAndKeepsProgress() async throws {
         let database = try LearningDatabase.inMemory()
         let version = try await database.schemaVersion()
-        XCTAssertEqual(version, 7, "词汇表属于 schema v7")
+        // 「至少 v7」才是这条测试真正要的（词汇表从 v7 起存在）。写死等号会被下一次迁移误伤。
+        XCTAssertGreaterThanOrEqual(version, 7, "词汇表属于 schema v7")
 
         let first = VocabularyEntry(word: "apple", meaning: "苹果", mastery: 3, reviewCount: 2, source: .review)
         let inserted = try await database.upsertVocabulary(first)

@@ -16,17 +16,27 @@ public struct ChatMessage: Codable, Sendable, Equatable, Identifiable {
     public var createdAt: Date
     /// 推理模型的思考过程（展示用，可折叠；旧消息/旧库无此字段）。
     public var reasoning: String?
+    /// 随这条消息发出的附件（图片 / 视频 / 文件）。旧消息 / 旧库无此字段 = 空数组。
+    public var attachments: [ChatAttachment]
 
-    public init(id: UUID = UUID(), role: ChatRole, content: String, createdAt: Date = Date(), reasoning: String? = nil) {
+    public init(
+        id: UUID = UUID(),
+        role: ChatRole,
+        content: String,
+        createdAt: Date = Date(),
+        reasoning: String? = nil,
+        attachments: [ChatAttachment] = []
+    ) {
         self.id = id
         self.role = role
         self.content = content
         self.createdAt = createdAt
         self.reasoning = reasoning
+        self.attachments = attachments
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, role, content, createdAt, reasoning
+        case id, role, content, createdAt, reasoning, attachments
     }
 
     public init(from decoder: Decoder) throws {
@@ -36,7 +46,11 @@ public struct ChatMessage: Codable, Sendable, Equatable, Identifiable {
         content = try container.decode(String.self, forKey: .content)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         reasoning = try container.decodeIfPresent(String.self, forKey: .reasoning)
+        attachments = try container.decodeIfPresent([ChatAttachment].self, forKey: .attachments) ?? []
     }
+
+    /// 有没有附件（空文本 + 有附件也是一条合法消息）。
+    public var hasAttachments: Bool { !attachments.isEmpty }
 }
 
 // MARK: - 闯关（大树）

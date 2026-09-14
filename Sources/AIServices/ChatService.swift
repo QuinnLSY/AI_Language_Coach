@@ -36,13 +36,37 @@ public final class ChatService {
     public var correctionCount: Int { correctionsByMessage.values.reduce(0) { $0 + $1.count } }
     /// 上下文占用估算（token）：流式响应通常不回传 usage，用字符数近似
     /// （中英混合约 3 字符/token，每条消息附加 ~8 token 结构开销）。
+    ///
+    /// 图片按 `Self.imageTokenEstimate` 计 —— 视觉模型对一张普通截图普遍收几百到上千 token，
+    /// 不把它算进来的话，用户会看到「上下文只用了 5%」却已经被服务端拒绝。
     public var estimatedContextTokens: Int {
         var chars = 0
-        for message in messages { chars += message.content.count + 24 }
-        return (chars * 10 + 29) / 30
+        var images = 0
+        for message in messages {
+            chars += message.content.count + 24
+            images += message.attachments.filter(\.isImage).count
+        }
+        return (chars * 10 + 29) / 30 + images * Self.imageTokenEstimate
     }
 
+    /// 单张图片的粗略 token 开销（视觉模型普遍量级）。
+    public static let imageTokenEstimate = 800
+
+    /// 会把图片**真正内联发出**的历史轮数。
+    ///
+    /// 为什么不是「全部历史都带图」：图片会以 base64 内联进请求体，而对话每轮都要把
+    /// 全部历史重发一次 —— 那样请求体会随图片数量近似平方增长（10 张图聊 10 轮 = 发 55 次），
+    /// 用户看到的是「越聊越慢」和一张越来越长的账单。当前轮带图、更早的图片退化成文件名说明，
+    /// 是这个权衡下最实用的折中。
+    public static let inlineImageHistoryTurns = 1
+
     private let services: CoachServices
+    /// 附件根目录：**取自 `AttachmentStore`**，与仓库自己的定位规则同源。
+    ///
+    /// 这里绝不再自己拼一次 `userDataDirectory()/attachments`：
+    /// 两处各拼一次，只要有一处写错就会变成「图片预览显示正常、发给模型却是空的」——
+    /// 两边都不报错，最难查。
+    private let attachmentRoot: URL = AttachmentStore.defaultDirectory
 
     /// 对话引擎（第 6–10 步）：状态机 + 上下文 + 各 Agent 的编排点。
     ///
@@ -67,13 +91,14 @@ public final class ChatService {
         self.engine = ConversationEngine()
     }
 
-    public func send(_ text: String) {
+    public func send(_ text: String, attachments: [ChatAttachment] = []) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        // 只发附件、不写字也是合法的一句（主流 Agent 都允许「丢张图 + 空白」）。
+        guard !trimmed.isEmpty || !attachments.isEmpty else { return }
         // 老师正在打招呼时学员抢话：先把招呼撤掉，绝不能让这句话石沉大海。
         if isGreeting { cancel() }
         guard !isGenerating else { return }
-        let message = ChatMessage(role: .user, content: trimmed)
+        let message = ChatMessage(role: .user, content: trimmed, attachments: attachments)
         messages.append(message)
         persist(message)
         // 情景对话：学员每发一次言记一轮，用于给老师「还剩几轮」的收尾提示。
@@ -87,6 +112,14 @@ public final class ChatService {
         generationTask = Task { [weak self] in
             await self?.generate()
         }
+    }
+
+    /// 附件在本机的位置。同步、无 I/O（除拼路径），可直接在视图渲染里用。
+    ///
+    /// 定位规则与 `AttachmentStore.fileURL(for:)` **共用同一个 `fileName(of:)`**，
+    /// 因此「预览能显示」与「模型拿得到数据」不可能出现一半成立的情况。
+    public func attachmentLocation(for attachment: ChatAttachment) -> URL {
+        attachmentRoot.appendingPathComponent(AttachmentStore.fileName(of: attachment.storedPath))
     }
 
     // MARK: - 情景对话（Role Play，Implementation Plan §21）
@@ -290,6 +323,50 @@ public final class ChatService {
         messages.last(where: { $0.role == .user })?.content
     }
 
+    /// 本地消息 → 传输消息：**只有最近 `inlineImageHistoryTurns` 轮学员消息里的图片会被内联**，
+    /// 更早的图片与所有视频 / 文件退化成「附了 xxx.png」的说明。
+    ///
+    /// 图片读不出来（文件被清理）时也会退化成说明 —— 绝不能因为一张图丢了就让整轮对话失败。
+    private func transportMessages() async -> [LLMMessage] {
+        let userIndexes = messages.indices.filter { messages[$0].role == .user }
+        let inlineFrom = userIndexes.suffix(Self.inlineImageHistoryTurns).first
+
+        var result: [LLMMessage] = []
+        for index in messages.indices {
+            let message = messages[index]
+            guard message.hasAttachments else {
+                result.append(LLMMessage(role: message.role, content: message.content))
+                continue
+            }
+            let inlineHere = message.role == .user && (inlineFrom.map { index >= $0 } ?? false)
+            var images: [LLMInlineImage] = []
+            var referenced: [String] = []
+            for attachment in message.attachments {
+                if inlineHere, attachment.isImage,
+                   let data = await services.attachmentData(for: attachment) {
+                    images.append(
+                        LLMInlineImage(
+                            mimeType: attachment.mimeType,
+                            data: data,
+                            fileName: attachment.fileName
+                        )
+                    )
+                } else {
+                    referenced.append(attachment.fileName)
+                }
+            }
+            result.append(
+                LLMMessage(
+                    role: message.role,
+                    content: message.content,
+                    images: images,
+                    referencedFileNames: referenced
+                )
+            )
+        }
+        return result
+    }
+
     private func request(context: TeacherContext, systemPrompt: String, history: [LLMMessage]) -> LLMRequest {
         let providerConfig = context.configuration.resolvedProvider(for: .llm)
         var llmMessages = [LLMMessage(role: .system, content: systemPrompt)]
@@ -328,7 +405,7 @@ public final class ChatService {
         let request = self.request(
             context: context,
             systemPrompt: systemPrompt(for: configuration, memory: memory, plan: plan),
-            history: messages.map { LLMMessage(role: $0.role, content: $0.content) }
+            history: await transportMessages()
         )
         let tokensBefore = estimatedContextTokens
         var accumulated = ""
@@ -447,7 +524,7 @@ public final class ChatService {
             // 硬套一份「本轮该纠错」的计划会让老师一开口就找错。
             systemPrompt: systemPrompt(for: context.configuration, memory: memory, plan: nil),
             // 带上已有历史：恢复的会话里老师会自然地说「欢迎回来」，而不是重复自我介绍。
-            history: messages.map { LLMMessage(role: $0.role, content: $0.content) }
+            history: await transportMessages()
                 + [LLMMessage(role: .user,
                               content: PromptBuilder.greetingPrompt(
                                 learningLanguage: profile.learningLanguage,

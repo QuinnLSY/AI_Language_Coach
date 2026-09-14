@@ -81,6 +81,13 @@ public enum ReleaseChecklist {
             guidance: "架构红线：Hard-coded model path、Hard-coded localhost port 都是明令禁止的；端点与端口只能来自配置。",
             automated: true
         ),
+        Item(
+            id: "build.noUnusableOverlay",
+            title: "未使用本工程不可用的 SwiftUI 跨导入叠加 API",
+            category: .build,
+            guidance: "SwiftPM 对 cross-import overlay 支持不完整：这类 API 编译通过、启动即崩（真机跑一次才发现）。视频请用 AppKit 的 AVPlayerView 包一层，不要用叠加里的 VideoPlayer。",
+            automated: true
+        ),
 
         // MARK: AI
         Item(

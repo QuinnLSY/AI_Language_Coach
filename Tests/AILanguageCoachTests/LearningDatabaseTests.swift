@@ -190,10 +190,15 @@ final class LearningDatabaseTests: XCTestCase {
         XCTAssertEqual(boundScenario, "shopping")
     }
 
-    func testSchemaVersionIsSeven() async throws {
+    /// 新建库上报的版本必须等于代码声明的版本。
+    ///
+    /// 这里刻意**不写字面量 7**：写死数字意味着每次加一次迁移就要改一遍测试，
+    /// 而真正要防的是「建完表却忘了盖版本号」——那时 `db.schemaVersion()`（读 SQLite
+    /// 的 user_version）与 `LearningDatabase.schemaVersion`（代码常量）会不一致。
+    func testFreshDatabaseReportsDeclaredSchemaVersion() async throws {
         let db = try makeDB()
         let version = try await db.schemaVersion()
-        XCTAssertEqual(version, 7)
+        XCTAssertEqual(version, LearningDatabase.schemaVersion)
     }
 
     /// 迁移：旧版本每次启动都会建空会话，导致「最近会话」恢复不回来 —— v4 迁移要清掉它们。
@@ -234,7 +239,7 @@ final class LearningDatabaseTests: XCTestCase {
         XCTAssertEqual(sessions.count, 1, "空会话是历史包袱，应在迁移时清掉")
         XCTAssertEqual(sessions.first?.sessionID, used.id)
         let version = try await db.schemaVersion()
-        XCTAssertEqual(version, 7)
+        XCTAssertEqual(version, LearningDatabase.schemaVersion, "迁移后必须停在最新版")
     }
 
     /// 迁移：v4 旧库升级到 v5/v6 时必须补上跟读记录表（旧库根本没有这张表，
@@ -256,7 +261,7 @@ final class LearningDatabaseTests: XCTestCase {
 
         let db = try LearningDatabase(path: url.path)
         let version = try await db.schemaVersion()
-        XCTAssertEqual(version, 7)
+        XCTAssertEqual(version, LearningDatabase.schemaVersion)
 
         try await db.appendShadowingAttempt(ShadowingAttempt(
             drillID: "d", referenceText: "a b c", recognizedText: "a b", accuracy: 2.0 / 3.0

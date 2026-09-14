@@ -4,6 +4,7 @@ import AIServices
 import AppCore
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 public struct ChatView: View {
 
@@ -69,8 +70,30 @@ public struct ChatView: View {
     /// 关闭翻译失败提示。
     var onDismissTranslationError: (() -> Void)? = nil
 
+    // 附件（第 3 项需求：图片 / 视频 / 文件）
+    /// 已选好、还没发出去的附件。
+    var pendingAttachments: [ChatAttachment] = []
+    /// 附件提示（超限 / 导入失败），显示在输入框上方，可关闭。
+    var attachmentNotice: String? = nil
+    /// 正在导入附件。
+    var isImportingAttachments: Bool = false
+    /// 选中一批文件（由外部导入；面板在视图层弹，状态在 AppState）。
+    var onAddAttachments: (([URL]) -> Void)? = nil
+    /// 移除一个待发附件。
+    var onRemoveAttachment: ((UUID) -> Void)? = nil
+    /// 下载某个附件。
+    var onDownloadAttachment: ((ChatAttachment) -> Void)? = nil
+    /// 附件在本机的位置（渲染用）。
+    var attachmentLocation: ((ChatAttachment) -> URL)? = nil
+    /// 关闭附件提示。
+    var onDismissAttachmentNotice: (() -> Void)? = nil
+    /// 发送（带附件）：发送动作收在 AppState 里，视图不自己拼「取附件 + 清空」的顺序。
+    var onSend: ((String) -> Void)? = nil
+
     @State private var input: String = ""
-    @FocusState private var isInputFocused: Bool
+    /// 输入框当前高度（由 `MultilineComposerField` 按真实排版量出并夹到 5 行以内）。
+    @State private var inputHeight: CGFloat = 0
+    @State private var isInputFocused: Bool = false
     /// 本次录音开始前输入框里的内容：流式识别结果拼在它后面，绝不覆盖用户手打的字。
     @State private var voiceBase: String = ""
     /// 当前轮换到的预设提问下标。
@@ -109,7 +132,16 @@ public struct ChatView: View {
                 starterQuestions: [String] = [],
                 onTranslate: ((UUID) async -> Void)? = nil,
                 translationError: String? = nil,
-                onDismissTranslationError: (() -> Void)? = nil) {
+                onDismissTranslationError: (() -> Void)? = nil,
+                pendingAttachments: [ChatAttachment] = [],
+                attachmentNotice: String? = nil,
+                isImportingAttachments: Bool = false,
+                onAddAttachments: (([URL]) -> Void)? = nil,
+                onRemoveAttachment: ((UUID) -> Void)? = nil,
+                onDownloadAttachment: ((ChatAttachment) -> Void)? = nil,
+                attachmentLocation: ((ChatAttachment) -> URL)? = nil,
+                onDismissAttachmentNotice: (() -> Void)? = nil,
+                onSend: ((String) -> Void)? = nil) {
         self.chat = chat
         self.modelName = modelName
         self.health = health
@@ -145,6 +177,15 @@ public struct ChatView: View {
         self.onTranslate = onTranslate
         self.translationError = translationError
         self.onDismissTranslationError = onDismissTranslationError
+        self.pendingAttachments = pendingAttachments
+        self.attachmentNotice = attachmentNotice
+        self.isImportingAttachments = isImportingAttachments
+        self.onAddAttachments = onAddAttachments
+        self.onRemoveAttachment = onRemoveAttachment
+        self.onDownloadAttachment = onDownloadAttachment
+        self.attachmentLocation = attachmentLocation
+        self.onDismissAttachmentNotice = onDismissAttachmentNotice
+        self.onSend = onSend
     }
 
     public var body: some View {
@@ -161,6 +202,8 @@ public struct ChatView: View {
             }
             voiceErrorBanner
             translationErrorBanner
+            attachmentErrorBanner
+            pendingAttachmentStrip
             inputBar
             contextStrip
         }
@@ -495,29 +538,43 @@ public struct ChatView: View {
                 if !isUser, let reasoning = message.reasoning, !reasoning.isEmpty {
                     ThinkingPanel(reasoning: reasoning, isStreaming: false)
                 }
+                // 附件排在正文**上方**：和主流 Agent 一致 —— 先看到「我发了什么」，
+                // 再读配的那句话，读起来是「这张图 + 这句话」而不是反过来。
+                ForEach(message.attachments) { attachment in
+                    MessageAttachmentView(
+                        attachment: attachment,
+                        fileURL: attachmentLocation?(attachment)
+                    ) {
+                        onDownloadAttachment?(attachment)
+                    }
+                }
                 // 气泡本体：翻译按钮贴在气泡外侧（学员在左 / 老师在右），
                 // 这一层 HStack 用 .bottom 对齐 —— 按钮因此**始终与气泡底线齐平**，
                 // 下方再挂纠错卡或朗读按钮也不会把它拽下去。
-                HStack(alignment: .bottom, spacing: 6) {
-                    if isUser {
-                        TranslateButton(isOn: translation != nil, isLoading: isTranslating) {
-                            Task { await onTranslate?(message.id) }
+                //
+                // 只有附件、没打字时不出空气泡：一个空圆角框看起来像渲染坏了。
+                if !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    HStack(alignment: .bottom, spacing: 6) {
+                        if isUser {
+                            TranslateButton(isOn: translation != nil, isLoading: isTranslating) {
+                                Task { await onTranslate?(message.id) }
+                            }
                         }
-                    }
-                    MarkdownText(message.content, fontSize: 14, color: theme.primaryText)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(isUser ? theme.bubbleUser : theme.bubbleCoach)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .strokeBorder(theme.divider, lineWidth: 1)
-                        )
-                    if !isUser {
-                        TranslateButton(isOn: translation != nil, isLoading: isTranslating) {
-                            Task { await onTranslate?(message.id) }
+                        MarkdownText(message.content, fontSize: 14, color: theme.primaryText)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(isUser ? theme.bubbleUser : theme.bubbleCoach)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .strokeBorder(theme.divider, lineWidth: 1)
+                            )
+                        if !isUser {
+                            TranslateButton(isOn: translation != nil, isLoading: isTranslating) {
+                                Task { await onTranslate?(message.id) }
+                            }
                         }
                     }
                 }
@@ -912,8 +969,51 @@ public struct ChatView: View {
         }
     }
 
+    /// 附件提示（超限 / 导入失败）：说清楚哪个文件为什么没加上，可关闭。
+    @ViewBuilder
+    private var attachmentErrorBanner: some View {
+        if let attachmentNotice {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+                Text(attachmentNotice)
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button {
+                    onDismissAttachmentNotice?()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .help("关闭提示")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.orange.opacity(0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.orange.opacity(0.35), lineWidth: 1)
+            )
+            .padding(.horizontal, 18)
+            .padding(.top, 10)
+            .transition(.opacity)
+        }
+    }
+
     private var inputBar: some View {
-        HStack(spacing: 10) {
+        // `.bottom` 对齐：输入框向上拓宽时，麦克风与发送按钮**留在底部**不动，
+        // 否则它们会跟着往上飘，整条输入栏看起来在跳。
+        HStack(alignment: .bottom, spacing: 10) {
+            attachButton
+
             micButton
 
             inputField
@@ -938,30 +1038,130 @@ public struct ChatView: View {
         .padding(.top, 12)
     }
 
+    /// 「+」添加附件（图片 / 视频 / 文件）。
+    ///
+    /// 用菜单而不是一个「添加任意文件」的按钮：macOS 的文件面板按类型过滤要显式声明，
+    /// 让用户先说明「我要加的是哪一类」比让他从一堆不可选的文件里找要快得多
+    /// （这也是主流 Agent 输入框的做法）。
+    private var attachButton: some View {
+        Menu {
+            Button { pickAttachments(kind: .image) } label: {
+                Label("添加图片", systemImage: "photo")
+            }
+            Button { pickAttachments(kind: .video) } label: {
+                Label("添加视频", systemImage: "film")
+            }
+            Button { pickAttachments(kind: nil) } label: {
+                Label("添加文件", systemImage: "doc")
+            }
+        } label: {
+            Group {
+                if isImportingAttachments {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "plus")
+                        .font(.system(size: 15, weight: .semibold))
+                }
+            }
+            .foregroundStyle(theme.accent)
+            .frame(width: 40, height: 38)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous).fill(theme.surfaceAlt)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(theme.divider, lineWidth: 1)
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(isImportingAttachments)
+        .help("添加图片 / 视频 / 文件")
+    }
+
+    /// 弹系统文件面板并把结果交给外部导入。
+    private func pickAttachments(kind: ChatAttachment.Kind?) {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.prompt = "添加"
+        switch kind {
+        case .image:
+            panel.message = "选择要发送的图片（最多 \(AttachmentPolicy.maxPerMessage) 个）"
+            panel.allowedContentTypes = AttachmentClassifier.imageContentTypes.compactMap {
+                UTType(filenameExtension: $0)
+            }
+        case .video:
+            panel.message = "选择要发送的视频（最多 \(AttachmentPolicy.maxPerMessage) 个）"
+            panel.allowedContentTypes = AttachmentClassifier.videoContentTypes.compactMap {
+                UTType(filenameExtension: $0)
+            }
+        default:
+            panel.message = "选择要发送的文件（最多 \(AttachmentPolicy.maxPerMessage) 个）"
+            panel.allowedContentTypes = []
+        }
+        guard panel.runModal() == .OK else { return }
+        onAddAttachments?(panel.urls)
+    }
+
+    /// 待发附件（输入框上方一行，可横向滚动）。
+    @ViewBuilder
+    private var pendingAttachmentStrip: some View {
+        if !pendingAttachments.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(pendingAttachments) { attachment in
+                        AttachmentChip(
+                            attachment: attachment,
+                            fileURL: attachmentLocation?(attachment)
+                        ) {
+                            onRemoveAttachment?(attachment.id)
+                        }
+                    }
+                }
+                .padding(.horizontal, 18)
+            }
+            .padding(.top, 8)
+        }
+    }
+
     /// 输入框：空着的时候用浅灰字**轮换**展示预设提问（点发送即发送当前这一条）。
+    ///
+    /// 多行规则见 `MultilineComposerField` / `ComposerMetrics`：
+    /// 固定行宽、超宽换行、向上拓宽、最多 5 行，超过则只显示最后 5 行 + 滚动条。
     private var inputField: some View {
-        ZStack(alignment: .leading) {
-            TextField("", text: $input)
-                .textFieldStyle(.plain)
-                .font(.system(size: 14, design: .rounded))
-                .foregroundStyle(theme.primaryText)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(theme.surface)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(theme.divider, lineWidth: 1)
-                )
-                .focused($isInputFocused)
-                .onSubmit { send() }
+        ZStack(alignment: .topLeading) {
+            MultilineComposerField(
+                text: $input,
+                measuredHeight: $inputHeight,
+                isFocused: $isInputFocused,
+                textColor: NSColor(theme.primaryText),
+                insertionColor: NSColor(theme.accent),
+                onSubmit: { send() }
+            )
+            // ⚠️ frame 的高度就是**滚动的可视区**高度，必须与上报值**一模一样**：
+            // 曾经在这里额外 +20（想给文字留上下呼吸位），结果可视区比封顶高 20pt，
+            // 「最多 5 行」实际显示成 6 行 —— 呼吸位由外层 `.padding(.vertical, 10)` 给，
+            // 不能再叠一层，否则封顶形同虚设。
+            .frame(height: max(inputHeight, ComposerMetrics.lineHeight(fontSize: 14)))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(theme.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(theme.divider, lineWidth: 1)
+            )
 
             if input.isEmpty, let hint = currentStarterQuestion {
                 rollingQuestion(hint)
                     .padding(.leading, 14)
                     .padding(.trailing, 20)
+                    .padding(.top, 10)
                     .allowsHitTesting(false)
             }
         }
@@ -984,9 +1184,10 @@ public struct ChatView: View {
             ))
     }
 
-    /// 能不能发送：模型被关闭时一律不行；否则「有手打内容」或「有预设提问」都行。
+    /// 能不能发送：模型被关闭时一律不行；否则「有手打内容」「有待发附件」「有预设提问」都行。
     private var canSend: Bool {
         guard modelStoppedNotice == nil else { return false }
+        if !pendingAttachments.isEmpty { return true }
         if !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
         return currentStarterQuestion != nil
     }
@@ -1082,15 +1283,28 @@ public struct ChatView: View {
         // 对话模型被关闭时，输入不丢、也不发出去；用户按提示启动模型即可。
         guard modelStoppedNotice == nil else { return }
         let typed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        // 空着点发送 = 发送当前轮换到的预设提问（浅灰那条）。
-        let text = typed.isEmpty ? (currentStarterQuestion ?? "") : typed
-        guard !text.isEmpty else { return }
+        // 空着点发送 = 发送当前轮换到的预设提问（浅灰那条）；只带附件不带文字时不再兜底提问。
+        let text: String
+        if !typed.isEmpty {
+            text = typed
+        } else if pendingAttachments.isEmpty {
+            text = currentStarterQuestion ?? ""
+        } else {
+            text = ""
+        }
+        guard !text.isEmpty || !pendingAttachments.isEmpty else { return }
         // 手打与语音一视同仁：发出去后输入框彻底清空。
         // 同时断开语音回流 —— 否则「还录着音就点发送」时，下一轮流式结果会把内容原样填回来。
         input = ""
         voiceBase = ""
         isMergingVoice = false
-        chat.send(text)
+        // 发送（含附件）收在 AppState 里：视图不自己拼「取附件 + 清空」的顺序，
+        // 那个顺序漏一步就会「下一句把同一张图重发一遍」。
+        if let onSend {
+            onSend(text)
+        } else {
+            chat.send(text)
+        }
         isInputFocused = true
     }
 }

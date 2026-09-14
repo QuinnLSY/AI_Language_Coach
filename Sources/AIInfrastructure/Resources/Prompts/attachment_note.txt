@@ -1,0 +1,1 @@
+The learner also attached file(s) that this model cannot read directly: {file_names}. Do not claim to have seen their contents; mention them only if it is relevant to what the learner just said.

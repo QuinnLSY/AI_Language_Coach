@@ -213,6 +213,12 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
     /// 应用据此开放 / 关闭克隆音色这类入口，**不暴露任何厂商专属 API**。
     /// 缺省 nil = 什么都不声明（等于这些能力全关）—— 保守默认，绝不替用户假设「应该支持」。
     public var capabilities: [String]?
+    /// 该模型能否**直接读图**（多模态输入）。缺省 nil = 不能。
+    ///
+    /// 保守默认的理由很实际：对纯文本模型内联 `image_url` 会稳定 400，
+    /// 而错误信息看起来像「请求格式错误」，用户根本想不到是「这个模型不吃图」。
+    /// 没声明时，图片会退化成一句「附了一张图 xxx.png」的说明，对话照常能继续。
+    public var vision: Bool?
 
     public init(
         id: String,
@@ -243,7 +249,8 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         healthPath: String? = nil,
         apiKeyRequired: Bool? = nil,
         billable: Bool? = nil,
-        capabilities: [String]? = nil
+        capabilities: [String]? = nil,
+        vision: Bool? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -274,6 +281,7 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         self.apiKeyRequired = apiKeyRequired
         self.billable = billable
         self.capabilities = capabilities
+        self.vision = vision
     }
 
     public var userFacingName: String { displayName ?? id }

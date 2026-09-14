@@ -13,6 +13,12 @@ public struct ReleaseRuleSet: Sendable, Decodable {
     public let hardcodedPortPatterns: [String]
     public let telemetryHostPatterns: [String]
     public let audioLogPatterns: [String]
+    /// 在本工程里**不可用**的 SwiftUI 跨导入叠加（cross-import overlay）API。
+    ///
+    /// 为什么单独一类：这类 API 编译期完全正常，却在**启动时**因类元数据无法初始化而崩溃，
+    /// 只有真机跑一次才看得到。它不属于「路径/端口」那种泄密红线，也不是日志泄漏，
+    /// 所以单列一类，而不是塞进现有 pattern 里凑数。
+    public let unusableOverlayPatterns: [String]
     public let minimumLocalLocations: Int
 
     private enum CodingKeys: String, CodingKey {
@@ -20,6 +26,7 @@ public struct ReleaseRuleSet: Sendable, Decodable {
         case hardcodedPortPatterns
         case telemetryHostPatterns
         case audioLogPatterns
+        case unusableOverlayPatterns
         case minimumLocalLocations
     }
 
@@ -278,6 +285,8 @@ public struct ReleaseReadinessRunner: Sendable {
             return Self.checkNoDebugDependency(evidence: evidence)
         case "build.noHardcodedPaths":
             return Self.checkNoHardcodedPaths(evidence: evidence)
+        case "build.noUnusableOverlay":
+            return Self.checkNoUnusableOverlay(evidence: evidence)
         case "ai.unsupportedCapability":
             return Self.checkCapabilityCoverage()
         case "data.migration":
@@ -449,6 +458,28 @@ public struct ReleaseReadinessRunner: Sendable {
         return leaks.isEmpty
             ? .passed
             : .failed("日志疑似包含音频数据：\(leaks.prefix(3).joined(separator: "、"))")
+    }
+
+    /// SwiftUI 的**跨导入叠加** API 在本工程里不可用。
+    ///
+    /// 起因是一次真实事故：用 `AVKit` 的 `VideoPlayer` 渲染附件视频，
+    /// 编译、单测、`swift build` 全部通过，应用一启动就 abort
+    /// （叠加模块 `_AVKit_SwiftUI` 的类元数据初始化失败，栈顶停在 `getSuperclassMetadata`）。
+    /// SwiftPM 对 cross-import overlay 的支持不完整，而症状只在运行时出现。
+    ///
+    /// 这类问题没法靠单测拦住（视图构建期就崩，测试根本跑不到那里），
+    /// 所以放进发布静态检查：**用 AppKit 的 `AVPlayerView` 包一层是安全的替代**。
+    /// 新增别的叠加 API 时把 token 加进规则表即可，不要在这里写死字面量（自指）。
+    private static func checkNoUnusableOverlay(evidence: ReleaseEvidence) -> ReleaseCheckResult.Status {
+        guard let rules = evidence.rules else {
+            return .failed(evidence.ruleLoadError ?? "静态检查规则缺失")
+        }
+        let hits = rules.unusableOverlayPatterns.flatMap {
+            evidence.matches(pattern: $0, scope: .sources)
+        }
+        return hits.isEmpty
+            ? .passed
+            : .failed("用了本工程不可用的 SwiftUI 叠加 API（启动时会崩）：\(hits.prefix(3).joined(separator: "、"))")
     }
 
     private static func checkStorageDocumented(evidence: ReleaseEvidence) -> ReleaseCheckResult.Status {

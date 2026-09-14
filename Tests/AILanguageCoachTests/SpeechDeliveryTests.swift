@@ -166,4 +166,67 @@ final class ExternalModelPrefillTests: XCTestCase {
         provider = try XCTUnwrap(configuration.providers.first { $0.id == providerID })
         XCTAssertEqual(provider.candidateModels, ["fishaudio/fish-speech-1.5"], "探测结果要留下来")
     }
+
+    /// ⚠️ **非**生效 Provider 不能继承产品层「按能力」存的当前模型。
+    ///
+    /// `product.selectedModel(for:)` 是**按能力**存的全局值，不看 Provider：
+    /// 无脑并进候选，用户打开 DeepSeek 面板就会看到本地 Ollama 的 `qwen3:8b`
+    /// 被列成「DeepSeek 可用模型」，页脚还写着「共 1 个可用模型」——
+    /// 既误导选择，也可能真的选中它去发一个必然失败的请求。
+    func testPrefillDoesNotLeakProductModelIntoOtherRemoteProviders() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("prefill-leak-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = ConfigStore(fileURL: directory.appendingPathComponent("config.json"))
+        // 产品层当前生效的是**本地**模型；DeepSeek 只是「可选的另一家」。
+        try await store.mutateProduct { product in
+            product.selectModel("qwen3:8b", for: .llm)
+        }
+        let services = CoachServices(config: store, databasePath: ":memory:")
+
+        var configuration = await services.configuration
+        XCTAssertEqual(configuration.resolvedProvider(for: .llm)?.id, "ollama.llm",
+                       "前置条件：生效的是本地 Provider，不是 DeepSeek")
+
+        let state = AppState(services: services)
+        await state.prefillExternalDrafts()
+
+        let leaked = state.externalModels["remote.deepseek"] ?? []
+        XCTAssertFalse(
+            leaked.contains { $0.id == "qwen3:8b" },
+            "本地模型不该出现在云端厂商的候选里（会让用户以为 DeepSeek 能跑 qwen3:8b）"
+        )
+    }
+
+    /// 反过来：**生效的就是那家云端**时，当前模型必须出现在它的候选里 —— 否则选择器是空的。
+    /// 这一条与上一条是同一个判断的两面，一起钉住才说明「按生效 Provider 判定」真的成立。
+    func testPrefillShowsCurrentModelForActiveRemoteProvider() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("prefill-active-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = ConfigStore(fileURL: directory.appendingPathComponent("config.json"))
+        // 有 Key 才是 isUsable —— 否则 resolvedProvider 会跳过云端、回退本地。
+        _ = try await store.mutateProvider(id: "remote.deepseek") { $0.apiKey = "sk-test" }
+        try await store.mutateProduct { product in
+            product.activateProvider("remote.deepseek", for: .llm)
+            product.selectModel("deepseek-chat", for: .llm)
+        }
+        let services = CoachServices(config: store, databasePath: ":memory:")
+
+        let configuration = await services.configuration
+        XCTAssertEqual(configuration.resolvedProvider(for: .llm)?.id, "remote.deepseek",
+                       "前置条件：生效的应当是 DeepSeek")
+
+        let state = AppState(services: services)
+        await state.prefillExternalDrafts()
+
+        XCTAssertTrue(
+            (state.externalModels["remote.deepseek"] ?? []).contains { $0.id == "deepseek-chat" },
+            "生效 Provider 的当前模型必须还在，否则下拉框会空"
+        )
+    }
 }

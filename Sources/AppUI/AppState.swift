@@ -232,6 +232,20 @@ public final class AppState {
     /// 翻译失败提示（对话区展示，可关闭）。
     public var translationNotice: String? { chat.translationError }
 
+    // MARK: 聊天附件（第 3 项需求：图片 / 视频 / 文件）
+
+    /// 已选好、还没发出去的附件（输入框上方那一行胶囊）。
+    ///
+    /// 放在「待发」区而不是「选了就发」：学员常常一次选两三张图再配一句话，
+    /// 中途还想删掉其中一张 —— 选完即发会逼他重来一遍。
+    public private(set) var pendingAttachments: [ChatAttachment] = []
+    /// 附件相关的提示（超限 / 导入失败，可关闭）。
+    public private(set) var attachmentNotice: String?
+    /// 正在导入附件（选大文件时给个转圈）。
+    public private(set) var isImportingAttachments = false
+    /// 最近一次「保存附件」的结果提示（成功/失败都说一声，静默失败最容易被当成已保存）。
+    public private(set) var attachmentSaveNotice: String?
+
     // MARK: - 跟读（第 22 步 Shadowing）
 
     /// 是否停在跟读页（占中间栏，与学习记录页同级）。
@@ -449,6 +463,7 @@ public final class AppState {
         // （以前是学员先发第一句，常常撞上还没装配完的 Provider，那句话就没了。）
         chat.greetIfNeeded()
     }
+
 
     // MARK: - 气泡翻译
 
@@ -781,6 +796,87 @@ public final class AppState {
 
     public func clearVoiceProfileNotice() { voiceProfileNotice = nil }
 
+    // MARK: - 聊天附件（第 3 项需求）
+
+    /// 把用户选中的文件导入待发区。
+    ///
+    /// 逐个导入、逐个报错：一批里有一个超大文件时，其余的文件照样要能加上 ——
+    /// 不能因为第 3 个失败就把前 2 个一起丢掉。
+    public func addAttachments(from urls: [URL]) async {
+        guard !urls.isEmpty else { return }
+        isImportingAttachments = true
+        defer { isImportingAttachments = false }
+        var failures: [String] = []
+        var added = 0
+        for url in urls {
+            guard AttachmentPolicy.remainingSlots(current: pendingAttachments.count) > 0 else {
+                failures.append("一条消息最多带 \(AttachmentPolicy.maxPerMessage) 个附件。")
+                break
+            }
+            do {
+                let attachment = try await services.importAttachment(from: url)
+                pendingAttachments.append(attachment)
+                added += 1
+            } catch {
+                failures.append(error.localizedDescription)
+            }
+        }
+        if failures.isEmpty {
+            attachmentNotice = nil
+        } else {
+            attachmentNotice = failures.joined(separator: "\n")
+        }
+        _ = added
+    }
+
+    /// 移除一个待发附件（文件本体一并清理 —— 用户明确删掉了它，留着只是垃圾）。
+    public func removePendingAttachment(_ id: UUID) async {
+        guard let index = pendingAttachments.firstIndex(where: { $0.id == id }) else { return }
+        let attachment = pendingAttachments.remove(at: index)
+        await services.removeAttachment(attachment)
+    }
+
+    /// 清空待发附件（发送后调用；**不删文件**，消息里还要用它）。
+    public func clearPendingAttachments() {
+        pendingAttachments.removeAll()
+        attachmentNotice = nil
+    }
+
+    public func clearAttachmentNotice() { attachmentNotice = nil }
+    public func clearAttachmentSaveNotice() { attachmentSaveNotice = nil }
+
+    /// 附件在本机的位置（渲染用；不做存在性检查 —— 文件可能在运行期间被清理，
+    /// 那正是「文件已不可用」应当被看到的时候）。
+    public func attachmentLocation(for attachment: ChatAttachment) -> URL {
+        chat.attachmentLocation(for: attachment)
+    }
+
+    /// 下载附件：「另存为」到用户选的位置。结果如实说出来。
+    @discardableResult
+    public func downloadAttachment(_ attachment: ChatAttachment) -> Bool {
+        let url = attachmentLocation(for: attachment)
+        let saved = AttachmentExporter.save(attachment: attachment, from: url)
+        attachmentSaveNotice = saved ? "已保存「\(attachment.fileName)」。" : nil
+        return saved
+    }
+
+    /// 发送一条消息（**带上待发附件**，随后清空待发区）。
+    ///
+    /// 收成一个方法而不是让 View 自己「先读 pending 再 send 再 clear」：
+    /// 那三步任何一步忘掉，都会表现为「带图发出去、下一句又把同一张图重发一遍」。
+    @discardableResult
+    public func sendChat(_ text: String) -> Bool {
+        let attachments = pendingAttachments
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty || !attachments.isEmpty else { return false }
+        guard llmStoppedNotice == nil else { return false }
+        pendingAttachments.removeAll()
+        attachmentNotice = nil
+        // 附件随消息落库：`chat.send` 内部会把整条消息（含附件）写进数据库。
+        chat.send(trimmed, attachments: attachments)
+        return true
+    }
+
     public func refreshStatus() async {
         health = await services.llmHealth()
         let models = await services.availableLLMModels()
@@ -1014,10 +1110,24 @@ public final class AppState {
                     models.insert(DiscoveredModel(id: model, name: model), at: 0)
                 }
             } else {
+                // 候选模型的来源分两档，**不能混为一谈**：
+                //   ① Provider 自己在配置里声明的 model / candidate_models —— 属于它，带上；
+                //   ② 产品层当前选中的模型 —— 只有**这家就是这个能力的生效 Provider** 时才带上。
+                //
+                // ②这个限定是必须的：`product.selectedModel(for:)` 是**按能力**存的全局值，
+                // 不看 Provider。无脑并进来，用户打开 DeepSeek 面板就会看到本地 Ollama 的
+                // qwen3:8b 被列成「DeepSeek 可用模型」，页脚还写着「共 1 个可用模型」——
+                // 既误导选择，也可能真的选中它去发一个必然失败的请求。
                 var ids = provider.candidateModels
-                for extra in [provider.model, configuration.product.selectedModel(for: provider.kind)] {
-                    guard let extra, !extra.isEmpty, !ids.contains(extra) else { continue }
-                    ids.insert(extra, at: 0)
+                if let own = provider.model, !own.isEmpty, !ids.contains(own) {
+                    ids.insert(own, at: 0)
+                }
+                let isActiveForKind = configuration.resolvedProvider(for: provider.kind)?.id == provider.id
+                if isActiveForKind,
+                   let selected = configuration.product.selectedModel(for: provider.kind),
+                   !selected.isEmpty,
+                   !ids.contains(selected) {
+                    ids.insert(selected, at: 0)
                 }
                 models = ids.map { DiscoveredModel(id: $0, name: $0) }
             }
@@ -1075,6 +1185,13 @@ public final class AppState {
         return ok
     }
 
+    /// 某云端 Provider 配置里已保存的推理强度（外部模型面板打开时预选它，
+    /// 否则用户每次进来都要重新选一遍，实际感受是「上次明明设过」）。
+    public func storedReasoningEffort(providerID: String) async -> String? {
+        let configuration = await services.configuration
+        return configuration.providers.first { $0.id == providerID }?.reasoningEffort
+    }
+
     /// 某能力配置里的外部 Provider 候选（id + 展示名）。
     public func remoteProviderOptions(for kind: AIProviderKind) async -> [(id: String, name: String)] {
         let configuration = await services.configuration
@@ -1128,7 +1245,12 @@ public final class AppState {
     /// **Key 以输入框为准**：先把它落进配置（空 = 清除），再要求 Key 存在才允许启用。
     /// 这样不会出现「框里空着却被启用、并在背后用旧 Key 调用云端」的状态。
     /// 免密钥供应商不在此列：没有 Key 可要求，直接启用。
-    public func applyExternalModel(_ kind: AIProviderKind, providerID: String, model: String) async {
+    public func applyExternalModel(
+        _ kind: AIProviderKind,
+        providerID: String,
+        model: String,
+        reasoningEffort: String? = nil
+    ) async {
         let keyless = await services.isKeyless(providerID: providerID, kind: kind)
         if !keyless {
             let hasKey = await syncKeyDraft(providerID, kind: kind)
@@ -1140,7 +1262,10 @@ public final class AppState {
         }
         let apiKey = await resolvedExternalAPIKey(providerID: providerID)
         do {
-            try await services.applyRemoteProvider(providerID: providerID, apiKey: apiKey, model: model, kind: kind)
+            try await services.applyRemoteProvider(
+                providerID: providerID, apiKey: apiKey, model: model,
+                reasoningEffort: reasoningEffort, kind: kind
+            )
             externalMessages[providerID] = "已启用 \(model)"
             if !keyless {
                 externalKeyFingerprints[providerID] = await remoteKeyFingerprint(providerID: providerID)

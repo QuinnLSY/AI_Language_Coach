@@ -16,6 +16,11 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
     private let state = ProviderStateBox()
     private let client: HTTPClient
 
+    /// 配置声明的视觉能力（多模态输入）。默认 false：没声明就不内联图片 ——
+    /// 本地纯文本模型（qwen3:8b 这类）收到 `image_url` 会直接报错。
+    /// 要用 llava / qwen2-vl 这类模型读图时，在配置里给该 Provider 声明 `"vision": true`。
+    private nonisolated(unsafe) var declaredVision = false
+
     public init(providerID: String = "ollama.llm", client: HTTPClient = HTTPClient()) {
         self.providerID = providerID
         self.client = client
@@ -30,6 +35,7 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
         guard URL(string: endpoint) != nil else {
             throw AIProviderError.invalidConfiguration("端点不是合法 URL")
         }
+        declaredVision = config.vision ?? false
         await state.setConfig(config)
         await state.setLifecycle(.initialized)
     }
@@ -97,7 +103,10 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
     }
 
     public func capabilities() -> ProviderCapabilities {
-        ProviderCapabilities(streaming: true, structuredOutput: false, multilingual: true)
+        ProviderCapabilities(
+            streaming: true, structuredOutput: false,
+            vision: declaredVision, multilingual: true
+        )
     }
 
     public func metadata() -> ProviderMetadata {
@@ -105,7 +114,10 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
     }
 
     public func llmCapabilities() -> LLMCapabilities {
-        LLMCapabilities(streaming: true, structuredOutput: false, multilingual: true)
+        LLMCapabilities(
+            streaming: true, structuredOutput: false,
+            vision: declaredVision, multilingual: true
+        )
     }
 
     // MARK: - 生成
@@ -120,7 +132,12 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
         urlRequest.httpBody = try Self.makeEncoder().encode(
             OllamaChatRequest(
                 model: model,
-                messages: request.messages.map { .init(role: $0.role.rawValue, content: $0.content) },
+                messages: request.messages.map {
+                    .init(
+                        role: $0.role.rawValue,
+                        content: RemoteCommon.chatContent(for: $0, inlineImages: declaredVision)
+                    )
+                },
                 stream: false,
                 temperature: request.temperature ?? config.temperature,
                 topP: request.topP ?? config.topP,
@@ -163,7 +180,12 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
                     urlRequest.httpBody = try Self.makeEncoder().encode(
                         OllamaChatRequest(
                             model: model,
-                            messages: request.messages.map { .init(role: $0.role.rawValue, content: $0.content) },
+                            messages: request.messages.map {
+                                .init(
+                                    role: $0.role.rawValue,
+                                    content: RemoteCommon.chatContent(for: $0, inlineImages: self.declaredVision)
+                                )
+                            },
                             stream: true,
                             temperature: request.temperature ?? config.temperature,
                             topP: request.topP ?? config.topP,
@@ -323,7 +345,8 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
 
         struct Message: Encodable {
             let role: String
-            let content: String
+            /// 纯文本是字符串；带图片时是 parts 数组（Ollama 的 OpenAI 兼容层同样接受）。
+            let content: RemoteCommon.ChatMessageContent
         }
     }
 

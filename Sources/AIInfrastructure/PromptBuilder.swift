@@ -434,4 +434,34 @@ public enum PromptBuilder {
         {word}
         """
     }
+
+    // MARK: - 附件说明（第 3 项需求：聊天支持图片 / 视频 / 文件）
+
+    /// 告诉模型「学员还附了这些文件，但你看不到内容」。
+    ///
+    /// 为什么必须补这一句，而不是让附件静默消失：
+    /// 界面上明明白白躺着一个附件，模型却完全不知道它存在，这不是「降级」，是**信息错位**——
+    /// 学员问「这张图里的句子对不对」，老师的回答会变成凭空发挥。
+    /// 说清楚「我看不到」，老师才会诚实追问，而不是编。
+    ///
+    /// 空数组返回空串（调用方据此不加任何东西）。
+    public static func attachmentNoteBlock(fileNames: [String]) -> String {
+        let names = fileNames
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !names.isEmpty else { return "" }
+        let template: String
+        if let url = AppResourceBundle.module.url(forResource: "Prompts/attachment_note", withExtension: "txt"),
+           let loaded = try? String(contentsOf: url, encoding: .utf8) {
+            template = loaded
+        } else {
+            template = """
+            The learner also attached file(s) that this model cannot read directly: {file_names}. \
+            Do not claim to have seen their contents.
+            """
+        }
+        return template
+            .replacingOccurrences(of: "{file_names}", with: names.joined(separator: ", "))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }

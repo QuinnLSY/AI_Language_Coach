@@ -276,7 +276,22 @@ public struct MainView: View {
                     starterQuestions: state.starterQuestions,
                     onTranslate: { id in await state.translateMessage(id) },
                     translationError: state.translationNotice,
-                    onDismissTranslationError: { state.clearTranslationNotice() }
+                    onDismissTranslationError: { state.clearTranslationNotice() },
+                    pendingAttachments: state.pendingAttachments,
+                    attachmentNotice: state.attachmentNotice,
+                    isImportingAttachments: state.isImportingAttachments,
+                    onAddAttachments: { urls in
+                        Task { await state.addAttachments(from: urls) }
+                    },
+                    onRemoveAttachment: { id in
+                        Task { await state.removePendingAttachment(id) }
+                    },
+                    onDownloadAttachment: { attachment in
+                        state.downloadAttachment(attachment)
+                    },
+                    attachmentLocation: { state.attachmentLocation(for: $0) },
+                    onDismissAttachmentNotice: { state.clearAttachmentNotice() },
+                    onSend: { text in state.sendChat(text) }
                 )
             }
         }

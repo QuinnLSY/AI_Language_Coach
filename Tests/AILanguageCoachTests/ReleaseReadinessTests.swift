@@ -134,7 +134,44 @@ final class ReleaseReadinessTests: XCTestCase {
         XCTAssertTrue(hits.isEmpty, "正式代码里不应有硬编码绝对路径：\(hits)")
     }
 
+    /// 「不可用的 SwiftUI 叠加 API」规则必须**词首锚定**。
+    ///
+    /// 这条规则来自一次真实事故：`AVKit` 的 `VideoPlayer`（cross-import overlay）编译通过、
+    /// 启动即崩。规则写成 `VideoPlayer\(` 时，包装类型 `InlineVideoPlayer(` 会被误判成违规 ——
+    /// 一条永远红的检查最终会被所有人忽略，比没有检查更糟。所以这里把「不能误伤包装名」
+    /// 直接钉成断言，而不是只断言「今天为绿」。
+    func testOverlayRuleIsWordAnchoredAndStillCatchesBareUsage() throws {
+        let evidence = ReleaseEvidence.bootstrap()
+        let rules = try XCTUnwrap(evidence.rules, "静态检查规则未加载")
+        XCTAssertFalse(rules.unusableOverlayPatterns.isEmpty, "叠加 API 规则表不该为空")
+
+        for pattern in rules.unusableOverlayPatterns {
+            let expression = try NSRegularExpression(pattern: pattern)
+            XCTAssertTrue(
+                patternMatches("VideoPlayer(player: player)", expression),
+                "裸用法必须被抓住：\(pattern)"
+            )
+            XCTAssertTrue(
+                patternMatches("AVKit.VideoPlayer(player: player)", expression),
+                "带模块名的合法写法也必须被抓住：\(pattern)"
+            )
+            XCTAssertFalse(
+                patternMatches("InlineVideoPlayer(url: url)", expression),
+                "自建包装类型不能被误判成违规（否则检查永远红着）：\(pattern)"
+            )
+            XCTAssertFalse(
+                patternMatches("myVideoPlayer(", expression),
+                "驼峰里的同名后缀不属于违规：\(pattern)"
+            )
+        }
+    }
+
     // MARK: - 辅助
+
+    private func patternMatches(_ text: String, _ expression: NSRegularExpression) -> Bool {
+        let range = NSRange(text.startIndex..., in: text)
+        return expression.firstMatch(in: text, options: [], range: range) != nil
+    }
 
     private func makeTemporaryDirectory() throws -> URL {
         let url = URL.temporaryDirectory.appendingPathComponent("alc-test-\(UUID().uuidString)", isDirectory: true)

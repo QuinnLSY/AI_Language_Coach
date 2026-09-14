@@ -284,6 +284,94 @@ public enum RemoteCommon {
         }
     }
 
+    // MARK: - 多模态消息内容（第 3 项需求：图片 / 视频 / 文件附件）
+    //
+    // 铁律：**厂商 JSON 形态只出现在 Adapter 这一层**。这里承载 OpenAI 兼容的
+    // `message.content`（纯文本 = 字符串，带图片 = parts 数组），
+    // 上层（ChatService / UI）只交 `LLMInlineImage`，不认识 `image_url` 这种字段名。
+
+    /// OpenAI 兼容的 `message.content`。
+    public enum ChatMessageContent: Encodable {
+        case text(String)
+        case parts([Part])
+
+        public struct Part: Encodable {
+            public let type: String
+            public let text: String?
+            public let imageURL: ImageURL?
+
+            // 显式写死最终键名，不依赖 keyEncodingStrategy 对驼峰的分词结果
+            // （`imageURL` 被自动转出来是 `image_url` 还是 `image_ur_l` 全靠算法实现，不值得赌）。
+            private enum CodingKeys: String, CodingKey {
+                case type, text
+                case imageURL = "image_url"
+            }
+
+            public struct ImageURL: Encodable {
+                public let url: String
+            }
+
+            static func text(_ value: String) -> Part {
+                Part(type: "text", text: value, imageURL: nil)
+            }
+
+            static func image(_ dataURL: String) -> Part {
+                Part(type: "image_url", text: nil, imageURL: ImageURL(url: dataURL))
+            }
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.singleValueContainer()
+            switch self {
+            case .text(let value): try container.encode(value)
+            case .parts(let parts): try container.encode(parts)
+            }
+        }
+    }
+
+    /// 把图片字节包成 `data:` URL（OpenAI 兼容接口接受的内联形式）。
+    ///
+    /// 用 base64 内联而不是先上传拿 URL：这条路不需要任何额外的文件托管服务，
+    /// 也不会把用户的图片留在一个我们不掌控的地方 —— 发完即弃。
+    public static func dataURL(mimeType: String, data: Data) -> String {
+        let type = mimeType.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolved = type.isEmpty ? "application/octet-stream" : type
+        return "data:\(resolved);base64,\(data.base64EncodedString())"
+    }
+
+    /// 组装一条消息的 `content`。
+    ///
+    /// - Parameter inlineImages: 该供应商是否声明了视觉能力。**没有声明就绝不内联图片**：
+    ///   对纯文本模型发 `image_url` 只会稳定 400，而错误信息看起来像「请求格式错误」，
+    ///   用户根本想不到是「这个模型不吃图」。这时改为一句可读的说明，对话照常能继续。
+    public static func chatContent(
+        for message: LLMMessage,
+        inlineImages: Bool
+    ) -> ChatMessageContent {
+        let inlined = inlineImages ? message.images : []
+        let skipped = inlineImages ? [] : message.images
+        // 没内联的图片（含「模型不吃图」）+ 视频 / 普通文件：都只用文件名告知模型。
+        let noteNames = skipped.map(\.fileName) + message.referencedFileNames
+        let note = PromptBuilder.attachmentNoteBlock(fileNames: noteNames)
+
+        if inlined.isEmpty {
+            let joined = [message.content, note]
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .joined(separator: "\n")
+            return .text(joined)
+        }
+
+        var parts: [ChatMessageContent.Part] = []
+        let body = [message.content, note]
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .joined(separator: "\n")
+        // 文本 part 在图片 part **之前**：部分网关按「第一个 part」决定上下文的处理方式，
+        // 先给文字再给图更稳（反过来在少数网关上会被当成纯图请求，丢掉文本指令）。
+        if !body.isEmpty { parts.append(.text(body)) }
+        parts.append(contentsOf: inlined.map { .image(dataURL(mimeType: $0.mimeType, data: $0.data)) })
+        return .parts(parts)
+    }
+
     // MARK: - multipart（语音上传）
 
     /// 构造 multipart 字段（文本字段与文件字段共用一套边界格式）。

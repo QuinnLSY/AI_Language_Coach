@@ -3,14 +3,48 @@ import Foundation
 
 // MARK: - 传输模型（放 Interfaces，不放 Adapter；厂商 JSON 不得泄漏到这里）
 
+/// 随消息一起送进模型的**图片**字节（多模态输入）。
+///
+/// ⚠️ 只承载图片：OpenAI 兼容的 `/chat/completions` 的 `image_url` 部分吃的是
+/// 图片（含 `data:` URL），**不接受视频字节** —— 视频有自己的理解 / 生成端点。
+/// 把视频也塞进这里只会得到一个 400，或者更糟：一个几十 MB 的请求体在超时前跑完全程。
+public struct LLMInlineImage: Sendable, Equatable {
+    public var mimeType: String
+    public var data: Data
+    /// 原始文件名（仅用于「非视觉模型」时拼一句可读的说明）。
+    public var fileName: String
+
+    public init(mimeType: String, data: Data, fileName: String) {
+        self.mimeType = mimeType
+        self.data = data
+        self.fileName = fileName
+    }
+}
+
 public struct LLMMessage: Sendable, Equatable {
     public var role: ChatRole
     public var content: String
+    /// 图片附件（可为空）。**只有声明了视觉能力的供应商才会真正内联发出**，
+    /// 否则 Adapter 会把它降级成一句「附了一张图 xxx.png」的文本说明。
+    public var images: [LLMInlineImage]
+    /// 不能内联的附件名（视频 / 普通文件）：让模型知道用户提到了它们，
+    /// 也避免「界面上明明有附件、模型却完全不知道」的割裂。
+    public var referencedFileNames: [String]
 
-    public init(role: ChatRole, content: String) {
+    public init(
+        role: ChatRole,
+        content: String,
+        images: [LLMInlineImage] = [],
+        referencedFileNames: [String] = []
+    ) {
         self.role = role
         self.content = content
+        self.images = images
+        self.referencedFileNames = referencedFileNames
     }
+
+    /// 图片 + 非内联附件都算「有附件」。
+    public var hasAttachments: Bool { !images.isEmpty || !referencedFileNames.isEmpty }
 }
 
 public enum LLMResponseFormat: Sendable, Equatable {

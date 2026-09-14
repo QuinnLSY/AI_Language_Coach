@@ -53,9 +53,13 @@ public struct SettingsView: View {
     @State private var showVocabularyResetConfirm = false
     /// 配置里的 LLM Provider 标签（本地 / 云端）。
     @State private var providerOptions: [(id: String, name: String, isRemote: Bool)] = []
-    /// 「外部模型」折叠区的展开状态（kind.rawValue -> 是否展开）。
-    /// 没记过时按「该能力当前是否走云端」决定默认值。
-    @State private var expandedExternal: [String: Bool] = [:]
+    /// 「外部模型」面板（统一接入入口）：
+    /// 打开时记录是给哪个能力接的 —— 一份面板服务所有能力，卡片上因此永远只有一个按钮。
+    @State private var externalSheetKind: AIProviderKind?
+    /// 「AI 大脑」卡片当前看的是本地模型还是外部模型（**固定两个标签，永不增长**）。
+    @State private var llmUsesExternal = false
+    /// 是否已按当前生效 Provider 初始化过上面的标签（避免每次重绘都把它掰回来）。
+    @State private var didInitLLMTab = false
     // 克隆音色（第 24 步）：选中的参考音频 + 新建表单的两个输入。
     @State private var pendingReferenceURL: URL?
     @State private var pendingVoiceName: String = ""
@@ -96,6 +100,21 @@ public struct SettingsView: View {
             await state.refreshPrivacy()
             await state.refreshBackups()
             await state.loadVocabularyBankIfNeeded()
+        }
+        // 外部模型统一面板：一份面板服务所有能力，卡片上因此只有一个按钮。
+        .sheet(item: $externalSheetKind) { kind in
+            ExternalModelSheet(
+                kind: kind,
+                vendors: state.externalProviderCache[kind.rawValue] ?? [],
+                state: state,
+                onClose: { externalSheetKind = nil }
+            )
+            .task {
+                // 面板用到的供应商清单可能还没备好（例如从「AI 大脑」进来时）。
+                if state.externalProviderCache[kind.rawValue] == nil {
+                    state.externalProviderCache[kind.rawValue] = await state.remoteProviderOptions(for: kind)
+                }
+            }
         }
         .confirmationDialog("确定重置每日推荐学习进度吗？", isPresented: $showVocabularyResetConfirm, titleVisibility: .visible) {
             Button("重置进度", role: .destructive) {
@@ -355,13 +374,37 @@ public struct SettingsView: View {
 
     // MARK: - 模型提供商（本地 / 云端并存，二选一生效）
 
+    /// 「本地模型」入口应当停在哪个 Provider 上（配置里第一家本地的）。
+    /// 没有本地 Provider 时返回 nil，调用方保持原选择 —— 绝不硬编码一个 id 兜底。
+    private var localEntryTarget: String? {
+        providerOptions.first { !$0.isRemote }?.id
+    }
+
+    /// 「外部模型」入口应当停在哪家：优先**当前生效**的云端 Provider，
+    /// 否则配置里第一家云端。都没有时返回 nil（面板里仍可重新选）。
+    private var externalEntryTarget: String? {
+        if let active = state.activeProvider, active.isRemote { return active.id }
+        return providerOptions.first { $0.isRemote }?.id
+    }
+
     private var modelCard: some View {
         card(title: "模型提供商", systemImage: "brain", trailing: { modelProviderStatus }) {
             VStack(alignment: .leading, spacing: 12) {
-                // 提供商标签行：本地模型 / DeepSeek / OpenRouter…
+                // 固定两个入口：本地 / 外部。
+                //
+                // 这里原来是「一家云端厂商一个标签」，兼容格式一多就会把标签行撑爆
+                // （需求 1 的原始痛点）。选哪一家属于**外部模型内部**的一步，
+                // 于是整体降级成下面那张面板的第一步，卡片上永远只有两个标签。
                 HStack(spacing: 8) {
-                    ForEach(providerOptions, id: \.id) { option in
-                        providerTab(option)
+                    entryTab(title: "本地模型", systemImage: "desktopcomputer", selected: !llmUsesExternal) {
+                        llmUsesExternal = false
+                        state.selectProviderTab(localEntryTarget ?? state.selectedProviderID)
+                    }
+                    entryTab(title: "外部模型", systemImage: "cloud", selected: llmUsesExternal) {
+                        llmUsesExternal = true
+                        if let remote = externalEntryTarget {
+                            state.selectProviderTab(remote)
+                        }
                     }
                     Spacer()
                 }
@@ -370,7 +413,7 @@ public struct SettingsView: View {
                     Text("配置文件里没有 LLM Provider。")
                         .font(.system(size: 12, design: .rounded))
                         .foregroundStyle(.orange)
-                } else if isSelectedProviderRemote {
+                } else if llmUsesExternal {
                     remoteProviderSection
                 } else {
                     localProviderSection
@@ -389,6 +432,35 @@ public struct SettingsView: View {
                 }
             }
         }
+        .task {
+            // 首次打开：标签跟着**当前生效**的 Provider 走（在用云端就停在「外部模型」）。
+            guard !didInitLLMTab, !providerOptions.isEmpty else { return }
+            didInitLLMTab = true
+            llmUsesExternal = isSelectedProviderRemote
+        }
+    }
+
+    /// 卡片上的固定入口标签（本地 / 外部）。样式与模型管理中心的区块标题一致。
+    private func entryTab(
+        title: String,
+        systemImage: String,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: systemImage).font(.system(size: 10))
+                Text(title).font(.system(size: 13, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(selected ? Color.white : theme.primaryText)
+            .padding(.horizontal, 13)
+            .frame(height: 30)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(selected ? theme.accent : theme.surfaceAlt)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     /// 卡片右上角：`local.llm · qwen3:8b 已就绪 【关闭】`。
@@ -421,37 +493,6 @@ public struct SettingsView: View {
                 .help("重新检测本地模型")
             }
         }
-    }
-
-    private func providerTab(_ option: (id: String, name: String, isRemote: Bool)) -> some View {
-        let isActive = state.activeProvider?.id == option.id
-        return Button {
-            state.selectProviderTab(option.id)
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: option.isRemote ? "cloud.fill" : "desktopcomputer")
-                    .font(.system(size: 10))
-                Text(option.name)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-            }
-            .foregroundStyle(state.selectedProviderID == option.id ? Color.white : theme.primaryText)
-            .padding(.horizontal, 13)
-            .frame(height: 30)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(state.selectedProviderID == option.id ? theme.accent : theme.surfaceAlt)
-            )
-            .overlay(alignment: .topTrailing) {
-                if isActive {
-                    Circle()
-                        .fill(Color.green)
-                        .frame(width: 7, height: 7)
-                        .offset(x: 3, y: -3)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .help(isActive ? "当前生效" : "切换到\(option.name)")
     }
 
     // MARK: - 模型启动 / 关闭（所有模型组件共用同一个按钮）
@@ -559,72 +600,68 @@ public struct SettingsView: View {
         }
     }
 
-    /// 云端 Provider：API Key → 验证并获取模型 → 选模型 / 推理强度 → 启用。
+    /// 外部模型：**当前接入的是哪一家 + 一个统一的配置入口**。
+    ///
+    /// 选厂商 / 填 Key / 拉模型 / 选模型与推理强度全在那张面板里完成，
+    /// 卡片上因此永远只有这一个按钮 —— 兼容格式再多也不会把界面挤爆。
     private var remoteProviderSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // ① API Key（状态与「启动 / 关闭」在卡片右上角；云端模型无法被终止，开关只作用于应用层）
-            HStack(spacing: 8) {
-                SecureField("API Key", text: Binding(
-                    get: { state.keyDraft(for: state.selectedProviderID) },
-                    set: { state.setKeyDraft($0, providerID: state.selectedProviderID, kind: .llm) }
-                ))
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 13, design: .rounded))
-
+        let active = state.activeProvider
+        let isRemoteActive = active?.isRemote ?? false
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(isRemoteActive
+                         ? "当前接入：\(active?.userFacingName ?? "外部供应商")"
+                         : "还没有接入外部模型")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                    Text(isRemoteActive
+                         ? "模型：\(state.modelDraft.isEmpty ? "未选择" : state.modelDraft)\(state.reasoningEffortDraft.map { " · 推理强度\(reasoningText($0))" } ?? "")"
+                         : "点右边的按钮选一家厂商、填入该厂商的 API Key 即可接入。")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
                 Button {
-                    Task { await state.fetchRemoteModels() }
+                    externalSheetKind = .llm
                 } label: {
                     HStack(spacing: 5) {
-                        if state.isFetchingRemoteModels {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Image(systemName: "key.horizontal")
-                        }
-                        Text("验证并获取模型")
+                        Image(systemName: "cloud.badge.plus").font(.system(size: 11))
+                        Text(isRemoteActive ? "更换外部模型" : "配置外部模型")
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
                     }
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.accent)
+                    .padding(.horizontal, 12)
+                    .frame(height: 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(theme.surfaceAlt)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .strokeBorder(theme.accent.opacity(0.5), lineWidth: 1)
+                    )
                 }
                 .buttonStyle(.plain)
-                .disabled(state.isFetchingRemoteModels)
+                .help("接入 OpenAI / AgnesAI / DeepSeek 等外部模型")
             }
 
-            // ② 模型列表（验证成功后自动出现）
-            let models = state.remoteModels[state.selectedProviderID] ?? []
-            if !models.isEmpty {
-                Picker("选择模型", selection: Binding(
-                    get: { remoteModelDraft(models: models) },
-                    set: { model in Task { await state.applyRemoteProvider(model: model) } }
-                )) {
-                    ForEach(models) { model in
-                        Text(model.name).tag(model.id)
-                    }
-                }
-                .labelsHidden()
-            }
-
-            // ④ 推理强度
-            Picker("推理强度", selection: Binding(
-                get: { state.reasoningEffortDraft },
-                set: { state.reasoningEffortDraft = $0 }
-            )) {
-                Text("标准").tag(String?.none)
-                Text("低").tag(String?.some("low"))
-                Text("中").tag(String?.some("medium"))
-                Text("高").tag(String?.some("high"))
-            }
-
-            Text("对话内容会发送到该服务商的云端处理。填写正确的 API Key 后点击「验证并获取模型」，选择模型即可自动启用。")
+            Text("对话内容会发送到你选定的服务商云端处理。支持任何 OpenAI 兼容协议的供应商，内置 OpenAI、AgnesAI、DeepSeek、OpenRouter 等。")
                 .font(.system(size: 11, design: .rounded))
                 .foregroundStyle(theme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    /// 云端模型草稿：当前生效模型优先，否则列表第一个。
-    private func remoteModelDraft(models: [DiscoveredModel]) -> String {
-        if state.activeProvider?.id == state.selectedProviderID, !state.modelDraft.isEmpty {
-            return state.modelDraft
+    /// 推理强度的展示文案（面板里是下拉选择，这里只是回显）。
+    private func reasoningText(_ effort: String) -> String {
+        switch effort {
+        case "low": "低"
+        case "medium": "中"
+        case "high": "高"
+        default: effort
         }
-        return models.first?.id ?? ""
     }
 
     // MARK: - 模型管理中心（ASR/TTS/VAD/Embedding/Pronunciation，本地检测 + 外部模型）
@@ -874,169 +911,54 @@ public struct SettingsView: View {
         }
     }
 
-    /// 外部模型折叠区（与 LLM 云端一致的流程）。
+    /// 外部模型入口（与「AI 大脑」那张卡片**同一个面板**）。
     ///
-    /// 默认展开状态跟着**当前生效的 Provider**走：这个能力正在用云端模型时，
-    /// 一打开设置就应当看到那家供应商、已保存的 Key 与可选模型，
-    /// 而不是一个折叠着的「外部模型」，还得再点一下才知道自己配过什么。
+    /// 这里原来是「一家厂商一个标签 + 各自的 Key/模型控件」的折叠区，
+    /// 兼容格式一多就把这一块撑成一片按钮墙。现在收成一行：
+    /// 当前接的是哪家 + 一个按钮，点开才做选择。
     @ViewBuilder
     private func externalModelSection(kind: AIProviderKind) -> some View {
-        DisclosureGroup(isExpanded: Binding(
-            get: { expandedExternal[kind.rawValue] ?? (state.capabilityInfos[kind]?.isRemote ?? false) },
-            set: { expandedExternal[kind.rawValue] = $0 }
-        )) {
-            VStack(alignment: .leading, spacing: 9) {
-                let options = state.externalProviderCache[kind.rawValue] ?? []
-                if options.isEmpty {
-                    // 说话检测 / 发音评测依赖逐帧音频与声学特征，云端没有通用接口，
-                    // 因此不提供外部供应商——明确说出来，好过让用户对着空列表找原因。
-                    Text(kind == .vad || kind == .pronunciation
-                         ? "该能力基于逐帧音频在本地计算，暂无云端接口。"
-                         : "该能力暂未配置外部供应商。")
-                        .font(.system(size: 11, design: .rounded))
-                        .foregroundStyle(theme.secondaryText)
-                } else {
-                    // 供应商标签
-                    HStack(spacing: 8) {
-                        ForEach(options, id: \.id) { option in
-                            let selected = state.externalSelectedProvider[kind.rawValue] == option.id
-                            // 绿点 = **正在使用**（当前生效的 Provider 就是它）。
-                            // 不再用「有 Key 草稿」当判定：用户切走本地后草稿还在，
-                            // 绿点却亮着会让人误以为还在用那家（2026-09-13 实测反馈）。
-                            let configured = state.capabilityInfos[kind]?.providerID == option.id
-                            Button {
-                                state.externalSelectedProvider[kind.rawValue] = option.id
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "cloud.fill").font(.system(size: 9))
-                                    Text(option.name).font(.system(size: 12, weight: .semibold, design: .rounded))
-                                }
-                                .foregroundStyle(selected ? Color.white : theme.primaryText)
-                                .padding(.horizontal, 11)
-                                .frame(height: 26)
-                                .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(selected ? theme.accent : theme.surfaceAlt))
-                                .overlay(alignment: .topTrailing) {
-                                    if configured {
-                                        Circle()
-                                            .fill(Color.green)
-                                            .frame(width: 7, height: 7)
-                                            .overlay(Circle().strokeBorder(theme.panel, lineWidth: 1))
-                                            .offset(x: 3, y: -3)
-                                    }
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .help(configured
-                                  ? "\(option.name)：当前正在使用"
-                                  : "\(option.name)：未在使用")
-                        }
-                        Spacer()
-                    }
-
-                    if let providerID = state.externalSelectedProvider[kind.rawValue] {
-                        let keyless = state.keylessProviders.contains(providerID)
-                        // Key + 验证（免密钥供应商没有这一行：没有 Key 可填）
-                        if !keyless {
-                            HStack(spacing: 8) {
-                                SecureField("API Key", text: Binding(
-                                    get: { state.keyDraft(for: providerID) },
-                                    set: { state.setKeyDraft($0, providerID: providerID, kind: kind) }
-                                ))
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(size: 12, design: .rounded))
-                                .help("API Key 以这个输入框为准：清空即表示不使用该供应商（保存的旧密钥会被清除）。")
-                                Button {
-                                    Task { await state.fetchExternalModels(kind: kind, providerID: providerID) }
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        if state.isFetchingExternal {
-                                            ProgressView().controlSize(.small)
-                                        } else {
-                                            Image(systemName: "key.horizontal")
-                                        }
-                                        Text("验证并获取模型")
-                                    }
-                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(state.isFetchingExternal)
-                            }
-
-                            // 当前已保存的密钥指纹（只露末 4 位）。
-                            // ⚠️ 只在**输入框里确实有 Key** 时显示：框是空的就不该出现
-                            // 「当前使用的密钥」，否则用户会以为应用还在用旧密钥（实测反馈）。
-                            if state.hasKeyDraft(providerID), let fingerprint = state.externalKeyFingerprints[providerID] {
-                                Text("当前使用的密钥：\(fingerprint)")
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .foregroundStyle(theme.secondaryText)
-                            }
-                        } else {
-                            HStack(spacing: 8) {
-                                Button {
-                                    Task { await state.fetchExternalModels(kind: kind, providerID: providerID) }
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        if state.isFetchingExternal {
-                                            ProgressView().controlSize(.small)
-                                        } else {
-                                            Image(systemName: "antenna.radiowaves.left.and.right")
-                                        }
-                                        Text("接入音色列表")
-                                    }
-                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(state.isFetchingExternal)
-                                Text("免密钥公共服务，无需 API Key")
-                                    .font(.system(size: 11, design: .rounded))
-                                    .foregroundStyle(theme.secondaryText)
-                            }
-                        }
-
-                        // 模型列表
-                        let models = state.externalModels[providerID] ?? []
-                        if !models.isEmpty {
-                            Picker("选择模型", selection: Binding(
-                                get: {
-                                    // 选中值必须是**这家供应商名单里**的模型，否则 Picker 会显示空。
-                                    let current = state.capabilityInfos[kind]?.currentModel
-                                    if let current, models.contains(where: { $0.id == current }) { return current }
-                                    return models[0].id
-                                },
-                                set: { model in Task { await state.applyExternalModel(kind, providerID: providerID, model: model) } }
-                            )) {
-                                ForEach(models) { model in
-                                    Text(model.name).tag(model.id)
-                                }
-                            }
-                            .labelsHidden()
-                        }
-
-                        if let message = state.externalMessages[providerID] {
-                            Text(message)
-                                .font(.system(size: 11, design: .rounded))
-                                .foregroundStyle(message.contains("成功") || message.contains("已启用") ? .green : .orange)
-                        }
-                    }
-                }
-            }
-            .padding(.top, 4)
-        } label: {
-            HStack(spacing: 5) {
+        let info = state.capabilityInfos[kind]
+        let usingRemote = info?.isRemote ?? false
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
                 Image(systemName: "cloud")
                     .font(.system(size: 11))
-                Text("外部模型")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(usingRemote ? theme.accent : theme.secondaryText)
+                Text(usingRemote
+                     ? "外部模型：\(info?.providerName ?? "已接入")\(info?.currentModel.map { " · \($0)" } ?? "")"
+                     : "外部模型：未接入")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 6)
+                Button {
+                    externalSheetKind = kind
+                } label: {
+                    Text(usingRemote ? "更换" : "配置")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.accent)
+                        .padding(.horizontal, 10)
+                        .frame(height: 22)
+                        .background(Capsule().fill(theme.surfaceAlt))
+                        .overlay(Capsule().strokeBorder(theme.accent.opacity(0.45), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .help("接入这一能力的外部模型")
             }
-            .foregroundStyle(theme.secondaryText)
+            if !usingRemote, kind == .vad || kind == .pronunciation {
+                // 说话检测 / 发音评测依赖逐帧音频与声学特征，云端没有通用接口，
+                // 明确说出来，好过让用户对着空列表找原因。
+                Text("该能力基于逐帧音频在本地计算，暂无云端接口。")
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+            }
         }
         .task {
+            // 面板需要供应商清单，这里先把缓存备好（面板打开时就能直接列出来）。
             if state.externalProviderCache[kind.rawValue] == nil {
                 state.externalProviderCache[kind.rawValue] = await state.remoteProviderOptions(for: kind)
-                if state.externalSelectedProvider[kind.rawValue] == nil {
-                    state.externalSelectedProvider[kind.rawValue] = state.externalProviderCache[kind.rawValue]?.first?.id
-                }
             }
         }
     }

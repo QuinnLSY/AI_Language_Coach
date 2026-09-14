@@ -18,8 +18,17 @@ public enum RemoteModelFilter {
         .asr: ["whisper", "transcribe", "speech-to-text", "stt", "asr", "sensevoice", "paraformer", "fun-asr"],
         .tts: ["tts", "text-to-speech", "speech", "voice", "kokoro", "cosyvoice", "fish-speech", "chattts"],
         .embedding: ["embed", "bge", "gte", "jina", "text-similarity"],
-        .llm: ["gpt", "chat", "instruct", "qwen", "deepseek", "llama", "claude", "gemini", "glm", "mistral", "yi", "nemotron"]
+        .llm: ["gpt", "chat", "instruct", "qwen", "deepseek", "llama", "claude", "gemini", "glm", "mistral", "yi", "nemotron", "agnes"]
     ]
+
+    /// 明确**不是**语言模型的命名特征（图像 / 视频生成、重排、3D）。
+    ///
+    /// 为什么需要**反向**排除，而不是只靠正向加分：
+    /// 有些厂商的模型前缀会同时出现在文本与生成模型上（如 `agnes-3.0-flash` 与
+    /// `agnes-image-2.5-flash`）。正向加分把两个都算成「像语言模型」，
+    /// 用户在「AI 大脑」里选中一个图像模型后，对话必然失败 —— 那是生成端点，不是 chat。
+    /// 这里只列**几乎不可能出现在对话模型名里**的词，避免把正常模型误伤。
+    private static let generativeMarkers = ["image", "video", "diffusion", "rerank", "-3d", "tts", "whisper"]
 
     /// 同分时谁优先（语音类模型名里常常既有 speech 又有 voice）。
     private static let priority: [AIProviderKind: Int] = [
@@ -42,9 +51,23 @@ public enum RemoteModelFilter {
         return best?.kind
     }
 
+    /// 是不是明确的生成类模型（图像 / 视频 / 重排…）——对话模型列表要排掉它们。
+    public static func isGenerative(_ modelID: String) -> Bool {
+        let id = modelID.lowercased()
+        return generativeMarkers.contains { id.contains($0) }
+    }
+
     /// 按能力筛选模型 id。命中为空时原样返回（见文件头铁律）。
+    ///
+    /// `.llm` 额外排掉生成类模型：那是另一类端点，选中后对话必然失败，
+    /// 而报错（404 / 400）看不出是「选错了模型类别」。其它能力不受这条影响。
     public static func filterIDs(_ ids: [String], for kind: AIProviderKind) -> [String] {
-        let matched = ids.filter { classify($0) == kind }
+        var matched = ids.filter { classify($0) == kind }
+        if kind == .llm {
+            let chat = matched.filter { !isGenerative($0) }
+            // 全是生成类模型（说明这家把前缀也用在了生成模型上）→ 保持原样，别把列表清空。
+            matched = chat.isEmpty ? matched : chat
+        }
         return matched.isEmpty ? ids : matched
     }
 }

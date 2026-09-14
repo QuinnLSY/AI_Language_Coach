@@ -14,7 +14,9 @@ public actor LearningDatabase {
     /// v4：sessions 增加 scenario_id 列（情景练习落库，重启后能接着练）。
     /// v5：新增 shadowing_attempts（跟读记录：参考句 / 学员实际说的 / 匹配率）。
     /// v6：shadowing_attempts 增加 pronunciation 列（发音评测报告 JSON，第 23 步）。
-    public static let schemaVersion = 7
+    /// v7：词汇本（vocabulary_items / vocabulary_reviews）。
+    /// v8：messages 增加 attachments 列（图片 / 视频 / 文件附件，JSON 数组）。
+    public static let schemaVersion = 8
 
     /// 测试用内存库。
     public static func inMemory() throws -> LearningDatabase {
@@ -154,6 +156,11 @@ public actor LearningDatabase {
         )
         """)
 
+        // v7 → v8：消息补附件列（第 3 项需求：聊天支持图片 / 视频 / 文件）。
+        // 用 JSON 一列而不是建附件表：附件永远跟着消息整体读写，没有「单独查某个附件」的场景，
+        // 拆表只会多一次 join 和一次一致性维护。旧行为 NULL = 当时没有附件。
+        try? db.run("ALTER TABLE messages ADD COLUMN attachments TEXT")
+
         try db.setSchemaVersion(Self.schemaVersion)
     }
 
@@ -283,9 +290,17 @@ public actor LearningDatabase {
     }
 
     public func appendMessage(_ message: ChatMessage, sessionID: UUID) throws {
+        // 附件列存 JSON 数组。**编码失败不能把整条消息写丢** ——
+        // 消息正文才是用户真正在乎的东西，附件编码异常时宁可不带附件，也要把话留下来。
+        let attachmentsJSON = message.attachments.isEmpty
+            ? nil
+            : (try? Self.attachmentsEncoder.encode(message.attachments)).flatMap { String(data: $0, encoding: .utf8) }
         try db.runInTransaction([
             (
-                "INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, reasoning) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                """
+                INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, reasoning, attachments)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                """,
                 [
                     .text(message.id.uuidString),
                     .text(sessionID.uuidString),
@@ -293,6 +308,7 @@ public actor LearningDatabase {
                     .text(message.content),
                     .real(message.createdAt.timeIntervalSince1970),
                     message.reasoning.map { .text($0) } ?? .null,
+                    attachmentsJSON.map { .text($0) } ?? .null,
                 ]
             ),
             (
@@ -305,7 +321,7 @@ public actor LearningDatabase {
     /// 某会话的全部消息（按时间正序），用于启动时恢复上次会话。
     public func messages(sessionID: UUID) throws -> [ChatMessage] {
         let rows = try db.query(
-            "SELECT id, role, content, created_at, reasoning FROM messages WHERE session_id = ?1 ORDER BY created_at ASC, rowid ASC",
+            "SELECT id, role, content, created_at, reasoning, attachments FROM messages WHERE session_id = ?1 ORDER BY created_at ASC, rowid ASC",
             [.text(sessionID.uuidString)]
         ) { row -> ChatMessage? in
             guard let idText = row.string(0), let id = UUID(uuidString: idText),
@@ -315,11 +331,30 @@ public actor LearningDatabase {
             return ChatMessage(
                 id: id, role: role, content: content,
                 createdAt: Date(timeIntervalSince1970: created),
-                reasoning: row.string(4)
+                reasoning: row.string(4),
+                attachments: Self.decodeAttachments(row.string(5))
             )
         }
         return rows.compactMap { $0 }
     }
+
+    /// 附件 JSON 解码：坏数据一律当「没有附件」，**绝不因为一条附件的字节坏掉就让整段历史读不出来**。
+    static func decodeAttachments(_ json: String?) -> [ChatAttachment] {
+        guard let json, let data = json.data(using: .utf8) else { return [] }
+        return (try? attachmentsDecoder.decode([ChatAttachment].self, from: data)) ?? []
+    }
+
+    static let attachmentsEncoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }()
+
+    static let attachmentsDecoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }()
 
     /// 最近一个会话（含消息）。没有历史会话时返回 nil。
     public func latestSession() throws -> (session: ChatSession, messages: [ChatMessage])? {

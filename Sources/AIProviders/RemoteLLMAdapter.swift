@@ -20,6 +20,10 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
     private let state = ProviderStateBox()
     private let client: HTTPClient
 
+    /// 配置声明的视觉能力（多模态输入）。默认 false：**没声明就不内联图片**，
+    /// 因为「对纯文本模型发 image_url」的表现是稳定 400，而报错看不出是这个原因。
+    private nonisolated(unsafe) var declaredVision = false
+
     public init(providerID: String, client: HTTPClient = HTTPClient(useSystemProxy: true)) {
         self.providerID = providerID
         self.client = client
@@ -45,6 +49,7 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
         guard let apiKey = config.apiKey, !apiKey.isEmpty else {
             throw AIProviderError.invalidConfiguration("缺少 API Key")
         }
+        declaredVision = config.vision ?? false
         await state.setConfig(config)
         await state.setLifecycle(.initialized)
     }
@@ -112,7 +117,10 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
     }
 
     public func capabilities() -> ProviderCapabilities {
-        ProviderCapabilities(streaming: true, structuredOutput: false, multilingual: true)
+        ProviderCapabilities(
+            streaming: true, structuredOutput: false,
+            vision: declaredVision, multilingual: true
+        )
     }
 
     public func metadata() -> ProviderMetadata {
@@ -120,7 +128,10 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
     }
 
     public func llmCapabilities() -> LLMCapabilities {
-        LLMCapabilities(streaming: true, structuredOutput: false, multilingual: true)
+        LLMCapabilities(
+            streaming: true, structuredOutput: false,
+            vision: declaredVision, multilingual: true
+        )
     }
 
     // MARK: - 生成
@@ -141,7 +152,10 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
             base: base, apiKey: apiKey, request: request, config: config, stream: false
         )
         urlRequest.httpBody = try Self.makeEncoder().encode(
-            Self.chatBody(request: request, config: config, stream: false, model: intent.model)
+            Self.chatBody(
+                request: request, config: config, stream: false,
+                model: intent.model, inlineImages: declaredVision
+            )
         )
         let data: Data
         let response: HTTPURLResponse
@@ -197,7 +211,10 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
                         base: base, apiKey: apiKey, request: request, config: config, stream: true
                     )
                     urlRequest.httpBody = try Self.makeEncoder().encode(
-                        Self.chatBody(request: request, config: config, stream: true, model: started.model)
+                        Self.chatBody(
+                            request: request, config: config, stream: true,
+                            model: started.model, inlineImages: self.declaredVision
+                        )
                     )
 
                     let decoder = Self.makeDecoder()
@@ -279,10 +296,21 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
     /// 历史实现写成 `request.model ?? config.model ?? config.candidateModels.first`——
     /// 在没有选中模型时会静默拿候选列表的第一个去发请求，那是本次费用事故里
     /// 最必须杜绝的行为，这里不再保留任何回退分支。
-    private static func chatBody(request: LLMRequest, config: ProviderConfig, stream: Bool, model: String) -> ChatRequestBody {
+    private static func chatBody(
+        request: LLMRequest,
+        config: ProviderConfig,
+        stream: Bool,
+        model: String,
+        inlineImages: Bool
+    ) -> ChatRequestBody {
         ChatRequestBody(
             model: model,
-            messages: request.messages.map { .init(role: $0.role.rawValue, content: $0.content) },
+            messages: request.messages.map {
+                .init(
+                    role: $0.role.rawValue,
+                    content: RemoteCommon.chatContent(for: $0, inlineImages: inlineImages)
+                )
+            },
             stream: stream,
             temperature: request.temperature ?? config.temperature,
             topP: request.topP ?? config.topP,
@@ -346,7 +374,8 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
 
         struct Message: Encodable {
             let role: String
-            let content: String
+            /// 纯文本是字符串；带图片时是 parts 数组（两种形态都是 OpenAI 兼容的合法取值）。
+            let content: RemoteCommon.ChatMessageContent
         }
 
         enum CodingKeys: String, CodingKey {

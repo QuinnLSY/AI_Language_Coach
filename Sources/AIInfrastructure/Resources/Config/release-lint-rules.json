@@ -23,5 +23,8 @@
   "audioLogPatterns": [
     "AppLog\\.\\w+\\([^\\n]*(audioData|pcmBuffer|audioBuffer|samples)"
   ],
+  "unusableOverlayPatterns": [
+    "\\bVideoPlayer\\("
+  ],
   "minimumLocalLocations": 3
 }

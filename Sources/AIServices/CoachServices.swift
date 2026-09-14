@@ -44,6 +44,8 @@ public actor CoachServices {
     private let backup: DataBackup
     /// 克隆音色档案（第 24 步）：独立持久化，与 config.json 分开存放（见 `VoiceProfileStore`）。
     private let voiceProfileStore: VoiceProfileStore
+    /// 聊天附件仓库（图片 / 视频 / 文件）：文件本体与 config.json 分开存放。
+    private let attachmentStore: AttachmentStore
     private let config: ConfigStore
     private var llmProvider: (any LLMProvider)?
     /// 场景目录缓存（资源文件，进程内读一次即可）。
@@ -63,11 +65,13 @@ public actor CoachServices {
         config: ConfigStore = .shared,
         llm: LLMManager = LLMManager(),
         databasePath: String? = nil,
-        voiceProfileStore: VoiceProfileStore = .shared
+        voiceProfileStore: VoiceProfileStore = .shared,
+        attachmentStore: AttachmentStore = .shared
     ) {
         self.config = config
         self.llm = llm
         self.voiceProfileStore = voiceProfileStore
+        self.attachmentStore = attachmentStore
         self.asr = ASRManager()
         self.tts = TTSManager()
         self.embedding = EmbeddingManager()
@@ -296,6 +300,39 @@ public actor CoachServices {
     /// 校验发生在启用时（`activateVoiceProfile`），因为「能不能用」取决于当时的供应商能力。
     public func saveVoiceProfile(_ profile: VoiceProfile) async throws {
         try await voiceProfileStore.upsert(profile)
+    }
+
+    // MARK: - 聊天附件（第 3 项需求：图片 / 视频 / 文件）
+
+    /// 把用户选中的文件复制进附件目录并登记。**体积护栏在这里把关**：
+    /// 超限时抛可读错误，而不是让用户等到「发一句话卡了五分钟」才发现。
+    public func importAttachment(from url: URL) async throws -> ChatAttachment {
+        let name = url.lastPathComponent
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        if let reason = AttachmentPolicy.rejectionReason(fileName: name, byteCount: size) {
+            throw AppError.configuration(reason)
+        }
+        return try await attachmentStore.importFile(at: url)
+    }
+
+    /// 附件在本机的位置（nil = 文件已被清理，UI 显示「不可用」）。
+    public func attachmentURL(for attachment: ChatAttachment) async -> URL? {
+        await attachmentStore.fileURL(for: attachment)
+    }
+
+    /// 读取附件内容（多模态请求内联图片时用）。
+    public func attachmentData(for attachment: ChatAttachment) async -> Data? {
+        await attachmentStore.data(for: attachment)
+    }
+
+    /// 删除附件本体（移除待发附件 / 清理时调用）。
+    public func removeAttachment(_ attachment: ChatAttachment) async {
+        _ = await attachmentStore.remove(attachment)
+    }
+
+    /// 附件目录（设置页「在 Finder 中打开」用）。
+    public var attachmentDirectory: URL {
+        get async { await attachmentStore.storageDirectory }
     }
 
     /// 把用户选中的参考音频**复制**进应用数据目录，返回新路径。

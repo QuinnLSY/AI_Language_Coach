@@ -205,7 +205,9 @@ final class ShadowingTests: XCTestCase {
     func testDatabaseStoresAndReturnsAttemptsNewestFirst() async throws {
         let database = try LearningDatabase.inMemory()
         let version = try await database.schemaVersion()
-        XCTAssertEqual(version, 7, "发音评测列属于 schema v6+，词汇表 v7")
+        // 「至少 v7」才是这条测试真正要的：发音评测列属于 v6+、词汇表 v7。
+        // 写死等号会让下一次迁移无谓地把它打红。
+        XCTAssertGreaterThanOrEqual(version, 7, "发音评测列属于 schema v6+，词汇表 v7")
 
         let older = attempt(accuracy: 0.4, minutesAgo: 30)
         var newer = attempt(accuracy: 0.8, minutesAgo: 0)
