@@ -15,6 +15,10 @@ import Foundation
 /// 2. UI 不碰麦克风 / 播放器 / ASR：一切经由本服务。
 public actor ShadowingService {
 
+    /// 录音时传给 ASR 的语言标签。跟读页与词汇复习卡的「读一遍」共用同一个 ——
+    /// 两处各写一份，日后改一处必漏另一处（而漏的那处只表现为「识别莫名其妙变差」）。
+    public static let practiceLanguage = "English"
+
     private let voice: VoiceService
     private let pronunciation: PronunciationService
     private let learning: LearningDatabase?
@@ -148,5 +152,27 @@ public actor ShadowingService {
     /// 跟读汇总（次数 / 最佳 / 平均 / 最近一次）。
     public func stats(limit: Int = 100) async -> ShadowingStats {
         ShadowingStats.from(await recentAttempts(limit: limit))
+    }
+
+    // MARK: - 单次开口读的评测（词汇复习的单词朗读复用这条链路）
+
+    /// 评测一次「开口读」（参考文本任意 —— 词汇复习卡读的就是**单个词**）。
+    ///
+    /// 与跟读**共用**同一条链路：录音 → 原始 ASR → 音素双通道（声学实测 / 规则推断）。
+    /// 唯一区别是**不落库**：词汇复习另有一套流水（`vocabulary_reviews`），
+    /// 把单词评测塞进跟读记录里，会把跟读的平均分与历史一起带偏。
+    ///
+    /// 返回 nil 表示这次没拿到音频（没录上 / 纯文本调用）——
+    /// 调用方据此**不给分数**，而不是拿一个 0 分冒充「读得很差」。
+    public func evaluateSpeech(reference: String, recognized: String) async -> PronunciationReport? {
+        guard !pendingSamples.isEmpty else { return nil }
+        let report = await pronunciation.report(
+            reference: reference,
+            recognized: recognized,
+            samples: pendingSamples,
+            sampleRate: await voice.recordingSampleRate
+        )
+        pendingSamples = []
+        return report
     }
 }

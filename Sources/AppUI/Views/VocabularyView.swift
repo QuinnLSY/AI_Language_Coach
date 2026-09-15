@@ -27,13 +27,20 @@ public struct VocabularyView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         dailySection
-                        // 添加框常驻：词表空了也要能随手加词。
-                        addRow
-                        if state.vocabularyEntries.isEmpty {
-                            emptyHint
+                        // 复习模式：整段换成复习卡（一张一张过），词表暂时让位。
+                        // 不是「另开一个页面」——复习完就在原地回到词表，少一次跳转。
+                        if state.vocabularyReview != nil {
+                            reviewCard
                         } else {
-                            ForEach(state.vocabularyEntries) { entry in
-                                entryCard(entry)
+                            reviewEntryCard
+                            // 添加框常驻：词表空了也要能随手加词。
+                            addRow
+                            if state.vocabularyEntries.isEmpty {
+                                emptyHint
+                            } else {
+                                ForEach(state.vocabularyEntries) { entry in
+                                    entryCard(entry)
+                                }
                             }
                         }
                         if let notice = state.vocabularyNotice {
@@ -680,6 +687,93 @@ public struct VocabularyView: View {
     /// 该词是否已在复习列表（大小写不敏感，与数据库去重规则一致）。
     private func inVocabulary(_ word: String) -> Bool {
         state.vocabularyEntries.contains { $0.word.caseInsensitiveCompare(word) == .orderedSame }
+    }
+
+    // MARK: - 复习闭环（P1-3）
+
+    /// 复习入口：到期几个、一轮怎么走、什么时候开始。
+    ///
+    /// 「今天没有到期的词」也要显示（灰按钮）：不显示的话，用户会以为复习功能坏了。
+    @ViewBuilder
+    private var reviewEntryCard: some View {
+        if state.vocabularyStats.total > 0 {
+            let due = state.vocabularyStats.due
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: due > 0 ? "clock.badge.exclamationmark" : "checkmark.circle")
+                    .font(.system(size: 16))
+                    .foregroundStyle(due > 0 ? theme.accent : Color.green)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(due > 0 ? "今天有 \(due) 个词到期" : "今天没有到期的词")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                    Text(due > 0
+                         ? "一轮最多过 \(VocabularyReviewSession.maxCards) 个：先自己想，再翻面；忘了的今天还会再见一面。"
+                         : "复习过的词会按掌握度排下一次见面的时间，掌握度满 \(ReviewScheduler.maxMastery) 就不再出现。")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Button {
+                    Task { await state.startVocabularyReview() }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "play.fill")
+                        Text("开始复习")
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(
+                        Capsule().fill(due > 0 ? theme.accent : theme.secondaryText.opacity(0.35))
+                    )
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(due == 0)
+                .help(due > 0 ? "开始一轮复习（最多 \(VocabularyReviewSession.maxCards) 个词）" : "今天没有到期的词")
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(theme.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(due > 0 ? theme.accent.opacity(0.3) : theme.divider, lineWidth: 1)
+            )
+        }
+    }
+
+    /// 复习模式：把状态摆进纯展示组件（组件本身不读 `AppState`，便于单独离屏渲染）。
+    @ViewBuilder
+    private var reviewCard: some View {
+        if let session = state.vocabularyReview {
+            VocabularyReviewCard(
+                session: session,
+                revealed: state.vocabularyReviewRevealed,
+                report: state.vocabularyReviewReport,
+                recognized: state.vocabularyReviewRecognized,
+                notice: state.vocabularyReviewNotice,
+                isRecording: state.isVocabularyReviewRecording,
+                isBusy: state.isVocabularyReviewBusy,
+                isSpeaking: state.speakingText == session.current?.word && state.speechPhase != .idle,
+                isPreparingSpeech: state.speakingText == session.current?.word
+                    && state.speechPhase == .preparing,
+                hasRecording: state.vocabularyReviewRecognized != nil,
+                onReveal: { state.revealVocabularyReviewCard() },
+                onGrade: { remembered in
+                    Task { await state.gradeVocabularyReviewCard(remembered: remembered) }
+                },
+                onToggleRecording: { Task { await state.toggleVocabularyReviewRecording() } },
+                onReplay: { Task { await state.replayVocabularyReviewRecording() } },
+                onSpeak: { Task { await state.speakVocabularyReviewWord() } },
+                onFinish: { Task { await state.finishVocabularyReview() } },
+                onDismissNotice: { state.dismissVocabularyReviewNotice() }
+            )
+        }
     }
 
     // MARK: - 添加

@@ -346,6 +346,25 @@ public final class AppState {
     public private(set) var vocabularySuggestions: [VocabularySuggestion] = []
     /// 当前输入命中的联想（悬浮框展示；空 = 不展示，不挤压下方内容）。
     public private(set) var vocabularyMatches: [VocabularySuggestion] = []
+
+    // MARK: - 词汇复习闭环（P1-3 复习会话）
+
+    /// 正在进行的一轮复习（nil = 不在复习模式，页面照常显示词表）。
+    /// 队列与结算口径全在 `AIDomain.VocabularyReviewSession`（纯函数），这里只持有它。
+    public private(set) var vocabularyReview: VocabularyReviewSession?
+    /// 当前这张卡是否已翻面（看过释义）。
+    public private(set) var vocabularyReviewRevealed = false
+    /// 当前这张卡的朗读评测报告（nil = 这次还没读 / 没拿到录音）。
+    /// ⚠️ 只作为**证据**展示，绝不替学员点「认识 / 忘了」。
+    public private(set) var vocabularyReviewReport: PronunciationReport?
+    /// 当前这张卡朗读时系统听成了什么（用来如实说明「它听到了别的词」）。
+    public private(set) var vocabularyReviewRecognized: String?
+    /// 正在录这张卡的朗读。
+    public private(set) var isVocabularyReviewRecording = false
+    /// 朗读评测进行中（录音已结束，正在跑 ASR / 音素）。
+    public private(set) var isVocabularyReviewBusy = false
+    /// 复习模式里的一次性提示（读失败 / 没听清等）。
+    public private(set) var vocabularyReviewNotice: String?
     /// 上次重置每日推荐学习进度的时间（没重置过为 nil）。
     public private(set) var dailyProgressResetAt: Date?
     /// 重置那一刻已学完（累计认识满 3 次）的词数。
@@ -1834,6 +1853,164 @@ public final class AppState {
         vocabularyNotice = nil
     }
 
+    // MARK: - 词汇复习闭环（P1-3 复习会话）
+    //
+    // 队列、判分推进、结算全部在 `AIDomain.VocabularyReviewSession`（纯函数）；
+    // 这里只做三件事：开一轮、把学员的动作转成服务调用、把结果摆到界面上。
+    //
+    // ⚠️ **朗读分不参与等级**。音素评测回答的是「你刚才读得准不准」，
+    // 而认识 / 忘了回答的是「你还记不记得这个词」—— 拿发音分替学员点等级，
+    // 是两件事混成一件（读错一个音就被判「忘了」）。所以朗读只把证据摆出来。
+
+    /// 开一轮复习：把**真的到期**的词排成队列（最多 `VocabularyReviewSession.maxCards` 个）。
+    ///
+    /// 没有到期的词就如实说一声，不硬开一个空会话 —— 空会话只会让人看到一条「0/0」的进度条。
+    public func startVocabularyReview() async {
+        let session = VocabularyReviewSession(entries: vocabularyEntries)
+        guard !session.queue.isEmpty else {
+            vocabularyNotice = "今天没有到期的词。过几天再来，或者去每日推荐里挑几个加进复习列表。"
+            return
+        }
+        await stopSpeaking()
+        vocabularyReview = session
+        vocabularyReviewRevealed = false
+        vocabularyReviewReport = nil
+        vocabularyReviewRecognized = nil
+        vocabularyReviewNotice = nil
+        isVocabularyReviewRecording = false
+        isVocabularyReviewBusy = false
+    }
+
+    /// 翻面看释义（正面只给词，先自己想一遍）。
+    public func revealVocabularyReviewCard() {
+        vocabularyReviewRevealed = true
+    }
+
+    /// 判分并推到下一张。
+    ///
+    /// 朗读结果（如果有）随判分记进结算 —— 但等级用的是学员自己按的那个。
+    public func gradeVocabularyReviewCard(remembered: Bool) async {
+        guard let entry = vocabularyReview?.current else { return }
+        if isVocabularyReviewRecording { await cancelVocabularyReviewRecording() }
+        _ = await services.vocabulary.grade(id: entry.id, remembered: remembered)
+        vocabularyReview?.grade(
+            remembered: remembered,
+            pronunciationScore: vocabularyReviewReport?.overall,
+            phonemeSource: vocabularyReviewReport?.phonemeSource
+        )
+        vocabularyReviewRevealed = false
+        vocabularyReviewReport = nil
+        vocabularyReviewRecognized = nil
+        vocabularyReviewNotice = nil
+        await reloadVocabulary()
+    }
+
+    /// 收起这一轮（提前退出 / 结算卡上的「完成」都走这里）。
+    public func finishVocabularyReview() async {
+        if isVocabularyReviewRecording { await cancelVocabularyReviewRecording() }
+        await services.shadowing.stopAudio()
+        vocabularyReview = nil
+        vocabularyReviewRevealed = false
+        vocabularyReviewReport = nil
+        vocabularyReviewRecognized = nil
+        vocabularyReviewNotice = nil
+        isVocabularyReviewRecording = false
+        isVocabularyReviewBusy = false
+        await reloadVocabulary()
+    }
+
+    /// 点一下开始读，再点一下停止并评分。
+    public func toggleVocabularyReviewRecording() async {
+        if isVocabularyReviewRecording {
+            await finishVocabularyReviewRecording()
+        } else {
+            await startVocabularyReviewRecording()
+        }
+    }
+
+    /// 开始读当前这个词（录音期间 VoiceService 会把识别结果流式推给输入框）。
+    public func startVocabularyReviewRecording() async {
+        guard vocabularyReview?.current != nil else { return }
+        if !isModelRunning(.asr) { _ = (try? await services.resumeIfSuspended(.asr)) ?? false }
+        guard isModelRunning(.asr) else {
+            vocabularyReviewNotice = "\(await services.modelLabel(for: .asr)) 已关闭，请在设置里点绿色的「启动」后再读。"
+            return
+        }
+        vocabularyReviewNotice = nil
+        vocabularyReviewReport = nil
+        vocabularyReviewRecognized = nil
+        // 录音前先停掉朗读，别把喇叭里的老师声音也录进去。
+        await stopSpeaking()
+        await services.shadowing.stopAudio()
+        await services.shadowing.startRecording(language: ShadowingService.practiceLanguage)
+        isVocabularyReviewRecording = await services.voice.isRecording
+        if !isVocabularyReviewRecording {
+            vocabularyReviewNotice = await services.shadowing.lastError() ?? "麦克风没能打开，检查一下系统权限。"
+        }
+    }
+
+    /// 停止录音 → **原始**识别（不做拼写纠正）→ 音素评测（跟读同一套双通道）。
+    public func finishVocabularyReviewRecording() async {
+        guard let entry = vocabularyReview?.current else { return }
+        isVocabularyReviewRecording = false
+        isVocabularyReviewBusy = true
+        let recognized = await services.shadowing.finishRecording(language: ShadowingService.practiceLanguage)
+        voiceTranscript = nil
+        guard let recognized, !recognized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            isVocabularyReviewBusy = false
+            vocabularyReviewNotice = await services.shadowing.lastError() ?? "没有听清，凑近麦克风再说一次。"
+            return
+        }
+        vocabularyReviewRecognized = recognized
+        vocabularyReviewReport = await services.shadowing.evaluateSpeech(reference: entry.word, recognized: recognized)
+        if vocabularyReviewReport == nil {
+            // 没拿到音频就不给分数：宁可少一项，也不拿 0 分冒充「读得很差」。
+            vocabularyReviewNotice = "这次没拿到录音，所以没算分（发音是通过录音量出来的，识别文本替代不了）。"
+        }
+        isVocabularyReviewBusy = false
+    }
+
+    /// 放弃这次录音。
+    public func cancelVocabularyReviewRecording() async {
+        isVocabularyReviewRecording = false
+        await services.shadowing.cancelRecording()
+    }
+
+    /// 听我的：回放刚才读的那遍。
+    public func replayVocabularyReviewRecording() async {
+        guard await services.shadowing.hasRecording else {
+            vocabularyReviewNotice = "还没有录音，先点「读一遍」。"
+            return
+        }
+        vocabularyReviewNotice = nil
+        isVocabularyReviewBusy = true
+        do {
+            try await services.shadowing.replayRecording(rate: Float(product.speechRate))
+        } catch {
+            vocabularyReviewNotice = "回放失败：\(error.localizedDescription)"
+        }
+        isVocabularyReviewBusy = false
+    }
+
+    /// 朗读当前这个词（听示范）。
+    public func speakVocabularyReviewWord() async {
+        guard let entry = vocabularyReview?.current else { return }
+        if stateSpeakingThis(entry.word) {
+            await stopSpeaking()
+        } else {
+            await speak(entry.word)
+        }
+    }
+
+    /// 正在朗读的文本是不是这一条（避免两处各写一遍比较逻辑）。
+    private func stateSpeakingThis(_ text: String) -> Bool {
+        speakingText == text && speechPhase != .idle
+    }
+
+    public func dismissVocabularyReviewNotice() {
+        vocabularyReviewNotice = nil
+    }
+
     // MARK: - 词汇本 · 添加框联想
 
     /// 载入本地词库（一次）：撑起添加框联想候选 + 设置页的总词数统计。
@@ -2100,7 +2277,7 @@ public final class AppState {
         voiceTranscript = nil
         // 录音前先停掉示范，避免麦克风把老师的声音也录进去。
         await services.shadowing.stopAudio()
-        await services.shadowing.startRecording(language: "English")
+        await services.shadowing.startRecording(language: ShadowingService.practiceLanguage)
         isShadowingRecording = await services.voice.isRecording
         if let error = await services.shadowing.lastError() { shadowingNotice = error }
     }
@@ -2110,7 +2287,7 @@ public final class AppState {
         guard let drill = currentShadowingDrill else { return }
         isShadowingRecording = false
         isShadowingBusy = true
-        let recognized = await services.shadowing.finishRecording(language: "English")
+        let recognized = await services.shadowing.finishRecording(language: ShadowingService.practiceLanguage)
         isShadowingBusy = false
         voiceTranscript = nil
         guard let recognized, !recognized.isEmpty else {
