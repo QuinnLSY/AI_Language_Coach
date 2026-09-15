@@ -327,11 +327,16 @@ final class VocabularyReviewRenderTests: XCTestCase {
     // MARK: - ⑥ 端到端：真实数据库 → 服务 → AppState → 页面
 
     private func makeAppState() -> AppState {
+        makeAppState(databasePath: ":memory:")
+    }
+
+    /// 指定库文件的 AppState：需要「另一个连接直接写库」时用（见 ⑦ 的释义同步那条）。
+    private func makeAppState(databasePath: String) -> AppState {
         let store = ConfigStore(
             fileURL: FileManager.default.temporaryDirectory
                 .appendingPathComponent("vocab-review-probe-\(UUID().uuidString).json")
         )
-        return AppState(services: CoachServices(config: store, databasePath: ":memory:"))
+        return AppState(services: CoachServices(config: store, databasePath: databasePath))
     }
 
     /// 走真实链路：入库 → 开一轮 → 判分 → 待复习数真的降下来 → 页面里真的画出复习卡。
@@ -376,6 +381,10 @@ final class VocabularyReviewRenderTests: XCTestCase {
     }
 
     /// 整页离屏渲染（词汇页是「顶栏 + 滚动区」，自然高度不可靠，所以铺满固定画布）。
+    ///
+    /// ⚠️ 页面级的**逐像素比较**必须先钉住页面自己会异步改的那份数据
+    /// （词汇页的 `.task` 会去加载每日推荐，加载前后整页差 20% 的像素）。
+    /// 见 ⑦ 的退出复习那条。
     private func renderPage(state: AppState, theme: ForestTheme) throws -> Render {
         let page = NSHostingView(rootView: AnyView(VocabularyView(state: state).forestTheme(theme)))
         page.frame = NSRect(x: 0, y: 0, width: 900, height: 1400)
@@ -404,5 +413,251 @@ final class VocabularyReviewRenderTests: XCTestCase {
         await state.startVocabularyReview()
         XCTAssertNil(state.vocabularyReview, "没有到期的词就不该开一轮")
         XCTAssertNotNil(state.vocabularyNotice, "要如实说明「今天没有到期的词」")
+    }
+
+    // MARK: - ⑦ 没有释义就地查 + 退出复习（用户实测提的两条）
+
+    /// 只有 coffee 一个词、且**没有释义**。
+    private func bareSession() -> VocabularyReviewSession {
+        VocabularyReviewSession(
+            entries: [VocabularyEntry(word: "coffee", meaning: "", mastery: 0)], now: now
+        )
+    }
+
+    /// 控件单独渲染：底色只铺在控件**外面**（外层 `background`），
+    /// 这样墨迹包围盒量到的就是控件自己，而不是整块画布。
+    private func renderControl(_ view: AnyView, day: Bool = true) throws -> Render {
+        let theme = ForestThemeResolver.resolve(mode: day ? .day : .night, systemIsDark: !day)
+        let host = NSHostingView(rootView: AnyView(
+            view.forestTheme(theme).padding(16).background(theme.surface)
+        ))
+        let size = CGSize(width: 220, height: 80)
+        host.frame = NSRect(origin: .zero, size: size)
+        let window = NSWindow(
+            contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = host
+        self.window = window
+        host.layoutSubtreeIfNeeded()
+        window.layoutIfNeeded()
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return Render(rep: rep, size: size)
+    }
+
+    /// 墨迹包围盒（点）：以左上角像素为底色基准，统计明显不同的像素。
+    ///
+    /// ⚠️ 不用 `size(withAttributes:)` 当基准 —— 那是排版推进宽度，与真画出来的墨迹对不上
+    /// （本项目已固化过这条教训）。位图可能是 1x 也可能是 2x，所以按画布宽度折算回点。
+    private func ink(_ render: Render) throws -> (width: CGFloat, height: CGFloat, pixels: Int) {
+        let rep = render.rep
+        let background = try XCTUnwrap(rep.colorAt(x: 1, y: 1))
+        var minX = rep.pixelsWide, maxX = -1, minY = rep.pixelsHigh, maxY = -1, count = 0
+        for x in 0..<rep.pixelsWide {
+            for y in 0..<rep.pixelsHigh {
+                guard let color = rep.colorAt(x: x, y: y) else { continue }
+                let delta = abs(color.redComponent - background.redComponent)
+                    + abs(color.greenComponent - background.greenComponent)
+                    + abs(color.blueComponent - background.blueComponent)
+                guard delta > 0.12 else { continue }
+                count += 1
+                minX = min(minX, x); maxX = max(maxX, x)
+                minY = min(minY, y); maxY = max(maxY, y)
+            }
+        }
+        guard count > 0 else { return (0, 0, 0) }
+        let scale = CGFloat(rep.pixelsWide) / render.size.width
+        return (CGFloat(maxX - minX + 1) / scale, CGFloat(maxY - minY + 1) / scale, count)
+    }
+
+    /// 「退出复习」必须是一个有分量的胶囊，不是一行 11pt 小灰字。
+    ///
+    /// 用户实测反馈「进了复习就回不去词表了」—— 原来那里的出口就是一行灰色「结束」，
+    /// 挤在进度与剩余数之间，看着不像出口。这条用墨迹尺寸钉住「它现在是个按钮」。
+    func testExitButtonIsAPillNotABareLabel() throws {
+        let render = try renderControl(AnyView(VocabularyReviewExitButton()))
+        let bounds = try ink(render)
+        // 按设计推：「退出复习」四个字 11pt 半粗 ≈ 44pt 宽，加箭头与左右各 10pt 内边距 ≈ 74pt；
+        // 高度是 11pt 字加上下各 5pt 内边距 ≈ 21pt —— 一行裸标签只有约 8pt 高。
+        XCTAssertGreaterThan(bounds.width, 60, "文字 + 箭头 + 内边距必须撑出这个宽度")
+        XCTAssertGreaterThan(bounds.height, 16, "胶囊的上下内边距一定比一行小字高")
+        try dump(render.rep, name: "round36-review-exit-button.png")
+    }
+
+    /// 「查释义」也是一个看得见的控件，而且加载态看得出来（不然用户不知道点了没反应）。
+    func testDefineButtonIsAVisibleControl() throws {
+        let idle = try renderControl(AnyView(VocabularyReviewDefineButton()))
+        let busy = try renderControl(AnyView(VocabularyReviewDefineButton(isDefining: true)))
+        let bounds = try ink(idle)
+        XCTAssertGreaterThan(bounds.width, 50, "「查释义」三个字加图标与内边距")
+        XCTAssertGreaterThan(bounds.height, 13, "胶囊的上下内边距一定比一行小字高")
+        XCTAssertGreaterThan(
+            diff(busy.rep, idle.rep).count, 20, "「正在查…」与「查释义」必须肉眼可分"
+        )
+        try dump(idle.rep, name: "round36-review-define-button.png")
+    }
+
+    /// 翻面后没有释义 → 就地有「查释义」，不必退出复习。
+    func testRevealedCardWithoutDefinitionOffersInlineLookup() throws {
+        let session = bareSession()
+        let idle = try render(AnyView(VocabularyReviewCard(session: session, revealed: true)), day: true)
+        let busy = try render(
+            AnyView(VocabularyReviewCard(session: session, revealed: true, isDefining: true)), day: true
+        )
+        // 差分非零 = 这个控件确实画在卡里（没画的话两版一模一样）。
+        XCTAssertGreaterThan(
+            diff(busy.rep, idle.rep).count, 20, "翻面里必须真的有「查释义」，并且加载态可见"
+        )
+        try dump(idle.rep, name: "round36-review-card-without-definition.png")
+    }
+
+    /// 反过来：已经有释义的词上不该出现「查释义」。
+    /// （若那里也画了，`isDefining` 一开一关就会让画面变样 —— 差分必须是零。）
+    func testCardWithDefinitionDrawsNoLookupButton() throws {
+        let session = coffeeSession()
+        let idle = try render(AnyView(VocabularyReviewCard(session: session, revealed: true)), day: true)
+        let busy = try render(
+            AnyView(VocabularyReviewCard(session: session, revealed: true, isDefining: true)), day: true
+        )
+        XCTAssertLessThan(
+            diff(busy.rep, idle.rep).count, 5, "已经有释义的词不该再出现「查释义」入口"
+        )
+    }
+
+    /// 历史数据（只有一整段非结构化释义）**不算**「没有释义」。
+    ///
+    /// 判错会骗人再花一次模型调用，而且那句「可以回词表点查释义」本身就是假话。
+    func testLegacyDefinitionIsNotTreatedAsMissing() throws {
+        let legacy = VocabularyEntry(
+            word: "coffee", meaning: "咖啡，咖啡豆（早年只存了整段中文，没有音标与例句）", mastery: 0
+        )
+        let definition = VocabularyDefinitionRule.decodeStored(legacy.meaning)
+        XCTAssertTrue(definition.legacyText.isEmpty == false, "这条数据必须真的是老格式，否则没在测它")
+
+        let session = VocabularyReviewSession(entries: [legacy], now: now)
+        let idle = try render(AnyView(VocabularyReviewCard(session: session, revealed: true)), day: true)
+        let busy = try render(
+            AnyView(VocabularyReviewCard(session: session, revealed: true, isDefining: true)), day: true
+        )
+        XCTAssertLessThan(
+            diff(busy.rep, idle.rep).count, 5, "老数据有释义可看，不该出现「还没有释义 / 查释义」"
+        )
+    }
+
+    /// 退出复习必须**真的回到原来那张词表**：不是回不去，也不是回到一个变了样的页面。
+    func testExitReviewReturnsToTheSameWordList() async throws {
+        let state = makeAppState()
+        _ = await state.services.vocabulary.add(
+            word: "coffee", meaning: definition("/ˈkɒfi/", pos: "n.", senses: "咖啡")
+        )
+        await state.reloadVocabulary()
+        // ⚠️ 先钉住每日推荐：词汇页的 `.task` 会自己去加载它，加载前后整页能差出 20% 的像素 ——
+        // 那样比出来的「页面变了」全是噪声，等于没验。加载过一次之后视图那边就是空操作。
+        await state.loadDailyWordsIfNeeded()
+        XCTAssertFalse(state.dailyWords.isEmpty, "每日推要先备好，下面的逐像素比较才有意义") 
+
+        let theme = ForestThemeResolver.resolve(mode: .day, systemIsDark: false)
+        let before = try renderPage(state: state, theme: theme)
+        // 同一份数据连抓两次的噪声，作为「页面没变」的容许量（实测为 0）。
+        let noise = diff(before.rep, try renderPage(state: state, theme: theme).rep).count
+
+        await state.startVocabularyReview()
+        XCTAssertNotNil(state.vocabularyReview, "有到期的词就该开起来")
+        let during = try renderPage(state: state, theme: theme)
+        let switched = diff(during.rep, before.rep).count
+        XCTAssertGreaterThan(switched, noise + 50_000, "复习模式必须真的换了样子")
+
+        await state.finishVocabularyReview()
+        XCTAssertNil(state.vocabularyReview, "退出复习后必须回到词表模式")
+        XCTAssertEqual(state.vocabularyEntries.count, 1, "词表还在，没被复习吃掉")
+        let after = try renderPage(state: state, theme: theme)
+        let restored = diff(after.rep, before.rep).count
+        XCTAssertLessThanOrEqual(
+            restored, noise + 200,
+            "退出后要回到**同一张**词表（一个词都没判分，页面不该有变化）；实测差分 \(restored)，噪声 \(noise)"
+        )
+        try dump(after.rep, name: "round36-vocabulary-list-after-exit.png")
+    }
+
+    /// 复习途中查到的释义要同时落到两处：**卡上**（翻面立刻可见）与**词表**。
+    ///
+    /// 走真的库文件：`AppState` 连一个库，测试再用同一个文件开一个连接写释义
+    /// （模型那一跳在测试里不跑；`updateVocabularyDefinition` 就是查释义成功后的落库动作）。
+    func testDefinitionFoundDuringReviewLandsOnTheCardAndTheList() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocab-review-def-\(UUID().uuidString).db").path
+        let state = makeAppState(databasePath: path)
+        _ = await state.services.vocabulary.add(word: "coffee")
+        await state.reloadVocabulary()
+        let entry = try XCTUnwrap(state.vocabularyEntries.first)
+        XCTAssertTrue(entry.meaning.isEmpty, "这个词一开始确实没有释义")
+
+        await state.startVocabularyReview()
+        state.revealVocabularyReviewCard()
+        let beforeSession = try XCTUnwrap(state.vocabularyReview)
+        XCTAssertTrue(beforeSession.current?.meaning.isEmpty == true)
+        let beforeCard = try render(
+            AnyView(VocabularyReviewCard(session: beforeSession, revealed: true)), day: true
+        )
+
+        let database = try LearningDatabase(path: path)
+        try await database.updateVocabularyDefinition(
+            id: entry.id,
+            meaning: definition("/ˈkɒfi/", pos: "n.", senses: "咖啡"),
+            example: "I would like a cup of coffee, please."
+        )
+        await state.reloadVocabulary()
+
+        XCTAssertFalse(
+            (state.vocabularyEntries.first?.meaning ?? "").isEmpty, "词表必须同步到新释义"
+        )
+        let afterSession = try XCTUnwrap(state.vocabularyReview)
+        XCTAssertFalse(
+            (afterSession.current?.meaning ?? "").isEmpty,
+            "复习卡上这一张也要同步（队列里是值拷贝，不回填就还是「还没有释义」）"
+        )
+        XCTAssertEqual(afterSession.reviewed, 0, "同步资料不影响这一轮的进度")
+        XCTAssertEqual(afterSession.total, 1, "队列还是这一张，没被重排")
+        XCTAssertEqual(state.vocabularyStats.due, 1, "待复习数不该因此变化")
+
+        // 而且翻面真的多出整块释义（不是只在数据里对了、画面上还是空的）。
+        let afterCard = try render(
+            AnyView(VocabularyReviewCard(session: afterSession, revealed: true)), day: true
+        )
+        XCTAssertGreaterThan(
+            afterCard.size.height, beforeCard.size.height + 40,
+            "翻了面就要多出「词性 + 义项 + 解释 + 例句 + 译文 + 近义」一整块"
+        )
+        try dump(afterCard.rep, name: "round36-review-card-defined-inline.png")
+    }
+
+    /// 就地查释义：**要么真查到（词表与卡上同步），要么如实说清为什么没查到**。
+    ///
+    /// 这一条不假设测试机上有模型在跑 —— 只钉不变式：查到了不许再报错，
+    /// 没查到不许静默（静默会让人以为按钮坏了），两种情况下加载态都必须收干净。
+    func testInlineLookupEitherDefinesOrSaysWhy() async throws {
+        let state = makeAppState()
+        _ = await state.services.vocabulary.add(word: "coffee")
+        await state.reloadVocabulary()
+        await state.startVocabularyReview()
+        state.revealVocabularyReviewCard()
+        XCTAssertNil(state.vocabularyReviewNotice, "刚开始复习时没有要说的")
+        XCTAssertTrue(state.vocabularyReview?.current?.meaning.isEmpty == true)
+
+        await state.defineVocabularyReviewWord()
+
+        let meaning = state.vocabularyReview?.current?.meaning ?? ""
+        let notice = state.vocabularyReviewNotice
+        if meaning.isEmpty {
+            XCTAssertNotNil(notice, "没查到就必须说一声，不能静默（否则用户以为按钮坏了）")
+        } else {
+            XCTAssertNil(notice, "查到了就不该再报错：\(notice ?? "")")
+            XCTAssertEqual(
+                state.vocabularyEntries.first?.meaning ?? "", meaning,
+                "词表与卡上必须是同一份 —— 这是「查完不用回词表」的全部意义"
+            )
+        }
+        XCTAssertTrue(state.isDefiningVocabulary.isEmpty, "加载态必须收干净（否则按钮永远转圈）")
+        XCTAssertEqual(state.vocabularyStats.due, 1, "查释义不该动复习进度")
     }
 }

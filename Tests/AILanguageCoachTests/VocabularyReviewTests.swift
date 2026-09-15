@@ -247,4 +247,54 @@ final class VocabularyReviewTests: XCTestCase {
         XCTAssertEqual(outcome?.pronunciationScore, 92)
         XCTAssertEqual(outcome?.phonemeSource, .acoustic)
     }
+
+    // MARK: - ⑥ 复习途中查到的释义要立刻回到这张卡上
+
+    /// 队列里存的是词条的**值拷贝**：查释义改的是词表那份数据，
+    /// 不回填这一张，用户翻面看到的还是「这个词还没有释义」—— 查了等于没查。
+    func testUpdateCurrentPutsTheFreshDefinitionOnTheCard() throws {
+        var session = VocabularyReviewSession(entries: [entry("apple"), entry("banana")], now: now)
+        let current = try XCTUnwrap(session.current)
+        XCTAssertTrue(current.meaning.isEmpty)
+
+        var defined = current
+        defined.meaning = "n. 苹果"
+        session.updateCurrent(defined)
+
+        XCTAssertEqual(session.current?.meaning, "n. 苹果", "查到的释义必须回到卡上")
+        XCTAssertEqual(session.current?.id, current.id, "换的是内容，不是换了一张卡")
+    }
+
+    func testUpdateCurrentDoesNotTouchTheRestOfTheQueue() throws {
+        var session = VocabularyReviewSession(entries: [entry("apple"), entry("banana")], now: now)
+        let current = try XCTUnwrap(session.current)
+        var defined = current
+        defined.meaning = "n. 苹果"
+        session.updateCurrent(defined)
+
+        XCTAssertEqual(session.queue.map(\.word), ["apple", "banana"], "队列顺序属于这一轮，不能被改写")
+        XCTAssertEqual(session.queue[1].meaning, "", "排在后面的卡还没查到，不该被顺手填上")
+        XCTAssertEqual(session.reviewed, 0, "换资料不等于判过分")
+        XCTAssertEqual(session.total, 2)
+    }
+
+    /// 只认当前这一张：拿别的词条来换（或这一轮已经走完）一律不动。
+    func testUpdateCurrentIgnoresAnythingButTheCurrentCard() throws {
+        var session = VocabularyReviewSession(entries: [entry("apple"), entry("banana")], now: now)
+        let current = try XCTUnwrap(session.current)
+
+        var other = entry("banana")
+        other.meaning = "n. 香蕉"
+        session.updateCurrent(other)
+        XCTAssertTrue(session.current?.meaning.isEmpty == true, "别的词条不能顶替当前这张")
+
+        session.grade(remembered: true, now: now)
+        session.grade(remembered: true, now: now)
+        XCTAssertTrue(session.isFinished)
+        let finished = session
+        var late = current
+        late.meaning = "n. 苹果"
+        session.updateCurrent(late)
+        XCTAssertEqual(session, finished, "走完的一轮不该被改写")
+    }
 }

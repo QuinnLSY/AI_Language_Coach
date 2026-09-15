@@ -763,6 +763,7 @@ public struct VocabularyView: View {
                 isPreparingSpeech: state.speakingText == session.current?.word
                     && state.speechPhase == .preparing,
                 hasRecording: state.vocabularyReviewRecognized != nil,
+                isDefining: session.current.map { state.isDefiningVocabulary.contains($0.id) } ?? false,
                 onReveal: { state.revealVocabularyReviewCard() },
                 onGrade: { remembered in
                     Task { await state.gradeVocabularyReviewCard(remembered: remembered) }
@@ -771,6 +772,7 @@ public struct VocabularyView: View {
                 onReplay: { Task { await state.replayVocabularyReviewRecording() } },
                 onSpeak: { Task { await state.speakVocabularyReviewWord() } },
                 onFinish: { Task { await state.finishVocabularyReview() } },
+                onDefine: { Task { await state.defineVocabularyReviewWord() } },
                 onDismissNotice: { state.dismissVocabularyReviewNotice() }
             )
         }

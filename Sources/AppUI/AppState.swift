@@ -1775,6 +1775,14 @@ public final class AppState {
         vocabularyEntries = loaded
         vocabularyStats = VocabularyStats.from(loaded)
         refreshVocabularySuggestions()
+        // 复习卡上那张是队列里的**值拷贝**：词表一刷新就把新的那份资料带回卡上。
+        // 不做这一步，「复习途中查到的释义」只在词表里生效，翻面还是「还没有释义」；
+        // 放在这里（而不是查释义那个函数里）是因为改释义的路不止一条
+        // （查释义 / 重新释义 / 补全词性与中文），凡是改了词表都该同步。
+        if let current = vocabularyReview?.current,
+           let fresh = loaded.first(where: { $0.id == current.id }) {
+            vocabularyReview?.updateCurrent(fresh)
+        }
     }
 
     /// 添加一个生词（手动）。已存在时提示，不重复加。
@@ -1788,17 +1796,57 @@ public final class AppState {
         await reloadVocabulary()
     }
 
-    /// 给一个词补「详细中文释义 + 例句 + 重点单词」（按需 LLM）。
+    /// 给一个词补「详细中文释义 + 例句 + 重点单词」（按需 LLM）。失败原因走页面提示条。
     public func defineVocabulary(id: UUID) async {
-        guard let entry = vocabularyEntries.first(where: { $0.id == id }) else { return }
+        if let message = await requestVocabularyDefinition(id: id).message {
+            vocabularyNotice = message
+        }
+    }
+
+    /// 复习途中**就地**查释义：与词表里的「查释义」是同一条链路（同一次模型调用、
+    /// 同样落库、同样刷新词表），差别只在提示走复习卡自己的通道。
+    ///
+    /// 为什么要就地查：用户实测反馈「没有释义的词只能回词表点查释义，打断复习的连续性」。
+    /// 查到的释义既落到词表（`reloadVocabulary` 会把它带回这一张卡上），也不离开这一轮。
+    public func defineVocabularyReviewWord() async {
+        guard let entry = vocabularyReview?.current else { return }
+        vocabularyReviewNotice = nil
+        if let message = await requestVocabularyDefinition(id: entry.id).message {
+            vocabularyReviewNotice = message
+            return
+        }
+        // 模型偶尔回一段空的：如实说一句，而不是留用户对着「还没有释义」发呆。
+        if vocabularyReview?.current?.meaning.isEmpty ?? true {
+            vocabularyReviewNotice = "模型这次没给出「\(entry.word)」的解释，可以再点一次试试。"
+        }
+    }
+
+    /// 查释义的共用实现（词表与复习卡都走这里）。
+    ///
+    /// 成功时 `entry` 是落库后的词条；失败时 `message` 是**一句给用户看的原因** ——
+    /// 调用方只决定这句话往哪条提示走（页面提示条 / 复习卡的提示条）。
+    private func requestVocabularyDefinition(
+        id: UUID
+    ) async -> (entry: VocabularyEntry?, message: String?) {
+        guard let entry = vocabularyEntries.first(where: { $0.id == id }) else {
+            return (nil, "这个词已经不在词表里了。")
+        }
+        // 「模型没开」要说清是模型没开，别把 notInitialized 翻译成「查失败」。
+        guard isModelRunning(.llm) else {
+            return (nil, "\(await services.modelLabel(for: .llm)) 已关闭，请在设置里点绿色的「启动」后再查释义。")
+        }
         isDefiningVocabulary.insert(id)
         defer { isDefiningVocabulary.remove(id) }
         do {
             _ = try await services.defineVocabulary(entry)
             collapsedVocabularyDefinitions.remove(id)
             await reloadVocabulary()
+            guard let updated = vocabularyEntries.first(where: { $0.id == id }) else {
+                return (nil, "「\(entry.word)」的释义没能读回来。")
+            }
+            return (updated, nil)
         } catch {
-            vocabularyNotice = "「\(entry.word)」释义失败：\(error.localizedDescription)"
+            return (nil, "「\(entry.word)」释义失败：\(error.localizedDescription)")
         }
     }
 

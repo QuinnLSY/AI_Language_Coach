@@ -194,6 +194,20 @@ public struct VocabularyReviewSession: Sendable, Equatable {
         return outcome
     }
 
+    // MARK: - 就地更新当前这张
+
+    /// 把**当前这张**卡换成最新版本（复习途中查到释义后同步显示）。
+    ///
+    /// ⚠️ 队列里存的是词条的值拷贝。查释义改的是词表那份数据，不回填这一张，
+    /// 用户翻面看到的就还是「这个词还没有释义」—— 查了等于没查。
+    ///
+    /// 只换当前这一张，且要求 id 一致：队列顺序与已判分结果都不受影响
+    /// （它是「换一份更完整的资料」，不是「重排这一轮」）。
+    public mutating func updateCurrent(_ entry: VocabularyEntry) {
+        guard queue.indices.contains(index), queue[index].id == entry.id else { return }
+        queue[index] = entry
+    }
+
     // MARK: - 结算
 
     public var summary: Summary {

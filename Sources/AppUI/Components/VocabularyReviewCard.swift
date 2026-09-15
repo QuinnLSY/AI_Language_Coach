@@ -34,6 +34,8 @@ struct VocabularyReviewCard: View {
     var isPreparingSpeech: Bool = false
     /// 有没有可回放的录音。
     var hasRecording: Bool = false
+    /// 正在查这个词的释义（加载态）。
+    var isDefining: Bool = false
 
     var onReveal: () -> Void = {}
     var onGrade: (Bool) -> Void = { _ in }
@@ -41,6 +43,8 @@ struct VocabularyReviewCard: View {
     var onReplay: () -> Void = {}
     var onSpeak: () -> Void = {}
     var onFinish: () -> Void = {}
+    /// 就地查释义（查完直接显示在这张卡上，词表同步）。
+    var onDefine: () -> Void = {}
     var onDismissNotice: () -> Void = {}
 
     var body: some View {
@@ -102,13 +106,10 @@ struct VocabularyReviewCard: View {
                 .font(.system(size: 10, design: .rounded))
                 .foregroundStyle(theme.secondaryText)
                 .monospacedDigit()
-            Button(action: onFinish) {
-                Text("结束")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(theme.secondaryText)
-            }
-            .buttonStyle(.plain)
-            .help("收起复习，随时可以再开一轮")
+            // ⚠️ 这里原来是「结束」两个灰字，用户实测反馈「进了复习回不去词表了」——
+            // 那行字和进度、剩余数挤在一起，看不出是回词表的出口。
+            // 换成有分量的胶囊按钮「退出复习」：出口必须一眼能找到。
+            VocabularyReviewExitButton(onFinish: onFinish)
         }
     }
 
@@ -172,20 +173,56 @@ struct VocabularyReviewCard: View {
     }
 
     /// 词性 + 中文义项一行（翻面后的「第一眼」）。
+    ///
+    /// 没有释义时**就地**给一个「查释义」按钮：原来这里写的是一句
+    /// 「（这个词还没有释义，可以回词表点「查释义」）」—— 用户实测反馈那样得退出去、
+    /// 查完再翻回来，把一轮复习的连续性打断了。
+    /// 历史数据（只有一整段非结构化释义）不算「没有释义」，照样把那一段摆出来。
     @ViewBuilder
     private func revealHint(_ entry: VocabularyEntry) -> some View {
         let definition = VocabularyDefinitionRule.decodeStored(entry.meaning)
-        HStack(spacing: 6) {
-            if !definition.pos.isEmpty {
-                Text(definition.pos)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded).italic())
-                    .foregroundStyle(theme.accent)
+        if !hasReadableMeaning(definition) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text("这个词还没有释义")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                    VocabularyReviewDefineButton(isDefining: isDefining, onDefine: onDefine)
+                    Spacer(minLength: 0)
+                }
+                Text("查完直接显示在这里，词表里也会同步 —— 不用退出复习。")
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundStyle(theme.secondaryText.opacity(0.85))
             }
-            Text(definition.senses.isEmpty ? "（这个词还没有释义，可以回词表点「查释义」）" : definition.senses)
-                .font(.system(size: 13, weight: .medium, design: .rounded))
-                .foregroundStyle(definition.senses.isEmpty ? theme.secondaryText : theme.primaryText)
-                .fixedSize(horizontal: false, vertical: true)
+        } else if let headline = headline(for: definition) {
+            HStack(spacing: 6) {
+                if !definition.pos.isEmpty {
+                    Text(definition.pos)
+                        .font(.system(size: 11, weight: .semibold, design: .rounded).italic())
+                        .foregroundStyle(theme.accent)
+                }
+                Text(headline)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+    }
+
+    /// 有没有「读得出意思」的内容：义项 / 老数据的整段原文 / 中文解释，三者皆空才算没有。
+    ///
+    /// ⚠️ 只看 `senses` 会把两种情况判错：历史数据（只有一整段非结构化释义）会被说成
+    /// 「还没有释义」，只有解释没有义项的词也会。判错就会白白让人再花一次模型调用。
+    private func hasReadableMeaning(_ definition: VocabularyDefinition) -> Bool {
+        !definition.senses.isEmpty || !definition.legacyText.isEmpty || !definition.explanation.isEmpty
+    }
+
+    /// 翻面第一行给什么：优先中文义项；结构化不出来的老数据给那一整段原文；
+    /// 两者都没有（只有解释）时不硬占一行 —— 下面那块释义里本来就有「解释」。
+    private func headline(for definition: VocabularyDefinition) -> String? {
+        if !definition.senses.isEmpty { return definition.senses }
+        if !definition.legacyText.isEmpty { return definition.legacyText }
+        return nil
     }
 
     // MARK: - 翻面后的完整释义
@@ -418,15 +455,20 @@ struct VocabularyReviewCard: View {
                     .foregroundStyle(theme.primaryText)
                 Spacer(minLength: 0)
                 Button(action: onFinish) {
-                    Text("完成")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 5)
-                        .background(Capsule().fill(theme.accent))
-                        .contentShape(Capsule())
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 9, weight: .bold))
+                        Text("回到词表")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(theme.accent))
+                    .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .help("收起这一轮，回到词表")
             }
 
             Text(summary.headline)
@@ -522,5 +564,78 @@ struct VocabularyReviewCard: View {
     /// 词组 / 短句不显示音标（与词表卡片同一判据）。
     private func showsPhonetic(_ word: String) -> Bool {
         VocabularyService.needsPhonetic(word)
+    }
+}
+
+// MARK: - 复习卡上的两个出口
+
+/// 「退出复习」：回到词表。
+///
+/// 抽成独立视图有两个原因：① 出口要**看得见** —— 用户实测反馈「进了复习回不去词表」，
+/// 原来那行灰色「结束」藏在进度与剩余数之间，不像出口；② 能单独离屏渲染它自己，
+/// 用墨迹尺寸证明画出来的是一个有分量的控件，而不是一行小字。
+struct VocabularyReviewExitButton: View {
+
+    @Environment(\.forestTheme) private var theme
+
+    var onFinish: () -> Void = {}
+
+    var body: some View {
+        Button(action: onFinish) {
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 9, weight: .bold))
+                Text("退出复习")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(theme.primaryText)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(theme.surfaceAlt.opacity(0.85)))
+            .overlay(Capsule().strokeBorder(theme.divider, lineWidth: 1))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("退出复习，回到词表（已经判过的词都记下了）")
+    }
+}
+
+/// 「查释义」（就地）：复习途中遇到没有释义的词，直接在这里查。
+///
+/// 与词表里那个「查释义」是**同一条链路**（同一次模型调用、同样落库），
+/// 差别只是查完不必退出复习 —— 释义随后由 `AppState.reloadVocabulary` 带回这张卡上。
+struct VocabularyReviewDefineButton: View {
+
+    @Environment(\.forestTheme) private var theme
+
+    var isDefining: Bool = false
+    var onDefine: () -> Void = {}
+
+    var body: some View {
+        Button(action: onDefine) {
+            HStack(spacing: 4) {
+                if isDefining {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .controlSize(.mini)
+                        .scaleEffect(0.6)
+                        .frame(width: 12, height: 12)
+                } else {
+                    Image(systemName: "character.book.closed")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                Text(isDefining ? "正在查…" : "查释义")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(theme.accent)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(theme.accent.opacity(0.12)))
+            .overlay(Capsule().strokeBorder(theme.accent.opacity(0.35), lineWidth: 1))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(isDefining)
+        .help("就地查一次释义：查完直接显示在这张卡上，词表里也会同步（不用退出复习）")
     }
 }
