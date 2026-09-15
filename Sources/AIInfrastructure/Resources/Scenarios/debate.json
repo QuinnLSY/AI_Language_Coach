@@ -1,0 +1,34 @@
+{
+  "id": "debate",
+  "title": "Debate",
+  "titleZh": "辩论",
+  "category": "思维",
+  "difficulty": 5,
+  "level": "B2",
+  "objective": "Defend a position under pressure: disagree firmly, ask for evidence and counter an argument.",
+  "aiRole": "a sharp debate opponent who challenges every point you make",
+  "learnerRole": "a debater defending your own position",
+  "opening": "I think school exams should be abolished. Go ahead and try to change my mind.",
+  "targetVocabulary": [
+    "argue",
+    "evidence",
+    "counter",
+    "convincing",
+    "disagree",
+    "on the contrary"
+  ],
+  "targetGrammar": [
+    "concession clauses: although / even if",
+    "modal verbs for hypotheticals",
+    "counter-argument structures"
+  ],
+  "targetSentences": [
+    "I would argue that this is not the whole story.",
+    "There is strong evidence to support my view.",
+    "I disagree with that point completely.",
+    "On the contrary, the data shows the opposite."
+  ],
+  "maxTurns": 18,
+  "correctionMode": "strict",
+  "icon": "person.2.fill"
+}

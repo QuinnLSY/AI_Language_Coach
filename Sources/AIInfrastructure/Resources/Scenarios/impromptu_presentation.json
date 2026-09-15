@@ -1,0 +1,34 @@
+{
+  "id": "impromptu_presentation",
+  "title": "Short Talk",
+  "titleZh": "自由演讲",
+  "category": "思维",
+  "difficulty": 5,
+  "level": "B2",
+  "objective": "Give an unprepared short talk with a clear opening, one example and a closing summary.",
+  "aiRole": "an interested audience member listening to your short talk",
+  "learnerRole": "a speaker giving a two-minute talk",
+  "opening": "You have two minutes. Give a short talk about a place you love. Whenever you're ready.",
+  "targetVocabulary": [
+    "topic",
+    "overview",
+    "key point",
+    "example",
+    "conclusion",
+    "summarize"
+  ],
+  "targetGrammar": [
+    "signposting phrases: first / for example",
+    "future and hypothetical forms",
+    "summarizing with to sum up"
+  ],
+  "targetSentences": [
+    "Today I would like to talk about my hometown.",
+    "First, let me give you a quick overview.",
+    "For example, the local food is amazing.",
+    "To sum up, it is a place worth visiting."
+  ],
+  "maxTurns": 16,
+  "correctionMode": "balanced",
+  "icon": "mic.fill"
+}

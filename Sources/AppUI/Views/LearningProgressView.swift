@@ -44,6 +44,7 @@ public struct LearningProgressView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     todayCard
                     dailyTasksCard
+                    curriculumCard
                     rhythmCard
                     grammarCard
                     vocabularyCard
@@ -80,6 +81,20 @@ public struct LearningProgressView: View {
 
     private var dailyTasksCard: some View {
         DailyTasksCard(plan: state.dailyPlan, onOpen: open)
+    }
+
+    // MARK: - 课程阶梯（P1-2：CEFR 课程体系）
+
+    /// 点某一档 → 打开情景选择面板。
+    ///
+    /// 不做「按档筛选」：情景面板只按分组展示，没有档位筛选这个入口。
+    /// 与其新造一个半成品控件，不如就把他送到情景列表 —— 少一个要维护的东西。
+    private func openStage(_ level: CEFRLevel) {
+        Task { await state.openScenarios() }
+    }
+
+    private var curriculumCard: some View {
+        CurriculumLadderCard(stages: state.curriculumStages, onOpen: openStage)
     }
 
     // MARK: - 头部

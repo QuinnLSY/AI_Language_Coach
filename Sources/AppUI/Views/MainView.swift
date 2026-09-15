@@ -90,6 +90,21 @@ public struct MainView: View {
                         .zIndex(30)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
+
+                // 课程覆盖度判定（这一关的目标句说到了几句）——**另起一张**，
+                // 不与奖励条合并：星星说的是参与度，这一张说的是内容覆盖，两者会不一致。
+                if let assessment = state.lastAssessment {
+                    CurriculumVerdictCard(
+                        assessment: assessment,
+                        scenarioTitle: state.scenario(for: state.lastAssessedScenarioID)?.titleZh ?? "这一关",
+                        onClose: { state.dismissAssessment() }
+                    )
+                    .frame(maxWidth: 440)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .padding(.top, 146)
+                    .zIndex(29)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
             }
         }
         .frame(minWidth: 1080, minHeight: 720)

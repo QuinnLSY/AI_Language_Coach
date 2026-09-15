@@ -9,8 +9,25 @@
   "aiRole": "a helpful shop assistant",
   "learnerRole": "a customer looking for clothes",
   "opening": "Hi there! Let me know if you need any help finding something.",
-  "targetVocabulary": ["size", "discount", "try on", "fitting room", "receipt", "cash"],
-  "targetGrammar": ["comparatives (smaller, cheaper)", "Do you have ... in ...?", "How much is/are ...?"],
+  "targetVocabulary": [
+    "size",
+    "discount",
+    "try on",
+    "fitting room",
+    "receipt",
+    "cash"
+  ],
+  "targetGrammar": [
+    "comparatives (smaller, cheaper)",
+    "Do you have ... in ...?",
+    "How much is/are ...?"
+  ],
+  "targetSentences": [
+    "Do you have this in a smaller size?",
+    "Can I try it on?",
+    "How much is this one?",
+    "Could I have a receipt, please?"
+  ],
   "maxTurns": 12,
   "correctionMode": "balanced",
   "icon": "bag.fill"

@@ -9,8 +9,25 @@
   "aiRole": "a friendly waiter",
   "learnerRole": "a customer at a restaurant",
   "opening": "Good evening! Welcome to our restaurant. A table for one?",
-  "targetVocabulary": ["menu", "order", "starter", "main course", "bill", "tip"],
-  "targetGrammar": ["I'd like ...", "Could I have ...?", "Can I have the bill, please?"],
+  "targetVocabulary": [
+    "menu",
+    "order",
+    "starter",
+    "main course",
+    "bill",
+    "tip"
+  ],
+  "targetGrammar": [
+    "I'd like ...",
+    "Could I have ...?",
+    "Can I have the bill, please?"
+  ],
+  "targetSentences": [
+    "I'd like a table for two, please.",
+    "Could I have the menu, please?",
+    "I'd like the soup as a starter.",
+    "Can I have the bill, please?"
+  ],
   "maxTurns": 12,
   "correctionMode": "balanced",
   "icon": "fork.knife"

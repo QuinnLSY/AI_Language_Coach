@@ -227,6 +227,9 @@ public final class AppState {
     public private(set) var cacheFreedBytes: Int64 = 0
     /// 隐私状况（设置页「隐私与安全」卡片）：有无外发、发往哪里、本地数据在哪。
     public private(set) var privacyReport: PrivacyReport = .empty
+    /// 关卡 → 情景 绑定（来自资源文件；随情景一起加载）。
+    private var levelBindings: [String: String] = [:]
+
     /// 已导出的备份（设置页「存储与缓存」卡片），新的在前。
     public private(set) var backupSnapshots: [BackupRecord] = []
     /// 备份导出中的标记（按钮 loading）。
@@ -237,6 +240,16 @@ public final class AppState {
     public private(set) var databaseRecoveryNote: String?
     /// 情景结算奖励提示（nil = 不显示）。UI 展示数秒后自动消失。
     public private(set) var lastReward: ScenarioReward?
+    /// 最近一次情景练习的 CEFR 覆盖度判定（nil = 不显示）。
+    ///
+    /// 与 `lastReward` **分开**：奖励说的是「拿了几颗星」（参与度），
+    /// 这里说的是「这一关的目标句真的说到了几句」（内容覆盖），
+    /// 两者可能不一致 —— 比如说满轮次但全是短句，星星拿满、目标句一句没说。
+    /// 混成一条提示就会逼着其中一件事说谎。
+    public private(set) var lastAssessment: CurriculumAssessment?
+    /// 产生 `lastAssessment` 的是哪个情景 —— 判定卡上要写清这是哪一关的判定，
+    /// 而这时情景通常已经结束了（`activeScenario` 已清空），只能自己记一份。
+    public private(set) var lastAssessedScenarioID: String?
     // MARK: 模型启停（设置页「启动 / 关闭」）
     /// 各能力模型是否处于启动态。**应用打开时全部为启动**（不持久化关闭状态）。
     public private(set) var modelRunStates: [AIProviderKind: Bool] = [:]
@@ -364,6 +377,8 @@ public final class AppState {
     private var product: ProductConfig = ProductConfig()
     /// 结算提示的自动收起任务。
     private var rewardDismissTask: Task<Void, Never>?
+    /// 课程覆盖度判定卡的自动收起任务（与奖励条各管各的）。
+    private var assessmentDismissTask: Task<Void, Never>?
     /// 启停弹框的自动收起任务。
     private var toastDismissTask: Task<Void, Never>?
     /// 资源管理巡检器（第 27 步）：start() 里创建并启动，随应用生命周期常驻。
@@ -2181,6 +2196,8 @@ public final class AppState {
     public func loadScenarios() async {
         guard !didLoadScenarios else { return }
         scenarios = await services.availableScenarios()
+        // 绑定表与情景一起加载：课程阶梯要把关卡挂到档上，缺了它只能显示「未挂关」。
+        levelBindings = await services.levelBindings()
         didLoadScenarios = true
     }
 
@@ -2194,6 +2211,11 @@ public final class AppState {
             product.practiceMode = .conversation
             await persistProduct()
         }
+        // 上一局的判定先收起来：新的一局开始，旧卡片的覆盖率就是错的数据。
+        assessmentDismissTask?.cancel()
+        assessmentDismissTask = nil
+        lastAssessment = nil
+        lastAssessedScenarioID = nil
         chat.startScenario(scenario)
     }
 
@@ -2203,8 +2225,10 @@ public final class AppState {
             chat.endScenario()
             return
         }
+        // **必须在这一步之前取**：`endScenario()` 一执行，就再也分不清哪几句属于这一局。
+        let utterances = chat.scenarioLearnerUtterances
         chat.endScenario()
-        await settleScenario(progress)
+        await settleScenario(progress, utterances: utterances)
     }
 
     /// 按 id 取场景（关卡绑定 / 记录页展示用）。场景在启动时已加载。
@@ -2227,8 +2251,13 @@ public final class AppState {
 
     /// 结算一次情景练习：答对轮次越多星越多；绑定关卡**累计**加星（封顶到本关需求）、
     /// 达标即通关并解锁下一关。
-    private func settleScenario(_ finished: ScenarioProgress) async {
+    ///
+    /// 同时按 CEFR 覆盖度判一次「这一关的目标句说到了几句」——
+    /// **与绑没绑关卡无关**：课程体系看的是「说到了什么」，树上有没有这一关是另一回事。
+    private func settleScenario(_ finished: ScenarioProgress, utterances: [String]) async {
         let scenario = finished.scenario
+        publishAssessment(scenario: scenario, utterances: utterances)
+
         guard let index = progress.levels.firstIndex(where: { $0.scenarioID == scenario.id }) else {
             // 场景没有绑定关卡：只给一句反馈，不动进度
             lastReward = ScenarioRewardRule.reward(
@@ -2266,6 +2295,57 @@ public final class AppState {
             }
         }
         scheduleRewardDismissal()
+    }
+
+    /// 算一次覆盖度并挂到 `lastAssessment`（目标句为空的场景不产生判定卡 —— 没有可比的目标）。
+    private func publishAssessment(scenario: Scenario, utterances: [String]) {
+        guard !scenario.targetSentences.isEmpty else {
+            lastAssessment = nil
+            lastAssessedScenarioID = nil
+            return
+        }
+        lastAssessedScenarioID = scenario.id
+        lastAssessment = CurriculumScorer.assess(scenario: scenario, utterances: utterances)
+        scheduleAssessmentDismissal()
+    }
+
+    /// 立刻收起覆盖度判定卡。
+    public func dismissAssessment() {
+        assessmentDismissTask?.cancel()
+        assessmentDismissTask = nil
+        lastAssessment = nil
+        lastAssessedScenarioID = nil
+    }
+
+    /// 判定卡字更多、要读一会儿，所以比奖励条（5 秒）多留一倍时间。
+    private func scheduleAssessmentDismissal() {
+        assessmentDismissTask?.cancel()
+        assessmentDismissTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(12))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) { self?.lastAssessment = nil }
+        }
+    }
+
+    /// 课程阶梯（CEFR 分档 + 大树关卡挂档），供进度页展示。
+    ///
+    /// 纯计算、不落库：素材改档、绑定改表，这里立刻跟着变。
+    ///
+    /// 自己补一次绑定注入，**不假设 `start()` 已经跑过** ——
+    /// `progress` 的初始值是 `.seed()`，那份数据里每一关的 `scenarioID` 都是 nil，
+    /// 少了这一步，阶梯会全部显示成「未挂关」。
+    /// 绑定表为空时**原样保留**现有绑定（不静默清空）。
+    public var curriculumStages: [CurriculumStage] {
+        var tree = progress
+        if !levelBindings.isEmpty {
+            tree.applyScenarioBindings(levelBindings)
+        }
+        return CurriculumLadder.stages(scenarios: scenarios, levels: tree.levels)
+    }
+
+    /// 整条课程阶梯的完成度 0...1。
+    public var curriculumProgress: Double {
+        CurriculumLadder.overallProgress(curriculumStages)
     }
 
     private func scheduleRewardDismissal() {

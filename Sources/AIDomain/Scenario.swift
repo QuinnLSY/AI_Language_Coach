@@ -63,6 +63,11 @@ public struct Scenario: Codable, Sendable, Equatable, Identifiable {
     public var targetVocabulary: [String]
     /// 本场景希望学员用到的语法点。
     public var targetGrammar: [String]
+    /// 本场景希望学员**真的说出**的句子（课程目标句）。
+    ///
+    /// 与 `targetGrammar`（语法点提示）不同：这是可以逐句核对的目标 ——
+    /// 一局练完能说清「哪几句说到了、哪几句还没说」，判定见 `CurriculumScorer`。
+    public var targetSentences: [String]
     /// 期望轮次上限（学员发言计一轮）；到点老师收尾。
     public var maxTurns: Int
     /// 纠错强度。
@@ -83,6 +88,7 @@ public struct Scenario: Codable, Sendable, Equatable, Identifiable {
         opening: String,
         targetVocabulary: [String] = [],
         targetGrammar: [String] = [],
+        targetSentences: [String] = [],
         maxTurns: Int = 12,
         correctionMode: ScenarioCorrectionMode = .balanced,
         icon: String = "bubble.left.and.bubble.right.fill"
@@ -99,6 +105,7 @@ public struct Scenario: Codable, Sendable, Equatable, Identifiable {
         self.opening = opening
         self.targetVocabulary = targetVocabulary
         self.targetGrammar = targetGrammar
+        self.targetSentences = targetSentences
         self.maxTurns = max(maxTurns, 1)
         self.correctionMode = correctionMode
         self.icon = icon
@@ -109,6 +116,20 @@ public struct Scenario: Codable, Sendable, Equatable, Identifiable {
         String(repeating: "●", count: min(max(difficulty, 0), 5))
             + String(repeating: "○", count: max(5 - difficulty, 0))
     }
+
+    // MARK: - CEFR 分级（课程体系）
+
+    /// 本场景覆盖的 CEFR 档（`level: "A1-A2"` → `[.a1, .a2]`）。
+    ///
+    /// **从既有的 `level` 字符串解析**，不新增字段 —— 素材里已经写了档位，
+    /// 再存一份就会出现两处真相、迟早对不上。
+    public var cefrLevels: [CEFRLevel] { CEFRLevel.parse(level) }
+
+    /// 主档位（区间取低的那一档；解析不出时按 A2 计）。
+    ///
+    /// 过关标准按主档位走：`A1-A2` 的场景用 A1 的标准 —— 标注区间意味着
+    /// 「从这一档开始也能练」，门槛就得按低的定，否则区间标注就成了摆设。
+    public var primaryLevel: CEFRLevel { cefrLevels.first ?? .a2 }
 
     /// 按分组名归档（保持传入顺序；分组名按首次出现顺序）。
     /// 数据语义属于领域，UI 只渲染结果，不重复实现一遍分组逻辑。
@@ -125,7 +146,7 @@ public struct Scenario: Codable, Sendable, Equatable, Identifiable {
     // 缺字段一律降级为安全默认值，避免单个场景文件写坏导致整表加载失败。
     private enum CodingKeys: String, CodingKey {
         case id, title, titleZh, category, difficulty, level, objective
-        case aiRole, learnerRole, opening, targetVocabulary, targetGrammar
+        case aiRole, learnerRole, opening, targetVocabulary, targetGrammar, targetSentences
         case maxTurns, correctionMode, icon
     }
 
@@ -143,6 +164,7 @@ public struct Scenario: Codable, Sendable, Equatable, Identifiable {
         opening = try container.decodeIfPresent(String.self, forKey: .opening) ?? ""
         targetVocabulary = try container.decodeIfPresent([String].self, forKey: .targetVocabulary) ?? []
         targetGrammar = try container.decodeIfPresent([String].self, forKey: .targetGrammar) ?? []
+        targetSentences = try container.decodeIfPresent([String].self, forKey: .targetSentences) ?? []
         let turns = try container.decodeIfPresent(Int.self, forKey: .maxTurns) ?? 12
         maxTurns = max(turns, 1)
         correctionMode = try container.decodeIfPresent(ScenarioCorrectionMode.self, forKey: .correctionMode) ?? .balanced

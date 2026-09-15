@@ -9,8 +9,25 @@
   "aiRole": "an interviewer hiring for a junior role",
   "learnerRole": "a candidate in a job interview",
   "opening": "Thanks for coming in today. To start, could you tell me a little about yourself?",
-  "targetVocabulary": ["experience", "strength", "weakness", "teamwork", "deadline", "salary"],
-  "targetGrammar": ["past simple vs present perfect", "used to", "would like to"],
+  "targetVocabulary": [
+    "experience",
+    "strength",
+    "weakness",
+    "teamwork",
+    "deadline",
+    "salary"
+  ],
+  "targetGrammar": [
+    "past simple vs present perfect",
+    "used to",
+    "would like to"
+  ],
+  "targetSentences": [
+    "I have five years of experience in marketing.",
+    "My strength is teamwork.",
+    "I used to work for a small startup.",
+    "I'd like to know more about the salary."
+  ],
   "maxTurns": 16,
   "correctionMode": "strict",
   "icon": "person.badge.clock.fill"

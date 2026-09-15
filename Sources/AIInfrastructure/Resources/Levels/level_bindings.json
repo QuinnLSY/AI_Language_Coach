@@ -3,5 +3,8 @@
   "l2": "job_interview",
   "l3": "restaurant",
   "l4": "shopping",
-  "l5": "airport_checkin"
+  "l5": "airport_checkin",
+  "l6": "opinion_expression",
+  "l7": "debate",
+  "l8": "impromptu_presentation"
 }

@@ -200,6 +200,78 @@ final class ScenarioTests: XCTestCase {
         XCTAssertTrue(chat.messages.isEmpty)
     }
 
+    // MARK: - 本局取材（CEFR 覆盖度的输入）
+
+    /// 发一句并等生成结束（`send` 在生成中会被挡掉，连着发会静默丢句）。
+    @MainActor
+    private func sendAndSettle(_ chat: ChatService, _ text: String) async {
+        chat.send(text)
+        var spins = 0
+        while chat.isGenerating && spins < 400 {
+            try? await Task.sleep(for: .milliseconds(10))
+            spins += 1
+        }
+    }
+
+    /// **只数这一局说过的话**：进情景之前的闲聊不算这一关的产出。
+    /// 少了这条边界，「今天说得怎么样」就会被昨天/刚才的闲聊顶上去 —— 判定直接虚高。
+    @MainActor
+    func testScenarioUtterancesExcludeChatBeforeTheScenario() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("alc-scenario-\(UUID().uuidString).json")
+        let store = ConfigStore(fileURL: fileURL)
+        try await store.updateProvider(
+            ProviderConfig(id: "mock.llm", kind: .llm, enabled: true, runtime: .mock, model: "mock-model")
+        )
+        try await store.selectModel("mock-model", for: .llm)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let services = CoachServices(config: store, databasePath: ":memory:")
+        let chat = ChatService(services: services)
+
+        // 情景之前先闲聊一句：它不属于这一关。
+        await sendAndSettle(chat, "just chatting before the scenario")
+        chat.startScenario(try scenario(id: "restaurant", title: "Restaurant", opening: "Welcome!"))
+        await sendAndSettle(chat, "I prefer tea")
+        await sendAndSettle(chat, "However I agree")
+
+        XCTAssertEqual(
+            chat.scenarioLearnerUtterances, ["I prefer tea", "However I agree"],
+            "只应取到本局说过的两句，进情景前的闲聊不得混进来"
+        )
+        XCTAssertEqual(
+            chat.scenarioProgress?.turnsUsed, chat.scenarioLearnerUtterances.count,
+            "轮次口径与覆盖度取材必须同源，否则同一局会出现两个轮次数"
+        )
+
+        // 退出后必须取不到 —— 这正是 `endScenario` 之前要先取一次的原因。
+        chat.endScenario()
+        XCTAssertTrue(chat.scenarioLearnerUtterances.isEmpty, "退出情景后不该再能取到本局发言")
+    }
+
+    /// 端上恢复的历史会话没有「本局起点」可考：整段都算这一局，
+    /// 与 `turnsUsed` 数全部学员发言保持同一口径。
+    @MainActor
+    func testRestoredSessionCountsTheWholeRun() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("alc-scenario-\(UUID().uuidString).json")
+        let store = ConfigStore(fileURL: fileURL)
+        try await store.updateProvider(
+            ProviderConfig(id: "mock.llm", kind: .llm, enabled: true, runtime: .mock, model: "mock-model")
+        )
+        try await store.selectModel("mock-model", for: .llm)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let services = CoachServices(config: store, databasePath: ":memory:")
+        let chat = ChatService(services: services)
+        // 没进情景时说的一句，恢复后仍属于「这一整段会话」。
+        await sendAndSettle(chat, "hello there")
+        chat.startScenario(try scenario(id: "restaurant", title: "Restaurant", opening: "Welcome!"))
+        await sendAndSettle(chat, "I prefer tea")
+
+        XCTAssertEqual(chat.scenarioStartIndex, 1, "本局起点应记在开场白之前")
+    }
+
     // MARK: - 关卡 ↔ 情景 绑定（第 22 步）
 
     func testLevelBindingsParseIgnoresNonStringValues() throws {

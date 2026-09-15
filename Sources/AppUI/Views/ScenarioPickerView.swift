@@ -164,6 +164,30 @@ public struct ScenarioPickerView: View {
                             }
                         }
                     }
+
+                    // 本关目标句（P1-2 课程体系）：**练之前就要看得见**。
+                    // 只在练完之后才告诉学员「你只说到 2 句」是耍赖 —— 他事先并不知道要说这几句。
+                    if !scenario.targetSentences.isEmpty {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("本关要说出的句子")
+                                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                                .foregroundStyle(theme.secondaryText.opacity(0.9))
+                            ForEach(scenario.targetSentences, id: \.self) { sentence in
+                                HStack(alignment: .top, spacing: 5) {
+                                    Circle()
+                                        .fill(theme.accent.opacity(0.7))
+                                        .frame(width: 3, height: 3)
+                                        .padding(.top, 5)
+                                    Text(sentence)
+                                        .font(.system(size: 10, design: .rounded))
+                                        .foregroundStyle(theme.secondaryText)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .multilineTextAlignment(.leading)
+                                }
+                            }
+                        }
+                        .padding(.top, 2)
+                    }
                 }
             }
             .padding(14)

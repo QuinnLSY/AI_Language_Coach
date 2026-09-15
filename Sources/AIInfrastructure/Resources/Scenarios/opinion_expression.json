@@ -1,0 +1,34 @@
+{
+  "id": "opinion_expression",
+  "title": "Sharing Opinions",
+  "titleZh": "观点表达",
+  "category": "思维",
+  "difficulty": 4,
+  "level": "B1",
+  "objective": "State a clear opinion, give a reason for it, and soften disagreement politely.",
+  "aiRole": "a friendly discussion partner who keeps asking why you think so",
+  "learnerRole": "someone sharing and defending your own views",
+  "opening": "Let's talk about work and study habits. What's your opinion on working from home?",
+  "targetVocabulary": [
+    "in my opinion",
+    "prefer",
+    "reason",
+    "however",
+    "agree",
+    "point of view"
+  ],
+  "targetGrammar": [
+    "opinion clauses with that",
+    "comparatives",
+    "linking words: however / because"
+  ],
+  "targetSentences": [
+    "In my opinion, working from home is better.",
+    "I prefer to study in the morning.",
+    "The main reason is that it saves time.",
+    "However, I agree there are some problems."
+  ],
+  "maxTurns": 14,
+  "correctionMode": "balanced",
+  "icon": "quote.bubble.fill"
+}

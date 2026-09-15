@@ -9,8 +9,25 @@
   "aiRole": "a receptionist at the hotel front desk",
   "learnerRole": "a guest who has just arrived with a reservation",
   "opening": "Good afternoon, welcome to the Riverside Hotel. Do you have a reservation with us?",
-  "targetVocabulary": ["reservation", "room key", "check out", "breakfast", "extra towels", "wifi"],
-  "targetGrammar": ["I have a booking under ...", "Is there ...?", "What time does ...?"],
+  "targetVocabulary": [
+    "reservation",
+    "room key",
+    "check out",
+    "breakfast",
+    "extra towels",
+    "wifi"
+  ],
+  "targetGrammar": [
+    "I have a booking under ...",
+    "Is there ...?",
+    "What time does ...?"
+  ],
+  "targetSentences": [
+    "I have a reservation under Chen.",
+    "What time does breakfast start?",
+    "Is there wifi in the room?",
+    "Could I have some extra towels?"
+  ],
   "maxTurns": 12,
   "correctionMode": "balanced",
   "icon": "bed.double.fill"

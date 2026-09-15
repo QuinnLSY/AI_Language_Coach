@@ -9,8 +9,25 @@
   "aiRole": "a friendly neighbour you meet on the street",
   "learnerRole": "a learner making small talk in English",
   "opening": "Hey, long time no see! How have you been lately?",
-  "targetVocabulary": ["weekend", "hobby", "weather", "busy", "by the way", "catch up"],
-  "targetGrammar": ["present continuous", "going to for plans", "short answers"],
+  "targetVocabulary": [
+    "weekend",
+    "hobby",
+    "weather",
+    "busy",
+    "by the way",
+    "catch up"
+  ],
+  "targetGrammar": [
+    "present continuous",
+    "going to for plans",
+    "short answers"
+  ],
+  "targetSentences": [
+    "I'm doing well, thanks. How about you?",
+    "I'm going to visit my family this weekend.",
+    "My hobby is playing basketball.",
+    "By the way, the weather is really nice today."
+  ],
   "maxTurns": 12,
   "correctionMode": "gentle",
   "icon": "cup.and.saucer.fill"

@@ -9,8 +9,25 @@
   "aiRole": "a check-in agent at the airport counter",
   "learnerRole": "a passenger checking in for an international flight",
   "opening": "Good morning! May I see your passport and ticket, please?",
-  "targetVocabulary": ["boarding pass", "luggage", "destination", "window seat", "departure gate", "carry-on"],
-  "targetGrammar": ["present perfect", "polite requests", "quantifiers (a piece of, two bags)"],
+  "targetVocabulary": [
+    "boarding pass",
+    "luggage",
+    "destination",
+    "window seat",
+    "departure gate",
+    "carry-on"
+  ],
+  "targetGrammar": [
+    "present perfect",
+    "polite requests",
+    "quantifiers (a piece of, two bags)"
+  ],
+  "targetSentences": [
+    "I'd like a window seat, please.",
+    "I have one piece of carry-on luggage.",
+    "What's my departure gate?",
+    "Here's my boarding pass."
+  ],
   "maxTurns": 14,
   "correctionMode": "balanced",
   "icon": "airplane.departure"

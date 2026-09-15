@@ -1475,6 +1475,14 @@ public actor CoachServices {
         availableScenarios().first { $0.id == id }
     }
 
+    /// 「关卡 → 情景」绑定表（来自 `Resources/Levels/level_bindings.json`，不落库）。
+    ///
+    /// 课程阶梯要靠它把关卡挂到 CEFR 档上：关卡自己不知道属于哪一档，
+    /// 是「它绑的那个情景的 level」决定的。资源缺失时返回空表（不瞎猜）。
+    public func levelBindings() -> [String: String] {
+        LevelBindingCatalog.bundled()
+    }
+
     // MARK: - 缓存管理（设置页）
 
     public func cacheSnapshot() async -> CacheSnapshot {

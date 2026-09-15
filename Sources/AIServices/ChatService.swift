@@ -24,6 +24,9 @@ public final class ChatService {
     public private(set) var sessionID: UUID
     /// 进行中的情景对话（nil = 普通练习）。场景数据来自资源文件，UI 不内置。
     public private(set) var scenarioProgress: ScenarioProgress?
+    /// 本局情景开始时的消息下标（开场白**之前**）。
+    /// 课程覆盖度据此只数这一局说过的话，见 `scenarioLearnerUtterances`。
+    public private(set) var scenarioStartIndex: Int = 0
     /// 本会话按消息记录的纠错（UI 在气泡下方展示「改一改」卡片）。
     public private(set) var correctionsByMessage: [UUID: [GrammarCorrection]] = [:]
     /// 已取回的译文（messageID → 译文）。**默认不展示**，点翻译按钮才出现。
@@ -133,6 +136,9 @@ public final class ChatService {
         streamingReasoning = ""
         isThinking = false
         errorMessage = nil
+        // 记下本局起点：之后算课程覆盖度时**只数这一局说过的话**，
+        // 不把进入情景之前的闲聊算成「这一关说了几句」。
+        scenarioStartIndex = messages.count
         scenarioProgress = ScenarioProgress(scenario: scenario)
         syncEngineScenario()
         persistScenarioBinding(scenario.id)
@@ -147,6 +153,24 @@ public final class ChatService {
     public func endScenario() {
         scenarioProgress = nil
         syncEngineScenario()
+    }
+
+    // MARK: - 课程体系取材（CEFR 覆盖度）
+
+    /// 本局情景里学员说过的话（按时间顺序）。
+    ///
+    /// **必须在 `endScenario()` 之前取** —— 退出后 `scenarioProgress` 就没了，
+    /// 这里就再也分不清「哪几句属于这一局」。
+    ///
+    /// 只数 `scenarioStartIndex` 之后的消息：进入情景前的闲聊不算这一关的产出。
+    /// 端上恢复的历史会话把整段都算作这一局 —— 与 `restoreLastSessionIfNeeded`
+    /// 里 `turnsUsed` 的口径保持一致，两处不能各说各的。
+    public var scenarioLearnerUtterances: [String] {
+        guard scenarioProgress != nil else { return [] }
+        let start = min(max(scenarioStartIndex, 0), messages.count)
+        return messages[start...]
+            .filter { $0.role == .user }
+            .map(\.content)
     }
 
     /// 把情景进度同步给对话引擎（决策要知道「还剩几轮 / 目标词是什么」）。
@@ -207,6 +231,9 @@ public final class ChatService {
                 scenario: scenario,
                 turnsUsed: messages.filter { $0.role == .user }.count
             )
+            // 恢复的历史会话没有「本局起点」可考，整段都算这一局 ——
+            // 与上面 `turnsUsed` 数全部学员发言保持同一口径。
+            scenarioStartIndex = 0
             syncEngineScenario()
         }
     }
@@ -217,6 +244,7 @@ public final class ChatService {
         streamingText = ""
         streamingReasoning = ""
         scenarioProgress = nil
+        scenarioStartIndex = 0
         persistScenarioBinding(nil)
         errorMessage = nil
         translationsByMessage.removeAll()
