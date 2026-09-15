@@ -65,4 +65,39 @@ public actor ProgressService {
         guard let learning else { return [] }
         return (try? await learning.recentCorrections(limit: limit)) ?? []
     }
+
+    // MARK: - 年度学习记录
+
+    /// 近一年的练习分布（53 周 × 7 天）。
+    ///
+    /// 与 `snapshot(days:)` **分开取数**，不图省事合并：窗口只看 7–30 天，
+    /// 年度要看一整年；而且年度不需要发音报告 / 纠错 / 会话这些，
+    /// 只取「哪天有过什么」。合成一次查询会把窗口的取数量级也抬到一年。
+    public func annualRecap(
+        now: Date = Date(),
+        calendar: Calendar = .current,
+        goalMinutes: Int = ProgressAggregator.defaultGoalMinutes
+    ) async -> AnnualRecap {
+        guard let learning else {
+            return AnnualRecap.empty(now: now, goalMinutes: goalMinutes)
+        }
+        let slots = AnnualRecapBuilder.daySlots(now: now, calendar: calendar)
+        guard let start = slots.first else {
+            return AnnualRecap.empty(now: now, goalMinutes: goalMinutes)
+        }
+        let messages = (try? await learning.messageTimestamps(since: start)) ?? []
+        let shadowing = (try? await learning.shadowingStamps(since: start)) ?? []
+        let reviews = (try? await learning.vocabularyReviewStamps(since: start)) ?? []
+
+        let activity = ProgressAggregator.dailyActivity(
+            days: slots,
+            calendar: calendar,
+            messages: messages,
+            shadowing: shadowing,
+            reviews: reviews
+        )
+        return AnnualRecapBuilder.build(
+            days: activity, goalMinutes: goalMinutes, now: now, calendar: calendar
+        )
+    }
 }

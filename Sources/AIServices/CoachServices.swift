@@ -1271,6 +1271,14 @@ public actor CoachServices {
         await progress.snapshot(days: days, totalStars: totalStars, goalMinutes: goalMinutes)
     }
 
+    /// 近一年的练习分布（年度记录卡）。与 `progressSnapshot` 同层：这里只做取数编排。
+    public func annualRecap(
+        now: Date = Date(),
+        goalMinutes: Int = ProgressAggregator.defaultGoalMinutes
+    ) async -> AnnualRecap {
+        await progress.annualRecap(now: now, goalMinutes: goalMinutes)
+    }
+
     // MARK: - 会话持久化（ChatService 使用）
 
     /// 首次发消息时登记会话（已存在则不动，避免把 message_count 归零）。

@@ -44,6 +44,7 @@ public struct LearningProgressView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     todayCard
                     dailyTasksCard
+                    annualRecapCard
                     curriculumCard
                     rhythmCard
                     grammarCard
@@ -81,6 +82,14 @@ public struct LearningProgressView: View {
 
     private var dailyTasksCard: some View {
         DailyTasksCard(plan: state.dailyPlan, onOpen: open)
+    }
+
+    // MARK: - 年度学习记录
+
+    /// 近一年 53 周 × 7 天的分布。放在「今日任务」之后：
+    /// 上面两张卡说的是今天，这张把镜头拉到一年 —— 今天的格子由上面两张卡决定。
+    private var annualRecapCard: some View {
+        AnnualRecapCard(recap: state.annualRecap)
     }
 
     // MARK: - 课程阶梯（P1-2：CEFR 课程体系）
@@ -386,7 +395,11 @@ public struct LearningProgressView: View {
     // MARK: - Recent mistakes
 
     private var mistakesCard: some View {
-        card(title: "最近错题", systemImage: "pencil.and.list.clipboard") {
+        card(
+            title: "最近错题",
+            systemImage: "pencil.and.list.clipboard",
+            trailing: { mistakesJumpButton }
+        ) {
             if snapshot.recentMistakes.isEmpty {
                 emptyHint("还没有错题。大胆去说，老师会悄悄帮你记下需要改进的地方。")
             } else {
@@ -400,6 +413,33 @@ public struct LearningProgressView: View {
                 }
             }
         }
+    }
+
+    /// 「前往学习记录巩固」：把这一页的结论送到**能动手的那一页**去。
+    ///
+    /// 卡片只列最近 5 条、且这里没有任何可操作的东西 —— 看完了只能自己去侧边栏找
+    /// 「学习记录」。跳转直接落在错题本卡片上（`recordsFocus`），中间不让人再找一次。
+    ///
+    /// 颜色取冷紫 `accentCool`：与卡片标题的琥珀主色区分开，
+    /// 与学习记录页那张「前往词汇本练习」是同一类动作、同一个颜色。
+    private var mistakesJumpButton: some View {
+        Button {
+            Task { await state.openRecords(focus: .mistakes) }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "arrowshape.turn.up.right.fill")
+                Text("前往学习记录巩固")
+            }
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .frame(height: 26)
+            .background(Capsule().fill(theme.accentCool))
+        }
+        .buttonStyle(.plain)
+        .disabled(snapshot.recentMistakes.isEmpty)
+        .opacity(snapshot.recentMistakes.isEmpty ? 0.5 : 1)
+        .help(snapshot.recentMistakes.isEmpty ? "还没有错题，先去说几句" : "跳到学习记录的错题本，逐条过一遍")
     }
 
     private func mistakeRow(_ mistake: GrammarCorrection) -> some View {

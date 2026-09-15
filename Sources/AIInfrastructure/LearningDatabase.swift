@@ -482,8 +482,7 @@ public actor LearningDatabase {
     }
 
     /// 窗口内的跟读记录（新 → 旧）。
-    public func shadowingAttempts(since: Date, limit: Int = 500) throws -> [ShadowingAttempt] {
-        try db.query(
+    public func shadowingAttempts(since: Date, limit: Int = 500) throws -> [ShadowingAttempt] {        try db.query(
             """
             SELECT id, drill_id, reference, recognized, accuracy, pronunciation, created_at
             FROM shadowing_attempts WHERE created_at >= ?1 ORDER BY created_at DESC LIMIT ?2
@@ -500,6 +499,48 @@ public actor LearningDatabase {
                 recognizedText: recognized, accuracy: accuracy,
                 pronunciation: Self.decodeJSON(row.string(5)),
                 createdAt: Date(timeIntervalSince1970: created)
+            )
+        }.compactMap { $0 }
+    }
+
+    /// 窗口内的跟读**极简记录**（旧 → 新）：只要「参考句 + 时间」。
+    ///
+    /// 年度记录要往回看一整年，一年上千次跟读 —— 把每次的发音报告（一整块 JSON）
+    /// 也解出来纯属浪费。窗口趋势仍走 `shadowingAttempts(since:)`，那边要分数。
+    ///
+    /// ⚠️ 这里**不设 LIMIT**：`shadowingAttempts` 默认截 500 条，一年下来很容易超过，
+    /// 截断等于悄悄少算几天的练习量 —— 时间范围已经由 `since` 兜住了。
+    public func shadowingStamps(since: Date) throws -> [ShadowingStamp] {
+        try db.query(
+            "SELECT reference, created_at FROM shadowing_attempts WHERE created_at >= ?1 ORDER BY created_at ASC",
+            [.real(since.timeIntervalSince1970)]
+        ) { row -> ShadowingStamp? in
+            guard let reference = row.string(0), let created = row.double(1) else { return nil }
+            return ShadowingStamp(
+                referenceText: reference,
+                createdAt: Date(timeIntervalSince1970: created)
+            )
+        }.compactMap { $0 }
+    }
+
+    /// 窗口内的词汇复习流水（旧 → 新）：哪天复习了哪个词。
+    ///
+    /// `vocabulary_items.last_reviewed_at` 只记得**最后一次**，一个词跨几天复习
+    /// 只会留下最后那天的痕迹；要还原「每天复习了几个词」只能靠流水表。
+    public func vocabularyReviewStamps(since: Date) throws -> [VocabularyReviewStamp] {
+        try db.query(
+            """
+            SELECT item_id, reviewed_at FROM vocabulary_reviews
+            WHERE reviewed_at >= ?1 ORDER BY reviewed_at ASC
+            """,
+            [.real(since.timeIntervalSince1970)]
+        ) { row -> VocabularyReviewStamp? in
+            guard let idText = row.string(0), let id = UUID(uuidString: idText),
+                  let reviewed = row.double(1)
+            else { return nil }
+            return VocabularyReviewStamp(
+                itemID: id,
+                reviewedAt: Date(timeIntervalSince1970: reviewed)
             )
         }.compactMap { $0 }
     }

@@ -4,11 +4,26 @@ import AppCore
 import Foundation
 import SwiftUI
 
+/// 学习记录页里可以被别的页面**指定跳过来**的锚点。
+///
+/// 目前只有错题本一处需要（学习进度页的「最近错题」卡片点进来要落在它上面）。
+/// 加一个锚点 = 加一个 case + 给对应卡片挂上 `.id(focus.anchorID)`。
+public enum RecordsFocus: String, Sendable, CaseIterable {
+    case mistakes
+
+    /// `ScrollViewReader` 用的 id（带上前缀，免得和别处的 id 撞）。
+    public var anchorID: String { "records-\(rawValue)" }
+}
+
 /// 学习记录页：最近练习（会话总结）+ 错题本（老师批注的纠错）。
 public struct RecordsView: View {
 
     @Environment(\.forestTheme) private var theme
     let state: AppState
+
+    /// 被别的页面点名跳过来时，短暂圈一下目标卡片 ——
+    /// 滚过去但没有标记，人只会看到一屏陌生的内容，不知道落在哪。
+    @State private var highlighted: RecordsFocus?
 
     public init(state: AppState) { self.state = state }
 
@@ -16,19 +31,41 @@ public struct RecordsView: View {
         VStack(spacing: 0) {
             header
             Divider().overlay(theme.divider)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    statsRow
-                    reviewCard
-                    mistakesCard
-                    sessionsCard
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        statsRow
+                        reviewCard
+                        mistakesCard.id(RecordsFocus.mistakes.anchorID)
+                        sessionsCard
+                    }
+                    .padding(20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .task {
+                    await state.loadRecords()
+                    await jumpToPendingCard(proxy)
+                }
             }
         }
         .background(theme.surfaceAlt.opacity(0.35))
-        .task { await state.loadRecords() }
+    }
+
+    // MARK: - 跨页跳转
+
+    /// 消费一次 `state.recordsFocus`：滚过去 + 圈一下 + 自己收掉。
+    private func jumpToPendingCard(_ proxy: ScrollViewProxy) async {
+        guard let focus = state.recordsFocus else { return }
+        // 先消费掉：跳转是「这一次点击」的意图，不该变成本页的默认行为。
+        state.recordsFocus = nil
+        highlighted = focus
+        // 等一帧让刚加载出来的卡片真正落位，否则 `scrollTo` 会滚到旧的内容高度上。
+        try? await Task.sleep(nanoseconds: 160_000_000)
+        withAnimation(.easeInOut(duration: 0.35)) {
+            proxy.scrollTo(focus.anchorID, anchor: .top)
+        }
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        withAnimation(.easeOut(duration: 0.5)) { highlighted = nil }
     }
 
     // MARK: - 头部（64pt 顶栏对齐）
@@ -278,6 +315,12 @@ public struct RecordsView: View {
                 }
             }
         }
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(theme.accentCool, lineWidth: 2)
+                .opacity(highlighted == .mistakes ? 1 : 0)
+                .allowsHitTesting(false)
+        )
     }
 
     private func mistakeRow(_ mistake: GrammarCorrection) -> some View {

@@ -206,6 +206,11 @@ public final class AppState {
     public private(set) var remoteCallRecords: [RemoteCallRecord] = []
     /// 中栏切换：学习记录页（false = 练习对话）。
     public var showingRecords = false
+    /// 学习记录页要定位到的卡片（「前往学习记录巩固」这类跨页跳转用）。
+    ///
+    /// 页面消费后自行清空 —— 下次进来不该还自动跳一次：跳转是**这一次点击**的意图，
+    /// 不是这一页的默认行为。
+    public var recordsFocus: RecordsFocus?
     /// 情景选择浮层开关（应用内 overlay，随日夜主题）。
     public var showingScenarios = false
     /// 内置情景场景（数据来自资源文件；空 = 资源缺失，UI 给可操作提示）。
@@ -354,6 +359,11 @@ public final class AppState {
     public var showingProgress = false
     /// 学习进度快照（进页面时汇总一次）。**UI 只读它，不自己统计**。
     public private(set) var progressSnapshot: ProgressSnapshot = .empty()
+    /// 近一年的练习分布（年度记录卡）。与 `progressSnapshot` 一样是只读缓存。
+    ///
+    /// 初值是**一整张全空的网格**而不是空数组：年度卡一进页面就有正确的尺寸，
+    /// 数据到了只是把格子染上色，Layout 不会跳一下。
+    public private(set) var annualRecap: AnnualRecap = .empty()
     /// 正在汇总进度（首次进入时的 loading 态）。
     public private(set) var isLoadingProgress = false
     /// 统计窗口天数（7 / 14 / 30 天，UI 可切换）。
@@ -366,7 +376,8 @@ public final class AppState {
     public var dailyPlan: DailyPlan { DailyPlanner.plan(snapshot: progressSnapshot) }
 
     /// 「认识」计数的持久化键（UserDefaults：轻量 [word: count]，不值得为此建表）。
-    private static let dailyRecognitionStorageKey = "vocabulary.dailyRecognitions"    /// 上次重置时间的持久化键。
+    private static let dailyRecognitionStorageKey = "vocabulary.dailyRecognitions"
+    /// 上次重置时间的持久化键。
     private static let dailyResetAtKey = "vocabulary.dailyProgressResetAt"
     /// 上次重置时已学词数的持久化键。
     private static let dailyResetLearnedKey = "vocabulary.dailyProgressResetLearned"
@@ -1643,7 +1654,10 @@ public final class AppState {
 
     // MARK: - 学习记录
 
-    public func openRecords() async {
+    public func openRecords(focus: RecordsFocus? = nil) async {
+        // 跳转目标先记下来、由学习记录页消费掉：视图是 `if/else` 切出来的，
+        // 每次进来都是新建的实例，没法靠视图自己的状态接住这个意图。
+        recordsFocus = focus
         showingShadowing = false
         showingVocabulary = false
         showingProgress = false
@@ -1676,12 +1690,16 @@ public final class AppState {
         guard !isLoadingProgress else { return }
         isLoadingProgress = true
         defer { isLoadingProgress = false }
-        progressSnapshot = await services.progressSnapshot(
+        // 年度记录要回看一整年，取数量级远大于窗口 —— 两件事**并行**做，
+        // 串起来会让进度页每次都等两遍查询。
+        async let recap = services.annualRecap(goalMinutes: product.dailyGoalMinutes)
+        let snapshot = await services.progressSnapshot(
             days: progressWindowDays,
             totalStars: progress.totalStars,
             goalMinutes: product.dailyGoalMinutes
         )
-        isLoadingProgress = false
+        progressSnapshot = snapshot
+        annualRecap = await recap
     }
 
     /// 切换统计窗口（7 / 14 / 30 天）。

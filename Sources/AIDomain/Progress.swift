@@ -32,6 +32,10 @@ public struct DailyActivity: Sendable, Equatable, Identifiable {
     public var pronunciation: Double?
     /// 当天新增词汇数。
     public var vocabularyAdded: Int
+    /// 当天复习过的**不同**词数（同一天把同一个词判两次只算一次）。
+    ///
+    /// 与「今日任务」卡片上的复习进度、年度记录里那天格子的深浅同源。
+    public var vocabularyReviewed: Int
 
     public var id: Date { day }
 
@@ -42,7 +46,8 @@ public struct DailyActivity: Sendable, Equatable, Identifiable {
         corrections: Int = 0,
         shadowingAttempts: Int = 0,
         pronunciation: Double? = nil,
-        vocabularyAdded: Int = 0
+        vocabularyAdded: Int = 0,
+        vocabularyReviewed: Int = 0
     ) {
         self.day = day
         self.seconds = max(seconds, 0)
@@ -51,14 +56,20 @@ public struct DailyActivity: Sendable, Equatable, Identifiable {
         self.shadowingAttempts = shadowingAttempts
         self.pronunciation = pronunciation
         self.vocabularyAdded = vocabularyAdded
+        self.vocabularyReviewed = max(vocabularyReviewed, 0)
     }
 
     /// 练习时长（分钟，四舍五入）。
     public var minutes: Int { Int((seconds / 60).rounded()) }
 
-    /// 这一天是否「练过」（有时长 / 有对话 / 有跟读 / 有新增词汇）。
+    /// 这一天是否「练过」（有时长 / 有对话 / 有跟读 / 有收词 / 有复习）。
+    ///
+    /// ⚠️ 复习词数必须算进来 —— 只背单词的那天是**真的练过**：
+    /// 漏掉这一项，那天在年度图上是「没练」、连续天数也会断，
+    /// 可用户明明做了三项任务里的一项。
     public var hasPractice: Bool {
-        seconds > 0 || messages > 0 || shadowingAttempts > 0 || vocabularyAdded > 0
+        seconds > 0 || messages > 0 || shadowingAttempts > 0
+            || vocabularyAdded > 0 || vocabularyReviewed > 0
     }
 }
 
@@ -159,6 +170,39 @@ public struct CorrectionRecord: Sendable, Equatable, Identifiable {
     }
 }
 
+// MARK: - 读取层的轻量时间戳
+//
+// 年度记录要往回看一整年，跟读一年上千条 —— 把发音报告的 JSON 也解出来纯属浪费。
+// 这里只带「聚合真正用得到的那几列」，其余留给需要它的窗口查询。
+
+/// 一次跟读的极简记录：什么时候跟的 + 参考句（词数用来折算练习时长）。
+public struct ShadowingStamp: Sendable, Equatable {
+    public var referenceText: String
+    public var createdAt: Date
+
+    public init(referenceText: String, createdAt: Date) {
+        self.referenceText = referenceText
+        self.createdAt = createdAt
+    }
+
+    /// 参考句词数（折算时长用，口径与跟读评测同一把尺）。
+    public var wordCount: Int { max(ShadowingScorer.words(referenceText).count, 1) }
+}
+
+/// 一次词汇复习的极简记录。
+///
+/// 用 `itemID` 而不是「第几次」：同一天同一个词判两次只算复习了**一个**词，
+/// 那是「今日任务」卡片上「复习 N 个词」的口径。
+public struct VocabularyReviewStamp: Sendable, Equatable {
+    public var itemID: UUID
+    public var reviewedAt: Date
+
+    public init(itemID: UUID, reviewedAt: Date) {
+        self.itemID = itemID
+        self.reviewedAt = reviewedAt
+    }
+}
+
 // MARK: - 快照
 
 /// 一次学习进度快照。**UI 只读它**，不自己做统计。
@@ -193,10 +237,11 @@ public struct ProgressSnapshot: Sendable, Equatable {
 
     /// 词汇本统计（复用第 24 步的口径）。
     public var vocabulary: VocabularyStats
-    /// 今天已经复习过的词数（`lastReviewedAt` 落在今天）。
+    /// 今天已经复习过的**不同**词数。
     ///
     /// 单独拎出来是因为「今天复习完了没有」**只能由真实记录算出来**——
     /// 每日任务里那一项就是靠它判完成的，不能让用户自己打勾。
+    /// 口径与年度记录里今天那格完全一致（都取自 `DailyActivity.vocabularyReviewed`）。
     public var vocabularyReviewedToday: Int
     /// 跟读统计（复用第 22/23 步的口径）。
     public var shadowing: ShadowingStats
@@ -284,6 +329,9 @@ public enum ProgressAggregator {
     /// 同一天内消息跨度也算作练习时长，同样夹取。
     public static let dailyDurationCap: TimeInterval = 6 * 3600
 
+    /// 跟读折算成练习时长的系数（秒 / 词）。
+    public static let shadowingSecondsPerWord = 0.4
+
     // MARK: 入口
 
     public static func snapshot(
@@ -296,57 +344,34 @@ public enum ProgressAggregator {
         shadowing: [ShadowingAttempt],
         vocabulary: [VocabularyEntry],
         totalStars: Int,
-        goalMinutes: Int = defaultGoalMinutes
+        goalMinutes: Int = defaultGoalMinutes,
+        reviews: [VocabularyReviewStamp] = []
     ) -> ProgressSnapshot {
         let window = max(days, 1)
         let today = calendar.startOfDay(for: now)
         let dayList = daySlots(count: window, endingAt: today, calendar: calendar)
         let windowStart = dayList.first ?? today
 
-        // 消息按天分组：同一天内「首条 → 末条」的时间跨度 = 那天的练习时长。
-        let messagesByDay = group(messages, by: { calendar.startOfDay(for: $0) }, calendar: calendar)
-
-        let correctionsByDay = group(corrections.map(\.createdAt), by: { calendar.startOfDay(for: $0) }, calendar: calendar)
-        let shadowingByDay = group(shadowing, by: { calendar.startOfDay(for: $0.createdAt) }, calendar: calendar)
-        let vocabularyByDay = group(vocabulary.map(\.createdAt), by: { calendar.startOfDay(for: $0) }, calendar: calendar)
-
-        var activity: [DailyActivity] = []
-        for day in dayList {
-            let stamps = (messagesByDay[day] ?? []).sorted()
-            var seconds: TimeInterval = 0
-            if let first = stamps.first, let last = stamps.last {
-                seconds = min(last.timeIntervalSince(first), dailyDurationCap)
-            }
-            // 只有一条消息的会话：按「一条消息 ≈ 半分钟开口」估，不然全部显示 0 分钟。
-            if stamps.count == 1 { seconds = 30 }
-
-            let dayCorrections = correctionsByDay[day] ?? []
-            let dayShadowing = (shadowingByDay[day] ?? []).sorted { $0.createdAt < $1.createdAt }
-            let scores = dayShadowing.compactMap(\.pronunciation).map(\.overall)
-
-            // 语音练习也应算作练习时长：跟读一次按「参考句词数 × 0.4 秒」估。
-            for attempt in dayShadowing {
-                let words = ShadowingScorer.words(attempt.referenceText).count
-                seconds += Double(max(words, 1)) * 0.4
-            }
-
-            activity.append(
-                DailyActivity(
-                    day: day,
-                    seconds: seconds,
-                    messages: stamps.count,
-                    corrections: dayCorrections.count,
-                    shadowingAttempts: dayShadowing.count,
-                    pronunciation: scores.isEmpty ? nil : scores.reduce(0, +) / Double(scores.count),
-                    vocabularyAdded: (vocabularyByDay[day] ?? []).count
-                )
-            )
-        }
-
-        let windowActivity = activity
+        let windowActivity = dailyActivity(
+            days: dayList,
+            calendar: calendar,
+            messages: messages,
+            corrections: corrections,
+            shadowing: shadowing.map {
+                ShadowingStamp(referenceText: $0.referenceText, createdAt: $0.createdAt)
+            },
+            pronunciationByDay: group(
+                shadowing.filter { $0.pronunciation != nil },
+                by: { calendar.startOfDay(for: $0.createdAt) },
+                calendar: calendar
+            ).mapValues { attempts in attempts.compactMap { $0.pronunciation?.overall } },
+            vocabulary: vocabulary,
+            reviews: reviews
+        )
         let todayActivity = windowActivity.last ?? DailyActivity(day: today)
 
         // 累计口径：窗口起点之前的存量也要算进「起始高度」，否则曲线从 0 开始跳。
+        let vocabularyByDay = group(vocabulary, by: { $0.createdAt }, calendar: calendar)
         let openedVocabulary = vocabulary.filter { $0.createdAt < windowStart }.count
         var runningVocabulary = openedVocabulary
         var growth: [TrendPoint] = []
@@ -405,7 +430,7 @@ public enum ProgressAggregator {
             totalStars: totalStars,
             totalCorrections: corrections.count,
             vocabulary: VocabularyStats.from(vocabulary),
-            vocabularyReviewedToday: ReviewScheduler.reviewedCount(vocabulary, on: now, calendar: calendar),
+            vocabularyReviewedToday: todayActivity.vocabularyReviewed,
             shadowing: ShadowingStats.from(shadowing),
             recentMistakes: corrections
                 .sorted { $0.createdAt > $1.createdAt }
@@ -413,6 +438,111 @@ public enum ProgressAggregator {
                 .map(\.correction),
             goalMinutes: max(goalMinutes, 0)
         )
+    }
+
+    // MARK: 逐日折activity（窗口与年度记录**共用这一份**）
+
+    /// 把原始事实折成「每天一条」。窗口快照与年度记录都走这里 ——
+    /// 一旦各写一份，「今天」卡片说练了 12 分钟、年度格子里却是 3 分钟这种事迟早出现。
+    ///
+    /// - Parameters:
+    ///   - days: 要铺的日子（旧 → 新，可以含没练的日子）。
+    ///   - pronunciationByDay: 当天的发音总分（只有窗口趋势要，年度记录不传）。
+    public static func dailyActivity(
+        days dayList: [Date],
+        calendar: Calendar = .current,
+        messages: [Date],
+        corrections: [CorrectionRecord] = [],
+        shadowing: [ShadowingStamp] = [],
+        pronunciationByDay: [Date: [Double]] = [:],
+        vocabulary: [VocabularyEntry] = [],
+        reviews: [VocabularyReviewStamp] = []
+    ) -> [DailyActivity] {
+        // 传进来的「天」一律归一到当天 0 点：下面所有查表都以 0 点为键，
+        // 不给这一刀的话，传进来一个带时刻的日期会**静默查不到**任何记录
+        // （所有格子都变成没练过 —— 不报错，只是全错）。
+        let dayList = dayList.map { calendar.startOfDay(for: $0) }
+        // 消息按天分组：同一天内「首条 → 末条」的时间跨度 = 那天的练习时长。
+        let messagesByDay = group(messages, by: { $0 }, calendar: calendar)
+        let correctionsByDay = group(corrections, by: { $0.createdAt }, calendar: calendar)
+        let shadowingByDay = group(shadowing, by: { $0.createdAt }, calendar: calendar)
+        let vocabularyByDay = group(vocabulary, by: { $0.createdAt }, calendar: calendar)
+        let reviewedByDay = reviewedCountsByDay(reviews, calendar: calendar)
+
+        var activity: [DailyActivity] = []
+        for day in dayList {
+            let dayShadowing = shadowingByDay[day] ?? []
+            let scores = pronunciationByDay[day] ?? []
+
+            activity.append(
+                DailyActivity(
+                    day: day,
+                    seconds: practiceSeconds(
+                        messageStamps: messagesByDay[day] ?? [],
+                        shadowingWordCounts: dayShadowing.map(\.wordCount)
+                    ),
+                    messages: (messagesByDay[day] ?? []).count,
+                    corrections: (correctionsByDay[day] ?? []).count,
+                    shadowingAttempts: dayShadowing.count,
+                    pronunciation: scores.isEmpty ? nil : scores.reduce(0, +) / Double(scores.count),
+                    vocabularyAdded: (vocabularyByDay[day] ?? []).count,
+                    vocabularyReviewed: reviewedCounts(reviews, by: reviewedByDay, on: day, vocabulary: vocabulary, calendar: calendar)
+                )
+            )
+        }
+        return activity
+    }
+
+    /// 某一天的练习时长（秒）：同一句先按「首条 → 末条」的消息跨度算，再叠加跟读折算。
+    ///
+    /// **这是唯一的一把尺子**：「今天」卡片、年度记录的深浅、每日任务的达标判定，
+    /// 全都必须经过它。相隔两次窗口汇总各算一遍，就会出现两个「今天的时长」。
+    public static func practiceSeconds(
+        messageStamps: [Date],
+        shadowingWordCounts: [Int]
+    ) -> TimeInterval {
+        let stamps = messageStamps.sorted()
+        var seconds: TimeInterval = 0
+        if let first = stamps.first, let last = stamps.last {
+            seconds = min(last.timeIntervalSince(first), dailyDurationCap)
+        }
+        // 只有一条消息的会话：按「一条消息 ≈ 半分钟开口」估，不然全部显示 0 分钟。
+        if stamps.count == 1 { seconds = 30 }
+        // 语音练习也应算作练习时长：跟读一次按「参考句词数 × 0.4 秒」估。
+        for count in shadowingWordCounts {
+            seconds += Double(max(count, 1)) * shadowingSecondsPerWord
+        }
+        return seconds
+    }
+
+    /// 每天复习了几个**不同**的词。
+    static func reviewedCountsByDay(
+        _ reviews: [VocabularyReviewStamp],
+        calendar: Calendar
+    ) -> [Date: Set<UUID>] {
+        var result: [Date: Set<UUID>] = [:]
+        for stamp in reviews {
+            result[calendar.startOfDay(for: stamp.reviewedAt), default: []].insert(stamp.itemID)
+        }
+        return result
+    }
+
+    /// 某天的复习词数。
+    ///
+    /// 以复习流水为准（`vocabulary_reviews` 一行一次判分，是唯一真源）；
+    /// 流水为空时退回 `lastReviewedAt` 口径 —— 老数据与手搓夹具走这条路，
+    /// 真实运行时判分与流水是同一笔写入，两者不会打架。
+    static func reviewedCounts(
+        _ reviews: [VocabularyReviewStamp],
+        by day: [Date: Set<UUID>],
+        on target: Date,
+        vocabulary: [VocabularyEntry],
+        calendar: Calendar
+    ) -> Int {
+        guard !reviews.isEmpty else {
+            return ReviewScheduler.reviewedCount(vocabulary, on: target, calendar: calendar)
+        }
+        return day[target]?.count ?? 0
     }
 
     // MARK: 技能分布
@@ -513,10 +643,10 @@ public enum ProgressAggregator {
         min(max(session.endedAt.timeIntervalSince(session.startedAt), 0), sessionDurationCap)
     }
 
-    /// 跟读折算的练习时长（秒）：参考句词数 × 0.4 秒。
+    /// 跟读折算的练习时长（秒）：参考句词数 × 系数。
     static func shadowingSessionSeconds(_ attempts: [ShadowingAttempt]) -> TimeInterval {
         attempts.reduce(0) { partial, attempt in
-            partial + Double(max(ShadowingScorer.words(attempt.referenceText).count, 1)) * 0.4
+            partial + Double(max(ShadowingScorer.words(attempt.referenceText).count, 1)) * shadowingSecondsPerWord
         }
     }
 
