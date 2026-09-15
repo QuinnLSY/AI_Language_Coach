@@ -213,6 +213,25 @@
       "request_timeout": 60
     },
     {
+      "id": "remote.azure-pronunciation",
+      "kind": "pronunciation",
+      "enabled": false,
+      "runtime": "remoteAPI",
+      "display_name": "Azure 发音评测（声学实测）",
+      "endpoint": "https://eastasia.stt.speech.microsoft.com",
+      "model": "en-US",
+      "candidate_models": [
+        "en-US",
+        "en-GB",
+        "en-AU",
+        "en-CA",
+        "en-IN",
+        "en-NZ"
+      ],
+      "streaming": false,
+      "request_timeout": 30
+    },
+    {
       "id": "local.asr",
       "kind": "asr",
       "enabled": true,

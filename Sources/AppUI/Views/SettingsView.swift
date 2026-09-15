@@ -994,10 +994,15 @@ public struct SettingsView: View {
                 .buttonStyle(.plain)
                 .help("接入这一能力的外部模型")
             }
-            if !usingRemote, kind == .vad || kind == .pronunciation {
-                // 说话检测 / 发音评测依赖逐帧音频与声学特征，云端没有通用接口，
-                // 明确说出来，好过让用户对着空列表找原因。
+            if !usingRemote, kind == .vad {
+                // 说话检测依赖逐帧音频，云端没有通用接口，明确说出来好过让用户对着空列表找原因。
                 Text("该能力基于逐帧音频在本地计算，暂无云端接口。")
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+            }
+            if !usingRemote, kind == .pronunciation {
+                // 发音评测有两条通道：没有云端配置也能用（规则推断），配了就是声学实测。
+                Text("当前按本地规则推断打分；接入云端发音评测后改为逐音素声学实测。")
                     .font(.system(size: 10, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
             }

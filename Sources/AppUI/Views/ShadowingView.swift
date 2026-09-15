@@ -377,6 +377,12 @@ public struct ShadowingView: View {
                 }
             }
 
+            // 逐音素明细：单独成组件（见 `PhonemeBreakdownCard`），
+            // 便于离屏渲染单独回归，也便于日后别的页面复用。
+            if report.hasPhonemeBreakdown {
+                PhonemeBreakdownCard(report: report, showsContainer: true)
+            }
+
             ForEach(report.tips, id: \.self) { tip in
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "lightbulb.fill")

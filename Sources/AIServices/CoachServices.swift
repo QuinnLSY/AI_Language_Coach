@@ -169,6 +169,43 @@ public actor CoachServices {
         }
     }
 
+    /// 装配发音评测的**声学通道**（第 23 步：音素级打分）。
+    ///
+    /// 两条通道的分工见 `PronunciationService`：
+    /// 配置了云端发音评测（如 Azure）就用实测，否则自动回落规则推断。
+    /// **不需要 Key 也能用**，所以这里从不抛错——没有云端配置不是错误，只是走另一条路。
+    ///
+    /// - Returns: 声学通道的健康状态；未配置时返回 `configurationInvalid`（说明走推断）。
+    @discardableResult
+    public func bootstrapPronunciation() async -> ProviderHealth {
+        let configuration = await config.current
+        guard let raw = Self.preferredProvider(.pronunciation, in: configuration),
+              raw.runtime == .remoteAPI else {
+            await pronunciation.attachAcousticProvider(nil)
+            return .configurationInvalid(reason: "未配置云端发音评测，使用规则推断")
+        }
+        var providerConfig = raw
+        if let model = configuration.resolvedModel(for: .pronunciation) {
+            providerConfig.model = model
+        }
+        let provider = RemotePronunciationAdapter(providerID: providerConfig.id)
+        do {
+            try await provider.initialize(config: providerConfig)
+        } catch {
+            // 配置不完整（缺端点 / 缺 Key / 没选语言）：卸掉声学通道，回到规则推断，
+            // 但把原因如实带回去给 UI，别让用户以为「配了云端却在用推断」是无声发生的。
+            await pronunciation.attachAcousticProvider(nil)
+            return .configurationInvalid(reason: error.localizedDescription)
+        }
+        let health = await provider.healthCheck()
+        if health.isUsable {
+            await pronunciation.attachAcousticProvider(provider)
+        } else {
+            await pronunciation.attachAcousticProvider(nil)
+        }
+        return health
+    }
+
     /// 装配语音能力（ASR + TTS）。**语音是可选能力**：runtime 没启动也不阻断应用。
     @discardableResult
     public func bootstrapVoice() async -> (asr: ProviderHealth, tts: ProviderHealth) {
@@ -645,6 +682,37 @@ public actor CoachServices {
         )
     }
 
+    /// 验证云端**发音评测**的 Key / 端点是否真的可用。
+    ///
+    /// 与模型列表探测的区别：发音评估没有只读端点，唯一的验证方式是**发一段音频**。
+    /// 这里用 1 秒静音——它足够让服务端把「认证 / 端点 / 音频格式」三件事验完
+    /// （静音通常回 `NoMatch`，那恰好证明上面三件事都通过），而费用可以忽略。
+    ///
+    /// ⚠️ 这是**计费调用**，所以只在用户点「验证」时发生，不做后台静默探测。
+    ///
+    /// - Returns: 面向用户的一句话结论。
+    @discardableResult
+    public func verifyRemotePronunciation(
+        providerID: String, apiKey: String, model: String?
+    ) async throws -> String {
+        let configuration = await config.current
+        guard var providerConfig = configuration.providers.first(where: {
+            $0.id == providerID && $0.kind == .pronunciation
+        }) else {
+            throw AppError.configuration("找不到发音评测 Provider：\(providerID)")
+        }
+        providerConfig.apiKey = CredentialText.normalizedKey(apiKey)
+        if let model, !model.isEmpty { providerConfig.model = model }
+        guard let locale = providerConfig.model, !locale.isEmpty else {
+            throw AIProviderError.invalidConfiguration("未选择评测语言（如 en-US）")
+        }
+        let adapter = RemotePronunciationAdapter(providerID: providerID)
+        try await adapter.initialize(config: providerConfig)
+        let status = try await adapter.probe()
+        let host = providerConfig.endpoint.flatMap { RemoteEndpoint.base($0) }.map { RemoteCommon.host(of: $0) } ?? "?"
+        return "认证通过（\(host) · \(locale)）。探测返回 \(status)——静音的预期结果，说明端点与密钥都可用。"
+    }
+
     /// 记住某云端 Provider 探测到的模型列表（写进 `candidateModels`）。
     ///
     /// 探测本身仍是只读的（`fetchRemoteModels` 不写配置），但把结果留下来能让用户
@@ -751,8 +819,11 @@ public actor CoachServices {
             try? await bootstrapLLM()
         case .asr, .tts:
             _ = await bootstrapVoice()
+        case .pronunciation:
+            // 音素评测换了供应商 / 填了 Key，声学通道要跟着换（否则还在用旧端点）。
+            _ = await bootstrapPronunciation()
         default:
-            break // vad / embedding / pronunciation V1 尚无真实 runtime
+            break // vad / embedding V1 尚无真实 runtime
         }
     }
 
@@ -807,6 +878,11 @@ public actor CoachServices {
                     guard health.isUsable else {
                         throw Self.startFailure(health)
                     }
+                    // 发音评测没有只读探测端点，配置级检查不能冒充「连接已校验」——
+                    // 弹窗说的话必须与真实发生过的事一致（2026-09-14 的同一条教训）。
+                    if kind == .pronunciation {
+                        return "\(who) 已启用（应用层面）：配置完整，真正的联网校验会在第一次跟读时进行。"
+                    }
                     return "\(who) 已启动（应用层面）：连接校验通过。"
                 }
                 return "\(who) 已启动（应用层面）。"
@@ -848,8 +924,19 @@ public actor CoachServices {
         case .llm: await llmHealth()
         case .asr: await asrHealth()
         case .tts: await ttsHealth()
+        case .pronunciation: await pronunciationHealth()
         default: nil
         }
+    }
+
+    /// 发音评测的健康状态。
+    ///
+    /// 配置齐全就当可用，但**不宣称「连接校验通过」**：发音评测没有只读探测端点，
+    /// 真要验证连通性就得发一段音频（= 花钱）。所以这里只验配置，真实连通性在
+    /// 第一次跟读时才揭晓——`setModelRunning` 的文案也必须与此一致。
+    private func pronunciationHealth() async -> ProviderHealth {
+        let health = await bootstrapPronunciation()
+        return health
     }
 
     /// 健康状态 → 抛给「启动」弹窗的错误。

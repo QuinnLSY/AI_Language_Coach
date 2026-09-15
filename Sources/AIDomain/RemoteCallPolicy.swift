@@ -26,6 +26,11 @@ public enum RemoteCallPolicy {
         case chat
         case speech
         case transcriptions
+        /// 发音评测（云端发音评估，如 Azure Pronunciation Assessment）。
+        ///
+        /// 单独列一档而不是并进 `transcriptions`：它**按音频时长计费**，
+        /// 与语音识别是不同的计费项，混在一起用户对不上账。
+        case pronunciation
 
         /// 该操作会不会产生费用（决定是否受频率与总量护栏约束）。
         public var isBillable: Bool { self != .models }
@@ -36,16 +41,20 @@ public enum RemoteCallPolicy {
             case .chat: "对话生成"
             case .speech: "教师朗读"
             case .transcriptions: "语音识别"
+            case .pronunciation: "发音评测"
             }
         }
 
         /// 这个操作会打到哪个端点（审计留痕用，用户可直接与服务商账单的计费项对齐）。
+        ///
+        /// 发音评测的路径是厂商私有的，Adapter 会在调用时传入真实路径覆盖这里的占位值。
         public var endpointPath: String {
             switch self {
             case .models: "/v1/models"
             case .chat: "/v1/chat/completions"
             case .speech: "/v1/audio/speech"
             case .transcriptions: "/v1/audio/transcriptions"
+            case .pronunciation: "/speech/pronunciation"
             }
         }
     }
@@ -168,6 +177,7 @@ public enum RemoteCallPolicy {
         case .chat: kind == .llm
         case .speech: kind == .tts
         case .transcriptions: kind == .asr
+        case .pronunciation: kind == .pronunciation
         case .models: true
         }
     }
@@ -205,6 +215,9 @@ public enum RemoteCallPolicy {
             Operation.chat: 20,
             Operation.speech: 40,
             Operation.transcriptions: 150,
+            // 发音评测是「一次跟读 = 一次请求」，正常人一分钟按不了几次；
+            // 给 40 与朗读同档：够用，但失控循环会在半分钟内被掐断。
+            Operation.pronunciation: 40,
             Operation.models: 200
         ]
 

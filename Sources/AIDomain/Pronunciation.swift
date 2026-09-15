@@ -465,6 +465,34 @@ public enum PronunciationVerdict: String, Codable, Sendable, Equatable, CaseIter
     }
 }
 
+/// 音素得分的来源。**必须如实标注**：推断不等于实测，读者有权知道自己看的是什么。
+public enum PhonemeSource: String, Codable, Sendable, Equatable, CaseIterable {
+    /// 没有音素结果（既没有发音模型，也没有可对齐的文本）。
+    case none
+    /// 推断：参考句与识别结果各自的音素序列做加权对齐（无需发音模型）。
+    case inference
+    /// 实测：发音模型 / 云端发音评估给出的声学音素得分。
+    case acoustic
+
+    /// 卡片上的小标签（nil = 不显示）。
+    public var displayName: String? {
+        switch self {
+        case .none: nil
+        case .inference: "规则推断"
+        case .acoustic: "声学实测"
+        }
+    }
+
+    /// 说明这句话能信到什么程度。
+    public var explanation: String? {
+        switch self {
+        case .none: nil
+        case .inference: "按发音部位与方式推算，用来定位「哪个音不对」，不是录音实测"
+        case .acoustic: "来自发音模型的逐音素声学打分"
+        }
+    }
+}
+
 /// 一次发音评测的完整结果（可 JSON 落库）。
 public struct PronunciationReport: Codable, Sendable, Equatable {
     public var referenceText: String
@@ -481,6 +509,10 @@ public struct PronunciationReport: Codable, Sendable, Equatable {
     /// 针对性建议（点名数字，不讲空话）。
     public var tips: [String]
     public var createdAt: Date
+    /// 逐词音素明细（PRD §12.1 的音素条）。没有音素能力时为空。
+    public var phonemeWords: [PhonemeWordAssessment]
+    /// 音素得分来源（推断 / 实测 / 无）。
+    public var phonemeSource: PhonemeSource
 
     public init(
         referenceText: String,
@@ -491,7 +523,9 @@ public struct PronunciationReport: Codable, Sendable, Equatable {
         metrics: SpeechMetrics,
         weakest: PronunciationDimension?,
         tips: [String],
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        phonemeWords: [PhonemeWordAssessment] = [],
+        phonemeSource: PhonemeSource = .none
     ) {
         self.referenceText = referenceText
         self.recognizedText = recognizedText
@@ -502,12 +536,42 @@ public struct PronunciationReport: Codable, Sendable, Equatable {
         self.weakest = weakest
         self.tips = tips
         self.createdAt = createdAt
+        self.phonemeWords = phonemeWords
+        self.phonemeSource = phonemeSource
+    }
+
+    // 老记录里没有音素字段（v6 之前落库的报告）：缺就降级成「无音素」，
+    // 绝不能因为读了旧 JSON 就让整条跟读记录报废。
+    private enum CodingKeys: String, CodingKey {
+        case referenceText, recognizedText, overall, verdict, lines
+        case metrics, weakest, tips, createdAt, phonemeWords, phonemeSource
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        referenceText = try container.decode(String.self, forKey: .referenceText)
+        recognizedText = try container.decodeIfPresent(String.self, forKey: .recognizedText) ?? ""
+        overall = try container.decodeIfPresent(Double.self, forKey: .overall) ?? 0
+        verdict = try container.decodeIfPresent(PronunciationVerdict.self, forKey: .verdict) ?? .needsWork
+        lines = try container.decodeIfPresent([PronunciationScoreLine].self, forKey: .lines) ?? []
+        metrics = try container.decodeIfPresent(SpeechMetrics.self, forKey: .metrics)
+            ?? SpeechMetrics.empty
+        weakest = try container.decodeIfPresent(PronunciationDimension.self, forKey: .weakest)
+        tips = try container.decodeIfPresent([String].self, forKey: .tips) ?? []
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        phonemeWords = try container.decodeIfPresent([PhonemeWordAssessment].self, forKey: .phonemeWords) ?? []
+        phonemeSource = try container.decodeIfPresent(PhonemeSource.self, forKey: .phonemeSource) ?? .none
     }
 
     public var overallPercent: Int { Int(overall.rounded()) }
 
     public func line(_ dimension: PronunciationDimension) -> PronunciationScoreLine? {
         lines.first { $0.dimension == dimension }
+    }
+
+    /// 有可展示的音素条吗（UI 据此决定要不要画那一块）。
+    public var hasPhonemeBreakdown: Bool {
+        !phonemeWords.filter { $0.status != .extra && !$0.phonemes.isEmpty }.isEmpty
     }
 }
 
@@ -562,21 +626,32 @@ public enum PronunciationScorer {
     ///
     /// - Parameters:
     ///   - phonemes: 音素级得分。为空则**不显示**音准维度（而不是拿别的维度冒充）。
+    ///   - phonemeWords: 逐词音素明细（含来源）。传了它就可以不传扁平的 `phonemes`——
+    ///     本函数会自己摊平，保证「音准分」与「音素条」永远同源，不会各算各的。
+    ///   - phonemeSource: 音素得分来源。`.inference` 会把音准维度标成「估算」。
     ///   - comparison: 词准确度的来源。显式传入是为了让调用方拿到与跟读页完全一致的结论。
     public static func report(
         reference: String,
         recognized: String,
         metrics: SpeechMetrics,
         phonemes: [PhonemeRating] = [],
+        phonemeWords: [PhonemeWordAssessment] = [],
+        phonemeSource: PhonemeSource = .none,
         comparison: ShadowingComparison? = nil,
         createdAt: Date = Date()
     ) -> PronunciationReport {
         let alignment = comparison ?? ShadowingScorer.compare(reference: reference, recognized: recognized)
         let recognizedWords = ShadowingScorer.words(recognized)
 
+        // 音素来源只有一个：明细在就以明细为准（两者都传时明细赢，避免不同步）。
+        let ratings = phonemeWords.isEmpty ? phonemes : PhonemeAssessment.flatRatings(phonemeWords)
+        let source: PhonemeSource = ratings.isEmpty ? .none : (phonemeSource == .none ? .inference : phonemeSource)
+
         var lines: [PronunciationScoreLine] = []
         lines.append(wordAccuracyLine(alignment))
-        if let phonemeLine = phonemeAccuracyLine(phonemes) { lines.append(phonemeLine) }
+        if let phonemeLine = phonemeAccuracyLine(ratings, isEstimated: source == .inference) {
+            lines.append(phonemeLine)
+        }
         if let speed = speakingSpeedLine(words: recognizedWords.count, metrics: metrics) { lines.append(speed) }
         if let pauses = pausesLine(metrics: metrics) { lines.append(pauses) }
         if let fluency = fluencyLine(words: recognizedWords, metrics: metrics) { lines.append(fluency) }
@@ -606,7 +681,9 @@ public enum PronunciationScorer {
             metrics: metrics,
             weakest: weakest,
             tips: tips(for: lines),
-            createdAt: createdAt
+            createdAt: createdAt,
+            phonemeWords: phonemeWords,
+            phonemeSource: source
         )
     }
 
@@ -654,15 +731,21 @@ public enum PronunciationScorer {
         )
     }
 
-    static func phonemeAccuracyLine(_ phonemes: [PhonemeRating]) -> PronunciationScoreLine? {
+    static func phonemeAccuracyLine(
+        _ phonemes: [PhonemeRating],
+        isEstimated: Bool = false
+    ) -> PronunciationScoreLine? {
         guard !phonemes.isEmpty else { return nil }
         let average = phonemes.map(\.score).reduce(0, +) / Double(phonemes.count)
         let worst = phonemes.sorted { $0.score < $1.score }.prefix(2)
-            .map { "\($0.phoneme) \(Int(($0.score * 100).rounded()))" }
+            .map { "\(PhonemeDisplay.ipa(for: $0.phoneme)) \(Int(($0.score * 100).rounded()))" }
+        let head = worst.isEmpty ? "音素得分 \(Int((average * 100).rounded()))" : "最弱的音：\(worst.joined(separator: "、"))"
         return PronunciationScoreLine(
             dimension: .phonemeAccuracy,
             score: average * 100,
-            detail: worst.isEmpty ? "音素得分 \(Int((average * 100).rounded()))" : "最弱的音：\(worst.joined(separator: "、"))"
+            // 推断来的分数必须自报家门，否则用户会以为这是录音实测。
+            detail: isEstimated ? "\(head)（规则推断）" : head,
+            isEstimated: isEstimated
         )
     }
 
@@ -747,7 +830,11 @@ public enum PronunciationScorer {
         case .wordAccuracy:
             return line.score < 85 ? "有词没跟上（\(line.detail)），先听两遍示范，再逐词慢读一遍" : nil
         case .phonemeAccuracy:
-            return line.score < 85 ? "个别音不准（\(line.detail)），把这个音单独拉出来读十遍" : nil
+            guard line.score < 85 else { return nil }
+            // 推断来的音素结论语气要更软：它指向的是「这里值得复读一遍」，不是「你读错了」。
+            return line.isEstimated
+                ? "这几个音可能没到位（\(line.detail)），把它们单独读十遍，再整句回读一次"
+                : "个别音不准（\(line.detail)），把这个音单独拉出来读十遍"
         case .speakingSpeed:
             return line.score < 85 ? "语速不在舒服的区间（\(line.detail)），跟着示范的节奏读，别抢也别拖" : nil
         case .pauses:

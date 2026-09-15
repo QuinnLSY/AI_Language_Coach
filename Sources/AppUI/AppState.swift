@@ -147,6 +147,9 @@ public final class AppState {
     /// 语音服务健康状态。
     public private(set) var asrHealth: ProviderHealth = .configurationInvalid(reason: "尚未初始化")
     public private(set) var ttsHealth: ProviderHealth = .configurationInvalid(reason: "尚未初始化")
+    /// 发音评测声学通道状态。`configurationInvalid` 不代表坏了——没有云端发音评测时
+    /// 评测走规则推断，这一项只是用来如实说明「这次是实测还是推断」。
+    public private(set) var pronunciationHealth: ProviderHealth = .configurationInvalid(reason: "尚未初始化")
     // MARK: 模型管理中心（本地检测 ~/AI_Models + 外部模型统一入口）
     /// 每个能力的模型信息（当前模型/来源/本地检测列表）。
     public private(set) var capabilityInfos: [AIProviderKind: CapabilityModelInfo] = [:]
@@ -461,6 +464,8 @@ public final class AppState {
         // 恢复上次会话的聊天内容（无历史则保持空白）
         await chat.restoreLastSessionIfNeeded()
         await bootstrapVoice()
+        // 发音评测的声学通道（云端发音评估）：没配置也不报错，评测自动走规则推断。
+        pronunciationHealth = await services.bootstrapPronunciation()
         await refreshStatus()
         refreshTodayTokens()
         modelRunStates = await services.modelRunStates()
@@ -1268,6 +1273,22 @@ public final class AppState {
                     DiscoveredModel(id: $0.id, name: $0.name, isEmbeddingOnly: false, contextLength: nil)
                 }
                 externalMessages[providerID] = "接入成功，获取到 \(voices.count) 个音色。选好音色后会自动启用。"
+            } else if kind == .pronunciation {
+                // 发音评测没有「模型列表」可拉：它的 `model` 是**评测语言**（en-US…）。
+                // 所以这里做两件事：把可选语言列出来，再用 1 秒静音真探一次认证。
+                let apiKey = await resolvedExternalAPIKey(providerID: providerID)
+                let configuration = await services.configuration
+                let provider = configuration.providers.first { $0.id == providerID && $0.kind == kind }
+                let locales = provider?.candidateModels ?? []
+                externalModels[providerID] = locales.map {
+                    DiscoveredModel(id: $0, name: $0, isEmbeddingOnly: false, contextLength: nil)
+                }
+                let locale = provider?.model ?? locales.first
+                let conclusion = try await services.verifyRemotePronunciation(
+                    providerID: providerID, apiKey: apiKey, model: locale
+                )
+                externalMessages[providerID] = "\(conclusion)选好评测语言后点右下角「确认配置」才会启用。"
+                externalVerifiedKeys[providerID] = CredentialText.normalizedKey(apiKey)
             } else {
                 let apiKey = await resolvedExternalAPIKey(providerID: providerID)
                 let models = try await services.fetchRemoteModels(providerID: providerID, apiKey: apiKey, kind: kind)
@@ -1313,7 +1334,7 @@ public final class AppState {
         let apiKey = await resolvedExternalAPIKey(providerID: providerID)
         do {
             try await validateExternalKeyIfNeeded(
-                kind: kind, providerID: providerID, apiKey: apiKey, keyless: keyless
+                kind: kind, providerID: providerID, apiKey: apiKey, keyless: keyless, model: model
             )
             try await services.applyRemoteProvider(
                 providerID: providerID, apiKey: apiKey, model: model,
@@ -1324,6 +1345,11 @@ public final class AppState {
                 externalKeyFingerprints[providerID] = await remoteKeyFingerprint(providerID: providerID)
             }
             if kind == .asr || kind == .tts { await bootstrapVoice() }
+            if kind == .pronunciation {
+                // 发音评测的应用 = 装配声学通道。装不上就回落规则推断（仍然可用），
+                // 但状态要如实更新，别让设置页显示一个并不存在的「已生效云端评测」。
+                pronunciationHealth = await services.bootstrapPronunciation()
+            }
             // ⚠️ 面板是「配置入口」，卡片是「结果展示」，两者必须同时前进。
             //
             // 应用成功只更新 `externalMessages` 是不够的：卡片读的是
@@ -1353,11 +1379,20 @@ public final class AppState {
     ///
     /// 验证失败会抛错（含服务端原话），调用方据此整路失败、不落盘激活。
     private func validateExternalKeyIfNeeded(
-        kind: AIProviderKind, providerID: String, apiKey: String, keyless: Bool
+        kind: AIProviderKind, providerID: String, apiKey: String, keyless: Bool, model: String? = nil
     ) async throws {
         guard !keyless else { return }
         let normalized = CredentialText.normalizedKey(apiKey)
         if externalVerifiedKeys[providerID] == normalized { return }
+        // 发音评测没有 `/models` 可查，硬打它只会 404 并被翻译成「模型不存在」——
+        // 走它自己的验证方式：发 1 秒静音探测认证与端点。
+        if kind == .pronunciation {
+            _ = try await services.verifyRemotePronunciation(
+                providerID: providerID, apiKey: apiKey, model: model
+            )
+            externalVerifiedKeys[providerID] = normalized
+            return
+        }
         _ = try await services.fetchRemoteModels(providerID: providerID, apiKey: apiKey, kind: kind)
         externalVerifiedKeys[providerID] = normalized
     }

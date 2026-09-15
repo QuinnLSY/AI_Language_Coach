@@ -1,3 +1,4 @@
+import AIDomain
 import AIInterfaces
 import AIInfrastructure
 import AppCore
@@ -157,28 +158,12 @@ public final class WhisperASRAdapter: ASRProvider, @unchecked Sendable {
     }
 
     /// 16bit PCM WAV 封装（runtime 只吃 WAV，不依赖服务端 ffmpeg）。
+    ///
+    /// 实现已收敛到 `AudioPCM.wav16`：发音评测适配器也要发音频，两份实现
+    /// 一旦在位深 / 字节序 / 头长度上走偏，表现都是「服务端说格式不对」，
+    /// 而错误信息指不到根因。
     public static func wavData(samples: [Float], sampleRate: Int) -> Data {
-        let bytesPerSample = 2
-        let dataSize = samples.count * bytesPerSample
-        var data = Data()
-        data.append(contentsOf: Array("RIFF".utf8))
-        data.append(contentsOf: Self.littleEndian(UInt32(36 + dataSize)))
-        data.append(contentsOf: Array("WAVE".utf8))
-        data.append(contentsOf: Array("fmt ".utf8))
-        data.append(contentsOf: Self.littleEndian(UInt32(16)))       // fmt chunk size
-        data.append(contentsOf: Self.littleEndian(UInt16(1)))        // PCM
-        data.append(contentsOf: Self.littleEndian(UInt16(1)))        // mono
-        data.append(contentsOf: Self.littleEndian(UInt32(sampleRate)))
-        data.append(contentsOf: Self.littleEndian(UInt32(sampleRate * bytesPerSample))) // byte rate
-        data.append(contentsOf: Self.littleEndian(UInt16(bytesPerSample)))              // block align
-        data.append(contentsOf: Self.littleEndian(UInt16(16)))       // bits per sample
-        data.append(contentsOf: Array("data".utf8))
-        data.append(contentsOf: Self.littleEndian(UInt32(dataSize)))
-        for sample in samples {
-            let clamped = max(-1, min(1, sample))
-            data.append(contentsOf: Self.littleEndian(Int16(clamped * 32767)))
-        }
-        return data
+        AudioPCM.wav16(samples: samples, sampleRate: sampleRate)
     }
 
     private static func littleEndian<T: FixedWidthInteger>(_ value: T) -> [UInt8] {

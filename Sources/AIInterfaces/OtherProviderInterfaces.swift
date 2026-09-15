@@ -166,12 +166,31 @@ public struct PhonemeScore: Sendable, Equatable {
 }
 
 public struct PronunciationScore: Sendable, Equatable {
-    public var overall: Double
-    public var phonemes: [PhonemeScore]
+    /// 逐词音素（有发音模型时才有：界面上那条 `world → w ✓ ɜː ✓ r △` 需要它）。
+    public struct WordPhonemes: Sendable, Equatable {
+        public var word: String
+        public var phonemes: [PhonemeScore]
 
-    public init(overall: Double, phonemes: [PhonemeScore] = []) {
+        public init(word: String, phonemes: [PhonemeScore] = []) {
+            self.word = word
+            self.phonemes = phonemes
+        }
+    }
+
+    public var overall: Double
+    /// 扁平音素序列（「音准」维度的口径）。
+    public var phonemes: [PhonemeScore]
+    /// 逐词音素明细（可为空：老实现只给扁平序列）。
+    public var words: [WordPhonemes]
+
+    public init(
+        overall: Double,
+        phonemes: [PhonemeScore] = [],
+        words: [WordPhonemes] = []
+    ) {
         self.overall = overall
         self.phonemes = phonemes
+        self.words = words
     }
 }
 
