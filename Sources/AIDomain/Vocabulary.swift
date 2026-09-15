@@ -93,6 +93,22 @@ public enum ReviewScheduler {
         entries.filter { isDue($0, now: now) }
     }
 
+    /// 指定那**一天**复习过几个词（`lastReviewedAt` 落在同一天）。
+    ///
+    /// 用来回答「今天复习完了没有」—— 判分时落的是 `lastReviewedAt`，
+    /// 所以这一项只能由真实记录算出来，不能让用户自己打勾。
+    public static func reviewedCount(
+        _ entries: [VocabularyEntry],
+        on day: Date = Date(),
+        calendar: Calendar = .current
+    ) -> Int {
+        let target = calendar.startOfDay(for: day)
+        return entries.filter { entry in
+            guard let last = entry.lastReviewedAt else { return false }
+            return calendar.startOfDay(for: last) == target
+        }.count
+    }
+
     /// 一次复习的结果。
     public enum Grade: Sendable, Equatable {
         case remembered

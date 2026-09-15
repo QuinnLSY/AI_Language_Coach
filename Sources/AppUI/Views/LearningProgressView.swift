@@ -43,6 +43,7 @@ public struct LearningProgressView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     todayCard
+                    dailyTasksCard
                     rhythmCard
                     grammarCard
                     vocabularyCard
@@ -56,11 +57,29 @@ public struct LearningProgressView: View {
         }
         .background(theme.surfaceAlt.opacity(0.35))
         .task {
-            // 进入页面汇总一次；已汇总过（同一次启动内来回切页）不重复计算。
-            if snapshot.activity.isEmpty || state.isLoadingProgress {
+            // 进入页面汇总一次。**刚汇总过就不重算**，但隔了一会儿再进来必须重算 ——
+            // 「今日任务」的进度要跟刚才做过的事对得上，拿昨天的快照说今天的事就是撒谎。
+            if snapshot.activity.isEmpty || Date().timeIntervalSince(snapshot.generatedAt) > 15 {
                 await state.reloadProgress()
             }
         }
+    }
+
+    // MARK: - 今日任务推荐（PRD §7.1）
+
+    /// 点一项 → 直接去对应的页面做。
+    private func open(_ kind: DailyTask.Kind) {
+        Task {
+            switch kind {
+            case .conversation: await state.openPractice()
+            case .shadowing: await state.openShadowing()
+            case .review: await state.openVocabulary()
+            }
+        }
+    }
+
+    private var dailyTasksCard: some View {
+        DailyTasksCard(plan: state.dailyPlan, onOpen: open)
     }
 
     // MARK: - 头部

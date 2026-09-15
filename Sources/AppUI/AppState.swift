@@ -346,6 +346,12 @@ public final class AppState {
     /// 统计窗口天数（7 / 14 / 30 天，UI 可切换）。
     public var progressWindowDays = ProgressAggregator.defaultDays
 
+    /// 今日任务推荐（PRD §7.1）。由 `DailyPlanner` 纯函数从快照排出来，UI 只读它。
+    ///
+    /// 快照还没汇总时排出来是空计划 —— 页面会显示「今天没有安排」，
+    /// 而不是编一份看着热闹但不基于任何记录的假清单。
+    public var dailyPlan: DailyPlan { DailyPlanner.plan(snapshot: progressSnapshot) }
+
     /// 「认识」计数的持久化键（UserDefaults：轻量 [word: count]，不值得为此建表）。
     private static let dailyRecognitionStorageKey = "vocabulary.dailyRecognitions"    /// 上次重置时间的持久化键。
     private static let dailyResetAtKey = "vocabulary.dailyProgressResetAt"
@@ -1651,7 +1657,10 @@ public final class AppState {
 
     /// 重新汇总学习进度（切窗口 / 手动刷新 / 刚练完回来都走这里）。
     public func reloadProgress() async {
+        // 重入保护：页面出现与卡片刷新可能同时触发，重复跑一遍全库汇总没有意义。
+        guard !isLoadingProgress else { return }
         isLoadingProgress = true
+        defer { isLoadingProgress = false }
         progressSnapshot = await services.progressSnapshot(
             days: progressWindowDays,
             totalStars: progress.totalStars,

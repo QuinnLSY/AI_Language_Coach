@@ -193,6 +193,11 @@ public struct ProgressSnapshot: Sendable, Equatable {
 
     /// 词汇本统计（复用第 24 步的口径）。
     public var vocabulary: VocabularyStats
+    /// 今天已经复习过的词数（`lastReviewedAt` 落在今天）。
+    ///
+    /// 单独拎出来是因为「今天复习完了没有」**只能由真实记录算出来**——
+    /// 每日任务里那一项就是靠它判完成的，不能让用户自己打勾。
+    public var vocabularyReviewedToday: Int
     /// 跟读统计（复用第 22/23 步的口径）。
     public var shadowing: ShadowingStats
     /// 最近错题（错题本在 Dashboard 上的「Recent mistakes」）。
@@ -217,6 +222,7 @@ public struct ProgressSnapshot: Sendable, Equatable {
         totalStars: Int = 0,
         totalCorrections: Int = 0,
         vocabulary: VocabularyStats = .empty,
+        vocabularyReviewedToday: Int = 0,
         shadowing: ShadowingStats = .empty,
         recentMistakes: [GrammarCorrection] = [],
         goalMinutes: Int = ProgressAggregator.defaultGoalMinutes
@@ -236,6 +242,7 @@ public struct ProgressSnapshot: Sendable, Equatable {
         self.totalStars = totalStars
         self.totalCorrections = totalCorrections
         self.vocabulary = vocabulary
+        self.vocabularyReviewedToday = max(vocabularyReviewedToday, 0)
         self.shadowing = shadowing
         self.recentMistakes = recentMistakes
         self.goalMinutes = goalMinutes
@@ -398,6 +405,7 @@ public enum ProgressAggregator {
             totalStars: totalStars,
             totalCorrections: corrections.count,
             vocabulary: VocabularyStats.from(vocabulary),
+            vocabularyReviewedToday: ReviewScheduler.reviewedCount(vocabulary, on: now, calendar: calendar),
             shadowing: ShadowingStats.from(shadowing),
             recentMistakes: corrections
                 .sorted { $0.createdAt > $1.createdAt }
