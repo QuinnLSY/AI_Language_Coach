@@ -340,4 +340,24 @@ final class VoiceCloningWiringTests: XCTestCase {
             .map(\.id)
         XCTAssertTrue(offenders.isEmpty, "这些云端供应商声明了克隆：\(offenders)")
     }
+
+    /// 出厂默认必须**开箱即有声**。
+    ///
+    /// 早先默认启用的是本机 Qwen3（`local.tts` :8855）——它要求用户先跑
+    /// `~/AI_Models/bin/start-tts.sh`，没跑则整条朗读链路不可用且没有回退。
+    /// 现在默认启用免密钥的 Edge 代理（`remote.kina-tts` :8856，不需要本机服务、
+    /// 不产生费用），本地那份降为「要克隆音色时再自己开」。
+    func testDefaultConfigEnablesKeylessEdgeTTSByDefault() throws {
+        let configuration = try DefaultConfiguration.load()
+        let enabled = configuration.providers
+            .filter { $0.kind == .tts && $0.enabled }
+            .map(\.id)
+        XCTAssertEqual(enabled, ["remote.kina-tts"], "默认只启用免密钥的 Edge 代理")
+
+        let resolved = configuration.resolvedProvider(for: .tts)
+        XCTAssertEqual(resolved?.id, "remote.kina-tts")
+        XCTAssertEqual(resolved?.runtime, .remoteAPI)
+        XCTAssertEqual(resolved?.apiKeyRequired, false, "免密钥才谈得上开箱可用")
+        XCTAssertEqual(resolved?.billable, false)
+    }
 }

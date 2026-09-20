@@ -311,14 +311,26 @@ public actor CoachServices {
 
     /// 当前 TTS 供应商是否支持音色克隆。
     ///
-    /// 两个来源取「或」：**配置声明**（供应商 / 用户在配置里自报，权威）与
-    /// **适配器自报**（代码级能力）。任一侧坏了另一个还能兜住，
-    /// 而两边都关时结论明确是「不支持」—— 不会出现「以为能用、点了才发现不行」。
+    /// **实现为权威**：答案一律来自「真正会去做这次合成的那个实现」的 `capabilities()`，
+    /// 配置自报**不能**单独把结论变成「支持」。
+    ///
+    /// 早先这里是「配置声明为真就直接算真」（`config.supportsVoiceCapability`）——不看实现。
+    /// 后果是配置里写一句 `capabilities: ["voiceCloning"]` 就能让界面显示
+    /// 「当前供应商支持克隆」，用户建完音色、点启用才发现合成直接报错（false capability）。
+    /// 现在配置只作**闸门**：适配器算出的能力是 `配置声明 ∩ 实现天花板`
+    /// （见 `ProviderCapabilities.effectiveVoiceCapabilities`），云端适配器结构上拒收
+    /// 参考音频，所以怎么声明都不会变成「支持」。
+    ///
+    /// 尚未装配时按同一个工厂造一个、喂同一份配置再问 ——
+    /// 既不拿「还没装配」当「不支持」，也不让判定依赖装配时机。
     public func ttsSupportsVoiceCloning() async -> Bool {
-        if await config.current.resolvedProvider(for: .tts)?.supportsVoiceCapability(.voiceCloning) == true {
-            return true
+        guard let provider = await config.current.resolvedProvider(for: .tts) else { return false }
+        if let live = await tts.current {
+            return live.capabilities().voiceCloning
         }
-        return await tts.current?.capabilities().voiceCloning ?? false
+        let adapter = Self.makeTTSProvider(provider)
+        try? await adapter.initialize(config: provider)
+        return adapter.capabilities().voiceCloning
     }
 
     /// 全部音色档案。

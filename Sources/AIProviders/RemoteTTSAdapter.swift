@@ -39,7 +39,10 @@ public final class RemoteTTSAdapter: TTSProvider, VoiceCatalogProvider, RuntimeI
             )
         }
         _ = try RemoteCommon.resolve(config)
-        declaredVoiceCapabilities = config.declaredVoiceCapabilities
+        declaredVoiceCapabilities = ProviderCapabilities.effectiveVoiceCapabilities(
+            declared: config.declaredVoiceCapabilities,
+            runtime: config.runtime
+        )
         await state.setConfig(config)
         await state.setLifecycle(.initialized)
     }

@@ -190,7 +190,7 @@
     {
       "id": "remote.kina-tts",
       "kind": "tts",
-      "enabled": false,
+      "enabled": true,
       "runtime": "remoteAPI",
       "display_name": "Edge TTS 本地语音（免费）",
       "endpoint": "http://127.0.0.1:8856",
@@ -264,7 +264,7 @@
     {
       "id": "local.tts",
       "kind": "tts",
-      "enabled": true,
+      "enabled": false,
       "runtime": "externalLocalRuntime",
       "endpoint": "http://127.0.0.1:8855",
       "model": "serena",

@@ -40,7 +40,10 @@ public final class Qwen3TTSAdapter: TTSProvider, VoiceCatalogProvider, @unchecke
         guard URL(string: endpoint) != nil else {
             throw AIProviderError.invalidConfiguration("端点不是合法 URL")
         }
-        declaredVoiceCapabilities = config.declaredVoiceCapabilities
+        declaredVoiceCapabilities = ProviderCapabilities.effectiveVoiceCapabilities(
+            declared: config.declaredVoiceCapabilities,
+            runtime: config.runtime
+        )
         await state.setConfig(config)
         await state.setLifecycle(.initialized)
     }

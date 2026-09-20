@@ -185,4 +185,82 @@ final class VoiceCloningPolicyTests: XCTestCase {
         let violations = await services.voiceAccessViolations(for: profile)
         XCTAssertEqual(violations, [.missingConsent], "供应商有能力也不能跳过授权")
     }
+
+    // MARK: - 判定权威：实现说了算，配置只作闸门
+
+    /// 造一套「只留一个 TTS 供应商」的装配中心，用来精确控制「当前供应商是谁」。
+    private func makeServices(tts provider: ProviderConfig) async -> CoachServices {
+        let store = ConfigStore(
+            fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("voice-authority-\(UUID().uuidString).json")
+        )
+        try? await store.mutate { configuration in
+            for index in configuration.providers.indices where configuration.providers[index].kind == .tts {
+                configuration.providers[index].enabled = false
+            }
+            if let index = configuration.providers.firstIndex(where: { $0.id == provider.id }) {
+                configuration.providers[index] = provider
+            } else {
+                configuration.providers.append(provider)
+            }
+        }
+        return CoachServices(config: store, databasePath: ":memory:")
+    }
+
+    /// 结构天花板是纯函数，先把口径钉住：配置声明**不能**放宽实现。
+    func testStructuralCeilingBlocksRemoteCloningDeclaration() {
+        XCTAssertEqual(
+            ProviderCapabilities.effectiveVoiceCapabilities(declared: [.voiceCloning], runtime: .remoteAPI),
+            [],
+            "云端适配器结构上拒收参考音频，声明了也不算"
+        )
+        XCTAssertEqual(
+            ProviderCapabilities.effectiveVoiceCapabilities(declared: [.voiceCloning], runtime: .externalLocalRuntime),
+            [.voiceCloning]
+        )
+        XCTAssertEqual(
+            ProviderCapabilities.effectiveVoiceCapabilities(declared: [], runtime: .externalLocalRuntime),
+            [],
+            "配置是部署闸门：没声明就等于没开"
+        )
+        XCTAssertFalse(
+            ProviderCapabilities.unsupportedVoiceCapabilities(for: .externalLocalRuntime).contains(.voiceCloning),
+            "本地运行时不吃「不上传用户声音」这条限制"
+        )
+    }
+
+    /// 这条是修的 bug 本体：云端供应商在配置里声明 `voiceCloning`，
+    /// 早先界面会显示「当前供应商支持克隆」，用户建完音色、点启用才发现合成直接报错。
+    ///
+    /// ⚠️ 必须带上 `apiKeyRequired: false`：否则这条云端配置是「不可用」的，
+    /// `resolvedProvider` 会绕开它回落到那条**停用了但可用**的本地供应商，
+    /// 于是用例测的其实是本地分支（第一次写就踩了这个坑）。
+    func testRemoteProviderCannotBecomeCloningCapableByDeclaration() async {
+        let services = await makeServices(tts: ProviderConfig(
+            id: "remote.kina-tts", kind: .tts, enabled: true, runtime: .remoteAPI,
+            endpoint: "http://127.0.0.1:8856", apiKeyRequired: false, billable: false,
+            capabilities: ["voiceCloning"]
+        ))
+        let resolved = await services.configStore.current.resolvedProvider(for: .tts)?.id
+        XCTAssertEqual(resolved, "remote.kina-tts", "前提：这条云端配置真的被选中了")
+
+        let supports = await services.ttsSupportsVoiceCloning()
+        XCTAssertFalse(supports, "实现为权威：云端声明克隆也不该被判成「支持」")
+    }
+
+    func testLocalProviderNeedsDeclarationToBeCloningCapable() async {
+        let declared = await makeServices(tts: ProviderConfig(
+            id: "local.tts", kind: .tts, enabled: true, runtime: .externalLocalRuntime,
+            endpoint: "http://127.0.0.1:8855", capabilities: ["voiceCloning"]
+        ))
+        let withDeclaration = await declared.ttsSupportsVoiceCloning()
+        XCTAssertTrue(withDeclaration, "本地 runtime + 配置开了闸门 → 支持")
+
+        let silent = await makeServices(tts: ProviderConfig(
+            id: "local.tts", kind: .tts, enabled: true, runtime: .externalLocalRuntime,
+            endpoint: "http://127.0.0.1:8855"
+        ))
+        let withoutDeclaration = await silent.ttsSupportsVoiceCloning()
+        XCTAssertFalse(withoutDeclaration, "能力来自配置的部署开关，没声明就是没开")
+    }
 }

@@ -128,6 +128,10 @@ final class RemoteVoiceRulesTests: XCTestCase {
     /// ⚠️ 它现在指向**本机 Edge-TTS 代理**（`~/AI_Models/services/edge_tts_proxy.py`），
     /// 不再是当年那个第三方网关 `tts.kina.ink`（该服务已永久离线）。provider id 保留是为了
     /// 不动用户已有的配置与激活状态，但那不是「还是那家云端服务」的意思。
+    ///
+    /// **默认启用**：它免密钥、免费、不挑网络，是唯一「开箱即有声」的一档。
+    /// 另一条 `local.tts`（Qwen3 :8855）要用户自己先跑本机服务、且只在要克隆音色时才需要，
+    /// 因此默认关闭 —— 早先反着来，没跑服务的新用户打开应用一条朗读都用不了。
     func testBundledSpeechPreset() throws {
         let configuration = try DefaultConfiguration.load()
         let preset = try XCTUnwrap(
@@ -135,7 +139,7 @@ final class RemoteVoiceRulesTests: XCTestCase {
             "内置默认配置必须包含该语音预设"
         )
         XCTAssertEqual(preset.kind, .tts)
-        XCTAssertFalse(preset.enabled, "预设默认关闭，用户在设置里点接入才启用")
+        XCTAssertTrue(preset.enabled, "出厂默认启用：开箱即有声")
         XCTAssertFalse(preset.requiresAPIKey)
         XCTAssertTrue(preset.isUsable)
         XCTAssertFalse(preset.isBillable)

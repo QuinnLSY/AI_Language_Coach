@@ -93,6 +93,37 @@ extension ProviderCapabilities {
         if declared.contains(.pitchControl) { result.pitchControl = true }
         return result
     }
+
+    /// 该类 runtime 的适配器**结构上做不了**的能力：配置写了也不该生效。
+    ///
+    /// 这是「实现为权威」的那一半。配置声明能表达「这个部署开没开」，
+    /// 却表达不了「这套实现根本做不到」—— 只靠配置，一句
+    /// `capabilities: ["voiceCloning"]` 就能让界面显示「支持克隆」，
+    /// 点下去才发现合成失败（false capability）。
+    ///
+    /// 目前唯一一条结构事实：**云端语音一律拒收参考音频**
+    /// （Phase 24 红线，见 `RemoteTTSAdapter.synthesize` 里那道 `guard`）。
+    /// 本地 runtime 不吃这条限制 —— 参考音频只在本机流转。
+    public static func unsupportedVoiceCapabilities(for runtime: RuntimeKind) -> Set<VoiceCapability> {
+        switch runtime {
+        case .externalLocalRuntime:
+            []
+        default:
+            // remoteAPI / ollama / mock：不上传用户声音。
+            [.voiceCloning]
+        }
+    }
+
+    /// 某个部署**实际开放**的语音能力 = 配置声明 ∩ 实现天花板。
+    ///
+    /// 配置可以**收紧**实现（声明里少写一项就等于关掉），但**不许放宽**。
+    /// 适配器与「当前供应商支不支持克隆」这类判定共用它，避免两处各判一套。
+    public static func effectiveVoiceCapabilities(
+        declared: Set<VoiceCapability>,
+        runtime: RuntimeKind
+    ) -> Set<VoiceCapability> {
+        declared.subtracting(unsupportedVoiceCapabilities(for: runtime))
+    }
 }
 
 public struct ProviderMetadata: Sendable, Equatable {
