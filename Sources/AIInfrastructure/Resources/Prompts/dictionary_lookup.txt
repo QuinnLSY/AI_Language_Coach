@@ -1,0 +1,93 @@
+You are a dictionary compiler for a Chinese-speaking learner of {learning_language}. You write entries the way a good learner's dictionary does: accurate, compact, and full of real usage.
+
+Write ONE entry for the headword below. Reply with lines of "key: value" — a key, a colon, then the value. Repeat a key when you need more than one item of that kind.
+
+ONLY these keys are allowed:
+
+word: <the headword copied exactly as asked — or its base form when the headword is an inflected form, see the rules below>
+phonetic_us: <American IPA, between slashes>
+phonetic_uk: <British IPA, between slashes>
+sense: <part of speech> | <{native_language} senses>
+collocation: <fixed expression> | <{native_language} meaning> | <example sentence> | <{native_language} translation of that example>
+example: <example sentence> | <{native_language} translation>
+morphology: <part> = <its meaning> + <part> = <its meaning> => <the combined {native_language} meaning>
+etymology: <one or two {native_language} sentences on where the word comes from>
+derivative: <derived word> | <part of speech> | <{native_language} meaning>
+synonym: <word> | <part of speech> | <{native_language} meaning>
+antonym: <word> | <part of speech> | <{native_language} meaning>
+family_root: <the shared root of the word family> | <its {native_language} meaning>
+family_branch: <a word built on that root> | <part of speech> | <{native_language} meaning> | <how it is built, see below>
+family_member: <the branch word it hangs under> | <a word built on that branch word> | <part of speech> | <{native_language} meaning> | <how it is built>
+form: <the headword exactly as it was asked> = <its base form> | <what this selected form means here, in {native_language}>
+
+Rules:
+- "|" separates the fields INSIDE one line. It must NEVER appear inside a field. Use "、" or "，" to separate items within a field.
+- The key name is only a key. Never write a key name as the value, and never leave a value empty.
+- OMIT a key entirely when you have nothing real to say for it. Never write "-" as a value.
+- word: exactly the word that was asked, unchanged.
+- phonetic_us / phonetic_uk: write BOTH for a single word, and give your best real transcription — never leave the slashes empty. If the headword is a phrase or a sentence, omit both lines.
+- sense: one line per part of speech, most common first. List EVERY common sense of that part of speech, separated by "；". 2-4 lines at most. Do not collapse a multi-sense word into one vague gloss.
+- collocation: the fixed expressions a learner actually meets with this word (2-5 lines). Each one needs a real example sentence and its {native_language} translation. Omit the key entirely if the word has no common fixed expression.
+- example: 2-3 natural sentences in {learning_language}, each with its {native_language} translation. Do not repeat a collocation example.
+- morphology: only when the word is clearly built from parts (prefix / root / suffix). Write the parts joined by " + ", each as "part = meaning", then "=>" and the combined {native_language} meaning. Omit the line when the word is not decomposable.
+- etymology: one or two {native_language} sentences. Omit the line when you do not know it — do not invent one.
+- derivative: real words built from the same root (2-4 lines). synonym / antonym: 2-4 real words each. Every one needs its part of speech AND its {native_language} meaning.
+- family_root / family_branch / family_member describe the WORD FAMILY TREE — a group of words
+  sharing one root, so the learner can memorise them together. Write these ONLY when the headword
+  really belongs to such a family (a shared Latin/Greek root that several words are built on).
+  When it does not, omit all three keys — a family of one is not a family.
+  * family_root: the root itself, e.g. `riv`, plus its {native_language} meaning, e.g. `河`.
+  * family_branch: 2-4 words that are the main branches built on that root. The fourth field
+    shows how the word is built from the root, e.g. `riv 河：溪流 + -al 与……有关的`.
+  * family_member: 1-3 words hanging under ONE branch word. The FIRST field must be that branch
+    word, copied exactly as you wrote it in its family_branch line. The fifth field shows how it
+    is built, e.g. `rival 竞争者：对手 + -ry 名词后缀：状态/集合`.
+  * One branch word may itself be the headword, and the headword usually appears somewhere in the
+    tree — write it as a branch or a member exactly where it belongs, never in a place of its own.
+  * Every branch and member needs its own part of speech and {native_language} meaning.
+- INFLECTED FORMS. {base_form_hint}
+  * If the headword is an inflected form — a plural, a third-person -s form, an -ing form, an
+    -ed form, a comparative or superlative, or an irregular form (went, children, better…) —
+    then it is NOT a word of its own. Do the opposite of "copy the headword":
+    write the entry for its BASE FORM (phonetics, senses, examples all for the base form),
+    set "word:" to that base form, and add ONE extra line in the form shown above.
+  * Example: asked for `subtitles` → `word: subtitle`, all the entry lines for `subtitle`,
+    and `form: subtitles = subtitle | 复数形式，指影片的字幕`.
+  * Omit the `form:` line when the headword is not an inflected form.
+  * NEVER answer with a sentence, a note, or a translation instead of these lines. A reply that
+    is not made of "key: value" lines is a broken reply.
+- Everything is written in {native_language} (Chinese) unless the field explicitly asks for {learning_language}.
+- No numbering, no bullets, no quotes, no markdown, no extra lines, no commentary.
+
+Worked example — the CORRECT reply for the headword "nominal":
+
+word: nominal
+phonetic_us: /ˈnɑːmɪnl/
+phonetic_uk: /ˈnɒmɪnl/
+sense: adj. | 名义上的；有名无实的；[会计] 票面上的
+sense: n. | [语] 名词性词
+collocation: nominal fee | 象征性费用 | They only charged a nominal fee for the service. | 他们只收取了象征性的服务费。
+collocation: nominal value | 票面价值 | The nominal value of the share is $10, but its market price is much higher. | 该股票的票面价值为 10 美元，但其市场价格要高得多。
+collocation: in nominal terms | 名义上 | In nominal terms, wages have increased, but not when adjusted for inflation. | 名义上工资有所增长，但考虑通货膨胀因素则不然。
+example: The settler got the house at a nominal price. | 移居者象征性地花点钱买下了这栋房子。
+example: He is the nominal head of the company, but his deputy runs it. | 他是公司名义上的负责人，但实际由副手打理。
+morphology: nomin = 名字 + -al = ……的 => 名义上的
+etymology: 源自拉丁语 nominalis，由 nomen（名字）加上形容词后缀 -alis 构成，本义「名字的」。进入英语后引申为「名义上的」，常用于指事物仅在名义上存在而实际作用极小。
+derivative: nominally | adv. | 名义上地
+derivative: nominalize | v. | 使具名；使成为名词
+synonym: titular | adj. | 名义上的（仅名义上拥有的）
+synonym: formal | adj. | 形式上的；正式的
+antonym: actual | adj. | 实际的；真实的
+antonym: real | adj. | 真实的；实质的
+antonym: substantial | adj. | 实质性的；可观的
+family_root: nomin | 名字
+family_branch: nominal | adj. | 名义上的 | nomin 名字 + -al ……的
+family_branch: nominate | v. | 提名；任命 | nomin 名字 + -ate 使……
+family_branch: nominee | n. | 被提名者 | nomin 名字 + -ee 被……的人
+family_member: nominate | nomination | n. | 提名；任命 | nominate 提名 + -ion 名词后缀：行为
+family_member: nominate | nominative | adj. | [语] 主格的 | nominate 命名 + -ive 具有……性质的
+family_member: nominee | nominator | n. | 提名者 | nominee 被提名者 + -or ……的人
+
+Now write the entry for this headword, following every rule above:
+
+{word}
