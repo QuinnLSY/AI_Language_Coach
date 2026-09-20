@@ -830,6 +830,8 @@ public final class AppState {
             ? Date(timeIntervalSince1970: resetStamp)
             : nil
         self.dailyProgressResetLearned = UserDefaults.standard.integer(forKey: Self.dailyResetLearnedKey)
+        // 快捷键绑定表（同样手写加载；缺的动作由 `decode` 用出厂键补齐）。
+        self.shortcutBindings = Self.loadShortcutBindings()
         // 学员每说完一句 → 实时保存主线任务进度（需求 5：练习内容先实时保存）。
         // ⚠️ 用捕获列表避免循环引用：`chat` 被 `self` 持有，闭包再强持有 `self` 就是环。
         chat.onLearnerTurn = { [weak self] in
@@ -925,6 +927,8 @@ public final class AppState {
     public func start() async {
         // 用户上次在设置页选的日志级别要**在最早一刻**生效，否则启动早期按默认口径收/漏日志。
         LogOptions.applyPersistedLevel()
+        // 全局快捷键（#279）：装上本地按键监听，切页 / 复习卡按键从此刻起可用。
+        installShortcutMonitor()
         let configuration = await services.configuration
         product = configuration.product
         themeMode = configuration.product.themeMode
@@ -1462,5 +1466,20 @@ public final class AppState {
 
     /// 「本周小结 / 月环比」（#228）。与快照一起刷新；nil = 数据还不够 / 数据库不可用。
     public internal(set) var weeklyInsight: WeeklyInsight?
+
+    // MARK: - 快捷键（#279：同样是扩展放不了的存储属性）
+
+    /// 每个动作当前绑的键。
+    ///
+    /// ⚠️ 刻意不给默认值（与 `dailyRecognitions` 同一条纪律）：这是跨启动恢复的
+    /// 持久化状态，由手写 `init(services:)` 加载。给了 `= [:]` 就等于给编译器一条退路 ——
+    /// 哪天加载那行被删掉，它一声不响，只有用户会发现「设好的快捷键全回出厂了」。
+    public internal(set) var shortcutBindings: [ShortcutAction: ShortcutBinding]
+    /// 设置页「快捷键中心」正在录制的动作（nil = 没在录）。
+    public var capturingShortcutAction: ShortcutAction?
+    /// 改键结果的提示（撞键时那句「已被 X 占用」；成功为空）。
+    public var shortcutNotice: String?
+    /// 全局按键监听（`start()` 里装一次，进程内常驻）。
+    var shortcutMonitor: ShortcutMonitor?
 
 }

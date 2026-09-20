@@ -36,6 +36,12 @@ struct VocabularyReviewCard: View {
     var hasRecording: Bool = false
     /// 正在查这个词的释义（加载态）。
     var isDefining: Bool = false
+    /// 键盘提示（当前绑定；nil = 不显示这一行）。
+    ///
+    /// 为什么由外面传进来：这张卡是纯展示组件，不读 `AppState`。
+    /// 键面读的是**当前**绑定而不是写死的「空格 / 1 / 2 / R」——
+    /// 用户在设置里改过键，卡上还写旧键，那就是界面在撒谎。
+    var hints: ReviewShortcutHints? = nil
 
     var onReveal: () -> Void = {}
     var onGrade: (Bool) -> Void = { _ in }
@@ -85,6 +91,9 @@ struct VocabularyReviewCard: View {
                 spokenPanel(entry)
                 Divider().overlay(theme.divider)
                 gradeRow
+                if let hints {
+                    shortcutHintRow(hints)
+                }
             }
         }
     }
@@ -419,6 +428,42 @@ struct VocabularyReviewCard: View {
             Spacer(minLength: 0)
             gradeButton(remembered: true, title: "认识", systemImage: "checkmark.circle.fill", color: .green)
             gradeButton(remembered: false, title: "忘了", systemImage: "xmark.circle.fill", color: theme.warning)
+        }
+    }
+
+    /// 卡面上的按键提示：这一行是复习卡**唯一的**快捷键说明。
+    ///
+    /// 放在判分按钮下面而不是塞进按钮里：键面可能是 `⌘⇧R` 这么长，
+    /// 挤进按钮会把「认识 / 忘了」两个字挤变形。
+    private func shortcutHintRow(_ hints: ReviewShortcutHints) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "keyboard")
+                .font(.system(size: 10))
+                .foregroundStyle(theme.secondaryText)
+            hintChip(hints.reveal, "翻面")
+            hintChip(hints.remembered, "认识")
+            hintChip(hints.forgotten, "忘了")
+            hintChip(hints.speak, "朗读")
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("键盘快捷键：\(hints.reveal) 翻面，\(hints.remembered) 认识，\(hints.forgotten) 忘了，\(hints.speak) 朗读")
+    }
+
+    private func hintChip(_ key: String, _ label: String) -> some View {
+        HStack(spacing: 3) {
+            Text(key)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(theme.primaryText)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(theme.surfaceAlt)
+                )
+            Text(label)
+                .font(.system(size: 10, design: .rounded))
+                .foregroundStyle(theme.secondaryText)
         }
     }
 

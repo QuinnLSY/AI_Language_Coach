@@ -748,6 +748,7 @@ public struct VocabularyView: View {
                     && state.speechPhase == .preparing,
                 hasRecording: state.vocabularyReviewRecognized != nil,
                 isDefining: session.current.map { state.isDefiningVocabulary.contains($0.id) } ?? false,
+                hints: state.reviewShortcutHints,
                 onReveal: { state.revealVocabularyReviewCard() },
                 onGrade: { remembered in
                     Task { await state.gradeVocabularyReviewCard(remembered: remembered) }
