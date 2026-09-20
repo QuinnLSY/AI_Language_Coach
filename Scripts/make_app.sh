@@ -4,6 +4,7 @@
 #       Scripts/make_app.sh --no-build       → 只重新组装（用现有 release 产物）
 #       Scripts/make_app.sh --universal      → 同时出 arm64 + x86_64（产物约翻倍，慢一倍）
 #       Scripts/make_app.sh --optimize-size  → 加 -Osize（换体积，略微牺牲峰值性能）
+# 环境变量 ALC_DIST_DIR 可改输出目录（默认 dist/，验证多架构时用它别覆盖现成的产物）。
 # 产物极简：二进制（strip 后）+ SwiftPM 资源 bundle（Contents/Resources）+ Info.plist + 图标，
 # 最后做 ad-hoc 签名（TCC 授权持久化所需，见下文第 5 步）。
 # 数据不进 .app：运行时写入项目空间 .workbuddy/app-config/（见 AppPaths）。
@@ -13,7 +14,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="AI_Language_Coach"
 EXEC_NAME="AILanguageCoach"
 BUNDLE_ID="com.ailanguagecoach.app"
-DIST="$ROOT/dist"
+DIST="${ALC_DIST_DIR:-$ROOT/dist}"
 APP="$DIST/$APP_NAME.app"
 
 # 必须随包的资源 bundle（SwiftPM 由 target 名生成）。
@@ -50,20 +51,50 @@ done
 
 cd "$ROOT"
 
-BUILD_ARGS=(build -c release --disable-sandbox)
-[[ "$UNIVERSAL" == 1 ]] && BUILD_ARGS+=(--arch arm64 --arch x86_64)
-[[ "$OPTIMIZE_SIZE" == 1 ]] && BUILD_ARGS+=(-Xswiftc -Osize)
-if [[ "$NO_BUILD" == 0 ]]; then
-  echo "▸ swift ${BUILD_ARGS[*]}"
-  swift "${BUILD_ARGS[@]}"
+SIZE_FLAGS=()
+[[ "$OPTIMIZE_SIZE" == 1 ]] && SIZE_FLAGS=(-Xswiftc -Osize)
+
+# ⚠️ 通用二进制**不能**把 `--arch arm64 --arch x86_64` 一次传给 swift build：
+# 那样 SwiftPM 在 macOS 上会改走 xcodebuild ——
+#   ① 它的生成 target 把 main.swift 当 top-level code，与 @main 直接冲突（编不过）；
+#   ② 它内部另起 sandbox-exec，在受限环境里整个起不来。
+# 所以两个架构**各编一次**（各自独立 scratch，产物在 <scratch>/<triple>/release/），再 lipo 合体。
+# 资源 bundle 内容两架构一致，直接用 arm 那份。
+if [[ "$UNIVERSAL" == 1 && "$NO_BUILD" == 0 ]]; then
+  ARM="$ROOT/.build/universal/arm64"
+  X86="$ROOT/.build/universal/x86_64"
+  OUT="$ROOT/.build/universal/out"
+  echo "▸ swift build -c release --arch arm64（独立 scratch）"
+  swift build -c release --disable-sandbox --scratch-path "$ARM" --arch arm64 "${SIZE_FLAGS[@]}"
+  echo "▸ swift build -c release --arch x86_64（独立 scratch）"
+  swift build -c release --disable-sandbox --scratch-path "$X86" --arch x86_64 "${SIZE_FLAGS[@]}"
+  mkdir -p "$OUT"
+  lipo -create "$ARM/arm64-apple-macosx/release/$EXEC_NAME" \
+              "$X86/x86_64-apple-macosx/release/$EXEC_NAME" \
+      -output "$OUT/$EXEC_NAME"
+  echo "▸ lipo 完成：$(lipo -archs "$OUT/$EXEC_NAME")"
+  cp -R "$ARM/arm64-apple-macosx/release/"*.bundle(N) "$OUT/"
 fi
 
-# release 产物目录：单架构在 .build/release；多架构（--arch ×2）时 SwiftPM 改走
-# .build/apple/Products/Release —— 两个位置都探，别写死一个。
-RELEASE_DIR=""
-for candidate in ".build/release" ".build/apple/Products/Release"; do
-  if [[ -x "$candidate/$EXEC_NAME" ]]; then RELEASE_DIR="$candidate"; break; fi
-done
+if [[ "$NO_BUILD" == 0 && "$UNIVERSAL" == 0 ]]; then
+  echo "▸ swift build -c release${OPTIMIZE_SIZE:+（-Osize）}"
+  swift build -c release --disable-sandbox "${SIZE_FLAGS[@]}"
+fi
+
+# release 产物目录（三处都探，别写死一个）：
+#   .build/release/                    普通 swift build（未指定 --arch）
+#   .build/<triple>/release/           指定了单个 --arch
+#   .build/apple/Products/Release/     两个 --arch 一次传时的 xcodebuild 路径（已不再用，留作手跑兜底）
+if [[ "$UNIVERSAL" == 1 ]]; then
+  # ⚠️ 这里必须是**相对 $ROOT** 的路径：第 2 步的 bundle 通配写的是 "$ROOT"/$RELEASE_DIR/...，
+  # 若在这里塞绝对路径就变成 $ROOT/$ROOT/...，一个 bundle 都匹配不上（静默失败 → 打包被兜底断言拦下）。
+  RELEASE_DIR=".build/universal/out"
+else
+  RELEASE_DIR=""
+  for candidate in ".build/release" .build/*/release ".build/apple/Products/Release"; do
+    if [[ -x "$candidate/$EXEC_NAME" ]]; then RELEASE_DIR="$candidate"; break; fi
+  done
+fi
 [[ -n "$RELEASE_DIR" ]] || { echo "✗ 找不到 release 产物（先执行构建，或去掉 --no-build）"; exit 1; }
 BIN="$RELEASE_DIR/$EXEC_NAME"
 
