@@ -169,6 +169,10 @@ public final class MockEmbeddingProvider: EmbeddingProvider, @unchecked Sendable
     public func healthCheck() async -> ProviderHealth { .connected(model: nil) }
     public func capabilities() -> ProviderCapabilities { ProviderCapabilities() }
     public func metadata() -> ProviderMetadata { ProviderMetadata(id: providerID, displayName: "Mock 记忆索引", runtime: .mock) }
+    public func discoverModels() async throws -> [DiscoveredModel] {
+        let models = await state.currentConfig?.candidateModels ?? []
+        return models.map { DiscoveredModel(id: $0, name: $0) }
+    }
     public func embed(_ texts: [String]) async throws -> [[Float]] {
         texts.map { text in
             var vector = [Float](repeating: 0, count: dimensions)

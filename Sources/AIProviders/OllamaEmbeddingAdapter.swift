@@ -105,6 +105,58 @@ public final class OllamaEmbeddingAdapter: EmbeddingProvider, @unchecked Sendabl
         ProviderMetadata(id: providerID, displayName: "本地记忆索引", runtime: .ollama)
     }
 
+    // MARK: - 模型发现（与 OllamaLLMAdapter 同构）
+
+    /// 列出本机 Ollama 中**可用于记忆索引**的模型：从 `/v1/models` 取全量，
+    /// 再用 `/api/tags` 的 `capabilities` 过滤出 embedding-only 的模型。
+    ///
+    /// 这样设置页的「本地模型」下拉框就能直接看到 `nomic-embed-text` 这类嵌入模型，
+    /// 与「AI 大脑」卡片的本地检测逻辑完全一致（区别只在过滤条件）。
+    public func discoverModels() async throws -> [DiscoveredModel] {
+        let (_, base) = try await resolvedEndpoint()
+        var request = URLRequest(url: base.appendingPathComponent("v1/models"))
+        request.httpMethod = "GET"
+
+        let (data, response) = try await client.perform(request, timeout: 10)
+        guard (200..<300).contains(response.statusCode) else {
+            throw AIProviderError.serverError(status: response.statusCode, message: String(data: data, encoding: .utf8))
+        }
+        let list = try Self.decode(OllamaEmbedModelList.self, from: data)
+
+        // 补充能力信息：Ollama 原生 `/api/tags` 带 capabilities / context_length，失败则忽略。
+        var embeddingOnly = Set<String>()
+        var contextLengths: [String: Int] = [:]
+        if let tags = try? await fetchTags(base: base) {
+            for model in tags.models {
+                if let capabilities = model.capabilities,
+                   capabilities.contains("embedding"), !capabilities.contains("completion") {
+                    embeddingOnly.insert(model.name)
+                }
+                if let length = model.contextLength, length > 0 {
+                    contextLengths[model.name] = length
+                }
+            }
+        }
+
+        return list.data.map { item in
+            DiscoveredModel(
+                id: item.id,
+                name: item.id,
+                isEmbeddingOnly: embeddingOnly.contains(item.id),
+                contextLength: contextLengths[item.id] ?? contextLengths["\(item.id):latest"]
+            )
+        }
+    }
+
+    private func fetchTags(base: URL) async throws -> OllamaTagsResponse {
+        let request = URLRequest(url: base.appendingPathComponent("api/tags"))
+        let (data, response) = try await client.perform(request, timeout: 10)
+        guard (200..<300).contains(response.statusCode) else {
+            throw AIProviderError.serverError(status: response.statusCode, message: nil)
+        }
+        return try Self.decode(OllamaTagsResponse.self, from: data)
+    }
+
     // MARK: - 嵌入
 
     public func embed(_ texts: [String]) async throws -> [[Float]] {
@@ -202,6 +254,17 @@ public final class OllamaEmbeddingAdapter: EmbeddingProvider, @unchecked Sendabl
 
         struct Item: Decodable {
             let id: String
+        }
+    }
+
+    /// Ollama `/api/tags` 返回（用于补齐 embedding-only 标记与上下文长度）。
+    private struct OllamaTagsResponse: Decodable {
+        let models: [Item]
+
+        struct Item: Decodable {
+            let name: String
+            let capabilities: [String]?
+            let contextLength: Int?
         }
     }
 

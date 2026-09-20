@@ -927,7 +927,7 @@ public struct SettingsView: View {
                         Image(systemName: "arrow.clockwise")
                     }
                     .buttonStyle(.plain)
-                    .help("重新扫描 ~/AI_Models")
+                    .help("重新检测可用模型（本地 Ollama / 目录）")
                 }
             }
 
@@ -1026,7 +1026,7 @@ public struct SettingsView: View {
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.primaryText)
             }
-            Text("把模型统一放在 ~/AI_Models/ 对应模块目录下即可：\n• 语音识别 (asr)：模型文件放入 ~/AI_Models/asr/models/（如 ggml-*.bin）\n• 教师语音 (tts)：每个模型一个文件夹放入 ~/AI_Models/tts/\n• 说话检测 (vad) / 记忆索引 (embedding) / 发音评测 (pronunciation)：每个模型一个文件夹放入对应目录\n放好后点击各能力区块的刷新按钮（↻），应用会自动检测并列出可选。云端模型请展开「外部模型」填写 API Key 接入。")
+            Text("把模型统一放在 ~/AI_Models/ 对应模块目录下即可：\n• 语音识别 (asr)：模型文件放入 ~/AI_Models/asr/models/（如 ggml-*.bin）\n• 教师语音 (tts)：每个模型一个文件夹放入 ~/AI_Models/tts/\n• 说话检测 (vad) / 发音评测 (pronunciation)：每个模型一个文件夹放入对应目录\n• 记忆索引 (embedding)：本机由 Ollama 提供——在 Ollama 安装 nomic-embed-text 等嵌入模型后，刷新即可列出；也可在「外部模型」接入云端嵌入\n放好后点击各能力区块的刷新按钮（↻），应用会自动检测并列出可选。云端模型请展开「外部模型」填写 API Key 接入。")
                 .font(.system(size: 11, design: .rounded))
                 .foregroundStyle(theme.secondaryText)
                 .lineSpacing(3)

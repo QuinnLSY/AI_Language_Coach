@@ -283,6 +283,19 @@
       "candidate_models": []
     },
     {
+      "id": "ollama.embedding",
+      "kind": "embedding",
+      "enabled": true,
+      "runtime": "ollama",
+      "display_name": "本地记忆索引",
+      "endpoint": "http://127.0.0.1:11434",
+      "candidate_models": ["nomic-embed-text"],
+      "dimensions": 768,
+      "streaming": false,
+      "request_timeout": 60,
+      "service_start_command": "open -a Ollama"
+    },
+    {
       "id": "mock.embedding",
       "kind": "embedding",
       "enabled": true,

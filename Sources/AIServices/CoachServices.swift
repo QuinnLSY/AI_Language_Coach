@@ -557,8 +557,12 @@ public actor CoachServices {
             OllamaEmbeddingAdapter(providerID: config.id, dimensions: config.dimensions ?? 768)
         case .mock:
             MockEmbeddingProvider()
+        case .remoteAPI:
+            // 云端嵌入：同样经过计费闸门（RemoteCommon.beginBillableCall），
+            // 与本地 Ollama 复用同一套「记忆索引」发现 / 健康逻辑。
+            RemoteEmbeddingAdapter(providerID: config.id, dimensions: config.dimensions ?? 0)
         default:
-            // 其余 runtime（remoteAPI / MLX / llama.cpp …）V1 未实现嵌入适配器。
+            // 其余 runtime（MLX / llama.cpp …）V1 未实现嵌入适配器。
             // **不注册**，而不是拿 mock 冒充 —— 语义索引缺席，记忆退回结构化。
             nil
         }
@@ -1212,6 +1216,45 @@ public actor CoachServices {
             result = candidates.map { DiscoveredModel(id: $0, name: $0) }
         }
         return result
+    }
+
+    /// 记忆索引（embedding）的本地 / 云端模型发现，与 `availableLLMModels` 同构。
+    ///
+    /// 不依赖 Manager 的懒加载注册（首次聊天才注册），而是直接从配置构造适配器：
+    /// 这样设置页打开时就能列出本机 Ollama 的嵌入模型或云端的可选模型，
+    /// 与「AI 大脑」卡片的本地检测逻辑完全一致。
+    public func availableEmbeddingModels() async -> [DiscoveredModel] {
+        let configuration = await config.current
+        guard let providerConfig = configuration.resolvedProvider(for: .embedding),
+              let provider = Self.makeEmbeddingProvider(providerConfig) else { return [] }
+        do {
+            try await provider.initialize(config: providerConfig)
+            if let discovered = try? await provider.discoverModels() {
+                return discovered
+            }
+        } catch {
+            AppLog.warning("记忆索引模型发现失败（退回候选清单）: \(error.localizedDescription)", category: "memory")
+        }
+        let candidates = providerConfig.candidateModels
+        return candidates.map { DiscoveredModel(id: $0, name: $0) }
+    }
+
+    /// 记忆索引的健康状态（设置页状态点用）。
+    ///
+    /// 同样从配置直接构造适配器探查，不依赖懒加载注册，
+    /// 否则设置页打开时还没聊过天就会显示「未注册」。
+    public func embeddingHealth() async -> ProviderHealth {
+        let configuration = await config.current
+        guard let providerConfig = configuration.resolvedProvider(for: .embedding),
+              let provider = Self.makeEmbeddingProvider(providerConfig) else {
+            return .configurationInvalid(reason: "未配置记忆索引")
+        }
+        do {
+            try await provider.initialize(config: providerConfig)
+            return await provider.healthCheck()
+        } catch {
+            return .configurationInvalid(reason: error.localizedDescription)
+        }
     }
 
     /// 当前激活的 LLM Provider 配置（供 UI 展示名称 / 运行时类型）。

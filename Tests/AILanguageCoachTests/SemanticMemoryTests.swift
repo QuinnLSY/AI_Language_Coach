@@ -35,6 +35,10 @@ final class SemanticMemoryTests: XCTestCase {
             ProviderMetadata(id: providerID, displayName: "Stub", runtime: runtimeOverride)
         }
 
+        func discoverModels() async throws -> [DiscoveredModel] {
+            []
+        }
+
         func embed(_ texts: [String]) async throws -> [[Float]] {
             texts.map { text in
                 let lower = text.lowercased()

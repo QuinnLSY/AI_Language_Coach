@@ -189,6 +189,8 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
     public var voiceNames: [String: String]?
     /// 语音合成路径（相对端点）。nil = OpenAI 兼容默认 `v1/audio/speech`。
     public var speechPath: String?
+    /// 云端嵌入路径（相对端点）。nil = OpenAI 兼容默认 `v1/embeddings`。
+    public var embeddingsPath: String?
     /// 语音请求形态。nil = OpenAI 兼容。
     public var speechRequestStyle: SpeechRequestStyle?
     /// 音色目录路径（相对端点，如 `voices`）。
@@ -244,6 +246,7 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         dimensions: Int? = nil,
         voiceNames: [String: String]? = nil,
         speechPath: String? = nil,
+        embeddingsPath: String? = nil,
         speechRequestStyle: SpeechRequestStyle? = nil,
         voiceListPath: String? = nil,
         healthPath: String? = nil,
@@ -275,6 +278,7 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         self.dimensions = dimensions
         self.voiceNames = voiceNames
         self.speechPath = speechPath
+        self.embeddingsPath = embeddingsPath
         self.speechRequestStyle = speechRequestStyle
         self.voiceListPath = voiceListPath
         self.healthPath = healthPath
@@ -319,6 +323,9 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
 
     /// 语音合成路径：配置文件优先，缺省用 OpenAI 兼容默认路径。
     public var resolvedSpeechPath: String { speechPath ?? "v1/audio/speech" }
+
+    /// 云端嵌入路径：配置文件优先，缺省用 OpenAI 兼容默认路径。
+    public var resolvedEmbeddingsPath: String { embeddingsPath ?? "v1/embeddings" }
 
     /// 语音请求形态（默认 OpenAI 兼容）。
     public var resolvedSpeechRequestStyle: SpeechRequestStyle { speechRequestStyle ?? .openAISpeech }

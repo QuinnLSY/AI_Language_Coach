@@ -151,6 +151,12 @@ public protocol VADProvider: AIProvider {
 public protocol EmbeddingProvider: AIProvider {
     var dimensions: Int { get }
     func embed(_ texts: [String]) async throws -> [[Float]]
+    /// 列出 runtime 实际可用的嵌入模型（与 `LLMProvider.discoverModels` 同构）。
+    ///
+    /// 本地 Ollama 走 `/v1/models` + `/api/tags` 过滤出 embedding-only 的模型；
+    /// 云端走 OpenAI 兼容 `/models` 并按能力归类；mock 直接回候选清单。
+    /// 没有发现能力的实现返回空数组——交给上层用候选清单兜底。
+    func discoverModels() async throws -> [DiscoveredModel]
 }
 
 // MARK: - Pronunciation

@@ -31,6 +31,12 @@ public enum RemoteCallPolicy {
         /// 单独列一档而不是并进 `transcriptions`：它**按音频时长计费**，
         /// 与语音识别是不同的计费项，混在一起用户对不上账。
         case pronunciation
+        /// 云端记忆索引嵌入（OpenAI 兼容 `POST /v1/embeddings`）。
+        ///
+        /// 单独列一档而不是并进 `chat`：它是**按 token 计费的嵌入请求**，
+        /// 与对话生成是不同计费项，混在一起用户对不上账；且操作 ↔ 能力必须一一对应
+        /// （嵌入只能由「记忆索引」能力发起，结构上杜绝串线）。
+        case embeddings
 
         /// 该操作会不会产生费用（决定是否受频率与总量护栏约束）。
         public var isBillable: Bool { self != .models }
@@ -42,6 +48,7 @@ public enum RemoteCallPolicy {
             case .speech: "教师朗读"
             case .transcriptions: "语音识别"
             case .pronunciation: "发音评测"
+            case .embeddings: "记忆索引嵌入"
             }
         }
 
@@ -55,6 +62,7 @@ public enum RemoteCallPolicy {
             case .speech: "/v1/audio/speech"
             case .transcriptions: "/v1/audio/transcriptions"
             case .pronunciation: "/speech/pronunciation"
+            case .embeddings: "/v1/embeddings"
             }
         }
     }
@@ -178,6 +186,7 @@ public enum RemoteCallPolicy {
         case .speech: kind == .tts
         case .transcriptions: kind == .asr
         case .pronunciation: kind == .pronunciation
+        case .embeddings: kind == .embedding
         case .models: true
         }
     }
@@ -218,6 +227,9 @@ public enum RemoteCallPolicy {
             // 发音评测是「一次跟读 = 一次请求」，正常人一分钟按不了几次；
             // 给 40 与朗读同档：够用，但失控循环会在半分钟内被掐断。
             Operation.pronunciation: 40,
+            // 记忆索引嵌入：每次对话按需取回相关历史，频率远低于对话；
+            // 给 200 与模型列表探测同档，只防失控循环，不误伤正常使用。
+            Operation.embeddings: 200,
             Operation.models: 200
         ]
 

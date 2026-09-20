@@ -1012,7 +1012,25 @@ public final class AppState {
         var result: [AIProviderKind: CapabilityModelInfo] = [:]
         for kind in [AIProviderKind.asr, .tts, .vad, .embedding, .pronunciation] {
             let provider = configuration.resolvedProvider(for: kind)
-            let localModels = LocalModelScanner.scan(kind: kind)
+            // 记忆索引的「本地模型」与「AI 大脑」一致：优先从 runtime 实际发现
+            // （本机 Ollama 的嵌入模型 / 云端可选模型），不再是只读 ~/AI_Models 目录。
+            let localModels: [LocalModel]
+            if kind == .embedding {
+                // 记忆索引与 ASR 同构：`~/AI_Models/embedding/` 目录里部署的模型
+                // 照常扫描出来（带真实路径，可显示「本地 · 路径」）；
+                // 再并入 runtime 实际发现的模型（本机 Ollama 的嵌入模型）。
+                // 目录结果在前；Ollama 结果按名字去重后补在后面，
+                // 路径用 `ollama://` 合成值——`LocalModel.id` 是 path，空串会撞 id。
+                var merged = LocalModelScanner.scan(kind: kind)
+                let discovered = await services.availableEmbeddingModels()
+                let onDisk = Set(merged.map(\.name))
+                for model in discovered where !onDisk.contains(model.name) {
+                    merged.append(LocalModel(name: model.name, path: "ollama://\(model.id)"))
+                }
+                localModels = merged
+            } else {
+                localModels = LocalModelScanner.scan(kind: kind)
+            }
 
             let healthOK: Bool
             let healthText: String
@@ -1031,8 +1049,17 @@ public final class AppState {
                     model: product.selectedModel(for: kind) ?? provider?.model,
                     health: ttsHealth
                 )
+            case .embedding:
+                // 记忆索引：本地 Ollama / 云端 / mock 各自返回真实健康，不再写死「内置模拟」。
+                let embHealth = await services.embeddingHealth()
+                healthOK = embHealth.isUsable
+                healthText = ModelDiagnostics.describe(
+                    providerName: provider?.userFacingName,
+                    model: product.selectedModel(for: kind) ?? provider?.model,
+                    health: embHealth
+                )
             default:
-                // VAD / Embedding / Pronunciation V1 尚无独立 runtime，如配置了本地 Provider 才有意义
+                // VAD / Pronunciation V1 尚无独立 runtime，如配置了本地 Provider 才有意义
                 healthOK = false
                 healthText = provider?.runtime == .externalLocalRuntime ? "等待接入" : "内置模拟"
             }
@@ -1046,7 +1073,7 @@ public final class AppState {
                 source = current == nil
                     ? "\(provider?.userFacingName ?? "云端") · 尚未选择模型（不会发起任何调用）"
                     : "\(provider?.userFacingName ?? "云端") 提供的云端模型"
-            case .externalLocalRuntime:
+            case .externalLocalRuntime, .ollama:
                 if let current, let path = LocalModelScanner.path(of: current, kind: kind) {
                     source = "本地 · \(path)"
                 } else if let endpoint = provider?.endpoint {
@@ -1134,12 +1161,18 @@ public final class AppState {
         await refreshCapabilityInfos()
     }
 
-    /// 某能力的本地 Provider（非云端那一个；本地 runtime 优先于 mock）。
+    /// 某能力的本地 Provider（非云端那一个）。
+    ///
+    /// 真实本地 runtime（Ollama / 外部本地服务）优先于 mock：
+    /// 记忆索引同时有 `ollama.embedding` 与 `mock.embedding` 时，本地模型选择器
+    /// 应当切到 Ollama，而不是把模型名写进 mock（mock 会忽略 model 字段）。
     nonisolated static func localProvider(
         for kind: AIProviderKind,
         in configuration: AppConfiguration
     ) -> ProviderConfig? {
-        configuration.providers.first { $0.kind == kind && !$0.isRemote }
+        let locals = configuration.providers.filter { $0.kind == kind && !$0.isRemote }
+        if let real = locals.first(where: { $0.runtime != .mock }) { return real }
+        return locals.first
     }
 
     /// 手动填写模型名并应用。
