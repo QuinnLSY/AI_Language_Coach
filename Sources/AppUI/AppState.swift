@@ -597,7 +597,11 @@ public final class AppState {
     /// 每次换一批/重启后清空 —— 单词每出现一次最多计一次，防误点连击。
     public internal(set) var dailyAcknowledged: Set<String> = []
     /// 「认识」累计计数（跨启动持久化）。满 3 次的词不再进入每日推荐。
-    var dailyRecognitions: [String: Int] = [:]
+    /// ⚠️ **刻意不给默认值**：这是个要跨启动恢复的持久化状态，由手写 `init(services:)`
+    /// 从 UserDefaults 加载。写了 `= [:]` 就给了编译器一条退路 —— 哪天加载那行被删掉，
+    /// 它一声不响，只有用户会发现「昨天点过的『认识』今天全没了」。
+    /// 不给默认值，漏加载就是**编译错误**，跑都跑不起来。
+    var dailyRecognitions: [String: Int]
     /// 本次启动是否已抽过每日推荐（每次启动只抽一次，刷新按钮才重新抽）。
     var dailyWordsLoaded = false
     /// 本地词库是否已载入（只为设置页「已学 x / y 词」的分母 `dailyBankTotal` 载入一次）。
@@ -714,7 +718,8 @@ public final class AppState {
     /// 上次重置每日推荐学习进度的时间（没重置过为 nil）。
     public internal(set) var dailyProgressResetAt: Date?
     /// 重置那一刻已学完（累计认识满 3 次）的词数。
-    public internal(set) var dailyProgressResetLearned = 0
+    /// ⚠️ 同上：不给默认值，让「漏加载」变成编译错误而不是静默归零。
+    public internal(set) var dailyProgressResetLearned: Int
     /// 词库总词数（设置页展示「上次已学 x / y 词」）。
     public internal(set) var dailyBankTotal = 0
 
