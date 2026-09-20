@@ -287,3 +287,51 @@
 |---|---|
 | 6-10 | `dist/` 内两张 showcase 大图（`yulin-showcase-studio.png` 2.3M、`yusen-showcase-studio.png` 3.1M）与 `.DS_Store`。`dist/` 已在 `.gitignore`，属**本地**清理 —— 动手前会先列清单等确认 |
 
+---
+
+## 执行结果（2026-09-20 深夜 · 第三轮 · P1/P2 落地）
+
+### 本轮拍板
+
+| 条目 | 用户选择 |
+|---|---|
+| 3-3 默认 TTS | 切到 8856（免密钥 Edge 代理） |
+| 2-2 克隆能力 | 实现为权威，配置只作闸门 |
+| 5-1 AppState 拆分 | 单独排期 |
+| P2 工程选做 | 四项全做 |
+| 隐私判定语义（本轮新发现） | **回环即本机** |
+
+### 落地
+
+| 提交 | 条目 | 内容 |
+|---|---|---|
+| `701df5f` | 3-3 + 2-2 | 默认 TTS 切 `remote.kina-tts`（8856）；克隆能力判定改「实现为权威」 |
+| `0f0c8a7` | 5-4 | `ProductConfig` 解码兜底改取默认 init，往返断言兜底 |
+| `1b38da9` | 6-7 + 6-6 | 资源包通配拷贝 + release 目录自适应 + `--universal`/`--optimize-size` 开关 |
+| `91c4dcd` | （新） | **隐私：回环端点不算外发** —— 默认 TTS 换成回环 8856 后，`privacy.noUnintendedNetwork` 与 6 个隐私用例全红；判外发的尺子改为「数据出不出机器」而非 runtime 标签 |
+| `b60ee5f` | 5-5 + 6-8 | 32 个渲染用例拆到 `Tests/RenderTests/` 独立 target |
+| `122bfa8` | 6-5 | periphery 接入（`.periphery.yml` + CI 建议项 job，**刻意不做门禁**） |
+| `074d5a3` | 6-6 | **`--universal` 真正可用**：`main.swift`→`AppMain.swift` 避开 xcodebuild 的 top-level/`@main` 冲突；改「两架构各编一次再 lipo」 |
+
+**验证**：全量 `swift test` **1357 通过 / 1 skip / 0 失败**；`dist/AI_Language_Coach.app` 重打包 14M · arm64 · v1.0.0 (build 1)，`codesign --verify --deep --strict` 通过。未推送（仓库无远端）。
+
+### 6-6 体积 / 架构实测（strip -x 后）
+
+| 变体 | 主二进制 | .app 总体积 | 说明 |
+|---|---|---|---|
+| release `-O`（arm64，现状） | 9.6M | 14M | 当前默认 |
+| release `-Osize`（arm64） | **8.3M** | — | **-13%**，`make_app.sh --optimize-size` 一键切换 |
+| release 通用（arm64 + x86_64） | 19.8M | 24M | `make_app.sh --universal` |
+
+结论：**单架构 + `-Osize` 是性价比最高的一档**（-13% 体积，代价是峰值性能略降）；通用二进制只在要分发给 Intel 机器时才值得（+108%）。两者都只是打包开关，默认行为未变。
+
+### 本轮遗留（待确认后动手）
+
+| 条目 | 说明 |
+|---|---|
+| AppState 拆分（5-1） | 用户已拍板单独排期，未动 |
+| `dist/` 本地清理（6-10） | 未动，动手前先列清单 |
+| periphery 25 条真候选 | 9 未用属性 + 6 赋值即弃属性 + 5 未用参数 + 5 未用函数（`AIProvider.lifecycle`、`TreeCanvas.bubblesAllowed`、`CursorGuard.uninstall()` 等）——涉及意图判断，逐条核完再清 |
+| periphery 60 条未用 import | 53 个文件，清一色第一方模块；纯机械零风险，但面广，等确认一并清 |
+
+
