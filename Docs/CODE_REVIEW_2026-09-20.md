@@ -231,3 +231,59 @@
 
 > 本轮验证：全量重编（`touch` 全部源文件）**0 error / 0 warning**；全量测试 **1348 通过 / 0 失败**（1 skip）；`dist/AI_Language_Coach.app` 重打包 v1.0.0 (build 1)、`codesign --verify --deep --strict` 通过。
 
+---
+
+## 提交记录（2026-09-20 夜）
+
+积压的工作区（274 项）已按模块落成 6 笔提交，HEAD 由 `c702312` 前进到 `2a46bb5`。**未推送**（仓库当前无远端配置）。
+
+| 提交 | 内容 |
+|---|---|
+| `c7fd67f` | chore(工程化)：CI 门禁 + `.swift-format` + 版本号单一来源 + 图标母版与开发者脚本 |
+| `68f397d` | feat(词典)：多词库查询 + 词形还原 + 划词卡片与词族（含三册词典 JSON） |
+| `4ba6991` | feat(专项练习)：雅思考试模式 + 阅读理解 + 写作批改 + 学习材料库 |
+| `fbaef56` | docs：代码审查报告 + 英文轨交互设计稿 |
+| `981c61b` | feat(教学体验)：老师人设与语言守则 + 今日作业黑板 + 成长之树滚动 + 主题资源包 |
+| `2a46bb5` | refactor(核心)：引擎/服务/配置收敛 + 审计清理（死代码与未使用参数） |
+
+⚠️ **中间提交单独不保证可编译**：`AppState` / `ChatService` / `CoachServices` 横跨上面全部功能域，按功能做 hunk 级切分既高风险又拿不到收益（谁也不能单独跑）。可编译、已验证的边界是 **HEAD** —— 本报告的全部验证数据取自它。
+
+---
+
+## 剩余条目排期（行为级）
+
+### 一、已核清 / 无需动手
+
+| 条目 | 结论 |
+|---|---|
+| 6-9 提交节奏 | ✅ 本轮完成（见上表） |
+| 6-11 图标二进制抖动 | ✅ 已核：**不是抖动**。`Scripts/icon.iconset/*.png` 与改动前哈希不同，且新增母版 `Scripts/brand/yulin-app-icon.png` —— 确实重新出过图，**不要** `git checkout` 还原 |
+| 2-1 两套能力面 | ✅ 已成单一真源：`LLMCapabilities` 改为 `ProviderCapabilities.llmView` 投影，不再各自实现一遍 |
+| 2-5 克隆判定重复 | ✅ 已抽 `ClonedVoiceRule.isCloned(referenceAudioPath:)`，两处共用同一口径 |
+| 2-6 / 3-7 / 4b 未使用参数 | ✅ 第二轮已收敛 |
+| 5-3 `levelSection` 未用参数 | ✅ 第二轮已处理 |
+
+### 二、P1 · 会改功能或 UI —— 需确认后动手
+
+| 条目 | 现状与风险 | 备选方案 |
+|---|---|---|
+| **3-3 默认 TTS 供应商** | `local.tts`(:8855 Qwen3 + `voiceCloning`) **enabled**、`remote.kina-tts`(:8856 免密钥 Edge 代理) **disabled**。实机若只跑 8856，则开箱 TTS 全链不可用且**无回退** | ① 默认切 8856（开箱即有声）② 保持 8855 ③ 默认不动 + 健康失败自动回退 |
+| **2-2 克隆音色能力判定** | `CoachServices.ttsSupportsVoiceCloning()` 当前是「**配置声明为真就直接 true**」（`CoachServices.swift:317-321`）→ 配置写了 `voiceCloning` 而适配器实际不支持时，UI 显示可用、点下去合成失败（false capability） | ① 改为「实现为权威，配置只作闸门」② 保留「或」但对不一致显式告警 |
+| **5-1 AppState 拆分** | 5136 行 / 150+ 属性承载全部 UI 状态，`remoteModels` 这类残留即其产物 | ① 单独排期（推荐）② 只搬「纯函数 / 常量 / 几何」到独立文件（不动类型与调用点）③ 本轮完整按域拆分 |
+
+### 三、P2 · 不动 app 行为，但动工程边界
+
+| 条目 | 内容 | 风险 |
+|---|---|---|
+| 5-4 | 配置解码改「缺省值表」驱动（`AppConfiguration` / `ProductConfig` / `ResourcePolicyConfig` 手写 `Codable`，新增字段要同时改 decode/encode/init） | 中：触及老配置兼容 |
+| 5-5 + 6-8 | 测试拆 `UnitTests` / `RenderTests` 两个 target（59 个渲染用例落位），日常只跑前者 | 中：动 `Package.swift` 与测试目录 |
+| 6-5 | CI 接 `periphery` 死代码门禁（本机未装；CI 里先只告警不阻断） | 中 |
+| 6-7 | 资源包统一（现为 `AIInfrastructure` / `AppUI` 两个 `Bundle.module`，打包脚本硬编码 bundle 名） | 中高：动 Bundle 访问路径，历史上踩过「静默取不到 → 走兜底」 |
+| 6-6 | 通用二进制（arm64 + x86_64）+ `-Osize` / LTO | 中：产物变大，属发布配置 |
+
+### 四、P3 · 本地清理
+
+| 条目 | 内容 |
+|---|---|
+| 6-10 | `dist/` 内两张 showcase 大图（`yulin-showcase-studio.png` 2.3M、`yusen-showcase-studio.png` 3.1M）与 `.DS_Store`。`dist/` 已在 `.gitignore`，属**本地**清理 —— 动手前会先列清单等确认 |
+
