@@ -12,15 +12,71 @@ public struct ASRRequest: Sendable {
     }
 }
 
+/// 一个词的时间戳（秒）。
+///
+/// ⚠️ `start` / `end` 的含义取决于 runtime：有的给的是**词级对齐**结果，
+/// 有的只是把段级区间按字符均摊出来的估计值。调用方**不得**把它当成精确对齐去打分
+/// （发音评测目前只用文本对齐，不看这些数字）。
+public struct ASRWord: Sendable, Equatable {
+    public var word: String
+    /// 起始秒（相对音频开头）。
+    public var start: Double
+    /// 结束秒。
+    public var end: Double
+    /// runtime 自报的置信度（0...1）；不给就是 nil。
+    public var confidence: Float?
+
+    public init(word: String, start: Double, end: Double, confidence: Float? = nil) {
+        self.word = word
+        self.start = start
+        self.end = end
+        self.confidence = confidence
+    }
+}
+
+/// 一个语音段的时间戳（秒）。
+public struct ASRSegment: Sendable, Equatable {
+    public var text: String
+    public var start: Double
+    public var end: Double
+    /// 词级时间戳；runtime 没给就是空数组（不是 nil —— 空数组表示「这次确实没有」）。
+    public var words: [ASRWord]
+
+    public init(text: String, start: Double, end: Double, words: [ASRWord] = []) {
+        self.text = text
+        self.start = start
+        self.end = end
+        self.words = words
+    }
+}
+
 public struct ASRResult: Sendable, Equatable {
     public var text: String
     public var language: String?
     public var confidence: Float?
+    /// 段时间戳；**runtime 没提供就是 nil**（不是空数组）。
+    ///
+    /// 为什么是可选：不同 ASR 后端能力不同，把「没有时间戳」表达成 nil，
+    /// 调用方就不会把空数组误读成「转写结果为空」。这是加法式扩展 —— 上层不读它也不受影响。
+    public var segments: [ASRSegment]?
 
-    public init(text: String, language: String? = nil, confidence: Float? = nil) {
+    public init(
+        text: String,
+        language: String? = nil,
+        confidence: Float? = nil,
+        segments: [ASRSegment]? = nil
+    ) {
         self.text = text
         self.language = language
         self.confidence = confidence
+        self.segments = segments
+    }
+
+    /// 摊平后的词级时间戳；没有就 nil。
+    public var words: [ASRWord]? {
+        guard let segments else { return nil }
+        let flat = segments.flatMap(\.words)
+        return flat.isEmpty ? nil : flat
     }
 }
 
@@ -29,6 +85,21 @@ public protocol ASRProvider: AIProvider {
 }
 
 // MARK: - TTS
+
+/// 「这次合成是不是在用克隆音色」的**唯一定义**。
+///
+/// 曾经有两处各写一遍：`SpeechVoiceSelection.isCloned` 与 `TTSRequest.usesClonedVoice`。
+/// 判定口径看起来都在问「有没有参考音频」，但一处查 `referenceAudioPath` 是否为空串、
+/// 另一处若跟着改就容易只判 nil —— 于是「启用克隆音色」的开关在选音色一侧算生效、
+/// 在请求一侧不算，症状是「设置里明明开着，读出来还是内置音色」。
+///
+/// 所以把口径收成一处纯函数：**非 nil 且去空白后非空**才算克隆。
+public enum ClonedVoiceRule {
+    public static func isCloned(referenceAudioPath: String?) -> Bool {
+        guard let path = referenceAudioPath else { return false }
+        return !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
 
 /// 朗读要用哪个声音（第 24 步）。
 ///
@@ -58,8 +129,7 @@ public struct SpeechVoiceSelection: Sendable, Equatable {
     }
 
     public var isCloned: Bool {
-        guard let path = referenceAudioPath else { return false }
-        return !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        ClonedVoiceRule.isCloned(referenceAudioPath: referenceAudioPath)
     }
 }
 
@@ -96,11 +166,8 @@ public struct TTSRequest: Sendable {
         )
     }
 
-    /// 是否要用克隆音色合成。
-    public var usesClonedVoice: Bool {
-        guard let path = referenceAudioPath else { return false }
-        return !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+    /// 是否要用克隆音色合成（判定口径与 `SpeechVoiceSelection.isCloned` 同源）。
+    public var usesClonedVoice: Bool { ClonedVoiceRule.isCloned(referenceAudioPath: referenceAudioPath) }
 }
 
 public struct TTSResult: Sendable {

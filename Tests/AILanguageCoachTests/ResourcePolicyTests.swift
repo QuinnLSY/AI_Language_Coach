@@ -15,6 +15,12 @@ extension MockLLMProvider: ModelServiceControlling {
     public func stopModelService() async throws {}
 }
 
+/// 同样给 mock ASR 补上可启停能力，使 ASR 在集成测试里也能被资源管理挂起/恢复。
+extension MockASRProvider: ModelServiceControlling {
+    public func startModelService() async throws {}
+    public func stopModelService() async throws {}
+}
+
 /// 内存监控假实现（注入固定值，驱动策略决策）。available = nil 模拟「系统不告知」。
 private struct FakeMemoryMonitor: MemoryPressureMonitoring {
     let available: UInt64?
@@ -56,6 +62,11 @@ final class ResourcePolicyTests: XCTestCase {
     }
 
     /// 从未使用过的模型 = 最冷，也应按空闲挂起（省内存优先）。
+    ///
+    /// 注意：这里的 `idle: nil` 是「**完全没有注册任何 Provider**」的语义（管理器对未装配的能力
+    /// 才报 nil），仍按 ∞（最冷）处理。而「已注册但尚未用过」的能力，自 2026-09-19 修复后
+    /// 由 Manager 报「从装配时刻起算」的有限空闲（见 `ASRManager`/`LLMManager` 的 `startedAt`），
+    /// 不会再被当成 ∞ 在首检即挂起——那正是语音识别「设置里开着、一用就连接失败」的根因。
     func testNeverUsedCountsAsColdest() {
         let decisions = ResourcePolicy.suspendDecisions(
             states: [state(.llm, idle: nil)],
@@ -135,6 +146,15 @@ final class ResourceLifecycleTests: XCTestCase {
         return (services, fileURL)
     }
 
+    /// 在 store 里补一个启用的 ASR Provider（mock，可真实启停），让 `bootstrapVoice()` 能装配它。
+    private func registerMockASR(_ services: CoachServices) async throws {
+        let store = await services.configStore
+        try await store.updateProvider(
+            ProviderConfig(id: "mock.asr", kind: .asr, enabled: true, runtime: .mock, model: "mock-model")
+        )
+        try await store.selectModel("mock-model", for: .asr)
+    }
+
     private func waitForReply(_ chat: ChatService, timeout: TimeInterval = 3) async {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -145,6 +165,10 @@ final class ResourceLifecycleTests: XCTestCase {
 
     /// 资源巡检把空闲的本地 LLM 挂起：isModelRunning 变 false，快照可查。
     /// （内存读数 = nil → 系统不告知 → 保守地不走压力规则，纯靠「空闲超时」挂起。）
+    ///
+    /// ⚠️ 必须先让模型真正空闲超过阈值：自 2026-09-19 修复后，刚装配（注册）的模型空闲时长
+    /// 从装配时刻起算（不再报 nil→∞），所以首检那一刻它只空闲了几毫秒，不该被挂起——
+    /// 直接对「刚启动」的模型跑巡检得不到「已挂起」。这里先等 300ms 再巡检，模拟真实空闲窗口。
     func testResourceTickSuspendsIdleControllableModel() async throws {
         let (services, fileURL) = try await makeServices()
         defer { try? FileManager.default.removeItem(at: fileURL) }
@@ -153,6 +177,8 @@ final class ResourceLifecycleTests: XCTestCase {
         var running = await services.isModelRunning(.llm)
         XCTAssertTrue(running)
 
+        // 让 LLM 真正空闲超过阈值（llmIdleUnloadMinutes = 0.001 → 60ms）。
+        try await Task.sleep(nanoseconds: 300_000_000)
         let tickSeconds = await services.runResourceTick(monitor: FakeMemoryMonitor(available: nil))
         running = await services.isModelRunning(.llm)
         XCTAssertFalse(running, "空闲超过阈值的可挂起模型应当被自动挂起")
@@ -189,6 +215,8 @@ final class ResourceLifecycleTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
         try await services.bootstrapLLM()
+        // 先让模型真正空闲超过阈值（修复后空闲从装配时刻起算，刚启动的几毫秒不算「最冷」）。
+        try await Task.sleep(nanoseconds: 300_000_000)
         _ = await services.runResourceTick(monitor: FakeMemoryMonitor(available: nil))
         var running = await services.isModelRunning(.llm)
         XCTAssertFalse(running, "前置：模型已被资源管理挂起")
@@ -213,12 +241,74 @@ final class ResourceLifecycleTests: XCTestCase {
         let manager = ModelLifecycleManager(services: services, monitor: FakeMemoryMonitor(available: nil))
         await manager.start()
         await manager.start() // 幂等：重复 start 不叠加
-        // 等待至少一次巡检生效（tickSeconds = 0.05）。
-        try await Task.sleep(nanoseconds: 300_000_000)
+        // 周期巡检间隔下限为 1s（防忙转），故至少要等一轮巡检生效。
+        // 修复后空闲从装配时刻起算，刚启动的模型不立即被挂起，需真正空闲超过阈值。
+        try await Task.sleep(nanoseconds: 2_000_000_000)
         let running = await services.isModelRunning(.llm)
         XCTAssertFalse(running, "周期巡检应当把空闲模型挂起")
 
         await manager.stop()
         await manager.stop() // 幂等：重复 stop 不崩
+    }
+
+    // MARK: - 回归（2026-09-19 语音识别「设置里明明开着、一用就连接失败」）
+
+    /// 根因回归：随应用 / 设置启动的本地 ASR，第一次资源巡检**绝不该**被挂起。
+    ///
+    /// 修复前：`ASRManager.idleSeconds` 在「注册后还没转写过」时返回 nil → `ResourcePolicy`
+    /// 把 nil 当 ∞（最冷）→ 开屏后的首轮巡检就把刚启动的 whisper 杀了，表现成
+    /// 「设置里明明开着、一用就连接失败」（只有去设置里关了再开、真正重启服务才恢复）。
+    /// 修复后：注册即记 `startedAt`，空闲从那一刻起算；首检时只有数秒空闲，远未到 1 分钟阈值，
+    /// 因此 ASR 保持运行。
+    func testFreshlyBootstrappedASRNotSuspendedOnFirstTick() async throws {
+        let (services, fileURL) = try await makeServices()
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try await registerMockASR(services)
+        // 用现实阈值：模拟「开屏后还没人开口」的真实窗口，避免首检误杀。
+        let store = await services.configStore
+        try await store.mutateResourcePolicy { policy in
+            policy.asrIdleUnloadMinutes = 1
+        }
+
+        await services.bootstrapVoice()
+        var asrRunning = await services.isModelRunning(.asr)
+        XCTAssertTrue(asrRunning, "前置：ASR 已随启动注册")
+
+        // 紧接一次巡检——这正是 bug 触发点（开屏后的首轮巡检）。
+        _ = await services.runResourceTick(monitor: FakeMemoryMonitor(available: nil))
+        asrRunning = await services.isModelRunning(.asr)
+        XCTAssertTrue(asrRunning,
+                      "刚启动的 ASR 不应在第一轮巡检被挂起（空闲仅数秒，远未到 1 分钟阈值）")
+    }
+
+    /// 行为回归：被巡检挂起的 ASR，在使用处（`resumeIfSuspended`）应当**自动恢复**，
+    /// 而非依赖一份已经过期的界面快照。对应修复 ①——使用处判断一律问服务层真源。
+    ///
+    /// 这里用极小阈值 + 短暂等待让 ASR 确实进入「已挂起」状态，再调用 `resumeIfSuspended`
+    /// 验证它能把服务拉回来（`isModelRunning(.asr)` 回到 true）。
+    func testSuspendedASRAutoResumesViaResumeIfSuspended() async throws {
+        let (services, fileURL) = try await makeServices()
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try await registerMockASR(services)
+        let store = await services.configStore
+        try await store.mutateResourcePolicy { policy in
+            policy.asrIdleUnloadMinutes = 0.001 // 60ms 即挂起
+        }
+
+        await services.bootstrapVoice()
+        var asrRunning = await services.isModelRunning(.asr)
+        XCTAssertTrue(asrRunning, "前置：ASR 已注册")
+
+        // 等待超过 60ms 阈值，让首轮巡检把它挂起。
+        try await Task.sleep(nanoseconds: 300_000_000)
+        _ = await services.runResourceTick(monitor: FakeMemoryMonitor(available: nil))
+        asrRunning = await services.isModelRunning(.asr)
+        XCTAssertFalse(asrRunning, "前置：ASR 已被巡检挂起")
+
+        // 使用处的自动恢复路径（与 AppState 各语音入口一致）。
+        _ = try? await services.resumeIfSuspended(.asr)
+        asrRunning = await services.isModelRunning(.asr)
+        XCTAssertTrue(asrRunning,
+                      "使用处应自动恢复被挂起的 ASR，不再依赖过期快照")
     }
 }

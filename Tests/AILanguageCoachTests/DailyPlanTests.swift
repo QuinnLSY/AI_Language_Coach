@@ -110,6 +110,66 @@ final class DailyPlanTests: XCTestCase {
         XCTAssertEqual(review.reason, "有 20 个词到期，先做前 8 个")
     }
 
+    // MARK: - 保底档（#225）
+
+    /// 保底档把三项任务缩到 5 分钟内可完成的量：对话 2 轮、跟读 1 句、复习至多 3 个。
+    func testBaselinePlanScalesAllTargetsDown() throws {
+        let now = day(2026, 9, 15, 20, 0)
+        let plan = DailyPlanner.plan(
+            snapshot: snapshot(
+                today: DailyActivity(day: calendar.startOfDay(for: now)),
+                vocabulary: VocabularyStats(total: 30, due: 30, mastered: 0, defined: 30)
+            ),
+            mode: .baseline,
+            now: now, calendar: calendar
+        )
+
+        let conversation = try XCTUnwrap(plan.tasks.first { $0.kind == .conversation })
+        XCTAssertEqual(conversation.target, DailyPlanner.baselineConversationTarget, "保底档对话只要 2 轮（≈3 分钟）")
+        XCTAssertEqual(conversation.reason, "保底目标 5 分钟，今天还没开口")
+
+        let shadowing = try XCTUnwrap(plan.tasks.first { $0.kind == .shadowing })
+        XCTAssertEqual(shadowing.target, DailyPlanner.baselineShadowingTarget, "保底档跟读 1 句就够")
+
+        let review = try XCTUnwrap(plan.tasks.first { $0.kind == .review })
+        XCTAssertEqual(review.target, DailyPlanner.baselineReviewCap, "保底档复习至多 3 个")
+    }
+
+    /// 保底档的完成判定：2 轮 + 1 句 + 复习齐了 = 全部完成（保住连续的那条路）。
+    func testBaselinePlanCompletionKeepsStreak() {
+        let now = day(2026, 9, 15, 20, 30)
+        let plan = DailyPlanner.plan(
+            snapshot: snapshot(
+                today: DailyActivity(
+                    day: calendar.startOfDay(for: now), seconds: 300, messages: 4, shadowingAttempts: 2
+                ),
+                vocabulary: VocabularyStats(total: 10, due: 2, mastered: 0, defined: 10),
+                reviewedToday: 2
+            ),
+            mode: .baseline,
+            now: now, calendar: calendar
+        )
+        XCTAssertTrue(plan.isAllDone, "保底档完成量（2 轮 + 1 句 + 2 词）应当判全部完成")
+        XCTAssertEqual(plan.completedCount, plan.totalCount)
+    }
+
+    /// 进阶档行为不变：同一份快照，两档的目标量必须不同 —— 这是「档位」存在的意义。
+    func testAdvancedAndBaselineDivergeOnSameSnapshot() throws {
+        let now = day(2026, 9, 15, 20, 0)
+        let snap = snapshot(
+            today: DailyActivity(day: calendar.startOfDay(for: now)),
+            vocabulary: VocabularyStats(total: 20, due: 20, mastered: 0, defined: 20)
+        )
+        let advanced = DailyPlanner.plan(snapshot: snap, mode: .advanced, now: now, calendar: calendar)
+        let baseline = DailyPlanner.plan(snapshot: snap, mode: .baseline, now: now, calendar: calendar)
+
+        let advancedConversation = try XCTUnwrap(advanced.tasks.first { $0.kind == .conversation })
+        let baselineConversation = try XCTUnwrap(baseline.tasks.first { $0.kind == .conversation })
+        XCTAssertNotEqual(advancedConversation.target, baselineConversation.target)
+        // 进阶档沿用「每日目标折算 + 夹取」的旧口径。
+        XCTAssertEqual(advancedConversation.target, DailyPlanner.exchangeTarget(goalMinutes: 15))
+    }
+
     /// 完全没记录时也要给出可做的任务（今天还没开口 + 跟读），不因为「没数据」就空着。
     func testEmptySnapshotStillOffersSomethingToDo() {
         let now = day(2026, 9, 15, 9, 0)

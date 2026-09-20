@@ -64,7 +64,6 @@ public struct ChatAttachment: Codable, Sendable, Equatable, Identifiable {
     }
 
     public var isImage: Bool { kind == .image }
-    public var isVideo: Bool { kind == .video }
 
     /// 体积文案：「820 B」「12.4 KB」「3.1 MB」。二进制单位，与 Finder 口径一致。
     public var sizeText: String {
@@ -75,12 +74,6 @@ public struct ChatAttachment: Codable, Sendable, Equatable, Identifiable {
         let mb = kb / 1024
         if mb < 1024 { return String(format: "%.1f MB", mb) }
         return String(format: "%.2f GB", mb / 1024)
-    }
-
-    /// 扩展名（小写，无点）。存储文件名由它决定。
-    public var fileExtension: String {
-        let ext = (fileName as NSString).pathExtension
-        return ext.isEmpty ? "dat" : ext.lowercased()
     }
 }
 

@@ -28,6 +28,34 @@
     "I disagree with that point completely.",
     "On the contrary, the data shows the opposite."
   ],
+  "mainQuest": "Defend your position: disagree firmly, bring evidence, and counter the other side.",
+  "questSteps": [
+    {
+      "id": "debate-s1",
+      "text": "Disagree with the other side directly.",
+      "hint": "立场要说得干脆",
+      "anchors": [
+        "I disagree with that point completely."
+      ]
+    },
+    {
+      "id": "debate-s2",
+      "text": "Support your view with evidence.",
+      "hint": "There is strong evidence ...",
+      "anchors": [
+        "There is strong evidence to support my view."
+      ]
+    },
+    {
+      "id": "debate-s3",
+      "text": "Counter the argument and show the other side of the story.",
+      "hint": "反驳时给出一层新信息",
+      "anchors": [
+        "I would argue that this is not the whole story.",
+        "On the contrary, the data shows the opposite."
+      ]
+    }
+  ],
   "maxTurns": 18,
   "correctionMode": "strict",
   "icon": "person.2.fill"

@@ -28,6 +28,34 @@
     "My hobby is playing basketball.",
     "By the way, the weather is really nice today."
   ],
+  "mainQuest": "Have a natural small-talk chat: greet, say how you are, share a hobby, and mention your weekend plan.",
+  "questSteps": [
+    {
+      "id": "daily_small_talk-s1",
+      "text": "Greet the other person and ask how they are doing.",
+      "hint": "先说自己的情况，再反问对方",
+      "anchors": [
+        "I'm doing well, thanks. How about you?"
+      ]
+    },
+    {
+      "id": "daily_small_talk-s2",
+      "text": "Tell them about one of your hobbies.",
+      "hint": "My hobby is ...",
+      "anchors": [
+        "My hobby is playing basketball."
+      ]
+    },
+    {
+      "id": "daily_small_talk-s3",
+      "text": "Mention your weekend plan or the weather.",
+      "hint": "顺着话题再补一句，让对话继续",
+      "anchors": [
+        "I'm going to visit my family this weekend.",
+        "By the way, the weather is really nice today."
+      ]
+    }
+  ],
   "maxTurns": 12,
   "correctionMode": "gentle",
   "icon": "cup.and.saucer.fill"

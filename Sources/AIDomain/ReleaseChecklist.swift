@@ -226,9 +226,6 @@ public enum ReleaseChecklist {
         ),
     ]
 
-    /// 声明了 `automated = true` 的条目：Runner 必须给出结果，缺实现就是 bug。
-    public static var automatedItems: [Item] { items.filter(\.automated) }
-
     public static func item(id: String) -> Item? { items.first { $0.id == id } }
 }
 
@@ -255,14 +252,6 @@ public struct ReleaseCheckResult: Identifiable, Sendable, Equatable {
     }
 
     public var id: String { item.id }
-
-    public var statusLabel: String {
-        switch status {
-        case .passed: "通过"
-        case .manual: "待人工验证"
-        case .failed: "未通过"
-        }
-    }
 }
 
 /// 一次发布就绪检查的完整结论。

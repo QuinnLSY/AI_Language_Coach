@@ -26,11 +26,18 @@ final class LearningDatabaseTests: XCTestCase {
         let loaded = try await db.loadProgress()
         XCTAssertNotNil(loaded)
         XCTAssertEqual(loaded, progress, "进度读写应完整往返")
-        XCTAssertEqual(loaded?.totalStars, 14, "种子 12 星 + 蜂鸟花丛补满 2 星")
+        // ⚠️ 需求 1 之后种子是**零进度**，所以这里的期望值来自测试自己改的那两关，
+        // 不再是「种子自带的 12 星」。
+        XCTAssertEqual(loaded?.totalStars, 4, "只有蜂鸟花丛补满的 4 星")
+        XCTAssertEqual(LearnerProgress.seed().totalStars, 0, "种子必须是零进度（全新起点）")
+        XCTAssertEqual(LearnerProgress.seed().levels.first?.state, .unlocked, "第一关开放")
+        XCTAssertTrue(
+            LearnerProgress.seed().levels.dropFirst().allSatisfy { $0.state == .locked },
+            "第一关之后的关卡全部锁定"
+        )
     }
 
-    func testProgressReplace() async throws {
-        let db = try makeDB()
+    func testProgressReplace() async throws {        let db = try makeDB()
         try await db.saveProgress(.seed())
         var updated = LearnerProgress.seed()
         updated.levels[0].earnedStars = 0
@@ -269,5 +276,110 @@ final class LearningDatabaseTests: XCTestCase {
         let loaded = try await db.recentShadowingAttempts(limit: 5)
         XCTAssertEqual(loaded.count, 1, "升级后应能写入并读回跟读记录")
         XCTAssertEqual(loaded.first?.drillID, "d")
+    }
+
+    // MARK: - 主线任务进度（schema v9，需求 3 / 5）
+
+    func testQuestProgressRoundtripAndUpsert() async throws {
+        let db = try makeDB()
+        let sessionID = UUID()
+
+        // ⚠️ `await` 不能进 XCTAssert 的 autoclosure —— 一律先取出值再断言。
+        let nothing = try await db.questProgress(scenarioID: "restaurant")
+        XCTAssertNil(nothing, "没练过就不该有记录")
+
+        let first = ScenarioQuestRecord(
+            scenarioID: "restaurant", sessionID: sessionID,
+            doneStepIDs: ["s1"], isComplete: false
+        )
+        try await db.saveQuestProgress(first)
+        var loaded = try await db.questProgress(scenarioID: "restaurant")
+        XCTAssertEqual(loaded?.doneStepIDs, ["s1"])
+        XCTAssertEqual(loaded?.sessionID, sessionID)
+
+        // upsert：同一个情景再写一次是覆盖，不是新增一行。
+        let second = first.merging(doneStepIDs: ["s1", "s2"], complete: false, sessionID: nil)
+        try await db.saveQuestProgress(second)
+        loaded = try await db.questProgress(scenarioID: "restaurant")
+        XCTAssertEqual(loaded?.doneStepIDs, ["s1", "s2"])
+        let all = try await db.allQuestProgress()
+        XCTAssertEqual(all.count, 1, "一个情景只留一行")
+
+        try await db.clearQuestProgress(scenarioID: "restaurant")
+        let cleared = try await db.questProgress(scenarioID: "restaurant")
+        XCTAssertNil(cleared, "重练这一关要能把进度清掉")
+    }
+
+    /// 复盘成功后删流水：消息与纠错清掉，**会话行与复盘必须留着**（记录页要显示它们）。
+    func testPurgeSessionMessagesKeepsSessionAndReview() async throws {
+        let db = try makeDB()
+        let session = ChatSession(mode: .conversation, scenarioID: "restaurant")
+        try await db.createSession(session)
+        try await db.appendMessage(ChatMessage(role: .assistant, content: "hi"), sessionID: session.id)
+        try await db.appendMessage(ChatMessage(role: .user, content: "hello"), sessionID: session.id)
+        try await db.appendCorrection(
+            GrammarCorrection(original: "I go", corrected: "I went", explanation: "过去式"),
+            sessionID: session.id
+        )
+        try await db.saveReview(SessionReview(
+            sessionID: session.id, messageCount: 2, headline: "这次不错"
+        ))
+
+        let reviewedCount = try await db.reviewedMessageCount(sessionID: session.id)
+        XCTAssertEqual(reviewedCount, 2, "复盘要记下当时复盘到第几条消息")
+
+        let purged = try await db.purgeSessionMessages(sessionID: session.id)
+        XCTAssertEqual(purged, 2, "被删掉的消息条数要如实返回")
+
+        let messagesAfter = try await db.messages(sessionID: session.id)
+        let correctionsAfter = try await db.corrections(sessionID: session.id)
+        XCTAssertTrue(messagesAfter.isEmpty)
+        XCTAssertTrue(correctionsAfter.isEmpty)
+
+        let summary = try await db.sessionSummary(id: session.id)
+        XCTAssertNotNil(summary, "会话行必须留着 —— 记录页要显示情景名与时长")
+
+        let keptReview = try await db.review(sessionID: session.id)
+        XCTAssertEqual(keptReview?.headline, "这次不错", "复盘必须留着 —— 它就是删流水之后剩下的东西")
+
+        let byScenario = try await db.latestReview(scenarioID: "restaurant")
+        XCTAssertEqual(byScenario?.headline, "这次不错", "按情景找最近复盘要能找到（任务前情提要的原料）")
+    }
+
+    /// v8 → v9 迁移：**一次性清零闯关进度**（需求 1），同时补上任务进度表。
+    func testMigrationToV9ClearsLegacyProgressAndAddsQuestTable() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("legacy-v8-\(UUID().uuidString).db")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let legacy = try SQLiteDatabase(path: url.path)
+        try legacy.run("""
+        CREATE TABLE levels (
+            id TEXT PRIMARY KEY, sort_order INTEGER NOT NULL, title TEXT NOT NULL,
+            subtitle TEXT NOT NULL, height_fraction REAL NOT NULL, branch TEXT NOT NULL,
+            state TEXT NOT NULL, required_stars INTEGER NOT NULL, earned_stars INTEGER NOT NULL
+        )
+        """)
+        // 老库里「前三关已通关」的假进度 —— 迁移后必须一条不剩。
+        try legacy.run(
+            "INSERT INTO levels VALUES ('l1', 0, '树根营地', '打招呼', 0.06, 'left', 'completed', 3, 3)"
+        )
+        try legacy.run(
+            "INSERT INTO levels VALUES ('l2', 1, '苔藓石阶', '自我介绍', 0.18, 'right', 'completed', 3, 3)"
+        )
+        try legacy.setSchemaVersion(8)
+        legacy.close()
+
+        let db = try LearningDatabase(path: url.path)
+        let version = try await db.schemaVersion()
+        XCTAssertEqual(version, LearningDatabase.schemaVersion)
+
+        let progressAfterMigration = try await db.loadProgress()
+        XCTAssertNil(progressAfterMigration, "老进度必须被清空 —— 上一层应用层会因此写入零进度种子")
+
+        // 任务进度表建好了（能写能读）。
+        try await db.saveQuestProgress(ScenarioQuestRecord(scenarioID: "x", doneStepIDs: ["s1"]))
+        let stored = try await db.questProgress(scenarioID: "x")
+        XCTAssertEqual(stored?.doneStepIDs, ["s1"])
     }
 }

@@ -131,12 +131,7 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
         ProviderMetadata(id: providerID, displayName: "云端大模型", runtime: .remoteAPI)
     }
 
-    public func llmCapabilities() -> LLMCapabilities {
-        LLMCapabilities(
-            streaming: true, structuredOutput: false,
-            vision: declaredVision, multilingual: true
-        )
-    }
+    // `llmCapabilities()` 走协议默认实现（= `capabilities().llmView`）。
 
     // MARK: - 生成
 
@@ -152,9 +147,7 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
             base: base,
             operation: .chat
         )
-        var urlRequest = try Self.chatRequest(
-            base: base, apiKey: apiKey, request: request, config: config, stream: false
-        )
+        var urlRequest = try Self.chatRequest(base: base, apiKey: apiKey)
         urlRequest.httpBody = try Self.makeEncoder().encode(
             Self.chatBody(
                 request: request, config: config, stream: false,
@@ -214,9 +207,7 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
                         operation: .chat
                     )
                     intent = started
-                    var urlRequest = try Self.chatRequest(
-                        base: base, apiKey: apiKey, request: request, config: config, stream: true
-                    )
+                    var urlRequest = try Self.chatRequest(base: base, apiKey: apiKey)
                     urlRequest.httpBody = try Self.makeEncoder().encode(
                         Self.chatBody(
                             request: request, config: config, stream: true,
@@ -296,7 +287,11 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
         return (config, base, apiKey)
     }
 
-    private static func chatRequest(base: URL, apiKey: String, request: LLMRequest, config: ProviderConfig, stream: Bool) throws -> URLRequest {
+    /// 只拼 URL 与两个 Header（请求体由 `chatBody` 另拼）。
+    ///
+    /// ⚠️ 签名里**不要**加 `request` / `config` / `stream`：早先带着这三个入参却一个都不用，
+    /// 读的人会以为它会按 stream / config 组请求体，实际只做了 URL + Header。
+    private static func chatRequest(base: URL, apiKey: String) throws -> URLRequest {
         var urlRequest = URLRequest(url: RemoteEndpoint.chatURL(base: base))
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")

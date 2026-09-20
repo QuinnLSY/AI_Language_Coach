@@ -68,6 +68,13 @@ public struct Scenario: Codable, Sendable, Equatable, Identifiable {
     /// 与 `targetGrammar`（语法点提示）不同：这是可以逐句核对的目标 ——
     /// 一局练完能说清「哪几句说到了、哪几句还没说」，判定见 `CurriculumScorer`。
     public var targetSentences: [String]
+    /// 主线任务标题（学习语言）。空 = 由 `ScenarioQuestRule.plan` 从目标句 / 目标词推导。
+    ///
+    /// 「主线任务」是这一局要**按顺序推进**的几件事（如「入座 → 点主食 → 结账」），
+    /// 与 `objective`（学习目标，偏教学描述）不同：主线任务是学员看得见的进度条。
+    public var mainQuest: String
+    /// 主线任务的步骤（数据驱动）。空 = 从 `targetSentences` 自动推导。
+    public var questSteps: [QuestStep]
     /// 期望轮次上限（学员发言计一轮）；到点老师收尾。
     public var maxTurns: Int
     /// 纠错强度。
@@ -89,6 +96,8 @@ public struct Scenario: Codable, Sendable, Equatable, Identifiable {
         targetVocabulary: [String] = [],
         targetGrammar: [String] = [],
         targetSentences: [String] = [],
+        mainQuest: String = "",
+        questSteps: [QuestStep] = [],
         maxTurns: Int = 12,
         correctionMode: ScenarioCorrectionMode = .balanced,
         icon: String = "bubble.left.and.bubble.right.fill"
@@ -106,6 +115,8 @@ public struct Scenario: Codable, Sendable, Equatable, Identifiable {
         self.targetVocabulary = targetVocabulary
         self.targetGrammar = targetGrammar
         self.targetSentences = targetSentences
+        self.mainQuest = mainQuest
+        self.questSteps = questSteps
         self.maxTurns = max(maxTurns, 1)
         self.correctionMode = correctionMode
         self.icon = icon
@@ -116,6 +127,11 @@ public struct Scenario: Codable, Sendable, Equatable, Identifiable {
         String(repeating: "●", count: min(max(difficulty, 0), 5))
             + String(repeating: "○", count: max(5 - difficulty, 0))
     }
+
+    // MARK: - 主线任务
+
+    /// 本场景的主线任务计划（纯计算，素材改了就跟着变）。
+    public var questPlan: QuestPlan { ScenarioQuestRule.plan(for: self) }
 
     // MARK: - CEFR 分级（课程体系）
 
@@ -147,6 +163,7 @@ public struct Scenario: Codable, Sendable, Equatable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id, title, titleZh, category, difficulty, level, objective
         case aiRole, learnerRole, opening, targetVocabulary, targetGrammar, targetSentences
+        case mainQuest, questSteps
         case maxTurns, correctionMode, icon
     }
 
@@ -165,6 +182,8 @@ public struct Scenario: Codable, Sendable, Equatable, Identifiable {
         targetVocabulary = try container.decodeIfPresent([String].self, forKey: .targetVocabulary) ?? []
         targetGrammar = try container.decodeIfPresent([String].self, forKey: .targetGrammar) ?? []
         targetSentences = try container.decodeIfPresent([String].self, forKey: .targetSentences) ?? []
+        mainQuest = try container.decodeIfPresent(String.self, forKey: .mainQuest) ?? ""
+        questSteps = (try? container.decodeIfPresent([QuestStep].self, forKey: .questSteps)).flatMap { $0 } ?? []
         let turns = try container.decodeIfPresent(Int.self, forKey: .maxTurns) ?? 12
         maxTurns = max(turns, 1)
         correctionMode = try container.decodeIfPresent(ScenarioCorrectionMode.self, forKey: .correctionMode) ?? .balanced
@@ -258,28 +277,41 @@ public enum ScenarioRewardRule {
 
     /// 生成结算文案。`stars` 传**实际到手的星星**（已按关卡上限截断；没绑定关卡传 0）。
     /// `levelTitle` 为 nil 表示场景没绑定关卡，只提示、不加星。
+    ///
+    /// ⚠️ **星星与通关是两件事**（需求 3）：
+    /// 星星只记「开口了多少」，通关看的是「主线任务 + 教学重点」是否达标。
+    /// 所以这里 `didPass` 与 `stars > 0` 各自独立 —— 说了很多但没说到点子上，有星也不过关。
     public static func reward(
         scenarioTitle: String,
         stars: Int,
         levelTitle: String?,
-        willCompleteLevel: Bool
+        didPass: Bool,
+        willCompleteLevel: Bool,
+        shortfall: String? = nil
     ) -> ScenarioReward {
         guard let levelTitle else {
             return ScenarioReward(
                 levelTitle: nil, stars: 0, didCompleteLevel: false,
-                message: "「\(scenarioTitle)」练完啦，说得不错！"
+                message: didPass
+                    ? "「\(scenarioTitle)」练完啦，说得很到位！"
+                    : "「\(scenarioTitle)」练完啦，\(shortfall ?? "再练一轮会更稳～")"
             )
         }
-        guard stars > 0 else {
+        if willCompleteLevel {
             return ScenarioReward(
-                levelTitle: levelTitle, stars: 0, didCompleteLevel: false,
-                message: "下次多开口几句，就能拿到星星啦～"
+                levelTitle: levelTitle, stars: stars, didCompleteLevel: true,
+                message: "「\(scenarioTitle)」+\(stars) 星，已点亮这一关！"
             )
         }
-        let tail = willCompleteLevel ? "，已点亮这一关！" : "，继续加油～"
+        guard didPass else {
+            return ScenarioReward(
+                levelTitle: levelTitle, stars: stars, didCompleteLevel: false,
+                message: "「\(scenarioTitle)」+\(stars) 星，还没过关：\(shortfall ?? "主线任务或教学重点还差一点")"
+            )
+        }
         return ScenarioReward(
-            levelTitle: levelTitle, stars: stars, didCompleteLevel: willCompleteLevel,
-            message: "「\(scenarioTitle)」+\(stars) 星\(tail)"
+            levelTitle: levelTitle, stars: stars, didCompleteLevel: false,
+            message: "「\(scenarioTitle)」+\(stars) 星，这一关的目标达成了，继续加油～"
         )
     }
 }

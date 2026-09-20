@@ -186,7 +186,7 @@ final class ExternalModelPrefillTests: XCTestCase {
         }
         let services = CoachServices(config: store, databasePath: ":memory:")
 
-        var configuration = await services.configuration
+        let configuration = await services.configuration
         XCTAssertEqual(configuration.resolvedProvider(for: .llm)?.id, "ollama.llm",
                        "前置条件：生效的是本地 Provider，不是 DeepSeek")
 

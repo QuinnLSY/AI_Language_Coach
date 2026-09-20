@@ -30,6 +30,8 @@ public struct VocabularyEntry: Sendable, Equatable, Identifiable, Codable {
         case scenario
         /// 手动添加。
         case manual
+        /// 上传材料自动出题拆出来的生词表（#208）。
+        case material
     }
 
     public var source: Source
@@ -514,121 +516,6 @@ public enum VocabularyTermCompletion {
     }
 }
 
-// MARK: - 词库速查（添加框联想）
-
-/// 词库里的一条速查（**词性 + 中文义项**）。
-///
-/// 用途单一：词汇本添加框的模糊匹配浮层要显示「英文（词性）中文翻译」，
-/// 而每日推荐的详细释义仍由 LLM 按需生成 —— 词库只存一份离线可查的最小信息。
-public struct WordBankEntry: Sendable, Equatable, Codable {
-    public var word: String
-    /// 难度档：1 简单 / 2 中等 / 3 困难 / 4 词组。
-    public var difficulty: Int
-    /// 词性（如 `v./n.`）；老词库可能没有。
-    public var pos: String
-    /// 中文义项（多义用「；」分隔）。
-    public var translation: String
-
-    public init(word: String, difficulty: Int, pos: String = "", translation: String = "") {
-        self.word = word
-        self.difficulty = difficulty
-        self.pos = pos
-        self.translation = translation
-    }
-}
-
-// MARK: - 添加框联想（模糊匹配）
-
-/// 添加框下方的一条联想词。
-public struct VocabularySuggestion: Sendable, Equatable, Identifiable {
-    public var word: String
-    /// 词性（有释义时才有）。
-    public var pos: String
-    /// 中文翻译 / 义项（有释义时才有）。
-    public var translation: String
-    /// 词库难度档（1 简单 / 2 中等 / 3 困难 / 4 词组）；非词库来源为 nil。
-    public var difficulty: Int?
-    /// 已在词汇本里。
-    public var isInVocabulary: Bool
-
-    public var id: String { word.lowercased() }
-
-    /// 是否带真实中文（词性与义项来自本机已有释义）。
-    public var hasDefinition: Bool { !translation.isEmpty }
-
-    public init(
-        word: String,
-        pos: String = "",
-        translation: String = "",
-        difficulty: Int? = nil,
-        isInVocabulary: Bool = false
-    ) {
-        self.word = word.trimmingCharacters(in: .whitespaces)
-        self.pos = pos.trimmingCharacters(in: .whitespaces)
-        self.translation = translation.trimmingCharacters(in: .whitespaces)
-        self.difficulty = difficulty
-        self.isInVocabulary = isInVocabulary
-    }
-
-    /// 展示用副标题：有中文就「词性 + 中文」，否则退回难度档标签。
-    public var detailText: String {
-        guard !translation.isEmpty else {
-            return difficulty.map { DailyWord.difficultyLabel(for: $0) } ?? ""
-        }
-        return pos.isEmpty ? translation : "\(pos) \(translation)"
-    }
-}
-
-/// 联想匹配（**纯函数**）：前缀 > 子串 > 中文命中，同分按词长与字母序。
-public enum VocabularySuggester {
-
-    /// 最多展示几条（浮层高度不足时按实际条数收缩）。
-    public static let limit = 10
-
-    /// 查询串 → 命中的联想词（已去重，按相关度排序）。
-    public static func match(
-        _ query: String,
-        in candidates: [VocabularySuggestion],
-        limit: Int = limit
-    ) -> [VocabularySuggestion] {
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !needle.isEmpty else { return [] }
-
-        var ranked: [(score: Int, length: Int, suggestion: VocabularySuggestion)] = []
-        for candidate in candidates {
-            let word = candidate.word.lowercased()
-            guard !word.isEmpty else { continue }
-            let score: Int
-            if word == needle {
-                score = 0
-            } else if word.hasPrefix(needle) {
-                score = 1
-            } else if word.contains(needle) {
-                score = 2
-            } else if candidate.translation.lowercased().contains(needle) {
-                score = 3
-            } else {
-                continue
-            }
-            ranked.append((score, candidate.word.count, candidate))
-        }
-        ranked.sort {
-            if $0.score != $1.score { return $0.score < $1.score }
-            if $0.length != $1.length { return $0.length < $1.length }
-            return $0.suggestion.word.lowercased() < $1.suggestion.word.lowercased()
-        }
-
-        var seen = Set<String>()
-        var result: [VocabularySuggestion] = []
-        for item in ranked where !seen.contains(item.suggestion.word.lowercased()) {
-            seen.insert(item.suggestion.word.lowercased())
-            result.append(item.suggestion)
-            if result.count >= max(limit, 1) { break }
-        }
-        return result
-    }
-}
-
 // MARK: - 每日推荐（Daily Recommendation）
 
 /// 每日推荐的一个词 / 词组（来自本地雅思词库，不落库、默认不进复习列表）。
@@ -690,13 +577,54 @@ public enum DailyWordPicker {
         excluding: Set<String> = [],
         using generator: inout R
     ) -> [DailyWord] {
-        let available = bank.filter { !excluding.contains($0.word.lowercased()) }
-        // 每档先各自打乱，抽词与补位都从这里按顺序取，保证同批不重复。
-        var pools: [Int: [DailyWord]] = [:]
-        for level in levelOrder {
-            pools[level] = available.filter { $0.difficulty == level }.shuffled(using: &generator)
-        }
+        pick(fromSources: [bank], excluding: excluding, using: &generator)
+    }
 
+    /// 从**多本词典**抽一组（按优先级给定顺序，词典库选定的词源用这个入口）。
+    ///
+    /// 优先级的体现：每本词典先各自按档位打乱，再按传入顺序首尾相接成「同一档的大池子」——
+    /// 同一档里排在前面的是优先级高的词典，配额自然先被它满足，不够才轮到下一本。
+    /// 一本词典里的词不会挤掉另一本的同名词（最后统一按词去重）。
+    public static func pick<R: RandomNumberGenerator>(
+        fromSources sources: [[DailyWord]],
+        excluding: Set<String> = [],
+        using generator: inout R
+    ) -> [DailyWord] {
+        var pools: [Int: [DailyWord]] = [:]
+        for source in sources {
+            let available = source.filter { !excluding.contains($0.word.lowercased()) }
+            for level in levelOrder {
+                pools[level, default: []].append(
+                    contentsOf: available.filter { $0.difficulty == level }.shuffled(using: &generator)
+                )
+            }
+        }
+        return select(from: pools)
+    }
+
+    // MARK: 按天恒定（种子派生）
+
+    /// 按**种子**抽一组：同一个种子必定抽出同一批词。
+    ///
+    /// 每日推荐「同一天打开很多次都看到同一批」靠的就是它 ——
+    /// 种子由 `DailySeed.seed(dayKey:language:)` 从日期派生，纯函数、不落盘。
+    public static func pick(
+        fromSources sources: [[DailyWord]],
+        excluding: Set<String> = [],
+        seed: UInt64
+    ) -> [DailyWord] {
+        var rng = SeededRandomGenerator(seed: seed)
+        return pick(fromSources: sources, excluding: excluding, using: &rng)
+    }
+
+    /// 单本词库的按种子入口（与上面多本入口同一套配额 / 补齐 / 去重规则）。
+    public static func pick(from bank: [DailyWord], excluding: Set<String> = [], seed: UInt64) -> [DailyWord] {
+        var rng = SeededRandomGenerator(seed: seed)
+        return pick(from: bank, excluding: excluding, using: &rng)
+    }
+
+    /// 按配额抽词 + 缺口补齐（抽词规则见本类型文档）。
+    static func select(from pools: [Int: [DailyWord]]) -> [DailyWord] {
         var picked: [Int: [DailyWord]] = [:]
         var deficit = 0
         for level in levelOrder {
@@ -718,13 +646,28 @@ public enum DailyWordPicker {
             deficit -= extra
         }
 
-        return levelOrder.flatMap { picked[$0] ?? [] }
+        // 同名词可能同时长在多本词典里 —— 出结果前按词去重，不让它占两个名额。
+        var seen = Set<String>()
+        var result: [DailyWord] = []
+        for level in levelOrder {
+            for word in picked[level] ?? [] where !seen.contains(word.word.lowercased()) {
+                seen.insert(word.word.lowercased())
+                result.append(word)
+            }
+        }
+        return result
     }
 
     /// 便捷入口（系统随机源）。
     public static func pick(from bank: [DailyWord], excluding: Set<String> = []) -> [DailyWord] {
         var rng = SystemRandomNumberGenerator()
         return pick(from: bank, excluding: excluding, using: &rng)
+    }
+
+    /// 便捷入口（多本词典，系统随机源）。
+    public static func pick(fromSources sources: [[DailyWord]], excluding: Set<String> = []) -> [DailyWord] {
+        var rng = SystemRandomNumberGenerator()
+        return pick(fromSources: sources, excluding: excluding, using: &rng)
     }
 }
 

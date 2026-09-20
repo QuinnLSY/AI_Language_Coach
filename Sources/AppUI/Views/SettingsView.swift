@@ -45,10 +45,14 @@ public struct SettingsView: View {
     @State private var endpointPlaceholder: String = ""
     @State private var temperatureDraft: Double = 0.7
     @State private var logs: [LogEntry] = []
+    /// 当前日志级别（`LogOptions` 的界面副本；改它即落 UserDefaults）。
+    @State private var logLevel: LogLevel = .debug
     @State private var showAdvanced = false
     @State private var isRefreshing = false
     @State private var isClearingCache = false
     @State private var showClearConfirm = false
+    /// 备份导入确认框（#209）。
+    @State private var showImportConfirm = false
     /// 重置每日推荐学习进度的二次确认。
     @State private var showVocabularyResetConfirm = false
     /// 配置里的 LLM Provider 标签（本地 / 云端）。
@@ -79,6 +83,7 @@ public struct SettingsView: View {
                     modelCard
                     voiceModelCenterCard
                     learningCard
+                    practiceReminderCard
                     vocabularyCard
                     privacyCard
                     cacheCard
@@ -102,6 +107,8 @@ public struct SettingsView: View {
             await state.refreshCacheInfo()
             await state.refreshPrivacy()
             await state.refreshBackups()
+            await state.refreshRuntimeLocations()
+            await state.refreshRegistryCheck()
             await state.loadVocabularyBankIfNeeded()
         }
         // 外部模型统一面板：一份面板服务所有能力，卡片上因此只有一个按钮。
@@ -211,12 +218,12 @@ public struct SettingsView: View {
                                 Text(role.title)
                                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                             }
-                            .foregroundStyle(partnerRole == role ? Color.white : theme.primaryText)
+                            .foregroundStyle(partnerRole == role ? theme.onAccentFill : theme.primaryText)
                             .padding(.horizontal, 14)
                             .frame(height: 32)
                             .background(
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(partnerRole == role ? theme.accent : theme.surfaceAlt)
+                                    .fill(partnerRole == role ? theme.accentFill : theme.surfaceAlt)
                             )
                         }
                         .buttonStyle(.plain)
@@ -292,9 +299,9 @@ public struct SettingsView: View {
                 if isSelected {
                     Image(systemName: partnerRole == .teacher ? "graduationcap.fill" : "figure.child")
                         .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.onAccentFill)
                         .padding(4)
-                        .background(Circle().fill(theme.accent))
+                        .background(Circle().fill(theme.accentFill))
                         .offset(x: 4, y: -4)
                 }
             }
@@ -415,7 +422,7 @@ public struct SettingsView: View {
                 if providerOptions.isEmpty {
                     Text("配置文件里没有 LLM Provider。")
                         .font(.system(size: 12, design: .rounded))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(theme.warning)
                 } else if llmUsesExternal {
                     remoteProviderSection
                 } else {
@@ -425,13 +432,13 @@ public struct SettingsView: View {
                 if let message = state.remoteMessage {
                     Text(message)
                         .font(.system(size: 12, design: .rounded))
-                        .foregroundStyle(message.contains("成功") || message.contains("已启用") ? .green : .orange)
+                        .foregroundStyle(message.contains("成功") || message.contains("已启用") ? .green : theme.warning)
                 }
 
                 if state.activeProvider?.id == state.selectedProviderID, let bootMessage = state.bootMessage {
                     Text(bootMessage)
                         .font(.system(size: 12, design: .rounded))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(theme.warning)
                 }
             }
         }
@@ -466,12 +473,12 @@ public struct SettingsView: View {
                 Image(systemName: systemImage).font(.system(size: 10))
                 Text(title).font(.system(size: 13, weight: .semibold, design: .rounded))
             }
-            .foregroundStyle(selected ? Color.white : theme.primaryText)
+            .foregroundStyle(selected ? theme.onAccentFill : theme.primaryText)
             .padding(.horizontal, 13)
             .frame(height: 30)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(selected ? theme.accent : theme.surfaceAlt)
+                    .fill(selected ? theme.accentFill : theme.surfaceAlt)
             )
         }
         .buttonStyle(.plain)
@@ -484,7 +491,7 @@ public struct SettingsView: View {
     private var modelProviderStatus: some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(state.health.isUsable ? Color.green : Color.orange)
+                .fill(state.health.isUsable ? Color.green : theme.warning)
                 .frame(width: 8, height: 8)
             Text(state.llmProviderStatusLine)
                 .font(.system(size: 11, design: .rounded))
@@ -610,7 +617,7 @@ public struct SettingsView: View {
             if state.availableModels.isEmpty {
                 Text("没有检测到本地模型。请确认本地模型服务已启动后点击刷新。")
                     .font(.system(size: 12, design: .rounded))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(theme.warning)
             } else {
                 ForestSelect(
                     "模型",
@@ -722,7 +729,7 @@ public struct SettingsView: View {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.system(size: 11))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(theme.warning)
                         Text(notice)
                             .font(.system(size: 11, design: .rounded))
                             .foregroundStyle(theme.primaryText)
@@ -730,7 +737,7 @@ public struct SettingsView: View {
                     }
                     .padding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.orange.opacity(0.12)))
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(theme.warning.opacity(0.12)))
                 }
                 let kinds: [AIProviderKind] = [.asr, .tts, .vad, .embedding, .pronunciation]
                 ForEach(kinds) { kind in
@@ -762,7 +769,7 @@ public struct SettingsView: View {
             HStack(spacing: 6) {
                 Image(systemName: summary.blockedTotal > 0 ? "exclamationmark.shield.fill" : "checkmark.shield.fill")
                     .font(.system(size: 12))
-                    .foregroundStyle(summary.blockedTotal > 0 ? Color.orange : Color.green)
+                    .foregroundStyle(summary.blockedTotal > 0 ? theme.warning : Color.green)
                 Text("对外调用记录")
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.primaryText)
@@ -821,7 +828,7 @@ public struct SettingsView: View {
                             Spacer()
                             Text(record.outcome.displayName)
                                 .font(.system(size: 10, weight: .semibold, design: .rounded))
-                                .foregroundStyle(record.outcome == .ok ? Color.green : (record.outcome == .blocked ? Color.orange : Color.red))
+                                .foregroundStyle(record.outcome == .ok ? Color.green : (record.outcome == .blocked ? theme.warning : Color.red))
                         }
                     }
                 }
@@ -879,7 +886,7 @@ public struct SettingsView: View {
             // ① 当前模型 + 来源 + 状态（状态右边是共用的「启动 / 关闭」按钮）
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Circle()
-                    .fill(info.healthOK ? Color.green : (info.currentModel == nil ? Color.gray : Color.orange))
+                    .fill(info.healthOK ? Color.green : (info.currentModel == nil ? Color.gray : theme.warning))
                     .frame(width: 8, height: 8)
                 Text(kind.displayName)
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
@@ -1060,7 +1067,7 @@ public struct SettingsView: View {
             if let error = state.voiceError {
                 Text(error)
                     .font(.system(size: 12, design: .rounded))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(theme.warning)
             }
 
             // 语音链路的费用口径：拼写纠正在说完一句话后自动发生，用户看不见，
@@ -1386,12 +1393,47 @@ public struct SettingsView: View {
     private func voiceStatusDot(_ title: String, _ health: ProviderHealth) -> some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(health.isUsable ? Color.green : Color.orange)
+                .fill(health.isUsable ? Color.green : theme.warning)
                 .frame(width: 8, height: 8)
             Text("\(title) · \(health.userFacingDescription)")
                 .font(.system(size: 12, design: .rounded))
                 .foregroundStyle(theme.secondaryText)
         }
+    }
+
+    // MARK: - 语言候选（学习语言 / 母语的唯一下拉数据源）
+
+    /// 学习语言下拉的选项。
+    ///
+    /// ⚠️ 走 `includingCurrent` 而不是直接用 `LanguageOptions.learning`：
+    /// 老配置里可能存着清单外的标识，不补进候选就会显示「未选择」，
+    /// 用户看着像设置丢了，一碰下拉还会被无声改掉。
+    private var learningLanguageOptions: [ForestSelectOption<String>] {
+        LanguageOptions.includingCurrent(state.learningLanguage, in: LanguageOptions.learning)
+            .map { ForestSelectOption(value: $0.tag, title: $0.title) }
+    }
+
+    /// 母语下拉的选项，规则同学习语言。
+    private var nativeLanguageOptions: [ForestSelectOption<String>] {
+        LanguageOptions.includingCurrent(state.nativeLanguage, in: LanguageOptions.native)
+            .map { ForestSelectOption(value: $0.tag, title: $0.title) }
+    }
+
+    /// 两个下拉共用同一个宽度：同排控件宽度不一致会显得没对齐。
+    ///
+    /// ⚠️ 宽度必须**量**出来（`widthFitting`），不能凭感觉写数字 ——
+    /// 写小的表现是值被截成省略号，而几何空档上看不出来（2026-09-14 的「语速不显示」就是这样来的）。
+    private var languageSelectWidth: CGFloat {
+        ForestSelect<String>.Metrics.regular.widthFitting(
+            (learningLanguageOptions + nativeLanguageOptions).map(\.title)
+        )
+    }
+
+    /// 老师性格下拉的宽度：同样**量**出来（「温和鼓励」是四个字，拍数字最容易把它截掉）。
+    private var personaSelectWidth: CGFloat {
+        ForestSelect<TeacherPersona>.Metrics.regular.widthFitting(
+            TeacherPersona.allCases.map(\.displayName)
+        )
     }
 
     // MARK: - 学习
@@ -1415,35 +1457,134 @@ public struct SettingsView: View {
                     Spacer()
                 }
 
-                HStack {
-                    Text("学习语言").frame(width: 88, alignment: .leading)
-                    TextField("如 en-US", text: Binding(
+                ForestSelect(
+                    "学习语言",
+                    icon: "globe",
+                    selection: Binding(
                         get: { state.learningLanguage },
                         set: { value in Task { await state.setLearningLanguage(value) } }
-                    ))
-                    .textFieldStyle(.roundedBorder)
-                }
+                    ),
+                    options: learningLanguageOptions,
+                    width: languageSelectWidth,
+                    help: "当前版本只支持英语；变体决定语音识别与发音评测用哪一套英语模型。"
+                )
 
-                HStack {
-                    Text("母语").frame(width: 88, alignment: .leading)
-                    TextField("如 zh-CN", text: Binding(
+                ForestSelect(
+                    "母        语",
+                    icon: "character.bubble",
+                    selection: Binding(
                         get: { state.nativeLanguage },
                         set: { value in Task { await state.setNativeLanguage(value) } }
-                    ))
-                    .textFieldStyle(.roundedBorder)
-                }
+                    ),
+                    options: nativeLanguageOptions,
+                    width: languageSelectWidth,
+                    help: "释义、翻译与讲解使用的语言。"
+                )
 
-                HStack {
-                    Text("教师音色").frame(width: 88, alignment: .leading)
-                    TextField("音色名称", text: Binding(
-                        get: { state.teacherVoice },
-                        set: { value in Task { await state.setTeacherVoice(value) } }
-                    ))
-                    .textFieldStyle(.roundedBorder)
-                }
+                ForestSelect(
+                    "老师性格",
+                    icon: "person.wave.2",
+                    selection: Binding(
+                        get: { state.teacherPersona },
+                        set: { persona in Task { await state.setTeacherPersona(persona) } }
+                    ),
+                    options: TeacherPersona.allCases.map {
+                        ForestSelectOption(value: $0, title: $0.displayName)
+                    },
+                    width: personaSelectWidth,
+                    help: state.teacherPersona.summary
+                )
+
+                // 教师音色原来在这里还有一个手填框，与上方「模型管理中心 → 老师怎么读」里的下拉
+                // 指向同一个值、却**绕过了** `setVoice`（不会停用克隆音色）——
+                // 一个设置两处入口、行为还不一致。这里只留一条指路，避免两处各说各的。
+                Text("教师音色已并入上方「模型管理中心 → 老师怎么读」，在那里切换会立即试听。")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                    .lineSpacing(3)
             }
             .font(.system(size: 13, design: .rounded))
         }
+    }
+
+    // MARK: - 提醒我练习（#226 本地定时通知）
+
+    private var practiceReminderCard: some View {
+        card(title: "提醒我练习", systemImage: "bell.badge.fill") {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("每天定时提醒我练一会儿", isOn: Binding(
+                    get: { state.practiceReminderEnabled },
+                    set: { enabled in Task { await state.setPracticeReminderEnabled(enabled) } }
+                ))
+                .font(.system(size: 13, design: .rounded))
+
+                if state.practiceReminderEnabled {
+                    HStack(spacing: 10) {
+                        Text("提醒时刻")
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundStyle(theme.primaryText)
+
+                        // 时刻用自绘步进（系统 DatePicker 样式与整体口径不符，且命中区退化）。
+                        HStack(spacing: 4) {
+                            reminderButton(systemImage: "minus") {
+                                let total = state.practiceReminderHour * 60 + state.practiceReminderMinute
+                                let shifted = (total - 30 + 24 * 60) % (24 * 60)
+                                Task {
+                                    await state.setPracticeReminderTime(hour: shifted / 60, minute: shifted % 60)
+                                }
+                            }
+                            Text(String(format: "%02d:%02d", state.practiceReminderHour, state.practiceReminderMinute))
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .foregroundStyle(theme.primaryText)
+                                .monospacedDigit()
+                                .frame(width: 46)
+                            reminderButton(systemImage: "plus") {
+                                let total = state.practiceReminderHour * 60 + state.practiceReminderMinute
+                                let shifted = (total + 30) % (24 * 60)
+                                Task {
+                                    await state.setPracticeReminderTime(hour: shifted / 60, minute: shifted % 60)
+                                }
+                            }
+                        }
+                        Text("每 30 分钟一档")
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundStyle(theme.secondaryText)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.leading, 20)
+                }
+
+                if state.reminderAuthorizationDenied {
+                    Text("通知权限被系统拒绝了：请到「系统设置 → 通知 → 语林」里允许通知，之后开关一次提醒即可生效。")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(theme.warning)
+                        .lineSpacing(3)
+                } else if state.practiceReminderEnabled {
+                    Text(TodayPanel.practiceReminderCopy(streakDays: 0).body)
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                        .lineSpacing(3)
+                } else {
+                    Text("到点小鹅子会来敲门 🐧 —— 应用没开着也能收到（走系统通知）。点击通知直接回到今天的作业。")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                        .lineSpacing(3)
+                }
+            }
+        }
+    }
+
+    private func reminderButton(systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            // ⚠️ 必须是 Image(systemName:) —— 写成 Image(systemImage) 会匹配到
+            // Image(_ name:)（按资源名找图片），"minus"/"plus" 不是资源名 → 图标空白。
+            Image(systemName: systemImage)
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(theme.primaryText)
+                .frame(width: 20, height: 20)
+                .background(Circle().fill(theme.hover))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - 词汇本（每日推荐学习进度）
@@ -1455,6 +1596,15 @@ public struct SettingsView: View {
                     .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
+
+                // 词库规模：**去重后**的词数（跨词典同名词只算一个），与词典页页头同一个数。
+                // ⚠️ 不是「学员自己收录了几词」——那个在下面那行「本机已收录」里。
+                if state.dictionaryUniqueWordCount > 0 {
+                    Text("词库共 \(state.dictionaryUniqueWordCount) 词 · \(state.dictionaryBooks.count) 本")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                        .monospacedDigit()
+                }
 
                 Button {
                     showVocabularyResetConfirm = true
@@ -1481,18 +1631,36 @@ public struct SettingsView: View {
                     .foregroundStyle(theme.secondaryText)
                     .monospacedDigit()
             }
+            // 卡片一出现就把两个数刷新到最新（幂等、便宜）：
+            // 词库规模只在词典页被读过，本机收录数只在词汇本页被读过 ——
+            // 这一轮启动若那两个页面都没进过，卡片会少一行 / 显示旧值。
+            .task {
+                await state.reloadDictionaryLibrary()
+                await state.reloadVocabulary()
+            }
         }
     }
 
-    /// 「上次重置时间 + 上次已学词数 / 词库总词数」。
+    /// 「上次重置时间 + 上次已学词数」+「本机已收录（去重）词数」。
+    ///
+    /// ⚠️ 三个数各是各的，文案必须写清是谁的，否则一眼看去像自相矛盾：
+    /// - 卡片上「词库共 N 词」= **去重后的词典规模**（`dictionaryUniqueWordCount`，与词典页同源，含全部可见词典）；
+    /// - 本行分母 = `dailyBankTotal` = **每日推荐词源**去重后的词数 —— 只算被勾成词源的那几本，
+    ///   勾得比可见词典少时它就是个小一点的数，所以这里必须标「推荐词源」；
+    /// - 「本机已收录 M 词」= `vocabularyUniqueWordCount`，学员自己收进词汇本的词（按词去重）。
     private var vocabularyResetSummary: String {
+        let collected = state.vocabularyUniqueWordCount
+        let collectedText = collected > 0 ? "本机已收录 \(collected) 词" : "还没有收录单词"
         let total = state.dailyBankTotal
         guard let date = state.dailyProgressResetAt else {
-            return total > 0 ? "还没有重置过 · 词库共 \(total) 词" : "还没有重置过"
+            return "还没有重置过 · \(collectedText)"
         }
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        return "上次重置：\(formatter.string(from: date)) · 上次已学 \(state.dailyProgressResetLearned) / \(total) 词"
+        let learned = total > 0
+            ? "上次已学 \(state.dailyProgressResetLearned) / \(total) 词（推荐词源）"
+            : "上次已学 \(state.dailyProgressResetLearned) 词"
+        return "上次重置：\(formatter.string(from: date)) · \(learned) · \(collectedText)"
     }
 
     // MARK: - 隐私与安全（本地优先 + 外发披露）
@@ -1506,7 +1674,7 @@ public struct SettingsView: View {
                 HStack(spacing: 6) {
                     Image(systemName: disclosure.isLocalOnly ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
                         .font(.system(size: 12))
-                        .foregroundStyle(disclosure.isLocalOnly ? .green : .orange)
+                        .foregroundStyle(disclosure.isLocalOnly ? .green : theme.warning)
                     Text(disclosure.summary)
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .foregroundStyle(theme.primaryText)
@@ -1551,6 +1719,10 @@ public struct SettingsView: View {
                             Text(item.title)
                                 .font(.system(size: 12, design: .rounded))
                                 .foregroundStyle(theme.primaryText)
+                            Spacer(minLength: 6)
+                            if let reveal = item.revealPath {
+                                FinderRevealButton(path: reveal, compact: true)
+                            }
                         }
                         Text(item.detail)
                             .font(.system(size: 10, design: .rounded))
@@ -1587,20 +1759,30 @@ public struct SettingsView: View {
         @State private var revertTask: Task<Void, Never>?
 
         let path: String
+        /// 按钮文案（默认是数据根目录那句）。
+        var title: String = "在 Finder 中打开数据目录"
+        /// 紧凑模式：只画一个图标。
+        ///
+        /// 「数据存放位置」列表里每一行都自带落点，六行各配一句完整文案会把卡片撑爆，
+        /// 于是列表内只留图标（提示走 `.help`），卡片底部那颗才是完整按钮。
+        var compact: Bool = false
 
         var body: some View {
             Button(action: reveal) {
                 HStack(spacing: 5) {
                     Image(systemName: didOpen ? "checkmark.circle.fill" : (isPressing ? "folder.fill" : "folder"))
                         .font(.system(size: 11))
-                    Text(didOpen ? "已在 Finder 中打开" : "在 Finder 中打开数据目录")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    if !compact {
+                        Text(didOpen ? "已在 Finder 中打开" : title)
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    }
                 }
                 .foregroundStyle(didOpen ? .green : theme.accent)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 5)
+                .padding(.horizontal, compact ? 6 : 9)
+                .padding(.vertical, compact ? 3 : 5)
                 .background(Capsule().fill(theme.surfaceAlt))
                 .scaleEffect(isPressing ? 0.94 : 1)
+                .contentShape(Capsule())
             }
             .buttonStyle(.plain)
             .help(path)
@@ -1623,6 +1805,169 @@ public struct SettingsView: View {
                 try? await Task.sleep(for: .seconds(1.6))
                 withAnimation(.easeOut(duration: 0.25)) { didOpen = false }
             }
+        }
+    }
+
+    // MARK: - 运行环境（版本 / 配置位置 / 配置体检）
+
+    /// 「运行环境」卡片：这一版是什么、配置从哪读、每个能力到底谁在生效。
+    ///
+    /// 这一整张卡都是补上来的，对应的都是「建好没接通」的实账：
+    /// - 版本号只写在打包脚本里，界面上看不到（`make_app.sh` 硬编码 0.4.0 与 v1.0 不符）；
+    /// - `config.json` 在哪、默认配置有没有读进来，没有任何地方告诉用户；
+    /// - 在外面手改了配置**只能重启应用**（`ConfigStore.reload()` 零调用）；
+    /// - 模型注册表的读侧（`listAvailable` / `getDefault` / `inconsistencies` 三条投影接口）
+    ///   零消费方 —— 也就是「配置一致性体检」这件事从来没发生过。
+    private var runtimeCard: some View {
+        card(title: "运行环境", systemImage: "stethoscope") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    Text("版本")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                    Text(AppVersion.display)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(theme.secondaryText)
+                        .textSelection(.enabled)
+                    Spacer(minLength: 0)
+                }
+
+                if let failure = state.configLoadFailure {
+                    Label(failure, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(theme.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("配置文件")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                    Text(state.configLocationPath.isEmpty ? "（尚未取到）" : state.configLocationPath)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(theme.secondaryText)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+
+                HStack(spacing: 8) {
+                    Button {
+                        Task { await state.reloadConfigurationFromDisk() }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 11))
+                            Text("重新载入配置")
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundStyle(theme.accent)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(Capsule().fill(theme.surfaceAlt))
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("按磁盘上的 config.json 重新载入，并把各能力的模型重接一遍（不必重启）")
+
+                    if !state.configLocationPath.isEmpty {
+                        FinderRevealButton(path: state.configLocationPath, title: "打开配置所在目录")
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                if let notice = state.configReloadNotice {
+                    HStack(alignment: .top, spacing: 6) {
+                        Label(notice, systemImage: "arrow.clockwise.circle.fill")
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(theme.primaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 6)
+                        Button {
+                            state.dismissConfigReloadNotice()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(theme.secondaryText)
+                        }
+                        .buttonStyle(.plain)
+                        .help("收起回执")
+                    }
+                }
+
+                Divider().overlay(theme.divider)
+
+                Text("配置体检")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(state.registryCheckRows) { row in
+                        registryCheckRow(row)
+                    }
+                }
+
+                Text("体检只看**配置层**：谁被选中、有没有缺 Key、有没有指向已停用的供应商。服务真的通不通，看上面各能力区块的状态点。")
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// 一行体检结果：能力 → 谁在生效 / 为什么不生效。
+    private func registryCheckRow(_ row: RegistryCheckRow) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: row.isHealthy ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(row.isHealthy ? Color.green : theme.warning)
+                .frame(width: 14)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(row.kind.displayName)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                    if let effective = row.effective {
+                        Text(effective.provider + (effective.model.map { " · \($0)" } ?? ""))
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(theme.secondaryText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    } else {
+                        // 不生效的原因分两种，指向的动作完全不同：
+                        // 一个都没配 → 去「模型管理中心」加一个；
+                        // 配了但没启用 → 去把开关打开。含混一句「没有生效的供应商」等于让用户自己猜。
+                        Text(row.providerCount == 0
+                             ? "没有配置任何供应商"
+                             : (row.enabledCount == 0
+                                ? "配了 \(row.providerCount) 个供应商，但都处于停用状态"
+                                : "有启用中的供应商，但没能解析出生效项"))
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(theme.warning)
+                    }
+                }
+                ForEach(row.issues, id: \.self) { issue in
+                    Text(issue)
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let health = row.healthDescription {
+                    Text(health)
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                // 「一个都没配」和「配了但全停用」在用户眼里都表现为「用不了」，
+                // 但要做的事完全不同。不把这两个数摆出来，这一行就只能说
+                // 「没有生效的供应商」，等于什么都没说。
+                if row.providerCount > 0 {
+                    Text("共 \(row.providerCount) 个供应商 · 启用 \(row.enabledCount) 个")
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(theme.secondaryText.opacity(0.85))
+                }
+            }
+            Spacer(minLength: 0)
         }
     }
 
@@ -1713,10 +2058,10 @@ public struct SettingsView: View {
                             Text("清除缓存")
                                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                         }
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.onAccentFill)
                         .padding(.horizontal, 14)
                         .frame(height: 30)
-                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(theme.accent))
+                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(theme.accentFill))
                     }
                     .buttonStyle(.plain)
                     .disabled(isClearingCache || snapshot.items.isEmpty)
@@ -1734,7 +2079,20 @@ public struct SettingsView: View {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.system(size: 11))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(theme.warning)
+                        Text(note)
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(theme.primaryText)
+                    }
+                    Divider().overlay(theme.divider)
+                }
+
+                // 本轮启动应用了备份恢复：替换了什么要说清楚。
+                if let note = state.restoreNote {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(theme.accent)
                         Text(note)
                             .font(.system(size: 11, design: .rounded))
                             .foregroundStyle(theme.primaryText)
@@ -1759,14 +2117,38 @@ public struct SettingsView: View {
                             Text("导出备份")
                                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                         }
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.onAccentFill)
                         .padding(.horizontal, 14)
                         .frame(height: 30)
-                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(theme.accent))
+                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(theme.accentFill))
                     }
                     .buttonStyle(.plain)
                     .disabled(state.isExportingBackup)
                     .help("把学习库、配置和调用留痕打包成一个带时间戳的 zip")
+
+                    Button {
+                        chooseBackupToImport()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "square.and.arrow.up.fill").font(.system(size: 11))
+                            Text("导入备份")
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundStyle(theme.primaryText)
+                        .padding(.horizontal, 14)
+                        .frame(height: 30)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(theme.surface)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .strokeBorder(theme.divider, lineWidth: 1)
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(state.isExportingBackup)
+                    .help("从备份 zip 恢复学习库与配置（重启后生效，恢复前会自动留底当前数据）")
 
                     if let first = state.backupSnapshots.first {
                         Text("最近备份：\(first.fileName)")
@@ -1775,6 +2157,25 @@ public struct SettingsView: View {
                             .lineLimit(1)
                     }
                     Spacer()
+                }
+
+                // 导入确认框：替换范围、自动留底、重启生效，三件事都要说清楚。
+                .alert(
+                    "用这份备份恢复？",
+                    isPresented: $showImportConfirm,
+                    presenting: state.backupImportPlan
+                ) { plan in
+                    Button("恢复并重启后生效", role: .destructive) {
+                        Task { await state.confirmBackupImport() }
+                    }
+                    Button("取消", role: .cancel) {
+                        state.cancelBackupImport()
+                    }
+                } message: { plan in
+                    Text(
+                        "将替换：\(plan.scopeDescription)\(plan.includesCallLog ? "、调用留痕" : "")。\n"
+                        + "替换前会自动把当前数据再备份一份；恢复在重启应用时生效。"
+                    )
                 }
 
                 ForEach(state.backupSnapshots.prefix(3)) { item in
@@ -1793,15 +2194,55 @@ public struct SettingsView: View {
                     }
                 }
 
+                // 已安排恢复：如实说明何时生效、替换了什么。
+                if let notice = state.backupImportNotice {
+                    HStack(alignment: .top, spacing: 6) {
+                        Label(notice, systemImage: "checkmark.circle.fill")
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(theme.primaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 6)
+                        Button {
+                            state.dismissBackupImportNotice()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(theme.secondaryText)
+                        }
+                        .buttonStyle(.plain)
+                        .help("知道了，收起这条回执")
+                    }
+                }
+
                 if let error = state.backupError {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
                         .font(.system(size: 11, design: .rounded))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(theme.warning)
                 }
 
-                Text("备份包含学习库（含 -wal）、配置与调用留痕，存在本机，不上传任何地方。")
+                Text("备份包含学习库（含 -wal）、配置与调用留痕，存在本机，不上传任何地方。导入坏包会被校验拦下，不会动现有数据。")
                     .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
+            }
+        }
+    }
+
+    /// 选备份文件 → 校验 → 弹确认框（校验失败的原因会出现在下方错误区）。
+    private func chooseBackupToImport() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.zip]
+        panel.message = "选择要恢复的备份压缩包（AI_Language_Coach_备份_….zip）"
+        guard panel.runModal() == .OK, let url = panel.url else {
+            state.cancelBackupImport()
+            return
+        }
+        Task {
+            await state.inspectBackup(at: url.path)
+            if state.backupImportPlan != nil {
+                showImportConfirm = true
             }
         }
     }
@@ -1850,7 +2291,38 @@ public struct SettingsView: View {
 
     private var logsCard: some View {
         card(title: "运行日志", systemImage: "doc.text") {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
+                // 级别与清空：这两颗原本没有界面 —— `LogBus.setMinimumLevel` / `clear()`
+                // 写好了却零调用，日志永远是最低门槛全收、也只进不出。
+                HStack(spacing: 8) {
+                    Text("级别")
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                    // ⚠️ 项目约束：不用系统 Picker。这里改用分段按钮，四个档位一眼看全。
+                    ForEach(LogLevel.allCases, id: \.self) { level in
+                        logLevelButton(level)
+                    }
+                    Spacer(minLength: 8)
+                    Button {
+                        LogOptions.clear()
+                        logs = []
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 10))
+                            Text("清空")
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundStyle(theme.accent)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(theme.surfaceAlt))
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("清空设置页展示的日志（系统日志里的历史清不掉）")
+                }
+
                 if logs.isEmpty {
                     Text("暂无日志")
                         .font(.system(size: 12, design: .rounded))
@@ -1895,6 +2367,9 @@ public struct SettingsView: View {
                 Text(title)
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.primaryText)
+                    // 卡片标题就是标题：报成 header，VoiceOver 的「标题」转轮才能逐卡跳。
+                    // 这里是设置页**所有**卡片的唯一标题出口，改一处即全覆盖。
+                    .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 8)
                 trailing()
             }
@@ -1909,11 +2384,34 @@ public struct SettingsView: View {
         )
     }
 
+    /// 日志级别档位按钮（选中态走黄底胶囊 + `onAccentFill`，与伙伴形象切换同一套）。
+    private func logLevelButton(_ level: LogLevel) -> some View {
+        let selected = logLevel == level
+        return Button {
+            logLevel = level
+            LogOptions.minimumLevel = level
+            Task { logs = await LogBus.shared.recent(limit: 60) }
+        } label: {
+            Text(level.rawValue.uppercased())
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(selected ? theme.onAccentFill : theme.primaryText)
+                .padding(.horizontal, 8)
+                .frame(height: 22)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(selected ? theme.accentFill : theme.surfaceAlt)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(level == .debug ? "全收（默认）：连调试信息一起留着" : "只看 \(level.rawValue) 及以上")
+    }
+
     private func color(for level: LogLevel) -> Color {
         switch level {
         case .debug: .gray
         case .info: .blue
-        case .warning: .orange
+        case .warning: theme.warning
         case .error: .red
         }
     }
@@ -1927,6 +2425,7 @@ public struct SettingsView: View {
         if state.selectedProviderID.isEmpty, let first = providerOptions.first {
             state.selectProviderTab(first.id)
         }
+        logLevel = LogOptions.minimumLevel
         logs = await LogBus.shared.recent(limit: 60)
     }
 }

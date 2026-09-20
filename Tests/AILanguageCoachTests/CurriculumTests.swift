@@ -191,34 +191,127 @@ final class CurriculumTests: XCTestCase {
         XCTAssertNil(result.nextSentence, "全说到了就没有「下次补哪句」")
     }
 
-    func testAssessmentIsCloseWhenExactlyOneCriterionMisses() {
-        // 轮次够、词够，只差目标句一句。
+    func testAssessmentIsCloseWhenExactlyOneOfQuestAndFocusMisses() {
+        // 需求 3 的口径：通关看**两件事** —— 主线任务 + 教学重点。
+        // 这里刻意让「教学重点达标」而「主线任务差一步」：3 句目标句 → 3 步主线，
+        // 说到 A、C 没说到 B，但 A2 只要求 2 句，所以重点过了、主线没过 = 就差一点。
         let s = scenario(
             level: "A2",
             maxTurns: 8,
             vocabulary: ["prefer", "reason", "however", "agree"],
             sentences: ["I prefer tea", "The reason is simple", "However I agree"]
         )
-        let utterances = ["I prefer tea, however I agree", "x", "x", "x", "x", "x"]
+        let utterances = ["I prefer tea", "however I agree", "reason", "x", "x"]
         let result = CurriculumScorer.assess(scenario: s, utterances: utterances)
-        XCTAssertEqual(result.verdict, .close, "只差一项 = 就差一点：\(result.reasons)")
-        XCTAssertEqual(result.nextSentence, "The reason is simple")
+        XCTAssertEqual(result.verdict, .close, "只差一件事 = 就差一点：\(result.reasons)")
+        XCTAssertFalse(result.isQuestSatisfied, "第 2 步没说到，主线任务不算完成")
+        XCTAssertTrue(result.isFocusSatisfied, "目标句 2/2、目标词 4/4，教学重点达标")
+        XCTAssertEqual(result.quest.doneCount, 2)
+        XCTAssertEqual(result.quest.total, 3)
+        XCTAssertEqual(result.nextSentence, "The reason is simple", "没说的那句就是下次该补的")
     }
 
-    func testAssessmentIsNotYetWhenTwoOrMoreCriteriaMiss() {
+    /// 反过来：主线任务全完成、教学重点没达标 —— 同样是「就差一点」。
+    func testAssessmentIsCloseWhenQuestDoneButFocusShort() {
+        let s = scenario(
+            level: "B2",
+            maxTurns: 10,
+            vocabulary: ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"],
+            sentences: ["alpha bravo"]
+        )
+        // 唯一一步主线做到（说了 alpha bravo），但 B2 要 3 句目标句 / 6 个目标词 —— 都差着。
+        let result = CurriculumScorer.assess(scenario: s, utterances: ["alpha bravo", "x", "x", "x", "x", "x", "x", "x"])
+        XCTAssertTrue(result.isQuestSatisfied, "主线任务已完成")
+        XCTAssertFalse(result.isFocusSatisfied)
+        XCTAssertEqual(result.verdict, .close, "\(result.reasons)")
+    }
+
+    /// 需求 3：**星星记开口量、通关看任务与重点** —— 两句都没做到就是「再练一轮」。
+    func testAssessmentIsNotYetWhenBothQuestAndFocusMiss() {
         let s = scenario(level: "B2", maxTurns: 10, vocabulary: ["a", "b", "c"], sentences: ["fizz buzz"])
         let result = CurriculumScorer.assess(scenario: s, utterances: ["hello there"])
         XCTAssertEqual(result.verdict, .notYet)
         XCTAssertFalse(result.verdict.didPass)
     }
 
-    func testAssessmentReasonsAlwaysCoverAllThreeCriteria() {
+    func testAssessmentReasonsCoverQuestAndFocus() {
         let s = scenario(level: "A1", maxTurns: 8, vocabulary: ["menu"], sentences: ["may I see the menu"])
         let result = CurriculumScorer.assess(scenario: s, utterances: ["may I see the menu"])
-        XCTAssertEqual(result.reasons.count, 3, "达标与否都要逐条说清楚：\(result.reasons)")
-        XCTAssertTrue(result.reasons.contains { $0.contains("轮次") })
-        XCTAssertTrue(result.reasons.contains { $0.contains("目标句") })
-        XCTAssertTrue(result.reasons.contains { $0.contains("目标词") })
+        XCTAssertTrue(result.reasons.contains { $0.contains("主线任务") }, "\(result.reasons)")
+        XCTAssertTrue(result.reasons.contains { $0.contains("教学重点") }, "\(result.reasons)")
+        XCTAssertEqual(result.verdict, .passed, "\(result.reasons)")
+    }
+
+    /// 素材极简（既没目标句也没目标词）时不能拿空条件卡人：退回「说满轮次即过关」。
+    func testAssessmentFallsBackToTurnsWhenNoQuestAndNoFocus() {
+        let s = scenario(level: "A1", maxTurns: 4)
+        let result = CurriculumScorer.assess(scenario: s, utterances: ["one", "two", "three"])
+        XCTAssertEqual(result.quest.total, 0, "没有素材就没有主线")
+        XCTAssertTrue(result.focus.isEmpty, "没有素材就没有重点")
+        XCTAssertEqual(result.verdict, .passed, "A1 要求说满一半（2 轮），说了 3 轮应过关：\(result.reasons)")
+    }
+
+    /// ⚠️ 要求数不能超过素材实际有的数量：只写了 1 句目标句，按 B1 的「3 句」卡人
+    /// 会让这一关**永远过不去**。
+    func testRequiredCountsAreRelaxedWhenMaterialIsSparse() {
+        let s = scenario(level: "B1", maxTurns: 8, vocabulary: ["menu"], sentences: ["may I see the menu"])
+        let result = CurriculumScorer.assess(scenario: s, utterances: ["may I see the menu"])
+        XCTAssertEqual(result.focus.requiredSentences, 1, "只有 1 句素材，就不能要求 2 句")
+        XCTAssertEqual(result.focus.requiredWords, 1)
+        XCTAssertTrue(result.isFocusSatisfied)
+    }
+
+    /// 开练之前界面要报的门槛数，必须与判定用的是**同一个** ——
+    /// 情景卡片写「目标句 4 句」，练起来提要条写「目标句 0/2」，学员会以为漏了 2 句。
+    func testFocusThresholdMatchesTheOneUsedByAssessment() {
+        let full = scenario(
+            level: "B1", maxTurns: 8,
+            vocabulary: ["a", "b", "c", "d", "e", "f"],
+            sentences: ["s1", "s2", "s3", "s4"]
+        )
+        let threshold = CurriculumScorer.focusThreshold(for: full)
+        // B1 门槛是 3 句 / 5 词；素材是 4 句 / 6 词 → 取档位要求
+        XCTAssertEqual(threshold.sentences, 3)
+        XCTAssertEqual(threshold.words, 5)
+        let assessed = CurriculumScorer.assess(scenario: full, utterances: [])
+        XCTAssertEqual(threshold.sentences, assessed.focus.requiredSentences)
+        XCTAssertEqual(threshold.words, assessed.focus.requiredWords)
+
+        // 素材稀疏时必须一起放宽，且两边仍然一致
+        let sparse = scenario(level: "B1", maxTurns: 8, vocabulary: ["menu"], sentences: ["may I see the menu"])
+        let sparseThreshold = CurriculumScorer.focusThreshold(for: sparse)
+        XCTAssertEqual(sparseThreshold.sentences, 1)
+        XCTAssertEqual(sparseThreshold.words, 1)
+        let sparseAssessed = CurriculumScorer.assess(scenario: sparse, utterances: [])
+        XCTAssertEqual(sparseThreshold.sentences, sparseAssessed.focus.requiredSentences)
+        XCTAssertEqual(sparseThreshold.words, sparseAssessed.focus.requiredWords)
+    }
+
+    /// 断点续做：库里已完成的步骤与这一局新完成的取**并集**，只增不减。
+    func testQuestProgressUnionsStoredAndNewSteps() {
+        let s = scenario(level: "A2", maxTurns: 8, sentences: ["alpha beta", "gamma delta", "epsilon zeta"])
+        let plan = ScenarioQuestRule.plan(for: s)
+        XCTAssertEqual(plan.total, 3)
+
+        // 上一局完成了第 1 步（库里记着），这一局说了第 3 步的那句。
+        let done = Set([plan.steps[0].id])
+        let progress = ScenarioQuestRule.progress(
+            plan: plan, utterances: ["epsilon zeta"], alreadyDone: done
+        )
+        XCTAssertEqual(progress.doneCount, 2, "旧进度不该被这一局没说到而抹掉")
+        XCTAssertEqual(progress.completedStepIDs.count, 2)
+        XCTAssertFalse(progress.isComplete, "第 2 步还没做")
+        XCTAssertEqual(progress.currentStep?.id, plan.steps[1].id, "当前节点是第一个未完成的步骤")
+    }
+
+    /// 主线任务缺字段时从目标句推导，保证「新加场景忘了写主线」不会变成一局无所事事。
+    func testQuestPlanFallsBackToTargetSentences() {
+        let s = scenario(level: "A2", maxTurns: 6, sentences: ["one two", "three four"])
+        XCTAssertTrue(s.mainQuest.isEmpty, "测试素材没写主线")
+        let plan = ScenarioQuestRule.plan(for: s)
+        XCTAssertEqual(plan.total, 2, "两句目标句切成两步")
+        XCTAssertEqual(plan.anchoredSteps.count, 2)
+        XCTAssertTrue(plan.anchoredSteps.allSatisfy { !$0.anchors.isEmpty })
     }
 
     func testAssessmentUsesTheScenariosPrimaryLevel() {

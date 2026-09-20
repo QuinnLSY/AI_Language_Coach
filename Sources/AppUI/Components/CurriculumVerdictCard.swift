@@ -58,7 +58,9 @@ struct CurriculumVerdictCard: View {
                     reasonRow(reason)
                 }
             }
-            Text("这一关按 \(assessment.level.code)（\(assessment.level.displayName)）的标准判定：\(assessment.level.passCriteria.summary(maxTurns: assessment.coverage.maxTurns))。")
+            // 需求 3 的口径写死在卡上：**过不过关看两件事**，星星只是开口量。
+            // 不写这一句，学员会以为「星星没满 = 没过关」，然后去刷轮次。
+            Text("过关条件：完成主线任务 + 教学重点达标（\(assessment.level.code) 档的门槛是 \(assessment.focus.requiredSentences) 句目标句、\(assessment.focus.requiredWords) 个目标词）。星星只记开口量，不决定过不过关。")
                 .font(.system(size: 9, design: .rounded))
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -100,7 +102,7 @@ struct CurriculumVerdictCard: View {
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .foregroundStyle(theme.primaryText)
                 }
-                Text("课程覆盖度")
+                Text("这一关怎么算过")
                     .font(.system(size: 9, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
             }

@@ -25,7 +25,9 @@ import XCTest
 @MainActor
 final class CloudCallIsolationTests: XCTestCase {
 
-    private static let isolatedLog = FileManager.default.temporaryDirectory
+    /// `nonisolated`：`setUp` / `tearDown` 重写的是 XCTest 里**非隔离**的方法，
+    /// 从那里读主 actor 静态属性会被判越界。它本身只是个路径常量，跟隔离状态无关。
+    private nonisolated static let isolatedLog = FileManager.default.temporaryDirectory
         .appendingPathComponent("alc-isolation-remote-calls.jsonl")
 
     override func setUp() {

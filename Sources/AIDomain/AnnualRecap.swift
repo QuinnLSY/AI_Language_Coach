@@ -95,6 +95,15 @@ public struct AnnualRecap: Sendable, Equatable {
             if activity.messages > 0 { parts.append("\(activity.messages) 轮对话") }
             if activity.shadowingAttempts > 0 { parts.append("跟读 \(activity.shadowingAttempts) 次") }
             if activity.vocabularyReviewed > 0 { parts.append("复习 \(activity.vocabularyReviewed) 词") }
+            if activity.writings > 0 {
+                parts.append(activity.writingScore.map { "写作 \(activity.writings) 篇（均分 \(Int($0.rounded()))）" }
+                    ?? "写作 \(activity.writings) 篇")
+            }
+            if activity.readings > 0 {
+                parts.append(activity.readingQuestions > 0
+                    ? "阅读 \(activity.readings) 篇（答对 \(activity.readingCorrect)/\(activity.readingQuestions)）"
+                    : "阅读 \(activity.readings) 篇")
+            }
             if intensity == .none {
                 parts.append("没有练习")
             } else {
@@ -262,7 +271,7 @@ public enum AnnualRecapBuilder {
                 }
                 let activity = byDay[calendar.startOfDay(for: date)] ?? DailyActivity(day: date)
                 cells.append(
-                    makeCell(activity: activity, goalMinutes: goal, today: today, calendar: calendar)
+                    makeCell(activity: activity, goalMinutes: goal, today: today)
                 )
             }
             weeks.append(cells)
@@ -315,8 +324,7 @@ public enum AnnualRecapBuilder {
     private static func makeCell(
         activity: DailyActivity,
         goalMinutes: Int,
-        today: Date,
-        calendar: Calendar
+        today: Date
     ) -> AnnualRecap.Cell {
         let done = tasksDone(activity, goalMinutes: goalMinutes)
         let goalReached = goalMinutes > 0 && activity.seconds >= Double(goalMinutes) * 60

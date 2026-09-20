@@ -23,12 +23,20 @@ public actor CoachServices {
     private let translator: TranslationService
     /// 跟读（Shadowing，第 22 步）：示范 / 录音 / 回放 / 评测 / 落库。
     public let shadowing: ShadowingService
+    /// 今日跟读句子的落盘缓存（每天一份，按日期 + 学习语言作废）。
+    private let shadowingDailyStore: ShadowingDailyStore
     /// 发音评测（Pronunciation，第 23 步）：从录音量语速 / 停顿 / 音高 / 音量起伏。
     public let pronunciation: PronunciationService
     /// 词汇本（Vocabulary，第 24 步）：生词导入 / 复习 / 按需释义。
     public let vocabulary: VocabularyService
+    /// 词典（新功能）：词典库（内置三本 + 导入）、模糊匹配、按词查完整条目。
+    public let dictionary: DictionaryService
     /// 学习进度（Dashboard，第 25 步）：会话 / 纠错 / 跟读 / 词汇按天汇总。
     public let progress: ProgressService
+    /// 写作批改（#230）：题目走内置题库，批改一次请求出全部分数 / 批改 / 改写。
+    public let writing: WritingService
+    /// 每日短文阅读（#231）：一次请求出文章 + 题目 + 答案 + 解析；判分在本地零请求。
+    public let reading: ReadingService
     /// 语义索引（Embedding，第 15 步）：把历史学习记忆按「与当前话题的相关度」取回来。
     /// 默认配置下装配的是 mock（不具语义），此时 `supportsSemanticRanking == false`，
     /// 记忆退回结构化路径 —— 不引入任何额外开销。
@@ -39,6 +47,9 @@ public actor CoachServices {
     /// 学习库被**隔离重建**时给用户看的说明（nil = 一切正常）。
     ///
     /// 沉默重建是发布级事故：用户会以为旧记录还在。这里必须如实说出来。
+    /// 本轮启动应用备份恢复的说明（nil = 没有待恢复内容）。
+    public private(set) var pendingRestoreNote: String?
+    /// 本轮启动学习库的恢复说明（坏库隔离重建时给出）。
     public private(set) var databaseRecoveryNote: String?
     /// 数据备份开关第 30 步）：导出 / 清单都在项目空间 `.workbuddy/backups/`。
     private let backup: DataBackup
@@ -46,10 +57,14 @@ public actor CoachServices {
     private let voiceProfileStore: VoiceProfileStore
     /// 聊天附件仓库（图片 / 视频 / 文件）：文件本体与 config.json 分开存放。
     private let attachmentStore: AttachmentStore
+    /// 上传材料的落盘仓库（材料 → 情景 + 跟读句 + 生词表，#208）。
+    private let materialStore: MaterialStore
     private let config: ConfigStore
     private var llmProvider: (any LLMProvider)?
     /// 场景目录缓存（资源文件，进程内读一次即可）。
     private var scenarioCache: [Scenario]?
+    /// 考卷目录缓存（同上）。
+    private var examCache: [ExamBlueprint]?
     /// 进行中的 LLM 装配任务：并发调用只装配一次（见 `ensureLLMReady`）。
     private var llmReadyTask: Task<Void, Error>?
     /// 被用户显式「关闭」的模型能力。**仅进程内有效**：应用打开时全部为启动态。
@@ -66,7 +81,10 @@ public actor CoachServices {
         llm: LLMManager = LLMManager(),
         databasePath: String? = nil,
         voiceProfileStore: VoiceProfileStore = .shared,
-        attachmentStore: AttachmentStore = .shared
+        attachmentStore: AttachmentStore = .shared,
+        dictionaryStore: DictionaryBookStore = .shared,
+        shadowingDailyStore: ShadowingDailyStore = .shared,
+        materialStore: MaterialStore = MaterialStore()
     ) {
         self.config = config
         self.llm = llm
@@ -77,6 +95,13 @@ public actor CoachServices {
         self.embedding = EmbeddingManager()
         self.voice = VoiceService(asr: self.asr, tts: self.tts)
         let path = databasePath ?? LearningDatabase.defaultURL().path
+        // 备份恢复（#209）：待恢复内容必须在**打开学习库之前**应用——
+        // 活连接底下换库文件轻则损坏、重则连当前库一起搭进去。
+        let restoreDataDirectory = URL(fileURLWithPath: (path as NSString).deletingLastPathComponent, isDirectory: true)
+        self.pendingRestoreNote = DataBackup.applyPendingRestoreIfNeeded(dataDirectory: restoreDataDirectory)
+        if let note = self.pendingRestoreNote {
+            AppLog.info("备份恢复：\(note)", category: "database")
+        }
         // 坏库不等于「不能用」：先把可疑文件隔离保住证据，再重建空库继续服务，
         // 并通过 `databaseRecoveryNote` 把这件事如实告诉用户（沉默降级比崩溃更糟）。
         let opened = Self.openLearningDatabase(at: path)
@@ -90,8 +115,13 @@ public actor CoachServices {
         // 将来接入音素模型时，把 provider 从工厂装进 PronunciationService 即可。
         self.pronunciation = PronunciationService()
         self.shadowing = ShadowingService(voice: self.voice, pronunciation: self.pronunciation, learning: database)
+        self.shadowingDailyStore = shadowingDailyStore
+        self.materialStore = materialStore
         self.vocabulary = VocabularyService(llm: self.llm, learning: database)
+        self.dictionary = DictionaryService(llm: self.llm, store: dictionaryStore)
         self.progress = ProgressService(learning: database)
+        self.writing = WritingService(llm: self.llm)
+        self.reading = ReadingService(llm: self.llm)
         self.backup = DataBackup()
         if self.learning == nil {
             AppLog.warning("学习数据库不可用（已尝试隔离重建）: \(path)", category: "database")
@@ -294,6 +324,22 @@ public actor CoachServices {
     /// 全部音色档案。
     public func voiceProfiles() async -> [VoiceProfile] { await voiceProfileStore.all }
 
+    /// 发音评测这一次到底是「实测」还是「推断」——配置体检那一行用。
+    ///
+    /// 报告里也带 `phonemeSource`（那是一次评测的结果），这里说的是**通道现在挂没挂上**：
+    /// 用户问「为什么我的音素分看着像估的」，答案在通道这一层。
+    public func pronunciationChannelSummary() async -> String {
+        await pronunciation.hasAcousticChannel
+            ? "声学通道已挂载 · 音素评分走实测"
+            : "没有声学通道 · 音素评分走规则推断（如需实测请在上方接入云端发音评测）"
+    }
+
+    /// 音色档案文件的位置（设置页「数据存放位置」展示 + 「在 Finder 中打开」用）。
+    ///
+    /// 音色档案是**用户资产**（参考音频 + 授权留痕），与 `config.json` 分开放，
+    /// 所以位置要单独告诉用户，别让他以为「配置在哪它就在哪」。
+    public func voiceProfilesLocation() async -> URL { await voiceProfileStore.storageLocation }
+
     /// 当前启用的**克隆**音色档案（nil = 用内置音色）。
     public func activeClonedVoice() async -> VoiceProfile? {
         guard let id = await config.current.product.activeVoiceProfileID else { return nil }
@@ -472,6 +518,57 @@ public actor CoachServices {
         StarterQuestionCatalog.bundled()
     }
 
+    // MARK: - 考试模式（雅思口语 / 面试问答）
+
+    /// 内置考卷（只读资源文件，进程内读一次即可）。
+    public func examBlueprints() async -> [ExamBlueprint] {
+        if let examCache { return examCache }
+        let loaded = ExamCatalog.bundled()
+        examCache = loaded
+        return loaded
+    }
+
+    /// 考后示范答案：**一次请求**写完所有目标题目。
+    ///
+    /// 与翻译 / 复盘同一套口径：模型没起来就直接返回空字典（调用方据此说明
+    /// 「这次没拿到」，而不是把空字符串当成示范答案显示出去）；
+    /// 返回的内容只认 `[[SAMPLE]]` 标记行，解析规则是纯函数（`ExamSampleAnswerRule.parse`）。
+    ///
+    /// - Returns: 题号 → 示范答案。空字典 = 没拿到（不可用 / 回空 / 一行都没解析出来）。
+    public func examSampleAnswers(
+        examTitle: String,
+        targets: [ExamSampleTarget],
+        learningLanguage: String,
+        nativeLanguage: String
+    ) async -> [Int: String] {
+        guard !targets.isEmpty, isModelRunning(.llm) else { return [:] }
+        do { try await ensureLLMReady() } catch { return [:] }
+        let configuration = await config.current
+        let provider = configuration.resolvedProvider(for: .llm)
+        let request = LLMRequest(
+            messages: [
+                LLMMessage(
+                    role: .system,
+                    content: PromptBuilder.examSampleAnswerPrompt(
+                        examTitle: examTitle,
+                        targets: targets,
+                        learningLanguage: learningLanguage,
+                        nativeLanguage: nativeLanguage
+                    )
+                ),
+                LLMMessage(role: .user, content: "Write the model answers now."),
+            ],
+            model: configuration.resolvedModel(for: .llm),
+            // 示范答案要一点文采，给 0.4：比翻译（0）松，比聊天（默认）紧，
+            // 免得同一题两次跑出两套完全不同的句式结构。
+            temperature: 0.4,
+            maxTokens: provider?.maxTokens,
+            streaming: false
+        )
+        guard let response = try? await llm.generate(request) else { return [:] }
+        return ExamSampleAnswerRule.parse(response.text)
+    }
+
     /// 跨会话学习记忆（第 15 步）：把库里的纠错 / 词汇 / 跟读发音收敛成老师可用的背景。
     ///
     /// 只读本地库、**不发起任何模型请求**（除非给了 `query` 且装配了真实语义索引）。
@@ -494,7 +591,8 @@ public actor CoachServices {
             corrections: corrections,
             vocabulary: vocabulary,
             reports: attempts.compactMap(\.pronunciation),
-            sessionCount: sessions.count
+            sessionCount: sessions.count,
+            sessionFacts: sessionFacts(sessions)
         )
         guard let query, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !memory.isEmpty else {
             return memory
@@ -503,6 +601,31 @@ public actor CoachServices {
         // mock 的向量没有语义，按它排序等于乱排 —— 只认真实 runtime。
         guard await embedding.supportsSemanticRanking else { return memory }
         return await semanticallyRanked(memory, query: query) ?? memory
+    }
+
+    /// 清除学习记忆（**不可逆**）：删掉喂给老师的纠错 / 复盘 / 跟读 / 复习流水。
+    ///
+    /// 库不可用时**报错而不是返回 0** —— 说「删掉了 0 条」会让人以为真的清干净了。
+    @discardableResult
+    public func clearLearningMemory() async throws -> MemoryClearance {
+        guard let learning else { throw AppError.database("学习库尚未就绪") }
+        return try await learning.clearLearningMemory()
+    }
+
+    /// 把会话记录折成记忆检索要的事实：纠错条数取会话自带的纠错，话题取情景标题。
+    ///
+    /// **没绑情景的普通练习不编话题** —— 拿模式名或时间拼一个，等于让老师「以为」
+    /// 学员在练某个话题，那是编造不是记忆。
+    private func sessionFacts(_ sessions: [SessionSummary]) -> [MemorySessionFact] {
+        sessions.map { session in
+            let topic = session.scenarioID.flatMap { scenario(id: $0)?.title }
+            return MemorySessionFact(
+                startedAt: session.startedAt,
+                topic: topic,
+                correctionCount: session.corrections.count,
+                messageCount: session.messageCount
+            )
+        }
     }
 
     /// 按与 `query` 的语义相似度重排记忆。任何失败都返回 nil（调用方保留结构化结果）——
@@ -535,8 +658,11 @@ public actor CoachServices {
     ///
     /// 每个进程只尝试一次：runtime 没起时不做「每轮重试」的网络风暴；
     /// 装配失败就是「没有语义索引」，结构化记忆照常工作，不打扰用户。
-    public func ensureEmbeddingReady() async {
-        guard !embeddingBootstrapAttempted else { return }
+    /// - Parameter force: 重装配（配置被外部改动后「重新载入」会用到）。
+    ///   不加这个开关的话，第一次装配失败会被记成「本进程已试过」，
+    ///   用户把模型装好、点「重新载入配置」时反而永远接不上。
+    public func ensureEmbeddingReady(force: Bool = false) async {
+        guard force || !embeddingBootstrapAttempted else { return }
         embeddingBootstrapAttempted = true
         guard !(await embedding.isUsable) else { return }
         let configuration = await config.current
@@ -546,9 +672,24 @@ public actor CoachServices {
             try await provider.initialize(config: providerConfig)
             try await provider.load()
             await embedding.register(provider)
+            AppLog.info(
+                "语义记忆检索已接通：\(providerConfig.id)（\(await embedding.dimensions) 维）",
+                category: "memory"
+            )
         } catch {
+            // ⚠️ 只警告、不弹给用户：语义索引是增强，缺席时结构化记忆照常工作。
+            // 常见情形（Ollama 没开 / 没装嵌入模型）都是「用户没要求这项功能」，
+            // 拿它去打扰用户，等于用警告换惊吓。
             AppLog.warning("语义索引装配失败（记忆退回结构化路径）: \(error.localizedDescription)", category: "memory")
         }
+    }
+
+    /// 语义记忆检索是否**真的接通**（诊断 / 设置页用）。
+    ///
+    /// 判据是「装配到了真实 runtime 的嵌入 Provider」：mock 也能给向量，
+    /// 但那是字符桶计数、没有语义，按它排序会把相关历史随机丢掉（见 `EmbeddingManager`）。
+    public var isSemanticMemoryEnabled: Bool {
+        get async { await embedding.supportsSemanticRanking }
     }
 
     private static func makeEmbeddingProvider(_ config: ProviderConfig) -> (any EmbeddingProvider)? {
@@ -725,8 +866,14 @@ public actor CoachServices {
         let ids = models.map(\.id)
         guard !ids.isEmpty else { return }
         guard await config.current.providers.contains(where: { $0.id == providerID && $0.kind == kind }) else { return }
-        try? await config.mutateProvider(id: providerID) { p in
-            p.candidateModels = ids
+        // 写不进去不影响探测结果本身（模型列表已经拿到了），但**不能静默**：
+        // 「下次开设置还要重点一次」这种症状，靠这条 debug 才能定位到是落盘失败。
+        do {
+            try await config.mutateProvider(id: providerID) { p in
+                p.candidateModels = ids
+            }
+        } catch {
+            AppLog.debug("候选模型清单落盘失败（\(providerID)/\(kind.rawValue)）：\(error)", category: "config")
         }
     }
 
@@ -745,9 +892,14 @@ public actor CoachServices {
         guard !voices.isEmpty else { return [] }
         let names = Dictionary(uniqueKeysWithValues: voices.map { ($0.id, $0.name) })
         let ids = voices.map(\.id)
-        try? await config.mutateProvider(id: providerID) { p in
-            p.voiceNames = names
-            if (p.voices ?? []).isEmpty { p.voices = ids }
+        // 同上：音色名字写不进去只是「选择器下次还得重新问」，不该吞成无声失败。
+        do {
+            try await config.mutateProvider(id: providerID) { p in
+                p.voiceNames = names
+                if (p.voices ?? []).isEmpty { p.voices = ids }
+            }
+        } catch {
+            AppLog.debug("音色清单落盘失败（\(providerID)/\(kind.rawValue)）：\(error)", category: "config")
         }
         return voices
     }
@@ -826,8 +978,20 @@ public actor CoachServices {
         case .pronunciation:
             // 音素评测换了供应商 / 填了 Key，声学通道要跟着换（否则还在用旧端点）。
             _ = await bootstrapPronunciation()
+        case .embedding:
+            // 语义索引的装配是「一次一条路」，重装配要显式放行（见 ensureEmbeddingReady）。
+            await ensureEmbeddingReady(force: true)
         default:
-            break // vad / embedding V1 尚无真实 runtime
+            break // vad 尚无真实 runtime
+        }
+    }
+
+    /// **全部**能力重装配。用于「用户在外面手改了 config.json / 把备份配置拷回来」之后：
+    /// 只把配置读回内存是不够的 —— 真正干活的是已经装配好的 provider，
+    /// 不重装配就会出现「设置页按新配置显示、实际还在打旧端点」这种最难查的错位。
+    public func rebootstrapAll() async {
+        for kind in AIProviderKind.allCases {
+            await rebootstrap(kind: kind)
         }
     }
 
@@ -868,6 +1032,9 @@ public actor CoachServices {
             stoppedKinds.remove(kind)
             suspendedKinds.remove(kind)
             do {
+                // 同时拉起同一能力下的兄弟本地服务（如 Edge-TTS 本地代理），让「启动」按钮
+                // 真正覆盖所有本地后端，而不只是当前生效的那个 Provider。
+                await self.syncSiblingLocalServices(kind: kind, running: true)
                 if let controller = await serviceController(for: kind) {
                     try await controller.startModelService()
                     await rebootstrap(kind: kind)
@@ -897,6 +1064,8 @@ public actor CoachServices {
         }
 
         stoppedKinds.insert(kind)
+        // 同时停掉同一能力下的兄弟本地服务（如 Edge-TTS 本地代理）。
+        await self.syncSiblingLocalServices(kind: kind, running: false)
         if let controller = await serviceController(for: kind) {
             do {
                 try await controller.stopModelService()
@@ -916,6 +1085,94 @@ public actor CoachServices {
         case .asr: await asr.current as? any ModelServiceControlling
         case .tts: await tts.current as? any ModelServiceControlling
         default: nil
+        }
+    }
+
+    /// Edge-TTS 本地代理在配置里的 Provider id（跑在本机 127.0.0.1:8856 的轻量服务）。
+    private static let edgeTTSProxyProviderID = "remote.kina-tts"
+
+    /// 把同一能力下「兄弟本地服务」一并启停。
+    ///
+    /// 场景：TTS 能力下可能并存多个本地服务（Qwen3 本地 TTS 于 8855、Edge-TTS 本地代理于 8856）。
+    /// 点 TTS 的「启动 / 关闭」应当同时拉起 / 停掉所有这些本地后端，而不只是当前生效的那一个——
+    /// 否则选了 Edge 音色、却只在按钮上看到 Qwen3 被控制，代理永远起不来。
+    ///
+    /// 默认生效 Provider 若本身由 `ModelServiceControlling` 控制器处理（本地主模型），会被跳过以免重复拉起。
+    /// 兄弟服务失败不影响主链路：例如 Qwen3 起来即可朗读，代理失败不阻断。
+    private func syncSiblingLocalServices(kind: AIProviderKind, running: Bool) async {
+        let configuration = await config.current
+        guard let resolvedID = configuration.resolvedProvider(for: kind)?.id else { return }
+        let hasController = await serviceController(for: kind) != nil
+        for provider in configuration.providers where provider.kind == kind && provider.enabled {
+            let hasCommands = !(provider.serviceStartCommand ?? "").isEmpty
+                && !(provider.serviceStopCommand ?? "").isEmpty
+            guard hasCommands else { continue }
+            // 已由主控制器处理的那个（本地主 Provider）跳过，避免重复拉起
+            if provider.id == resolvedID, hasController { continue }
+            do {
+                if running {
+                    try await LocalServiceControl.start(config: provider)
+                } else {
+                    try await LocalServiceControl.stop(config: provider)
+                }
+            } catch {
+                // 兄弟服务失败不影响主链路
+            }
+        }
+    }
+
+    /// 应用启动时默认拉起 Edge-TTS 本地代理（remote.kina-tts）：它是免费微软音色（如
+    /// en-GB-SoniaNeural）的来源，如今跑在本机 127.0.0.1:8856。只处理这一个轻量代理，
+    /// 不动 Qwen3 等重型本地模型（后者仍由设置页「启动」按钮按需拉起，避免拖慢开屏）。
+    ///
+    /// 最佳努力、不阻断启动；代理已运行时跳过（脚本幂等，端口被占用直接退出）。
+    public func ensureEdgeTTSProxyOnLaunch() async {
+        let configuration = await config.current
+        guard let provider = configuration.providers.first(where: {
+            $0.id == Self.edgeTTSProxyProviderID && $0.kind == .tts && $0.enabled
+        }) else { return }
+        guard let command = provider.serviceStartCommand, !command.isEmpty else { return }
+        // 端口已被占用（代理在跑）就直接跳过，避免重复拉起
+        if let endpoint = provider.endpoint,
+           await LocalServiceRunner.waitUntilReachable(endpoint: endpoint, timeout: 1.5, interval: 0.3) {
+            return
+        }
+        do {
+            try await LocalServiceControl.start(config: provider, reachTimeout: 12)
+        } catch {
+            // 启动失败不阻断应用：用户在设置里点「启动」可重试并看到真实错误。
+        }
+    }
+
+    /// **当前选中的本机语音识别服务**随应用一起起来。
+    ///
+    /// 用户挑了本机 whisper 做语音识别，进应用后麦克风就该能用 —— 否则每一次冷启动
+    /// 都要先去设置里点一次「启动」，而这一步连着力都看不出来（模型只是在后台载入）。
+    ///
+    /// 与 Edge-TTS 代理同一套打法：最佳努力、不阻断开屏；服务已经在跑就直接跳过
+    /// （whisper 载入几百 MB 权重要十几秒，重复拉一次很贵）。
+    ///
+    /// - Returns: 是否真的执行了启动（调用方据此决定要不要刷新界面状态）。
+    @discardableResult
+    public func ensureLocalASROnLaunch() async -> Bool {
+        let configuration = await config.current
+        guard let provider = configuration.resolvedProvider(for: .asr), provider.enabled else { return false }
+        // ⚠️ 命令要从**补齐后的**配置里取：存量用户的配置文件是加这个字段之前写下的，
+        // 合并时整条 provider 替换会把内置默认的命令吞掉（`ConfigStore.merge`）——
+        // 不补的话，本机语音识别永远只能靠用户手动点「启动」。
+        let launchable = Self.fillServiceCommands(provider)
+        guard let command = launchable.serviceStartCommand, !command.isEmpty else { return false }
+        guard let endpoint = launchable.endpoint, !endpoint.isEmpty else { return false }
+        // 端口已经通了（服务在跑）就跳过。
+        if await LocalServiceRunner.waitUntilReachable(endpoint: endpoint, timeout: 1.5, interval: 0.3) {
+            return false
+        }
+        do {
+            try await LocalServiceControl.start(config: launchable, reachTimeout: 25)
+            return true
+        } catch {
+            // 启动失败不阻断应用：用户在设置里点「启动」能看到真实原因。
+            return false
         }
     }
 
@@ -1062,16 +1319,6 @@ public actor CoachServices {
         return policy.tickSeconds
     }
 
-    /// 生效 LLM 的「哪个模型」描述（如 `本地模型 · qwen3:8b`），错误提示统一用它。
-    public func llmLabel() async -> String {
-        let configuration = await config.current
-        let provider = configuration.resolvedProvider(for: .llm)
-        return ModelDiagnostics.label(
-            providerName: provider?.userFacingName,
-            model: configuration.resolvedModel(for: .llm)
-        )
-    }
-
     /// 某能力的「哪个模型」描述（设置页与提示共用）。
     public func modelLabel(for kind: AIProviderKind) async -> String {
         let configuration = await config.current
@@ -1154,9 +1401,13 @@ public actor CoachServices {
             // 用户正当地从云端列表里选的（本地恰好装了同名模型，如 Qwen3-TTS 系列）。
             // 这种情况不动它，免得误伤一个能用的云端配置。
             guard !provider.candidateModels.contains(model) else { continue }
-            try? await config.mutateProvider(id: provider.id) { p in
-                p.model = nil
-                p.enabled = false   // 「外部模型接口」就此关闭，不再占着生效位
+            do {
+                try await config.mutateProvider(id: provider.id) { p in
+                    p.model = nil
+                    p.enabled = false   // 「外部模型接口」就此关闭，不再占着生效位
+                }
+            } catch {
+                AppLog.debug("本地模型自愈：关闭云端 \(provider.id) 失败：\(error)", category: "config")
             }
             // 「切本地」这个动作在旧版本里只做了一半：本地模型名写进了云端，本地却没启用。
             // 这里把它补完——找到该能力下**名字对得上的**本地 Provider 打开，
@@ -1165,11 +1416,15 @@ public actor CoachServices {
                 $0.kind == provider.kind && !$0.isRemote && $0.runtime != .mock
             }
             if let local = localCandidates.first(where: { ($0.model ?? "") == model }) ?? localCandidates.first {
-                try? await config.mutateProvider(id: local.id) { p in
-                    p.enabled = true
-                    if (p.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        p.model = model   // 它本来就是本机的模型名，落到本地 Provider 上正好
+                do {
+                    try await config.mutateProvider(id: local.id) { p in
+                        p.enabled = true
+                        if (p.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            p.model = model   // 它本来就是本机的模型名，落到本地 Provider 上正好
+                        }
                     }
+                } catch {
+                    AppLog.debug("本地模型自愈：启用本地 \(local.id) 失败：\(error)", category: "config")
                 }
             }
             try? await config.mutateProduct { product in
@@ -1255,6 +1510,25 @@ public actor CoachServices {
         } catch {
             return .configurationInvalid(reason: error.localizedDescription)
         }
+    }
+
+    /// 当前生效的 LLM 能不能**真的读图**。
+    ///
+    /// 谁在用：对话区带了图片附件时提醒用户「老师看不到这张图，只会知道文件名」。
+    /// 这条能力声明以前只有产出方没有消费方（`ProviderCapabilities.vision` 与配置里的
+    /// `vision` 并列存在，没人读能力面那一份），于是「不读图的模型收到图」是**静默降级**的。
+    public func llmSupportsVision() async -> Bool {
+        await llm.current?.capabilities().vision ?? false
+    }
+
+    /// 当前生效的语音识别引擎**给不给词级时间戳**。
+    ///
+    /// 谁会用到：设置页「运行环境」的配置体检行。`ProviderCapabilities.wordTimestamp`
+    /// 这条声明以前只有产出方（`WhisperASRAdapter` 声明 true）没有消费方 ——
+    /// 于是没人知道 `ASRResult.words` 到底会不会被填上，也没人盯着它别退化成空数组。
+    /// 这里把它读出来如实展示：**声明的能力必须有人看**，否则就是个装饰。
+    public func asrWordTimestampSupport() async -> Bool {
+        await asr.current?.capabilities().wordTimestamp ?? false
     }
 
     /// 当前激活的 LLM Provider 配置（供 UI 展示名称 / 运行时类型）。
@@ -1430,6 +1704,64 @@ public actor CoachServices {
         await reviewer.recentReviews(limit: limit)
     }
 
+    /// 某会话最近一次复盘覆盖到的消息数（判断「有没有新内容需要复盘」）。
+    public func reviewedMessageCount(sessionID: UUID) async -> Int {
+        guard let learning else { return 0 }
+        return (try? await learning.reviewedMessageCount(sessionID: sessionID)) ?? 0
+    }
+
+    /// 删掉某会话的**练习流水**（消息 + 纠错），保留会话行与复盘。
+    ///
+    /// ⚠️ 调用方必须先拿到复盘并确认可用（`PracticeReviewPolicy.canPurgeSource`）：
+    /// 复盘失败还把流水删了，这一局的对话就永远看不到了。
+    @discardableResult
+    public func purgePracticeMessages(sessionID: UUID) async -> Int {
+        guard let learning else { return 0 }
+        return (try? await learning.purgeSessionMessages(sessionID: sessionID)) ?? 0
+    }
+
+    // MARK: - 情景主线任务进度（需求 3 / 5）
+
+    public func questProgress(scenarioID: String) async -> ScenarioQuestRecord? {
+        guard let learning else { return nil }
+        return try? await learning.questProgress(scenarioID: scenarioID)
+    }
+
+    /// 全部情景的主线任务进度，按情景 id 索引（大树与情景卡片一次取完）。
+    public func allQuestProgress() async -> [String: ScenarioQuestRecord] {
+        guard let learning else { return [:] }
+        let records = (try? await learning.allQuestProgress()) ?? []
+        return Dictionary(uniqueKeysWithValues: records.map { ($0.scenarioID, $0) })
+    }
+
+    public func saveQuestProgress(_ record: ScenarioQuestRecord) async {
+        guard let learning else { return }
+        try? await learning.saveQuestProgress(record)
+    }
+
+    /// 清掉某情景的主线任务进度（重练这一关时调用）。
+    public func clearQuestProgress(scenarioID: String) async {
+        guard let learning else { return }
+        try? await learning.clearQuestProgress(scenarioID: scenarioID)
+    }
+
+    /// 某情景最近一次复盘（「任务前情提要」的原料）。
+    public func latestScenarioReview(scenarioID: String) async -> SessionReview? {
+        guard let learning else { return nil }
+        return try? await learning.latestReview(scenarioID: scenarioID)
+    }
+
+    /// 合成「任务前情提要」（纯本地读库，**不发起任何模型请求**）。
+    public func scenarioBriefing(for scenario: Scenario) async -> ScenarioBriefing {
+        let record = await questProgress(scenarioID: scenario.id)
+        let review = await latestScenarioReview(scenarioID: scenario.id)
+        return ScenarioBriefingBuilder.build(
+            scenario: scenario,
+            questDone: record?.doneStepSet ?? [],
+            review: review
+        )
+    }
+
     // MARK: - 词汇本（第 24 步 Vocabulary）
 
     /// 从复盘 new_words 导入生词（按 word 去重）。返回新词数。
@@ -1457,6 +1789,71 @@ public actor CoachServices {
         )
     }
 
+    // MARK: - 每周小结 / 月环比（#228）
+
+    /// 「本周小结」卡的数字（取数与折算都在 `ProgressService` / `ProgressAggregator`）。
+    public func weeklyInsight() async -> WeeklyInsight? {
+        await progress.weeklyInsight()
+    }
+
+    // MARK: - 写作批改（#230）
+
+    /// 批改一篇写作。与释义同一条门：模型在跑 + 就绪后一次请求出全部结果。
+    /// 任何失败返回 nil（UI 给提示，不抛错）。
+    public func reviewWriting(topic: WritingTopic, essay: String) async -> WritingReview? {
+        guard isModelRunning(.llm) else { return nil }
+        try? await ensureLLMReady()
+        let configuration = await config.current
+        return await writing.review(
+            topic: topic,
+            essay: essay,
+            learningLanguage: configuration.product.learningLanguage,
+            nativeLanguage: configuration.product.nativeLanguage,
+            model: await currentLLMModel()
+        )
+    }
+
+    /// 出今天的短文阅读（`level` 传 CEFR 档位名，如 "B1"；unknown 传空串由服务兜底）。
+    /// 任何失败返回 nil（UI 给可操作的提示）。判分不在模型侧 —— 生成时答案已随文下发。
+    public func generateReading(level: String) async -> ReadingPassage? {
+        guard isModelRunning(.llm) else { return nil }
+        try? await ensureLLMReady()
+        let configuration = await config.current
+        return await reading.generate(
+            theme: ReadingThemeLibrary.theme(for: Date()),
+            level: level,
+            learningLanguage: configuration.product.learningLanguage,
+            nativeLanguage: configuration.product.nativeLanguage,
+            model: await currentLLMModel()
+        )
+    }
+
+    // MARK: - 写作 / 阅读记录持久化（#233）
+
+    /// 交卷批改成功后落一行写作记录（学习记录页的「写作练习」卡与每周小结都吃它）。
+    public func recordWritingSubmission(topic: WritingTopic, essay: String, review: WritingReview) async {
+        guard let learning else { return }
+        let words = ShadowingScorer.words(essay).count
+        try? await learning.appendWritingEntry(
+            title: topic.title,
+            score: review.score.map(Double.init),
+            wordCount: words,
+            createdAt: Date()
+        )
+    }
+
+    /// 某一天已生成的短文（旧 → 新；重启后回看的唯一来源）。
+    public func todaysReadings(dayKey: Int) async -> [StoredReading] {
+        guard let learning else { return [] }
+        return (try? await learning.readings(dayKey: dayKey)) ?? []
+    }
+
+    /// 落一篇短文（生成成功 / 作答变化都整体覆盖写）。
+    public func saveReading(_ entry: StoredReading) async {
+        guard let learning else { return }
+        try? await learning.saveReading(entry)
+    }
+
     /// 补齐已落库卡片里缺失的「词性 / 中文」（历史数据：模型当年只回了英文）。
     /// 后台静默调用：模型没在跑 / 补不到就返回 nil，不打扰用户。
     public func completeVocabularyTerms(_ entry: VocabularyEntry) async -> VocabularyEntry? {
@@ -1476,19 +1873,36 @@ public actor CoachServices {
         )
     }
 
-    /// 抽一组每日推荐词（3 简单 / 5 中等 / 2 困难 / 2 词组，雅思标准；本地选词，不调模型）。
-    public func dailyWordRecommendation(excluding: Set<String> = []) async -> [DailyWord] {
-        await vocabulary.dailyRecommendation(excluding: excluding)
+    /// 抽一组每日推荐词（3 简单 / 5 中等 / 2 困难 / 2 词组；本地选词，不调模型）。
+    ///
+    /// **词源来自词典库**：按用户选定的优先级顺序取词（没勾选任何词典时 =
+    /// 全部可见词典按名字排，见 `DictionaryLibrary.sourceBookIDs`）。
+    /// 词典库被清空（一本书都没有）时才退回随包词库 —— 单本入口的意义就在这里。
+    ///
+    /// - Parameter seed: 给了就**按天恒定**（`DailySeed.seed(dayKey:language:)`）：
+    ///   同一天多次打开看到同一批词，跨天才换。不给就是真随机 —— 「换一批」走这一条。
+    public func dailyWordRecommendation(excluding: Set<String> = [], seed: UInt64? = nil) async -> [DailyWord] {
+        let pools = await dictionary.recommendationPools()
+        if pools.contains(where: { !$0.isEmpty }) {
+            return await vocabulary.dailyRecommendation(fromSources: pools, excluding: excluding, seed: seed)
+        }
+        return await vocabulary.dailyRecommendation(excluding: excluding, seed: seed)
     }
 
-    /// 每日推荐所用词库的全部词（设置页统计 / 每日推荐选词）。
+    /// 每日推荐所用词库的全部词（设置页统计「已学 x / y 词」）。
+    ///
+    /// 口径跟着**词典库**走：推荐词是从可见词典里抽的，统计的分母就必须是同一批词，
+    /// 否则会出现「总共 145 词、已学 200 词」这种自相矛盾的数字。
+    ///
+    /// ⚠️ 合并后**必须按词去重**：每本书各自一份池子，`say`/`go` 这类词几本书里都有，
+    /// 直接相加会把同一个词算好几遍 —— 分母虚高、和「词库共 N 词」也对不上。
+    /// （选词侧 `DailyWordPicker` 本来就会去重，这里对齐的是统计口径。）
     public func dailyWordBank() async -> [DailyWord] {
-        await vocabulary.wordBank()
-    }
-
-    /// 词库的词性 / 中文速查（词汇本添加框联想浮层）。
-    public func dailyWordBankEntries() async -> [WordBankEntry] {
-        await vocabulary.wordBankEntries()
+        let pools = await dictionary.recommendationPools()
+        let merged = pools.flatMap { $0 }
+        guard !merged.isEmpty else { return await vocabulary.wordBank() }
+        var seen = Set<String>()
+        return merged.filter { seen.insert($0.word.lowercased()).inserted }
     }
 
     /// 给每日推荐的词补「音标 / 词性 / 中文义项 / 解释 / 例句及翻译 / 近反义 / 重点单词」
@@ -1508,6 +1922,269 @@ public actor CoachServices {
             nativeLanguage: configuration.product.nativeLanguage,
             options: options
         )
+    }
+
+    // MARK: - 词典（词典库 + 查词）
+
+    /// 词典库里可见的书（内置去掉用户删掉的 + 用户导入的），已按优先级排好序。
+    public func dictionaryBooks() async -> [DictionaryBook] {
+        await dictionary.books()
+    }
+
+    /// 被用户删掉、**还能恢复**的内置词典。
+    public func restorableDictionaryBooks() async -> [DictionaryBook] {
+        let state = await dictionary.library()
+        return state.restorableBuiltIns(builtIns: await dictionary.builtInBooksSnapshot())
+    }
+
+    /// 模糊匹配（最多 10 条）。
+    public func dictionarySearch(_ query: String) async -> [DictionaryWord] {
+        await dictionary.search(query)
+    }
+
+    /// 词库速查（**不起模型、不花钱**）：只查内置 / 导入词典里有没有这个词。
+    ///
+    /// 划词气泡的第一站：鼠标扫过一个词时先问它，命中就直接出音标与中文，
+    /// 不必为一句话里的每个常见词都花一次模型调用。
+    public func dictionaryKnownWord(_ query: String) async -> DictionaryWord? {
+        await dictionary.knownWord(query)
+    }
+
+    /// 划到的是变体时，用它的本体去词库速查（`subtitles` → `subtitle`）。
+    ///
+    /// 与 `dictionaryKnownWord` 一样零成本、零延迟 —— 划词主路径上先走这两条，
+    /// 命中就完全不用起模型。
+    public func dictionaryBaseFormWord(of query: String) async -> (candidate: WordForm.Candidate, word: DictionaryWord)? {
+        await dictionary.baseFormWord(of: query)
+    }
+
+    /// 查一个词的完整条目（按需 LLM；命中进程内缓存则不发请求）。
+    public func dictionaryLookUp(
+        _ word: String,
+        ignoringCache: Bool = false,
+        baseFormHints: [String] = []
+    ) async throws -> DictionaryDetail {
+        guard isModelRunning(.llm) else { throw AIProviderError.notInitialized }
+        try await ensureLLMReady()
+        let provider = await config.current.resolvedProvider(for: .llm)
+        let options = DictionaryLookupOptions(
+            model: await currentLLMModel(),
+            // 词典条目含搭配 / 例句 / 派生词，比词汇本释义长：上限给到 1024。
+            maxTokens: min(provider?.maxTokens ?? 1024, 1024)
+        )
+        let configuration = await config.current
+        return try await dictionary.lookUp(
+            word,
+            learningLanguage: configuration.product.learningLanguage,
+            nativeLanguage: configuration.product.nativeLanguage,
+            options: options,
+            baseFormHints: baseFormHints,
+            ignoringCache: ignoringCache
+        )
+    }
+
+    /// 某本词典在「每日推荐词源」里的名次（没被选作词源 → nil）。
+    public func dictionaryRank(of id: String) async -> Int? {
+        await dictionary.rank(of: id)
+    }
+
+    /// 每本词典的名次表（书封面上的优先级框显示用）。
+    public func dictionarySourceRanks() async -> [String: Int] {
+        await dictionary.sourceRanks()
+    }
+
+    /// 空查询页的「试试这些词」（从可见词典里间隔取，不随机）。
+    public func dictionarySampleWords(limit: Int = 6) async -> [DictionaryWord] {
+        await dictionary.sampleWords(limit: limit)
+    }
+
+    /// 「试试这些词」的**轮换词池**（随机抽，每次都不一样）。
+    ///
+    /// 页面上那一排胶囊每 10 秒换一批，换的时候不该再去查一次库 —— 一次取一批放内存里慢慢用。
+    public func dictionarySamplePool(limit: Int = 48) async -> [DictionaryWord] {
+        await dictionary.randomSampleWords(limit: limit)
+    }
+
+    /// 已缓存的查词结果（切页 / 回退时先占位，不闪空白）。
+    public func dictionaryCached(_ word: String) async -> DictionaryDetail? {
+        await dictionary.cached(word)
+    }
+
+    /// 删掉一本词典（内置只隐藏可恢复；导入的连文件一起删）。
+    @discardableResult
+    public func removeDictionaryBook(id: String) async throws -> DictionaryBook? {
+        try await dictionary.removeBook(id: id)
+    }
+
+    /// 恢复一本内置词典。
+    public func restoreDictionaryBook(id: String) async throws {
+        try await dictionary.restoreBook(id: id)
+    }
+
+    /// 一键恢复全部内置词典。
+    public func restoreBuiltInDictionaries() async throws {
+        try await dictionary.restoreBuiltIns()
+    }
+
+    /// 勾选 / 取消「作为每日推荐词源」（取消后名次自动补位）。
+    @discardableResult
+    public func toggleDictionarySource(id: String) async throws -> Bool {
+        try await dictionary.toggleSource(id: id)
+    }
+
+    /// 导入一本词典（JSON，只有 word 必填）。
+    @discardableResult
+    public func importDictionary(from url: URL, name: String? = nil) async throws -> DictionaryBook {
+        try await dictionary.importBook(from: url, name: name)
+    }
+
+    /// 可见词典的词条总数（页头统计 / 设置页分母）。
+    public func dictionaryWordCount() async -> Int {
+        await dictionary.totalWordCount()
+    }
+
+    /// **去重后**的词库规模（跨词典同名词只算一个）。UI 上「词库共 N 词」都用它。
+    public func dictionaryUniqueWordCount() async -> Int {
+        await dictionary.uniqueWordCount()
+    }
+
+    // MARK: - 今日跟读（每天按情景现生成 20 句）
+
+    /// 今日缓存的跟读句子（日期或学习语言不匹配 → nil）。
+    public func shadowingCachedDrills(day: String?) async -> [ShadowingDrill]? {
+        let key = day ?? ShadowingDailyRule.dayKey()
+        let language = await config.current.product.learningLanguage
+        return await shadowingDailyStore.drills(day: key, language: language)
+    }
+
+    /// 今日跟读 20 句：**当天缓存优先**，没有才按当天轮到的情景生成并落盘。
+    ///
+    /// 为什么缓存优先是本方法的第一条分支，而不是「每次都重新生成」：
+    /// 用户练到第 7 句去泡了杯茶，回来句子全换掉，等于这一轮练习作废。
+    /// 同一天必须拿到同一批句子（`ShadowingDailyRule.dayKey` 保证「同一天同一个键」）。
+    ///
+    /// 生成失败一律抛错，由 UI 决定「先用内置素材顶着」——
+    /// 本方法不内置兜底句子（跟读素材写死在代码里，正是这一轮要拆掉的东西）。
+    public func shadowingDailyDrills(day: String? = nil) async throws -> [ShadowingDrill] {
+        let key = day ?? ShadowingDailyRule.dayKey()
+        let configuration = await config.current
+        let language = configuration.product.learningLanguage
+        let native = configuration.product.nativeLanguage
+
+        if let cached = await shadowingDailyStore.drills(day: key, language: language) {
+            return cached
+        }
+        guard isModelRunning(.llm) else { throw AIProviderError.notInitialized }
+        try await ensureLLMReady()
+
+        let total = ShadowingDailyRule.dailySentenceCount
+        let picked = ShadowingDailyRule.rotatedScenarios(from: availableScenarios())
+        // 情景取不够（资源缺失）时退一步：一个情景都不给，模型就无从「按情景」写 —— 这时
+        // 不猜、不编，直接报错让 UI 用内置素材。
+        guard !picked.isEmpty else {
+            throw AppError.unknown("没有可用的情景素材（Resources/Scenarios/*.json）")
+        }
+        let perScenario = max(total / picked.count, 1)
+        let list = picked.map { scenario in
+            (
+                name: scenario.titleZh.isEmpty ? scenario.title : scenario.titleZh,
+                objective: scenario.objective,
+                level: scenario.level,
+                difficulty: scenario.difficulty
+            )
+        }
+        let prompt = PromptBuilder.shadowingDailyPrompt(
+            learningLanguage: language,
+            nativeLanguage: native,
+            scenarioList: list,
+            perScenario: perScenario,
+            total: perScenario * picked.count
+        )
+        let provider = await config.current.resolvedProvider(for: .llm)
+        let request = LLMRequest(
+            messages: [LLMMessage(role: .system, content: prompt)],
+            model: await currentLLMModel(),
+            // 每天要的是一批**不一样的**句子：温度必须给足，否则同一份情景清单
+            // 会得到高度雷同的句子（换了日期却像没换）。
+            temperature: 0.9,
+            // 20 句 × 3 个字段，按 1024 会被截断在中途。
+            maxTokens: min(provider?.maxTokens ?? 2048, 2048),
+            streaming: false,
+            reasoningEffort: LLMRequest.noThinkingEffort
+        )
+        let response = try await llm.generate(request)
+        let drills = ShadowingDailyRule.parse(response.text, limit: total)
+        guard drills.count >= total / 2 else {
+            // 只解析出零星几句：不落盘（下次还会重试），也不假装这就是今天的素材。
+            throw AppError.unknown("模型只给出了 \(drills.count) 句跟读素材")
+        }
+        await shadowingDailyStore.save(day: key, language: language, drills: drills)
+        return drills
+    }
+
+    /// 清掉今日跟读缓存（用户点「重新生成」）。
+    public func clearShadowingDailyCache() async {
+        await shadowingDailyStore.clear()
+    }
+
+    // MARK: - 上传材料自动出题（材料 → 情景 + 跟读句 + 生词表，#208）
+
+    /// 全部已生成的材料（按生成时间倒序）。材料是个位数规模，每次读盘即可，
+    /// 不做进程内缓存 —— 缓存失效点少一个是一个。
+    public func availableMaterials() async -> [MaterialKit] {
+        await materialStore.all()
+    }
+
+    /// 删除一份材料（情景卡、跟读句、生词表一起消失；词汇本里已加入的词**不**回收）。
+    public func deleteMaterial(id: String) async {
+        await materialStore.delete(id: id)
+    }
+
+    /// 把一份材料拆成整套练习：**一次请求**同时产出情景 + 生词表 + 跟读句。
+    ///
+    /// 「一次操作 = 一个模型请求」的落点：拆解是一次性的整体动作，拆成三次请求
+    /// 只会让用户等三趟、多花三份钱。生成成功即落盘；同 id 重复生成 = 覆盖更新。
+    public func generateMaterialKit(from raw: String) async throws -> MaterialKit {
+        if let issue = MaterialKitRule.inputIssue(for: raw) {
+            switch issue {
+            case .empty:
+                throw AppError.unknown("材料是空的，先粘贴或导入一篇文字再生成。")
+            case .tooShort(let actual):
+                throw AppError.unknown("材料太短（只有 \(actual) 字，至少需要 \(MaterialKitRule.minimumLength) 字），撑不起一套练习。")
+            }
+        }
+        guard isModelRunning(.llm) else { throw AIProviderError.notInitialized }
+        try await ensureLLMReady()
+
+        let configuration = await config.current
+        let material = MaterialKitRule.sanitized(raw)
+        let prompt = PromptBuilder.materialKitPrompt(
+            material: material,
+            learningLanguage: configuration.product.learningLanguage,
+            nativeLanguage: configuration.product.nativeLanguage
+        )
+        let provider = await config.current.resolvedProvider(for: .llm)
+        let request = LLMRequest(
+            messages: [LLMMessage(role: .system, content: prompt)],
+            model: await currentLLMModel(),
+            // 拆解要忠实于材料：低温、关思考（确定性短任务必关思考）。
+            temperature: 0.3,
+            maxTokens: min(provider?.maxTokens ?? 2048, 2048),
+            streaming: false,
+            reasoningEffort: LLMRequest.noThinkingEffort
+        )
+        let response = try await llm.generate(request)
+        guard let kit = MaterialKitRule.parse(response.text, text: material) else {
+            // 解析失败不落盘：宁可让用户重试，也不能存一份缺胳膊少腿的材料。
+            throw AppError.unknown("没能从材料里拆出完整的练习（缺标题 / 情景 / 跟读句），请重试一次。")
+        }
+        try await materialStore.save(kit)
+
+        // 生词表自动进词汇本（已有同词则跳过，`add` 内部去重）。
+        for word in kit.words {
+            _ = await vocabulary.add(word: word.word, meaning: word.meaning, source: .material)
+        }
+        return kit
     }
 
     // MARK: - 情景对话（Role Play，第 21 步）
@@ -1554,9 +2231,15 @@ public actor CoachServices {
     /// 不能停留在上一次的快照上（否则等于谎报）。
     public func privacyReport() async -> PrivacyReport {
         let configuration = await config.current
+        // 附件与音色档案这两份「用户资产」的落点由本服务给出：它们各自有唯一出口
+        // （`AttachmentStore.storageDirectory` / `VoiceProfileStore.storageLocation`），
+        // 在别处重拼一次路径就多一份会漂移的真相。
         return PrivacyReport(
             disclosure: PrivacyPolicy.disclosure(for: configuration),
-            locations: PrivacyDataLocator.locations(),
+            locations: PrivacyDataLocator.locations(
+                attachmentDirectory: await attachmentDirectory,
+                voiceProfilesFile: await voiceProfilesLocation()
+            ),
             dataDirectory: PrivacyDataLocator.dataDirectory()
         )
     }
@@ -1581,6 +2264,20 @@ public actor CoachServices {
 
     /// 学习库出过什么状况（nil = 一切正常）。界面要把它显示出来。
     public var recoveryNote: String? { databaseRecoveryNote }
+
+    /// 校验一份备份（导入确认框用）：坏包在这里就被拦下，给出明确原因。
+    public func inspectBackup(at path: String) async throws -> DataBackup.ImportPlan {
+        try await backup.inspectBackup(at: URL(fileURLWithPath: path))
+    }
+
+    /// 安排恢复：校验 → 当前数据自动留底 → 新文件落暂存（重启时才真正替换）。
+    @discardableResult
+    public func stageRestore(at path: String) async throws -> DataBackup.ImportPlan {
+        try await backup.stageRestore(at: URL(fileURLWithPath: path))
+    }
+
+    /// 本轮启动应用的备份恢复说明（nil = 没有）。
+    public var restoreNote: String? { pendingRestoreNote }
 
     // MARK: - 云端调用审计（费用护栏留痕）
 

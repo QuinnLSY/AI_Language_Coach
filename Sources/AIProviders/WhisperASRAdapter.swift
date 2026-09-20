@@ -85,7 +85,11 @@ public final class WhisperASRAdapter: ASRProvider, @unchecked Sendable {
     }
 
     public func capabilities() -> ProviderCapabilities {
-        ProviderCapabilities(streaming: false, structuredOutput: false, multilingual: true)
+        // wordTimestamp = true 是**实测**结论：本机 whisper.cpp v1.9.2 的
+        // `response_format=verbose_json` 会返回 segments[] 与 words[]{start,end}。
+        // streaming = false 同样是实测：该 runtime 没有流式端点，只有一次性的 /inference。
+        ProviderCapabilities(streaming: false, structuredOutput: false,
+                             multilingual: true, wordTimestamp: true)
     }
 
     public func metadata() -> ProviderMetadata {
@@ -112,7 +116,9 @@ public final class WhisperASRAdapter: ASRProvider, @unchecked Sendable {
         if let language = request.language, !language.isEmpty {
             body.append(Self.multipartField(name: "language", value: language, boundary: boundary))
         }
-        body.append(Self.multipartField(name: "response_format", value: "json", boundary: boundary))
+        // verbose_json 才能拿到时间戳；字段缺失的老 runtime 只会回落成「有 text、无 segments」，
+        // 不会让整段转写失败（见 `WhisperInferenceResponse` 的可选字段）。
+        body.append(Self.multipartField(name: "response_format", value: "verbose_json", boundary: boundary))
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         urlRequest.httpBody = body
 
@@ -125,7 +131,21 @@ public final class WhisperASRAdapter: ASRProvider, @unchecked Sendable {
         }
         let decoded = try Self.decode(WhisperInferenceResponse.self, from: data)
         let text = decoded.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return ASRResult(text: text, language: request.language, confidence: nil)
+        let segments = decoded.segments?.compactMap { segment -> ASRSegment? in
+            // 时间戳缺一半就没法用：宁可丢掉这一段，也不要拿 0 冒充真实位置。
+            guard let start = segment.start, let end = segment.end else { return nil }
+            let words = (segment.words ?? []).compactMap { word -> ASRWord? in
+                guard let text = word.word, let ws = word.start, let we = word.end else { return nil }
+                return ASRWord(word: text, start: ws, end: we, confidence: word.probability)
+            }
+            return ASRSegment(text: (segment.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+                              start: start, end: end, words: words)
+        }
+        // 空数组退化成 nil：调用方看到 nil 才知道「这次没有时间戳」，
+        // 而不是误读成「转写结果为空」。
+        let usableSegments = (segments?.isEmpty ?? true) ? nil : segments
+        return ASRResult(text: text, language: request.language,
+                         confidence: nil, segments: usableSegments)
     }
 
     // MARK: - 内部
@@ -193,9 +213,27 @@ public final class WhisperASRAdapter: ASRProvider, @unchecked Sendable {
         return body
     }
 
-    /// whisper.cpp `/inference` 响应体（实测字段，可选字段一律可选解）。
+    /// whisper.cpp `/inference` 响应体（**逐字段实测**，未实测的一律不写）。
+    ///
+    /// 只有 `text` 是必需的：老 runtime 或别的响应形态只给 `{"text": "..."}` 时，
+    /// 解码照样成功，只是 `segments` 为 nil —— 时间戳拿不到不影响拿到文字。
     private struct WhisperInferenceResponse: Decodable {
         let text: String
+        let segments: [Segment]?
+
+        struct Segment: Decodable {
+            let text: String?
+            let start: Double?
+            let end: Double?
+            let words: [Word]?
+        }
+
+        struct Word: Decodable {
+            let word: String?
+            let start: Double?
+            let end: Double?
+            let probability: Float?
+        }
     }
 }
 

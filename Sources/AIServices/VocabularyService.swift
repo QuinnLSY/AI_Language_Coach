@@ -461,18 +461,37 @@ public actor VocabularyService {
     /// 抽一组每日推荐：3 简单 / 5 中等 / 2 困难 / 2 词组（雅思标准），排除指定词。
     /// 某档学完（该档词全被排除）时缺口由未学完的最低档补（见 `DailyWordPicker.pick`）。
     /// 词库资源缺失时返回空（UI 隐藏板块，不崩）。
-    public func dailyRecommendation(excluding: Set<String> = []) -> [DailyWord] {
-        DailyWordPicker.pick(from: VocabularyWordBank.load(), excluding: excluding)
+    public func dailyRecommendation(excluding: Set<String> = [], seed: UInt64? = nil) -> [DailyWord] {
+        let bank = VocabularyWordBank.load()
+        guard let seed else {
+            return DailyWordPicker.pick(from: bank, excluding: excluding)
+        }
+        return DailyWordPicker.pick(from: bank, excluding: excluding, seed: seed)
+    }
+
+    /// 抽一组每日推荐，词源是**多本词典**（顺序 = 词典库里的优先级）。
+    ///
+    /// 与上面那个单库入口的差别只在词源：配额、缺口补齐、去重规则都是同一套
+    /// （`DailyWordPicker.select`）—— 换词源不该顺带换掉「3 简单 / 5 中等 / 2 困难 / 2 词组」。
+    ///
+    /// - Parameter seed: 给了就按种子抽（同一天同一批，见 `DailySeed`）；
+    ///   不给才是真随机 —— 「换一批」按钮走这一条。
+    public func dailyRecommendation(
+        fromSources sources: [[DailyWord]],
+        excluding: Set<String> = [],
+        seed: UInt64? = nil
+    ) -> [DailyWord] {
+        let pools = sources.filter { !$0.isEmpty }
+        guard !pools.isEmpty else { return [] }
+        guard let seed else {
+            return DailyWordPicker.pick(fromSources: pools, excluding: excluding)
+        }
+        return DailyWordPicker.pick(fromSources: pools, excluding: excluding, seed: seed)
     }
 
     /// 词库全部词（设置页展示「已学 / 总词数」、每日推荐选词都用它）。
     public func wordBank() -> [DailyWord] {
         VocabularyWordBank.load()
-    }
-
-    /// 词库的词性 / 中文速查（词汇本添加框联想）。
-    public func wordBankEntries() -> [WordBankEntry] {
-        VocabularyWordBank.entries()
     }
 
     /// 给每日推荐的词补「音标 / 词性 / 中文义项 / 解释 / 例句及翻译 / 近反义 / 重点单词」。

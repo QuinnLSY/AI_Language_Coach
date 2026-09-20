@@ -81,6 +81,15 @@ public final class ConversationEngine {
         context.userProfile = profile
     }
 
+    /// 同步老师人格档位（教学风格）。
+    ///
+    /// 每轮生成前由 `ChatService` 从产品配置灌进来 —— 用户改了档位，**下一轮就生效**，
+    /// 不需要重开会话。档位是 `TeacherPreference` 的唯一存储字段，
+    /// 回复长度 / 纠错强度 / 母语提示都由它推导（见 `TeacherPersona`）。
+    public func syncPreference(_ persona: TeacherPersona) {
+        context.teacherPreference = TeacherPreference(persona: persona)
+    }
+
     /// 同步进行中的情景（nil = 退出情景）。
     public func syncScenario(_ focus: ScenarioFocus?) {
         context.scenario = focus

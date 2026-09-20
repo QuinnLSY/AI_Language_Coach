@@ -1,3 +1,4 @@
+import AIDomain
 import AIInterfaces
 import AIServices
 import AIInfrastructure
@@ -192,6 +193,34 @@ final class ModelControlTests: XCTestCase {
         XCTAssertEqual(view.starterQuestions, questions, "预设提问漏赋值 → 输入框永不轮换")
         XCTAssertNotNil(view.onTranslate, "翻译回调漏赋值 → 点翻译按钮没反应")
         XCTAssertEqual(view.translationError, "翻译失败：模型未就绪")
+    }
+
+    /// 同一类 bug 的第三面（需求 3/4）：前情提要 / 自动复盘回执 / 练习模式也带默认值。
+    /// 漏赋值不会编译报错，但界面上就是「前情提要永远不出现」。
+    func testChatViewInitStoresBriefingAndPracticeMode() {
+        let chat = ChatService(services: CoachServices(config: ConfigStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("alc-chatview3-\(UUID().uuidString).json")), databasePath: ":memory:"))
+        let scenario = Scenario(
+            id: "restaurant", title: "Restaurant", titleZh: "餐厅点餐", category: "日常",
+            difficulty: 1, level: "A1", objective: "Order a meal", aiRole: "waiter",
+            learnerRole: "customer", opening: "Good evening!",
+            targetVocabulary: ["menu"], targetGrammar: [], targetSentences: ["Can I have the menu, please?"],
+            maxTurns: 8
+        )
+        let briefing = ScenarioBriefingBuilder.build(scenario: scenario)
+        let view = ChatView(
+            chat: chat,
+            modelName: "qwen3:8b",
+            health: .connected(model: "qwen3:8b"),
+            practiceMode: .freeTalk,
+            onStartFreeTalk: { },
+            briefing: briefing,
+            practiceNotice: "上一段练习已自动复盘"
+        )
+        XCTAssertEqual(view.practiceMode, .freeTalk, "练习模式漏赋值 → 头部按钮文案就错了")
+        XCTAssertNotNil(view.onStartFreeTalk, "开启新练习回调漏赋值 → 按钮点了没反应")
+        XCTAssertEqual(view.briefing?.scenarioID, "restaurant", "前情提要漏赋值 → 学员看不到「上次练到哪」")
+        XCTAssertEqual(view.practiceNotice, "上一段练习已自动复盘")
     }
 
     // MARK: - 今日 token 分档（0–2000 督促 / 2000–20000 鼓励 / ≥20000 休息）

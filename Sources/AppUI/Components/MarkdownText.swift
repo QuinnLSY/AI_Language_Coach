@@ -6,16 +6,27 @@ import SwiftUI
 // AttributedString(markdown:)（粗体/斜体/行内代码/链接），失败降级纯文本。
 
 /// 聊天卡片里的 Markdown 文本：标题 / 列表 / 引用 / 围栏代码块 / 行内样式。
+///
+/// 传入 `lookup` 时，**行内内容改由可划词的文本视图渲染**（划过单词看释义、拖选一段翻译），
+/// 块级结构（标题 / 列表 / 引用 / 代码块）与行内样式（粗体 / 斜体 / 代码）照旧保留。
+/// 不传就还是原来的 `Text`（离屏渲染与单测走这条路）。
 public struct MarkdownText: View {
 
     let text: String
     let fontSize: CGFloat
     let color: Color
+    let lookup: WordLookupContext?
 
-    public init(_ text: String, fontSize: CGFloat = 14, color: Color) {
+    public init(
+        _ text: String,
+        fontSize: CGFloat = 14,
+        color: Color,
+        lookup: WordLookupContext? = nil
+    ) {
         self.text = text
         self.fontSize = fontSize
         self.color = color
+        self.lookup = lookup
     }
 
     public var body: some View {
@@ -30,7 +41,7 @@ public struct MarkdownText: View {
     private func blockView(_ block: Block) -> some View {
         switch block {
         case .heading(let level, let content):
-            inlineText(content)
+            inlineView(content, extraSize: CGFloat(max(0, 3 - level)), bold: true)
                 .font(.system(
                     size: fontSize + CGFloat(max(0, 3 - level)),
                     weight: .bold, design: .rounded
@@ -45,7 +56,7 @@ public struct MarkdownText: View {
                         Circle().fill(color.opacity(0.65))
                             .frame(width: fontSize * 0.28, height: fontSize * 0.28)
                             .padding(.top, fontSize * 0.42)
-                        inlineText(item)
+                        inlineView(item)
                             .font(.system(size: fontSize, design: .rounded))
                             .foregroundStyle(color)
                     }
@@ -55,13 +66,13 @@ public struct MarkdownText: View {
         case .quote(let content):
             HStack(alignment: .top, spacing: 8) {
                 RoundedRectangle(cornerRadius: 2).fill(color.opacity(0.35)).frame(width: 3)
-                inlineText(content)
+                inlineView(content)
                     .font(.system(size: fontSize, design: .rounded))
                     .foregroundStyle(color.opacity(0.85))
             }
 
         case .paragraph(let content):
-            inlineText(content)
+            inlineView(content)
                 .font(.system(size: fontSize, design: .rounded))
                 .foregroundStyle(color)
 
@@ -87,6 +98,22 @@ public struct MarkdownText: View {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(color.opacity(0.15), lineWidth: 1)
             )
+        }
+    }
+
+    /// 行内内容：有划词上下文 → 可划词的文本视图；没有 → 原来的 `Text`。
+    @ViewBuilder
+    private func inlineView(_ content: String, extraSize: CGFloat = 0, bold: Bool = false) -> some View {
+        if let lookup {
+            WordLookupSentence(
+                markdownInline: content,
+                fontSize: fontSize + extraSize,
+                weight: bold ? .bold : .regular,
+                color: color,
+                context: lookup
+            )
+        } else {
+            inlineText(content)
         }
     }
 
@@ -129,7 +156,7 @@ public struct MarkdownText: View {
             }
         }
 
-        var lines = text.components(separatedBy: "\n")
+        let lines = text.components(separatedBy: "\n")
         var index = 0
         while index < lines.count {
             let raw = lines[index]

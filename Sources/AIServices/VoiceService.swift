@@ -207,9 +207,6 @@ public actor VoiceService {
         }
     }
 
-    /// 实时电平（0…1），供 UI 画说话波纹。
-    public var recordingLevel: Float { recorder.level }
-
     // MARK: - 朗读（听）
 
     /// 朗读文本。投递方式由当前 TTS Provider 的 runtime 决定（见 `SpeechDelivery`）：
@@ -452,7 +449,8 @@ public actor VoiceService {
         var lines: [String] = []
         for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(rawLine)
-            if line.hasPrefix("[[FIX]]") { continue }
+            // 纠错行不进朗读：它本来就是写给应用看的（识别口径与解析那边共用一份）。
+            if GrammarCorrectionLine.isTagged(line) { continue }
             lines.append(line)
         }
         let joined = lines.joined(separator: " ")

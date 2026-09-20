@@ -1,6 +1,33 @@
 import AIDomain
 import SwiftUI
 
+/// 大树上某一格关卡额外要显示的一行说明（需求 2：情景 ↔ 关卡的联系）。
+///
+/// 只放**已经算好、可直接渲染**的字符串：树是纯渲染层，
+/// 让它自己去找情景、算任务进度，就会出现「树上算一遍、情景卡片再算一遍」的两处真相。
+public struct TreeLevelNote: Sendable, Equatable {
+
+    /// 对应情景的母语标题（nil = 没绑定情景）。
+    public var scenarioTitle: String?
+    /// 主线任务文案（如 `主线 2/3`），没有主线时为空。
+    public var questSummary: String
+
+    public init(scenarioTitle: String? = nil, questSummary: String = "") {
+        self.scenarioTitle = scenarioTitle
+        self.questSummary = questSummary
+    }
+
+    /// `点咖啡 · 主线 2/3`（没有情景时返回空串，节点上就少一行）。
+    public var summaryLine: String {
+        var parts: [String] = []
+        if let scenarioTitle, !scenarioTitle.isEmpty { parts.append(scenarioTitle) }
+        if !questSummary.isEmpty { parts.append(questSummary) }
+        return parts.joined(separator: " · ")
+    }
+
+    public var isEmpty: Bool { summaryLine.isEmpty }
+}
+
 /// 向参天大树攀升的闯关画布。关卡数据来自 `LearnerProgress`，UI 不内置业务数据。
 public struct TreeCanvas: View {
 
@@ -10,18 +37,41 @@ public struct TreeCanvas: View {
     let studentAnimal: AnimalKind
     /// 小学员点击冒泡开关（设置可关）。
     var bubblesAllowed: Bool = true
+    /// 关卡 → 它在树上要额外显示的一行（对应情景 + 主线任务进度）。
+    ///
+    /// 需求 2：**情景与大树要一眼看出关系** —— 光有一个小对话标，
+    /// 学员并不知道这一格对应哪个情景、里面做到哪一步了。数据由 `AppState` 组装。
+    var levelNotes: [String: TreeLevelNote] = [:]
     var onSelectLevel: (TreeLevel) -> Void = { _ in }
 
-    private let canvasHeight: CGFloat = 1080
-    private let groundHeight: CGFloat = 120
+    /// 画布高度（公开：宿主算滚动锚点与底部留白要用同一个数）。
+    ///
+    /// ⚠️ `nonisolated` 不是随手加的：`View` 是 `@MainActor` 协议，实现整个类型都会被推断成
+    /// 主 actor 隔离 —— 连这几个纯常量也一起。而 `TreeViewport`（纯几何函数命名空间，
+    /// 不是 View）要拿它们算滚动锚点，一读就报「主 actor 隔离属性不能从非隔离上下文引用」。
+    /// 这些数就是纯算术、没有任何状态，本来就该非隔离。
+    public nonisolated static let canvasHeight: CGFloat = 1080
+    /// 画布底部「林间地面」的高度（树干扎根的那一段）。
+    public nonisolated static let groundHeight: CGFloat = 120
+
+    private var canvasHeight: CGFloat { Self.canvasHeight }
+    private var groundHeight: CGFloat { Self.groundHeight }
+
+    /// 学员在树上的位置锚点：宿主（右侧栏）用它把滚动视口定位到学员身上。
+    ///
+    /// 为什么需要一个独立的小视图而不是用关卡节点：学员沿树干走的是 `climbFraction`，
+    /// 关卡节点走的是各自的 `heightFraction` —— 两条线不是一回事（学员常常走在两格之间）。
+    public static let learnerAnchorID = "tree-learner-anchor"
 
     public init(theme: ForestTheme, progress: LearnerProgress, studentAnimal: AnimalKind = .bear,
                 bubblesAllowed: Bool = true,
+                levelNotes: [String: TreeLevelNote] = [:],
                 onSelectLevel: @escaping (TreeLevel) -> Void = { _ in }) {
         self.theme = theme
         self.progress = progress
         self.studentAnimal = studentAnimal
         self.bubblesAllowed = bubblesAllowed
+        self.levelNotes = levelNotes
         self.onSelectLevel = onSelectLevel
     }
 
@@ -30,7 +80,9 @@ public struct TreeCanvas: View {
             let width = proxy.size.width
             let midX = width / 2
             let baseY = canvasHeight - groundHeight
-            let currentLevelID = Self.currentLevelID(progress)
+            let currentLevelID = progress.currentLevelID
+            /// 学员站的位置（树上那条「爬到哪」的线）。锚点与形象共用，不能各算一套。
+            let learnerY = Self.learnerY(for: progress.climbFraction)
 
             ZStack(alignment: .topLeading) {
                 // 树干
@@ -58,7 +110,12 @@ public struct TreeCanvas: View {
                     BranchShape(from: CGPoint(x: midX, y: y), to: CGPoint(x: nodeX, y: y), side: side)
                         .stroke(theme.trunkShade, style: StrokeStyle(lineWidth: 7, lineCap: .round))
 
-                    LevelNode(level: level, theme: theme, isCurrent: level.id == currentLevelID)
+                    LevelNode(
+                        level: level,
+                        theme: theme,
+                        isCurrent: level.id == currentLevelID,
+                        note: levelNotes[level.id]
+                    )
                         .position(x: nodeX, y: y)
                         .onTapGesture { onSelectLevel(level) }
                 }
@@ -75,22 +132,91 @@ public struct TreeCanvas: View {
                     accessory: .student,
                     phrases: studentAnimal.phrases
                 )
-                .position(x: midX, y: Self.y(for: progress.climbFraction, baseY: baseY) - 36)
+                .position(x: midX, y: learnerY)
                 .animation(.spring(response: 0.8, dampingFraction: 0.7), value: progress.climbFraction)
+
+                // 学员位置的**滚动锚点**（1×1、不可见）：右侧栏一打开就滚到这里，
+                // 而不是停在树顶看树冠 —— 那上面根本没有学员。
+                //
+                // ⚠️ 这个锚点**不能用 `.position(x:y:)` 摆位**：`position` 会把它包成一个
+                // 「占满父级再摆子视图」的容器，`ScrollViewReader` 拿到的是**整张 1080pt 画布**
+                // 的 frame —— `scrollTo(anchor:)` 于是按画布的百分比对位，跟学员在哪毫无关系。
+                // 实测（视口 735）：滚动量 = `6 + a×(1080−735)`，`a` 变了它就跟着变，
+                // 学员的 `climbFraction` 变了它纹丝不动。这就是用户看到的「开屏没定位到学员」。
+                // 改成用**留白把锚点顶到学员那一行**（真·布局，不是变换），锚点才是那个点。
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0).frame(height: max(learnerY, 0))
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .id(Self.learnerAnchorID)
+                    Spacer(minLength: 0)
+                }
+                .frame(width: 1, height: canvasHeight)
             }
             .frame(width: width, height: canvasHeight)
         }
         .frame(height: canvasHeight)
     }
 
-    private static func y(for fraction: Double, baseY: CGFloat) -> CGFloat {
+    private nonisolated static func y(for fraction: Double, baseY: CGFloat) -> CGFloat {
         let topY: CGFloat = 210
         let clamped = min(max(fraction, 0), 1)
         return baseY - (baseY - topY) * clamped
     }
 
-    private static func currentLevelID(_ progress: LearnerProgress) -> String {
-        (progress.levels.first { $0.state == .inProgress } ?? progress.levels.first)?.id ?? ""
+    /// 学员在**画布坐标系**里的 y（与 `body` 里真正画出来的是同一套算式）。
+    ///
+    /// 宿主（右侧栏）拿它算「视口该滚到哪、内容底部要补多少留白」，
+    /// 各写一份迟早出现「锚点在这、形象在那」。
+    public nonisolated static func learnerY(for climbFraction: Double) -> CGFloat {
+        y(for: climbFraction, baseY: canvasHeight - groundHeight) - 36
+    }
+}
+
+// MARK: - 视口定位（把学员摆到视口哪里）
+
+/// 右侧栏「开屏把学员摆到视口哪个位置」的纯函数。
+///
+/// 用户口径：**每次打开应用都要把学员小动物摆到一眼能看见的地方**，让用户知道自己闯到哪了。
+///
+/// ⚠️ 这件事坏在一个很反直觉的地方：锚点写在视口的 42% 处，可学员站在树底时
+/// **内容底边把滚动钳住了** —— 视口最多只能滚到内容末尾，于是学员最后停在
+/// 「离视口底边 156pt」的位置，正好被底部 150pt 的**林间地面带**压住（用户实测：
+/// 小动物只露出一只耳朵）。修法有两半，缺一不可：
+/// 1. 目标位置改成「林带上方 60pt」——它按视口高度算，不再是一个拍出来的百分比；
+/// 2. 内容底部**补足留白**，让这个目标真的滚得到（不补就还是被钳住）。
+public enum TreeViewport {
+
+    /// 底部「林间地面带」的高度（`ForestGroundBand` 的现实高度，两处必须同源）。
+    public static let groundBandHeight: CGFloat = 150
+    /// 学员停在林带上面多少：留出一只小动物的身位，别贴着草坡。
+    public static let clearance: CGFloat = 60
+    /// 视口上边至少留这么高（视口特别矮时别把学员顶出屏幕外）。
+    public static let topMargin: CGFloat = 120
+
+    /// 学员在**视口**里的目标 y（视口左上原点）。
+    ///
+    /// 理想值 = 视口底边往上「林带 + 呼吸位」；上不越过 `topMargin`（别贴着顶栏），
+    /// 下不沉进林带（视口极矮时以「必须露在林带之上 8pt」为准，两条冲突时后者赢）。
+    public static func learnerTargetY(viewportHeight: CGFloat) -> CGFloat {
+        let ideal = viewportHeight - groundBandHeight - clearance
+        let lowestAllowed = max(viewportHeight - groundBandHeight - 8, 8)
+        return min(max(ideal, topMargin), lowestAllowed)
+    }
+
+    /// 滚动锚点的 `UnitPoint.y`。
+    public static func anchorY(viewportHeight: CGFloat) -> CGFloat {
+        guard viewportHeight > 0 else { return 0.5 }
+        return min(max(learnerTargetY(viewportHeight: viewportHeight) / viewportHeight, 0), 1)
+    }
+
+    /// 内容底部要补的留白：补到「学员下方至少有视口一半的余量」，
+    /// 目标位置才滚得到（否则滚动被内容底边钳住，学员停在林带后面）。
+    public static func bottomPadding(viewportHeight: CGFloat, climbFraction: Double) -> CGFloat {
+        guard viewportHeight > 0 else { return 0 }
+        let belowLearner = TreeCanvas.canvasHeight - TreeCanvas.learnerY(for: climbFraction)
+        let needed = viewportHeight - learnerTargetY(viewportHeight: viewportHeight)
+        return max(0, needed - belowLearner)
     }
 }
 
@@ -192,6 +318,8 @@ private struct LevelNode: View {
     let level: TreeLevel
     let theme: ForestTheme
     let isCurrent: Bool
+    /// 对应情景与主线任务进度（没绑定情景时为 nil）。
+    let note: TreeLevelNote?
 
     var body: some View {
         ZStack {
@@ -234,6 +362,14 @@ private struct LevelNode: View {
                 Text(level.subtitle)
                     .font(.system(size: 9, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
+                // 需求 2：这一格对应哪个情景、主线任务做到哪 —— 一句话说清两者的关系。
+                if let note {
+                    Text(note.summaryLine)
+                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .foregroundStyle(theme.accent)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
             }
             .fixedSize()
             .offset(y: 46)
@@ -289,6 +425,8 @@ struct ForestGroundBand: View {
     var activityFrequency: Double = 0.5
     /// 右下角表情按钮回调（与设置里的开关联动）。
     var onActivityToggle: (() -> Void)? = nil
+    /// 外部庆祝信号（今日任务全部完成）：每次 +1，全体小动物跳一次并冒一句庆祝话。
+    var celebrationTick: Int = 0
     /// 验证钩子：启动时先冒一句「它们在睡觉」（仅在 `--sleep-bubble` 下由主界面传入）。
     var previewSleepBubble: Bool = false
 
@@ -310,7 +448,10 @@ struct ForestGroundBand: View {
     ]
 
     /// 夜晚点击右下角表情按钮时冒出的话（**小动物们都睡了**，随机抽一条，连点随机切换）。
-    static let sleepPhrases = [
+    ///
+    /// `nonisolated`：这是一张纯文案表，不含任何隔离状态；写成隔离的会让
+    /// 单测（非隔离上下文）读它时撞上「主 actor 属性不能从非隔离上下文引用」。
+    nonisolated static let sleepPhrases = [
         "嘘——小动物们都睡着啦，别打扰它们哦～",
         "夜深了，它们正做着甜甜的梦呢，明早再来吧！",
         "呼……呼……睡得好香，轻一点声音哦。",
@@ -481,6 +622,8 @@ struct ForestGroundBand: View {
                     withAnimation(.easeOut(duration: 0.25)) { sleepLine = nil }
                 }
             }
+            // 今日任务全部完成：全体跳一下 + 冒一句庆祝（外部一天只推一次）
+            .onChange(of: celebrationTick) { _, _ in celebrate() }
         }
         .frame(maxWidth: .infinity)
         // 右下角：表情按钮 + 夜晚「睡觉」气泡（右对齐，永远不会溢出面板）
@@ -540,21 +683,17 @@ struct ForestGroundBand: View {
                 for _ in 0..<stay {
                     try? await Task.sleep(for: .seconds(Double.random(in: 4...8)))
                     guard !Task.isCancelled, activityAllowed, !theme.isNight else { break }
-                    if Bool.random() { shuffleOnPerch(index, count: count, span: span, inset: inset,
-                                                      groundLine: groundLine, quantizedWidth: quantizedWidth, width: width) }
+                    if Bool.random() { shuffleOnPerch(index) }
                 }
                 try? await Task.sleep(for: .seconds(Double.random(in: 3...6)))
                 guard !Task.isCancelled else { return }
-                await flyBackToGrass(index, count: count, span: span, inset: inset,
-                                     groundLine: groundLine, quantizedWidth: quantizedWidth)
+                await flyBackToGrass(index)
             } else if perched[index] {
                 // 已在枝上：要么小幅挪动，要么飞回草地
                 if Bool.random() {
-                    shuffleOnPerch(index, count: count, span: span, inset: inset,
-                                   groundLine: groundLine, quantizedWidth: quantizedWidth, width: width)
+                    shuffleOnPerch(index)
                 } else {
-                    await flyBackToGrass(index, count: count, span: span, inset: inset,
-                                         groundLine: groundLine, quantizedWidth: quantizedWidth)
+                    await flyBackToGrass(index)
                 }
             } else {
                 // 地面：游走（真位移，不回原位）/ 跳 / 摇
@@ -627,19 +766,19 @@ struct ForestGroundBand: View {
     }
 
     /// 在枝上小幅挪动（沿枝 ±10pt）。
-    private func shuffleOnPerch(_ index: Int, count: Int, span: CGFloat, inset: CGFloat,
-                                groundLine: CGFloat, quantizedWidth: CGFloat, width: CGFloat) {
-        let home = homePosition(index: index, count: count, span: span, inset: inset,
-                                groundLine: groundLine, quantizedWidth: quantizedWidth)
+    ///
+    /// ⚠️ 这里**只**用 `index`：挪动是相对当前 `offsets` 的增量，位置由 `flyToPerch` 决定。
+    /// 早先签名里挂着一串几何入参（count / span / inset / groundLine / quantizedWidth / width）
+    /// 却一个都不用，4 个调用点还逐次算好传进来 —— 读签名的人会以为它在重新定位。
+    private func shuffleOnPerch(_ index: Int) {
         let delta = CGFloat.random(in: -10...10)
         withAnimation(.easeInOut(duration: 0.5)) {
             offsets[index].width += delta
         }
     }
 
-    /// 飞回草地（落到离家最近的空位：直接回家）。
-    private func flyBackToGrass(_ index: Int, count: Int, span: CGFloat, inset: CGFloat,
-                                groundLine: CGFloat, quantizedWidth: CGFloat) async {
+    /// 飞回草地（直接回家，`offsets` 归零）。
+    private func flyBackToGrass(_ index: Int) async {
         withAnimation(.spring(response: 0.9, dampingFraction: 0.75)) {
             offsets[index] = .zero
             perched[index] = false
@@ -661,6 +800,38 @@ struct ForestGroundBand: View {
     private func clearAllBubbles() {
         bubbleCounter += 1     // 作废所有在飞的自动收起任务
         for i in bubbleTexts.indices { bubbleTexts[i] = nil }
+    }
+
+    // MARK: 庆祝（今日任务全部完成）
+
+    /// 今日任务全部完成时小动物冒的话（轮换，避免每次都是同一句）。
+    static let celebrationPhrases = [
+        "今天的任务都完成啦！",
+        "好棒！明天也一起来～",
+        "你今天真认真，我看见了！",
+        "任务全清！去休息一下吧～",
+    ]
+
+    /// 全体跳一下 + 前几只冒庆祝气泡。
+    ///
+    /// ⚠️ 只递 `actionTicks`（`LivelyAnimal` 靠它变化触发动作），不自己写动画 ——
+    /// 身体动画归 `LivelyAnimal`，气泡层级归本视图，两边各管各的才不会打架。
+    private func celebrate() {
+        guard activityAllowed else { return }
+        for i in 0..<Self.maxResidents {
+            actionKinds[i] = 0
+            actionTicks[i] += 1
+        }
+        // 只让前 3 只说话：八只同时冒泡会糊成一片。
+        for i in 0..<min(3, Self.maxResidents) {
+            bubbleCounter += 1
+            bubbleStamps[i] = bubbleCounter
+            bubbleTexts[i] = Self.celebrationPhrases[(i + celebrationTick) % Self.celebrationPhrases.count]
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            for i in 0..<min(3, Self.maxResidents) { bubbleTexts[i] = nil }
+        }
     }
 
     // MARK: 花草
@@ -732,7 +903,7 @@ struct ForestGroundBand: View {
         let visible = index < visibleCount
         let home = homePosition(index: index, count: visibleCount, span: span, inset: inset,
                                 groundLine: groundLine, quantizedWidth: quantizedWidth)
-        let facing = facingAt(index: index, fallback: kind)
+        let facing = facingAt(index: index)
         let currentKind = kindAt(index: index, fallback: kind)
 
         return ZStack {
@@ -783,7 +954,7 @@ struct ForestGroundBand: View {
         kinds.indices.contains(index) ? kinds[index] : fallback
     }
 
-    private func facingAt(index: Int, fallback: AnimalKind) -> CGFloat {
+    private func facingAt(index: Int) -> CGFloat {
         facings.indices.contains(index) ? facings[index] : 1
     }
 
@@ -845,7 +1016,6 @@ struct ForestGroundBand: View {
     }
 
     /// 多段小跳从当前位置移动到目标位移（跳动前进，而不是平移）。
-    @discardableResult
     private func hopTo(_ index: Int, target: CGSize, steps: Int, hopHeight: CGFloat) async {
         guard offsets.indices.contains(index) else { return }
         let start = offsets[index]

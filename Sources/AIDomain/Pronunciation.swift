@@ -172,7 +172,6 @@ public enum SpeechAnalyzer {
 
         let speechDuration = segments.reduce(0) { $0 + ($1.end - $1.start) }
         let pauses = pauseStats(segments: segments)
-        let speechFrames = mask.filter { $0 }.count
         let energyVariation = energyVariation(energies: energies, mask: mask)
         let pitch = pitchStats(
             samples: samples, sampleRate: sampleRate,
@@ -594,8 +593,11 @@ public enum PronunciationScorer {
         .intonation: 0.05,
     ]
 
-    /// 理想发音速率（每分钟词数，按**有声时长**计）：正常英语朗读大致就在这一带。
-    public static let idealSpeed: ClosedRange<Double> = 110...170
+    /// 理想发音速率（每分钟词数，按**有声时长**计）：以**正常英语交流语速**为准。
+    ///
+    /// 日常对话普遍在每分钟 130–190 词（播音/ TED 约 150–170），110 以下已是慢速朗读。
+    /// 2026-09-19 用户反馈旧标准「理想 110–170」下限太慢：跟读按正常节奏说反而被判慢。
+    public static let idealSpeed: ClosedRange<Double> = 190...240
     /// 语速至少要有这么多词、这么久，才算得准 —— 两个词的一句话折成 WPM 毫无意义。
     public static let speedMinimumWords = 4
     public static let speedMinimumSpeech: Double = 1.2
@@ -752,9 +754,11 @@ public enum PronunciationScorer {
     static func speakingSpeedLine(words: Int, metrics: SpeechMetrics) -> PronunciationScoreLine? {
         guard words >= speedMinimumWords, metrics.speechDuration >= speedMinimumSpeech else { return nil }
         let perMinute = Double(words) / (metrics.speechDuration / 60)
+        // 容差 60：有声时长口径会把 WPM 系统性偏高（停顿不计时 + ASR 可能多认词），
+        // 偏快一侧要宽恕一些 —— 233 词/分（旧标准下 30 分）按交流语速只是「偏快」，不是「差」。
         return PronunciationScoreLine(
             dimension: .speakingSpeed,
-            score: bandScore(perMinute, ideal: idealSpeed, tolerance: 40),
+            score: bandScore(perMinute, ideal: idealSpeed, tolerance: 60),
             detail: "每分钟 \(Int(perMinute.rounded())) 词 · 理想 \(Int(idealSpeed.lowerBound))–\(Int(idealSpeed.upperBound))"
         )
     }

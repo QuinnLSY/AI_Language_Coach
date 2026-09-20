@@ -117,10 +117,12 @@ final class PronunciationTests: XCTestCase {
     // MARK: - 打分
 
     /// 一次「标准朗读」的参考度量：语速/占比/起伏全部落在理想带内。
+    /// ⚠️ 7 词 2.0 秒 = 每分钟 210 词 —— 必须落在理想带 190–240 里（2026-09-19 用户定稿），
+    /// 低于带会触发「语速偏慢」建议，`testIdealReadingScoresHigh` 的「满分无建议」就红了。
     private func idealMetrics() -> SpeechMetrics {
         SpeechMetrics(
-            duration: 3.5,
-            speechDuration: 2.8,
+            duration: 2.6,
+            speechDuration: 2.0,
             pauseDuration: 0,
             pauseCount: 0,
             longestPause: 0,
@@ -183,6 +185,37 @@ final class PronunciationTests: XCTestCase {
             metrics: metrics
         )
         XCTAssertNil(report.line(.speakingSpeed))
+    }
+
+    /// 回归（2026-09-19 用户反馈，当天两轮定稿）：语速标准最终定 **190–240、容差 60**。
+    /// ① 233 词/分落在带内 = 满分（第一版 110–170 曾把它判 30 分）；
+    /// ② 真正偏快的 280 词/分（出带上界 40 < 容差 60）温和扣分，绝不垫底。
+    func testFastButConversationalSpeechIsNotCrushedToFloor() throws {
+        var metrics = idealMetrics()
+        // 7 个词 1.8 秒 ≈ 每分钟 233 词：恰在理想带 190–240 里。
+        metrics.speechDuration = 1.8
+        metrics.speakingRatio = 0.95
+        let inBand = try XCTUnwrap(
+            PronunciationScorer.report(
+                reference: "Good morning how are you doing today",
+                recognized: "Good morning how are you doing today",
+                metrics: metrics
+            ).line(.speakingSpeed)
+        )
+        XCTAssertEqual(inBand.score, 100, accuracy: 0.5, "233 词/分在带内就是满分：\(inBand.detail)")
+        XCTAssertTrue(inBand.detail.contains("理想 190–240"), "明细必须反映定稿的理想带：\(inBand.detail)")
+
+        // 7 个词 1.5 秒 ≈ 每分钟 280 词：出带 40，容差 60 内 → 温和扣分。
+        metrics.speechDuration = 1.5
+        let fast = try XCTUnwrap(
+            PronunciationScorer.report(
+                reference: "Good morning how are you doing today",
+                recognized: "Good morning how are you doing today",
+                metrics: metrics
+            ).line(.speakingSpeed)
+        )
+        XCTAssertEqual(fast.score, 100.0 - 40.0 / 60.0 * 70.0, accuracy: 2, "280 词/分应温和扣分而非垫底")
+        XCTAssertGreaterThan(fast.score, 40, "偏快不许被打到接近垫底")
     }
 
     func testExcessivePausesArePenalized() {

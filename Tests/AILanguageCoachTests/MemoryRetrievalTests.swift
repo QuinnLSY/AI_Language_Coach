@@ -188,4 +188,124 @@ final class MemoryRetrievalTests: XCTestCase {
         let memory = await services.learningMemory()
         XCTAssertTrue(memory.isEmpty)
     }
+
+    // MARK: - 话题与趋势（计划 §19 的 conversation topics / difficulty history）
+
+    func testRecentTopicsAreDeduplicatedNewestFirst() {
+        let facts = [
+            MemorySessionFact(startedAt: now, topic: "问路"),
+            MemorySessionFact(startedAt: now.addingTimeInterval(-100), topic: "点咖啡"),
+            MemorySessionFact(startedAt: now.addingTimeInterval(-200), topic: "问路"),
+            MemorySessionFact(startedAt: now.addingTimeInterval(-300), topic: "   "),
+            MemorySessionFact(startedAt: now.addingTimeInterval(-400)),
+        ]
+        XCTAssertEqual(MemoryRetriever.recentTopics(from: facts), ["问路", "点咖啡"],
+                       "话题按新→旧去重，空白话题与无话题都不算话题")
+    }
+
+    func testSessionWithoutScenarioProducesNoTopic() {
+        let facts = [MemorySessionFact(startedAt: now, topic: nil, correctionCount: 2, messageCount: 4)]
+        let memory = MemoryRetriever.brief(
+            corrections: [], vocabulary: [], reports: [], sessionCount: 1, sessionFacts: facts
+        )
+        XCTAssertTrue(memory.recentTopics.isEmpty, "没绑情景就不编话题 —— 编出来的会让老师以为学员在练什么")
+    }
+
+    func testPracticeTrendIsUnknownWithTooFewSessions() {
+        let facts = (0..<3).map {
+            MemorySessionFact(startedAt: now.addingTimeInterval(Double(-$0) * 100),
+                              correctionCount: 3, messageCount: 6)
+        }
+        let trend = MemoryRetriever.practiceTrend(from: facts)
+        XCTAssertEqual(trend.direction, .unknown)
+        XCTAssertNil(trend.recentRate, "样本不足不该给出数字 —— 数字会让人误以为有结论")
+    }
+
+    func testPracticeTrendDetectsImprovement() {
+        // 新 → 旧：最近两次每轮 0.1 次纠错，更早两次每轮 0.5 次。
+        let facts = [
+            MemorySessionFact(startedAt: now, correctionCount: 1, messageCount: 10),
+            MemorySessionFact(startedAt: now.addingTimeInterval(-100), correctionCount: 1, messageCount: 10),
+            MemorySessionFact(startedAt: now.addingTimeInterval(-200), correctionCount: 5, messageCount: 10),
+            MemorySessionFact(startedAt: now.addingTimeInterval(-300), correctionCount: 5, messageCount: 10),
+        ]
+        let trend = MemoryRetriever.practiceTrend(from: facts)
+        XCTAssertEqual(trend.direction, .improving)
+        XCTAssertEqual(trend.recentRate ?? -1, 0.1, accuracy: 1e-6)
+        XCTAssertEqual(trend.earlierRate ?? -1, 0.5, accuracy: 1e-6)
+        XCTAssertEqual(trend.sessionCount, 4)
+    }
+
+    func testPracticeTrendDetectsSlipping() {
+        let facts = [
+            MemorySessionFact(startedAt: now, correctionCount: 5, messageCount: 10),
+            MemorySessionFact(startedAt: now.addingTimeInterval(-100), correctionCount: 5, messageCount: 10),
+            MemorySessionFact(startedAt: now.addingTimeInterval(-200), correctionCount: 1, messageCount: 10),
+            MemorySessionFact(startedAt: now.addingTimeInterval(-300), correctionCount: 1, messageCount: 10),
+        ]
+        XCTAssertEqual(MemoryRetriever.practiceTrend(from: facts).direction, .slipping)
+    }
+
+    func testPracticeTrendIgnoresSessionsWithUnknownTurnCount() {
+        // 名义 4 次会话，其中 2 次轮数为 0（算不出密度）→ 可用样本 2 < 4。
+        let facts = [
+            MemorySessionFact(startedAt: now, correctionCount: 1),
+            MemorySessionFact(startedAt: now.addingTimeInterval(-100), correctionCount: 1),
+            MemorySessionFact(startedAt: now.addingTimeInterval(-200), correctionCount: 5, messageCount: 10),
+            MemorySessionFact(startedAt: now.addingTimeInterval(-300), correctionCount: 5, messageCount: 10),
+        ]
+        XCTAssertEqual(MemoryRetriever.practiceTrend(from: facts).direction, .unknown,
+                       "轮数未知的会话不能硬算 —— 那等于把 0 当分母")
+    }
+
+    func testMemoryBlockRendersTopicsAndTrend() {
+        var memory = LearningMemory(recentTopics: ["点咖啡", "问路"])
+        memory.practiceTrend = PracticeTrend(direction: .slipping, recentRate: 0.5,
+                                             earlierRate: 0.2, sessionCount: 6)
+        let block = PromptBuilder.learningMemoryBlock(memory, learningLanguage: "English", nativeLanguage: "中文")
+        XCTAssertTrue(block.contains("Recently practised"))
+        XCTAssertTrue(block.contains("点咖啡"))
+        XCTAssertTrue(block.contains("Recent trend"))
+    }
+
+    func testMemoryBlockOmitsTrendWhenUnknown() {
+        let memory = LearningMemory(recentTopics: ["问路"])
+        let block = PromptBuilder.learningMemoryBlock(memory, learningLanguage: "English", nativeLanguage: "中文")
+        XCTAssertTrue(block.contains("Recently practised"))
+        XCTAssertFalse(block.contains("Recent trend"), "趋势未知就别给老师一行空话，那会诱导它自己编一个")
+    }
+
+    // MARK: - 清除记忆（不可逆，范围必须窄）
+
+    func testClearLearningMemoryKeepsVocabularyAndSessions() async throws {
+        let store = ConfigStore(
+            fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("memory-clear-\(UUID().uuidString).json")
+        )
+        let services = CoachServices(config: store, databasePath: ":memory:")
+        let opened = await services.learning
+        let database = try XCTUnwrap(opened)
+
+        let sessionID = UUID()
+        try await database.createSessionIfAbsent(ChatSession(id: sessionID, startedAt: Date()))
+        try await database.appendCorrection(
+            GrammarCorrection(original: "I have went", corrected: "I went", explanation: "past tense"),
+            sessionID: sessionID
+        )
+        try await database.upsertVocabulary(VocabularyEntry(word: "luggage", mastery: 0))
+
+        let before = await services.learningMemory()
+        XCTAssertFalse(before.recurringErrors.isEmpty, "前置条件：清之前确实有记忆")
+
+        let cleared = try await services.clearLearningMemory()
+        XCTAssertGreaterThanOrEqual(cleared.corrections, 1)
+        XCTAssertEqual(cleared.total, cleared.corrections + cleared.reviews
+                       + cleared.shadowing + cleared.vocabularyReviews)
+
+        let after = await services.learningMemory()
+        XCTAssertTrue(after.recurringErrors.isEmpty, "纠错记录应已清掉")
+        XCTAssertTrue(after.focusWords.contains("luggage"), "单词本不在清除范围内")
+        let sessions = await services.recentSessions(limit: 10)
+        XCTAssertEqual(sessions.count, 1, "对话记录不在清除范围内")
+    }
 }

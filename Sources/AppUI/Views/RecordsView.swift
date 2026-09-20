@@ -24,6 +24,8 @@ public struct RecordsView: View {
     /// 被别的页面点名跳过来时，短暂圈一下目标卡片 ——
     /// 滚过去但没有标记，人只会看到一屏陌生的内容，不知道落在哪。
     @State private var highlighted: RecordsFocus?
+    /// 展开的练习记录（需求 5：点卡片向下展开复盘详情，再点收起）。
+    @State private var expandedSessionID: UUID?
 
     public init(state: AppState) { self.state = state }
 
@@ -36,6 +38,12 @@ public struct RecordsView: View {
                     VStack(alignment: .leading, spacing: 18) {
                         statsRow
                         reviewCard
+                        LearningMemoryCard(
+                            memory: state.learningMemory,
+                            notice: state.learningMemoryNotice
+                        ) {
+                            await state.clearLearningMemory()
+                        }
                         mistakesCard.id(RecordsFocus.mistakes.anchorID)
                         sessionsCard
                     }
@@ -156,23 +164,26 @@ public struct RecordsView: View {
                 if let review = state.latestReview {
                     reviewBody(review)
                 } else {
-                    emptyHint("还没有复盘。聊上几句后点「生成本次复盘」，老师会告诉你做得好的地方和下次该练什么。")
+                    emptyHint("还没有复盘。每次练习结束（换新练习 / 重新打开应用）都会自动复盘；模型没起来时也可以在这里手动补一次。")
                 }
             }
         }
     }
 
-    /// 「生成本次复盘 / 重新生成」：挂在卡片标题行右侧（不额外占一行）。
+    /// 「手动补一次复盘」：复盘已经默认自动生成（需求 5），这个按钮是**兜底** ——
+    /// 自动那次赶上模型没起来时，学员还能自己补上，而不是就此失去这段练习的总结。
     private var reviewActionButton: some View {
         headerCapsule(
-            state.latestReview == nil ? "生成本次复盘" : "重新生成",
+            state.latestReview == nil ? "立即复盘这次练习" : "重新复盘",
             systemImage: "wand.and.stars",
             tint: theme.accent
         ) {
             Task { await state.generateSessionReview() }
         }
         .disabled(state.isGeneratingReview || state.chat.messages.isEmpty)
-        .help(state.chat.messages.isEmpty ? "先和老师聊几句，再来复盘" : "让本地模型回看这次练习并生成总结")
+        .help(state.chat.messages.isEmpty
+              ? "先和老师聊几句，再来复盘"
+              : "每次练习结束会自动复盘；模型没起来时用这里补一次")
     }
 
     /// 「前往词汇本练习」：复盘给的是结论，练才是把结论变成本事的一步 —— 把这条
@@ -370,39 +381,73 @@ public struct RecordsView: View {
 
     private func sessionRow(_ record: SessionSummary) -> some View {
         let scenarioTitle = state.scenarioTitle(for: record.scenarioID)
-        return HStack(spacing: 10) {
-            Image(systemName: scenarioTitle == nil ? "leaf.fill" : "bubble.left.and.bubble.right.fill")
-                .font(.system(size: 12))
-                .foregroundStyle(theme.accent)
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 6) {
-                    Text(record.startedAt.formatted(date: .abbreviated, time: .shortened))
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                        .foregroundStyle(theme.primaryText)
-                    if let scenarioTitle {
-                        Text(scenarioTitle)
-                            .font(.system(size: 9, weight: .semibold, design: .rounded))
-                            .foregroundStyle(theme.accent)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(theme.accent.opacity(0.14)))
+        let review = state.review(for: record.sessionID)
+        let isExpanded = expandedSessionID == record.sessionID
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: scenarioTitle == nil ? "leaf.fill" : "bubble.left.and.bubble.right.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.accent)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        Text(record.startedAt.formatted(date: .abbreviated, time: .shortened))
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(theme.primaryText)
+                        if let scenarioTitle {
+                            Text(scenarioTitle)
+                                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                                .foregroundStyle(theme.accent)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(theme.accent.opacity(0.14)))
+                        }
                     }
+                    Text(durationText(record))
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
                 }
-                Text(durationText(record))
-                    .font(.system(size: 10, design: .rounded))
+                Spacer()
+                Text("\(record.messageCount) 条对话")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                    .monospacedDigit()
+                // 需求 5：复盘已经默认生成了，所以这里给的是「点开看」而不是「去生成」。
+                Text(review == nil ? "暂无复盘" : (isExpanded ? "收起" : "看复盘"))
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(review == nil ? theme.secondaryText : theme.accentCool)
+                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(theme.secondaryText)
             }
-            Spacer()
-            Text("\(record.messageCount) 条对话")
-                .font(.system(size: 11, design: .rounded))
-                .foregroundStyle(theme.secondaryText)
-                .monospacedDigit()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    expandedSessionID = isExpanded ? nil : record.sessionID
+                }
+            }
+
+            if isExpanded {
+                Group {
+                    if let review {
+                        reviewBody(review)
+                    } else {
+                        emptyHint("这次练习还没复盘。下次换新练习或重新打开应用时会自动补上。")
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(theme.surfaceAlt.opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(isExpanded ? theme.accent.opacity(0.5) : .clear, lineWidth: 1)
         )
     }
 

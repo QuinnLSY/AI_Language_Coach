@@ -227,4 +227,35 @@ final class ConfigPersistenceTests: XCTestCase {
         XCTAssertFalse(ModelRunControl.isActive(running: false, healthOK: true))
         XCTAssertTrue(ModelRunControl.nextRunningState(running: false, healthOK: true))
     }
+
+    // MARK: - 旧版用户配置的字段兜底
+
+    /// **存量用户的配置文件可能是旧版本写下的**：默认配置后来给某个 Provider 加了字段
+    /// （本地语音识别的启停命令就是这么来的），而 `merge` 是按**整条 provider** 替换的 ——
+    /// 用户那一版里没有这个键，合并后被吞掉，表现为「设置页点启动报没有命令」。
+    ///
+    /// 因此仓库要留一份内置默认供取用（`bundledProvider`），缺什么补什么。
+    func testFillServiceCommandsRecoversCommandsForLegacyConfig() {
+        // 旧版配置：整条 provider 里没有启停命令（本轮新增字段之前写下的）。
+        let legacy = ProviderConfig(
+            id: "local.asr",
+            kind: .asr,
+            runtime: .externalLocalRuntime,
+            endpoint: "http://127.0.0.1:8858",
+            model: "ggml-small.en"
+        )
+        XCTAssertNil(legacy.serviceStartCommand)
+
+        let filled = CoachServices.fillServiceCommands(legacy)
+        XCTAssertFalse(
+            (filled.serviceStartCommand ?? "").isEmpty,
+            "内置默认里必须还能取到启动命令 —— 否则本机语音识别每次都得手动点「启动」"
+        )
+        XCTAssertFalse((filled.serviceStopCommand ?? "").isEmpty, "停止命令同样要补齐")
+
+        // 用户自己配了命令时不能被内置的覆盖回去。
+        var customized = legacy
+        customized.serviceStartCommand = "echo mine"
+        XCTAssertEqual(CoachServices.fillServiceCommands(customized).serviceStartCommand, "echo mine")
+    }
 }

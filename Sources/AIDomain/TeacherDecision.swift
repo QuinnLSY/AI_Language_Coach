@@ -125,13 +125,20 @@ public enum TeacherAgent {
         let context = input.context
         let scenario = context.scenario
 
-        // ① 基线：情景有场景自带的纠错强度就听场景的；否则听用户偏好。
-        var correctionLevel = scenario.map { CorrectionIntensity($0.correctionMode) }
+        // ① 基线：情景有场景自带的纠错强度就听场景的 —— 那是设计者对这个练习的意图，
+        //    用户选的人格档位只在它之上**推一档**（严格档顶到 strict 就停）；
+        //    出了情景才由人格档位直接定强度。
+        let persona = context.teacherPreference.persona
+        var correctionLevel = scenario.map { persona.shifted(CorrectionIntensity($0.correctionMode)) }
             ?? context.teacherPreference.correctionStyle
 
-        // ② 水平校准：**只在非情景时**生效。情景里以场景为准 ——
-        //    场景的 strict/gentle 是设计者对这个练习的意图，不该被学员水平悄悄改掉。
-        if scenario == nil {
+        // ② 水平校准：只在**非情景 + 标准档**时生效。
+        //    情景里以场景为准 —— 场景的 strict/gentle 是设计者对这个练习的意图，
+        //    不该被学员水平悄悄改掉。
+        //    ⚠️ 用户明选过档位（温和 / 严格）时也不校准：一个选了「严格纠错」的人
+        //    因为被推断成萌新就再也没被纠过错，在他眼里就是「这个设置坏了」——
+        //    明选优先于推断，是本项目一贯的口径（别把推断当实测）。
+        if scenario == nil, persona == .standard {
             switch input.profile.proficiency {
             case .beginner: correctionLevel = correctionLevel.relaxed
             case .intermediate: break

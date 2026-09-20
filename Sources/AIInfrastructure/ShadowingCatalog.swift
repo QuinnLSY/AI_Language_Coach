@@ -24,7 +24,6 @@ public enum ShadowingCatalog {
             if logging { AppLog.warning("跟读素材目录不可读：\(directory.path)", category: "shadowing") }
             return []
         }
-        let decoder = JSONDecoder()
         var drills: [ShadowingDrill] = []
         let files = entries
             .filter { $0.pathExtension.lowercased() == "json" }

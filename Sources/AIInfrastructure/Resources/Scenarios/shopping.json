@@ -28,6 +28,34 @@
     "How much is this one?",
     "Could I have a receipt, please?"
   ],
+  "mainQuest": "Buy clothes in a shop: check the size, try something on, ask the price and pay.",
+  "questSteps": [
+    {
+      "id": "shopping-s1",
+      "text": "Ask for a smaller size and ask to try it on.",
+      "hint": "先问尺码，再问能不能试",
+      "anchors": [
+        "Do you have this in a smaller size?",
+        "Can I try it on?"
+      ]
+    },
+    {
+      "id": "shopping-s2",
+      "text": "Ask how much it costs.",
+      "hint": "How much is ...?",
+      "anchors": [
+        "How much is this one?"
+      ]
+    },
+    {
+      "id": "shopping-s3",
+      "text": "Pay and ask for a receipt.",
+      "hint": "买单时顺手要张凭证",
+      "anchors": [
+        "Could I have a receipt, please?"
+      ]
+    }
+  ],
   "maxTurns": 12,
   "correctionMode": "balanced",
   "icon": "bag.fill"

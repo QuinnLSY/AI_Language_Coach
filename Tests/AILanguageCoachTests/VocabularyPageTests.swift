@@ -83,37 +83,36 @@ final class VocabularyPageTests: XCTestCase {
         XCTAssertFalse(decoded.isLegacy)
     }
 
-    func testVocabularySuggestionsAndDailyProgressReset() async {
+    func testSettingsCardWordCountFollowsCollectedUniqueWords() async {
+        // 设置页词汇本卡片的「单词数」要随**收录的去重单词数**更新：
+        // 加词 +1，同词不同释义版本（含大小写差异）只算一个，删词要回落。
         let state = makeAppState()
-        // 本机已有释义的词：联想里应带上词性与中文。
-        _ = await state.services.vocabulary.add(
-            word: "significant",
-            meaning: VocabularyDefinition(pos: "adj.", senses: "重要的；显著的").encoded
-        )
+        await state.reloadVocabulary()
+        XCTAssertEqual(state.vocabularyUniqueWordCount, 0, "空词表收录数是 0")
+
+        _ = await state.services.vocabulary.add(word: "substantial")
+        _ = await state.services.vocabulary.add(word: "substantial", meaning: "第二个释义版本")
+        _ = await state.services.vocabulary.add(word: "Substantial")
+        _ = await state.services.vocabulary.add(word: "apple")
+        await state.reloadVocabulary()
+        // 存储层 add 本就按归一化键去重（同词不重复入库）；去重数与条目数一致，
+        // 但展示层仍按词忽略大小写再兜一道（老数据 / 直写库可能出现同词多版本）。
+        XCTAssertEqual(state.vocabularyEntries.count, 2, "同词重复添加在存储层就被跳过")
+        XCTAssertEqual(state.vocabularyUniqueWordCount, 2)
+
+        let entries = await state.services.vocabulary.entries()
+        for entry in entries where entry.word.lowercased() == "substantial" {
+            await state.services.vocabulary.remove(id: entry.id)
+        }
+        await state.reloadVocabulary()
+        XCTAssertEqual(state.vocabularyUniqueWordCount, 1, "删掉 substantial 后收录数要回落")
+    }
+
+    func testVocabularyBankTotalAndDailyProgressReset() async {
+        let state = makeAppState()
         await state.reloadVocabulary()
         await state.loadVocabularyBankIfNeeded()
         XCTAssertGreaterThan(state.dailyBankTotal, 0, "词库总词数要能读到")
-
-        state.vocabularyDraft = "sign"
-        state.vocabularyDraftChanged()
-        let match = state.vocabularyMatches.first { $0.word == "significant" }
-        XCTAssertNotNil(match, "输入 sign 应联想到 significant")
-        XCTAssertEqual(match?.pos, "adj.")
-        XCTAssertEqual(match?.translation, "重要的；显著的")
-        XCTAssertEqual(match?.isInVocabulary, true)
-        XCTAssertTrue(VocabularySuggester.match("zzzz", in: state.vocabularySuggestions).isEmpty)
-
-        // 词库词本身也要带「词性 + 中文」（不依赖 LLM）。
-        state.vocabularyDraft = "improve"
-        state.vocabularyDraftChanged()
-        XCTAssertEqual(state.vocabularyMatches.first { $0.word == "improve" }?.detailText, "v. 改善；提高")
-
-        // 选中联想：只替换输入框内容，**不入库**（点「添加」才加）。
-        let before = state.vocabularyEntries.count
-        if let match { state.applyVocabularySuggestion(match) }
-        XCTAssertEqual(state.vocabularyDraft, "significant")
-        XCTAssertTrue(state.vocabularyMatches.isEmpty, "选中后浮层收起")
-        XCTAssertEqual(state.vocabularyEntries.count, before, "选中 ≠ 入库")
 
         // 重置每日推荐学习进度：记下重置时间与「已学词数」，认识记录清零并重抽一批。
         await state.loadDailyWordsIfNeeded()
@@ -154,16 +153,45 @@ final class VocabularyPageTests: XCTestCase {
         XCTAssertGreaterThan(hosting.fittingSize.height, 0, "收起态（整页 4 卡 + 翻页按钮）应可布局")
     }
 
-    func testSettingsVocabularyCardLayouts() async {
+    func testSettingsVocabularyCardLayouts() async throws {
         let state = makeAppState()
         await state.loadVocabularyBankIfNeeded()
+        await state.reloadDictionaryLibrary()
         XCTAssertGreaterThan(state.dailyBankTotal, 0)
-        // 设置页的词汇本卡（红框重置按钮 + 说明行）要能布局 ——
+        // 卡片上那行「词库共 N 词」必须是**词典去重后**的规模：
+        // 与查词 / 联想同一份词表，且严格少于「各书词条相加」（常用词跨词典重复）。
+        let deduped = state.dictionaryUniqueWordCount
+        let raw = state.dictionaryWordCount
+        // ⚠️ `await` 不能进 `XCTAssert*` 的 autoclosure —— 先取出来再断言。
+        let serviceDeduped = await state.services.dictionaryUniqueWordCount()
+        XCTAssertGreaterThan(deduped, 0, "内置词典应能读到")
+        XCTAssertEqual(deduped, serviceDeduped)
+        XCTAssertLessThan(deduped, raw, "跨词典同名词只算一个")
+        // 分母（每日推荐词源）是**可见词典的子集**：用户可能只把其中几本勾成词源，
+        // 所以只保证「不超过词库规模」，不要求相等（相等只在三本全勾时成立）。
+        XCTAssertGreaterThan(state.dailyBankTotal, 0)
+        XCTAssertLessThanOrEqual(state.dailyBankTotal, deduped)
+        // 设置页的词汇本卡（词库规模行 + 红框重置按钮 + 说明行）要能布局 ——
         // 「还没重置过 / 上次重置时间」两种文案都会被渲染到，都会走一遍。
         let hosting = NSHostingView(rootView: SettingsView(state: state))
         hosting.frame = NSRect(x: 0, y: 0, width: 700, height: 900)
         hosting.layoutSubtreeIfNeeded()
         XCTAssertGreaterThan(hosting.fittingSize.height, 0, "设置页（含词汇本重置卡）应可布局")
+        try dump(hosting, name: "round52-settings-vocabulary-card.png")
+    }
+
+    /// 把离屏排好的视图整块出图（与各 `*RenderTests` 同一套写法）。
+    private func dump(_ view: NSView, name: String) throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let directory = root.appendingPathComponent(".workbuddy/verify", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: rep)
+        let png = try XCTUnwrap(rep.representation(using: .png, properties: [:]), "PNG 编码失败")
+        try png.write(to: directory.appendingPathComponent(name))
     }
 
     func testFlowRowKeepsEachChipOnOneLine() {

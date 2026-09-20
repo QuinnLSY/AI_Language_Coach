@@ -28,6 +28,34 @@
     "Is there wifi in the room?",
     "Could I have some extra towels?"
   ],
+  "mainQuest": "Check in at a hotel: confirm your booking, ask about breakfast and wifi, then request towels.",
+  "questSteps": [
+    {
+      "id": "hotel_checkin-s1",
+      "text": "Confirm your reservation by name.",
+      "hint": "报上预订的名字",
+      "anchors": [
+        "I have a reservation under Chen."
+      ]
+    },
+    {
+      "id": "hotel_checkin-s2",
+      "text": "Ask about breakfast time and wifi.",
+      "hint": "问早餐时间、问有没有网络",
+      "anchors": [
+        "What time does breakfast start?",
+        "Is there wifi in the room?"
+      ]
+    },
+    {
+      "id": "hotel_checkin-s3",
+      "text": "Ask for something extra for the room.",
+      "hint": "Could I have some extra ...?",
+      "anchors": [
+        "Could I have some extra towels?"
+      ]
+    }
+  ],
   "maxTurns": 12,
   "correctionMode": "balanced",
   "icon": "bed.double.fill"

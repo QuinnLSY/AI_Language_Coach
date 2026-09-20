@@ -77,13 +77,19 @@ struct MultilineComposerField: NSViewRepresentable {
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = true
         textView.string = text
+        // VoiceOver：裸 `NSTextView` 只会被读成「文本区域」，而这里最难猜的恰恰是
+        // **回车到底发不发送**（多行框里两种约定都常见）。显式说清这条规则。
+        textView.setAccessibilityLabel("消息输入框")
+        textView.setAccessibilityHelp("回车发送，Shift + 回车换行")
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
         context.coordinator.scrollView = scrollView
         // 初值：先按一行上报，避免第一帧高度为 0（那会看到输入框「跳」一下）。
+        // 推到下一回合是必须的：此刻 `makeNSView` 还没返回，同步改绑定 = 「视图更新期间改状态」。
+        let coordinator = context.coordinator
         DispatchQueue.main.async {
-            context.coordinator.reportHeight(notify: true)
+            MainActor.assumeIsolated { coordinator.reportHeight(notify: true) }
         }
         return scrollView
     }
@@ -128,11 +134,13 @@ struct MultilineComposerField: NSViewRepresentable {
 
     // MARK: - Coordinator
 
-    /// `@unchecked Sendable` 的理由：本对象**只在主线程被创建与访问**
-    /// （SwiftUI 建视图在主线程、AppKit 的 delegate 回调也在主线程），
-    /// 之所以要显式声明，是因为高度上报要走一次 `DispatchQueue.main.async`
-    /// （在 `updateNSView` 里同步写绑定额度=「视图更新期间改状态」的运行期警告）。
-    final class Coordinator: NSObject, NSTextViewDelegate, @unchecked Sendable {
+    /// `@MainActor` 的理由：本对象**只在主线程被创建与访问**
+    /// （SwiftUI 建视图在主线程、AppKit 的 delegate 回调也在主线程）。
+    /// 写成隔离类型是让编译器替我们守住这一点，而不是靠注释约定：这里要读写的
+    /// `font` / `layoutManager` / `textContainer` / `frame` / `hasVerticalScroller`
+    /// 全都是 AppKit 的主 actor 属性，非隔离上下文碰它们只能靠 `try?` 式硬闯。
+    @MainActor
+    final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: MultilineComposerField
         weak var textView: NSTextView?
         weak var scrollView: NSScrollView?
@@ -151,15 +159,29 @@ struct MultilineComposerField: NSViewRepresentable {
             reportHeight(notify: true)
         }
 
+        /// 把一次「主 actor 上的改动」推到下一个主循环回合。
+        ///
+        /// 这些写操作**不能立刻做**：焦点回调与高度上报都处在
+        /// 「视图正在更新」的时间点上，同步改 `@Binding` 会撞上
+        /// 「视图更新期间改状态」的运行期警告。多绕一个回合就没有这个问题。
+        /// 参数标 `@MainActor` 是为了让闭包里能碰 `parent`（它属于主 actor 隔离的 Coordinator）。
+        private func onMainAsync(_ body: @escaping @MainActor (Coordinator) -> Void) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                // 已经排在主队列上了，这里只是把「我在主 actor 上」这件事告诉类型系统。
+                MainActor.assumeIsolated { body(self) }
+            }
+        }
+
         func textDidBeginEditing(_ notification: Notification) {
             if !parent.isFocused {
-                DispatchQueue.main.async { [weak self] in self?.parent.isFocused = true }
+                onMainAsync { $0.parent.isFocused = true }
             }
         }
 
         func textDidEndEditing(_ notification: Notification) {
             if parent.isFocused {
-                DispatchQueue.main.async { [weak self] in self?.parent.isFocused = false }
+                onMainAsync { $0.parent.isFocused = false }
             }
         }
 
@@ -211,9 +233,9 @@ struct MultilineComposerField: NSViewRepresentable {
                     height: documentHeight
                 )
             }
-            guard notify, abs(clamped - lastReported) > 0.5 else { return }
-            lastReported = clamped
-            DispatchQueue.main.async { [weak self] in self?.parent.measuredHeight = clamped }
+        guard notify, abs(clamped - lastReported) > 0.5 else { return }
+        lastReported = clamped
+        onMainAsync { $0.parent.measuredHeight = clamped }
         }
 
         /// TextKit 的真实行高。字体测量失败时退回 `ComposerMetrics.lineHeight`，

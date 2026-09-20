@@ -175,7 +175,7 @@ struct MessageAttachmentView: View {
         HStack(spacing: 7) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 11))
-                .foregroundStyle(.orange)
+                .foregroundStyle(theme.warning)
             Text("\(attachment.fileName) 的本地文件已不可用")
                 .font(.system(size: 11, design: .rounded))
                 .foregroundStyle(theme.secondaryText)

@@ -350,6 +350,28 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
 
 // MARK: - 产品配置
 
+/// 每日目标的档位（#225）。
+///
+/// - `baseline`：**保底 5 分钟** —— 计划缩到两轮对话 + 一句跟读 + 至多 3 个到期词，
+///   忙的时候 5 分钟内能做完，做完同样算「今日完成」（保住连续）。
+/// - `advanced`：**进阶目标** —— 按 `dailyGoalMinutes` 排计划（原有行为）。
+public enum DailyGoalMode: String, Sendable, Codable, CaseIterable, Equatable {
+    case baseline
+    case advanced
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .baseline: "保底 5 分钟"
+        case .advanced: "进阶目标"
+        }
+    }
+
+    /// 保底档下判定「目标达成」的时长口径（分钟）——与计划的量对得上。
+    public static let baselineMinutes = 5
+}
+
 public struct ProductConfig: Sendable, Equatable {
     public var learningLanguage: String
     public var nativeLanguage: String
@@ -360,6 +382,10 @@ public struct ProductConfig: Sendable, Equatable {
     public var selectedModels: [String: String]
     /// 老师形象（`AnimalKind.rawValue` 字符串，UI 层映射）。默认小熊猫。
     public var teacherAnimal: String
+    /// 老师人格档位（`TeacherPersona.rawValue` 字符串，UI 层映射）。默认 `standard`。
+    ///
+    /// 存字符串而不是枚举，理由同 `teacherAnimal`：AppCore 是最底层，不认识 AIDomain 的类型。
+    public var teacherPersona: String
     /// 小学员形象（`AnimalKind.rawValue` 字符串，UI 层映射）。默认小熊。
     public var studentAnimal: String
     /// 每类能力当前激活的 Provider（`AIProviderKind.rawValue -> provider id`）。
@@ -381,6 +407,17 @@ public struct ProductConfig: Sendable, Equatable {
     public var speechRate: Double
     /// 每日练习目标（分钟）。Dashboard 的「Learning goals」用它算完成度。
     public var dailyGoalMinutes: Int
+    /// 每日目标档位：保底 5 分钟 / 进阶目标（按 `dailyGoalMinutes` 排任务）。
+    ///
+    /// 保底档的存在理由：默认计划合计约半小时，门槛偏高 —— 忙的时候连打开的欲望都没了。
+    /// 保底档达成同样算「今日完成」（保住连续），进阶目标留给状态好的日子。
+    public var dailyGoalMode: DailyGoalMode
+    /// 本地定时练习提醒开关（#226）。关 = 不排任何通知。
+    public var practiceReminderEnabled: Bool
+    /// 提醒时刻（24 小时制的小时，0...23）。
+    public var practiceReminderHour: Int
+    /// 提醒时刻的分钟（0...59）。
+    public var practiceReminderMinute: Int
     /// 当前启用的**克隆音色档案 id**（第 24 步；nil = 用内置音色 `teacherVoice`）。
     ///
     /// 这里只存 id —— 档案本体（参考音频路径 + 授权记录）在 `VoiceProfileStore` 里。
@@ -395,6 +432,7 @@ public struct ProductConfig: Sendable, Equatable {
         themeMode: ThemeMode = .day,
         selectedModels: [String: String] = [:],
         teacherAnimal: String = "panda",
+        teacherPersona: String = "standard",
         studentAnimal: String = "bear",
         activeProviders: [String: String] = [:],
         teacherBubbles: Bool = true,
@@ -405,6 +443,10 @@ public struct ProductConfig: Sendable, Equatable {
         autoSpeak: Bool = true,
         speechRate: Double = SpeechRate.x1.rawValue,
         dailyGoalMinutes: Int = 15,
+        dailyGoalMode: DailyGoalMode = .advanced,
+        practiceReminderEnabled: Bool = false,
+        practiceReminderHour: Int = 20,
+        practiceReminderMinute: Int = 0,
         activeVoiceProfileID: String? = nil
     ) {
         self.learningLanguage = learningLanguage
@@ -414,6 +456,7 @@ public struct ProductConfig: Sendable, Equatable {
         self.themeMode = themeMode
         self.selectedModels = selectedModels
         self.teacherAnimal = teacherAnimal
+        self.teacherPersona = teacherPersona
         self.studentAnimal = studentAnimal
         self.activeProviders = activeProviders
         self.teacherBubbles = teacherBubbles
@@ -424,6 +467,10 @@ public struct ProductConfig: Sendable, Equatable {
         self.autoSpeak = autoSpeak
         self.speechRate = SpeechRate.nearest(to: speechRate).rawValue
         self.dailyGoalMinutes = min(max(dailyGoalMinutes, 5), 180)
+        self.dailyGoalMode = dailyGoalMode
+        self.practiceReminderEnabled = practiceReminderEnabled
+        self.practiceReminderHour = min(max(practiceReminderHour, 0), 23)
+        self.practiceReminderMinute = min(max(practiceReminderMinute, 0), 59)
         self.activeVoiceProfileID = activeVoiceProfileID
     }
 
@@ -443,10 +490,12 @@ public struct ProductConfig: Sendable, Equatable {
 extension ProductConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case learningLanguage, nativeLanguage, teacherVoice, practiceMode, themeMode
-        case selectedModels, teacherAnimal, studentAnimal, activeProviders
+        case selectedModels, teacherAnimal, teacherPersona, studentAnimal, activeProviders
         case teacherBubbles, animalBubbles, animalActivity
         case animalActivityFrequency, voicePreview, autoSpeak, speechRate
-        case dailyGoalMinutes, activeVoiceProfileID
+        case dailyGoalMinutes, dailyGoalMode
+        case practiceReminderEnabled, practiceReminderHour, practiceReminderMinute
+        case activeVoiceProfileID
     }
 
     public init(from decoder: Decoder) throws {
@@ -458,6 +507,9 @@ extension ProductConfig: Codable {
         themeMode = try container.decodeIfPresent(ThemeMode.self, forKey: .themeMode) ?? .day
         selectedModels = try container.decodeIfPresent([String: String].self, forKey: .selectedModels) ?? [:]
         teacherAnimal = try container.decodeIfPresent(String.self, forKey: .teacherAnimal) ?? "panda"
+        // ⚠️ 缺字段的老配置一律落回 `standard` —— 那正是加档位之前的行为，
+        // 不能因为升级就把老用户的教学口径改掉。
+        teacherPersona = try container.decodeIfPresent(String.self, forKey: .teacherPersona) ?? "standard"
         studentAnimal = try container.decodeIfPresent(String.self, forKey: .studentAnimal) ?? "bear"
         activeProviders = try container.decodeIfPresent([String: String].self, forKey: .activeProviders) ?? [:]
         teacherBubbles = try container.decodeIfPresent(Bool.self, forKey: .teacherBubbles) ?? true
@@ -470,6 +522,11 @@ extension ProductConfig: Codable {
             to: try container.decodeIfPresent(Double.self, forKey: .speechRate) ?? SpeechRate.x1.rawValue
         ).rawValue
         dailyGoalMinutes = min(max(try container.decodeIfPresent(Int.self, forKey: .dailyGoalMinutes) ?? 15, 5), 180)
+        // ⚠️ 老配置一律落回 advanced —— 那是保底档引入前的唯一行为，升级不改口径。
+        dailyGoalMode = try container.decodeIfPresent(DailyGoalMode.self, forKey: .dailyGoalMode) ?? .advanced
+        practiceReminderEnabled = try container.decodeIfPresent(Bool.self, forKey: .practiceReminderEnabled) ?? false
+        practiceReminderHour = min(max(try container.decodeIfPresent(Int.self, forKey: .practiceReminderHour) ?? 20, 0), 23)
+        practiceReminderMinute = min(max(try container.decodeIfPresent(Int.self, forKey: .practiceReminderMinute) ?? 0, 0), 59)
         activeVoiceProfileID = try container.decodeIfPresent(String.self, forKey: .activeVoiceProfileID)
     }
 
@@ -482,6 +539,7 @@ extension ProductConfig: Codable {
         try container.encode(themeMode, forKey: .themeMode)
         try container.encode(selectedModels, forKey: .selectedModels)
         try container.encode(teacherAnimal, forKey: .teacherAnimal)
+        try container.encode(teacherPersona, forKey: .teacherPersona)
         try container.encode(studentAnimal, forKey: .studentAnimal)
         try container.encode(activeProviders, forKey: .activeProviders)
         try container.encode(teacherBubbles, forKey: .teacherBubbles)
@@ -492,6 +550,10 @@ extension ProductConfig: Codable {
         try container.encode(autoSpeak, forKey: .autoSpeak)
         try container.encode(speechRate, forKey: .speechRate)
         try container.encode(dailyGoalMinutes, forKey: .dailyGoalMinutes)
+        try container.encode(dailyGoalMode, forKey: .dailyGoalMode)
+        try container.encode(practiceReminderEnabled, forKey: .practiceReminderEnabled)
+        try container.encode(practiceReminderHour, forKey: .practiceReminderHour)
+        try container.encode(practiceReminderMinute, forKey: .practiceReminderMinute)
         try container.encodeIfPresent(activeVoiceProfileID, forKey: .activeVoiceProfileID)
     }
 }
@@ -586,6 +648,11 @@ public struct AppConfiguration: Codable, Sendable, Equatable {
         try container.encode(resourcePolicy, forKey: .resourcePolicy)
     }
 
+    /// 该能力下**启用的**那条 provider（只看 `enabled`，不看可用性）。
+    ///
+    /// ⚠️ **仅供测试**：生产代码一律走 `resolvedProvider(for:)`（它还要过 Key 与激活态）。
+    /// 留着是因为若干用例要直接断言「配置里到底有没有这条、有没有启用」，
+    /// 拿 `resolvedProvider` 断言会把「没启用」和「没填 Key」两种失败混成一个 nil。
     public func enabledProvider(for kind: AIProviderKind) -> ProviderConfig? {
         providers.first { $0.kind == kind && $0.enabled }
     }

@@ -23,29 +23,87 @@ public enum DefaultConfiguration {
 // MARK: - 应用路径
 
 /// 统一的项目空间路径定位。约束来自用户要求：所有文件操作仅限项目空间。
+///
+/// ⚠️ **发布版必须有可写的数据目录**。历史实现直接用编译期 `#filePath` 上溯找 `Sources`
+/// 目录并在旁边建 `.workbuddy/app-config/`：只做字符串上溯、不校验存在性，
+/// 于是分发出去的 `.app` 里那串路径是**构建机**的源码路径。在别人机器上
+/// `/Users/<构建者>/` 通常连创建权限都没有 → `createDirectory` 被 `try?` 吞掉 →
+/// 配置 / learning.db / 音色档案**全部写不进去且一声不响**。
+/// 现在改为：项目空间目录**必须在本机真实可写**才用，否则退到 Application Support。
 public enum AppPaths {
 
-    /// 用户数据默认写回**项目空间内**（`.workbuddy/app-config/`，不进 git）。
-    /// 找不到项目根（例如未来打包成 .app 发布）时才回退到系统应用支持目录。
-    public static func userDataDirectory() -> URL {
-        if let projectRoot {
-            let directory = projectRoot.appendingPathComponent(".workbuddy/app-config", isDirectory: true)
-            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    /// 数据根目录。解析要做一次可写性探测，而它被全项目高频调用，故缓存一次。
+    public static func userDataDirectory() -> URL { resolvedUserDataDirectory }
+
+    private static let resolvedUserDataDirectory: URL = resolveDataDirectory(
+        projectRoot: projectRoot,
+        supportBase: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+        tempBase: FileManager.default.temporaryDirectory
+    )
+
+    /// 数据目录决策本体（三级降级）。抽成函数是为了让**三个分支都能被测试**：
+    /// 真机上发布环境那两档没法伪造，不抽出来就只能靠人眼。
+    static func resolveDataDirectory(projectRoot: URL?, supportBase: URL?, tempBase: URL) -> URL {
+        // 1) 开发环境：项目空间内 `.workbuddy/app-config/`（不进 git）。
+        //    这一档必须排在前面：开发机上 `swift run` 与打包后的 .app 要共用同一份数据，
+        //    否则同一个人的进度会分成两套。（`projectRoot` 已校验「本机真的存在」，
+        //    所以分发出去的 .app 会在这一步落空，自然走下一档。）
+        if let projectRoot,
+           let directory = usableDirectory(
+               projectRoot.appendingPathComponent(".workbuddy/app-config", isDirectory: true),
+               label: "项目空间"
+           ) {
             return directory
         }
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        let directory = base.appendingPathComponent("AILanguageCoach", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory
+
+        // 2) 发布环境（或项目空间不可写）：系统应用支持目录。
+        if let supportBase,
+           let directory = usableDirectory(
+               supportBase.appendingPathComponent("AILanguageCoach", isDirectory: true),
+               label: "应用支持目录"
+           ) {
+            return directory
+        }
+
+        // 3) 最后一档：临时目录。走到这里说明连 Application Support 都建不出来，
+        //    数据会随重启丢失——必须留下明确记录，不许静默。
+        let fallback = tempBase.appendingPathComponent("AILanguageCoach", isDirectory: true)
+        try? FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
+        AppLog.error(
+            "数据目录降级到临时目录（重启后会丢）：\(fallback.path)。请检查磁盘权限。",
+            category: "paths"
+        )
+        return fallback
+    }
+
+    /// 建目录并确认**真的可写**；任一步失败都记一条 warning 后返回 nil。
+    private static func usableDirectory(_ url: URL, label: String) -> URL? {
+        do {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        } catch {
+            AppLog.warning("数据目录不可建（\(label)：\(url.path)）：\(error.localizedDescription)", category: "paths")
+            return nil
+        }
+        guard FileManager.default.isWritableFile(atPath: url.path) else {
+            AppLog.warning("数据目录不可写（\(label)：\(url.path)），改走下一档", category: "paths")
+            return nil
+        }
+        return url
     }
 
     /// 通过 `#filePath`（编译期源码路径）向上定位包含 `Sources` 的项目根。
+    ///
+    /// ⚠️ 必须再校验一次「本机真的存在这个目录」：`#filePath` 是**编译期**常量，
+    /// 打包分发后它指向构建机的源码树。只做字符串上溯的话，任何机器上都会
+    /// 得到一个「看起来合理、实际不存在」的路径。
     public static let projectRoot: URL? = {
         var url = URL(fileURLWithPath: #filePath).deletingLastPathComponent() // .../Sources/AIInfrastructure
         for _ in 0..<6 {
             if url.lastPathComponent == "Sources" {
-                return url.deletingLastPathComponent()
+                let root = url.deletingLastPathComponent()
+                let sources = root.appendingPathComponent("Sources", isDirectory: true)
+                guard FileManager.default.fileExists(atPath: sources.path) else { return nil }
+                return root
             }
             url = url.deletingLastPathComponent()
         }
@@ -63,10 +121,18 @@ public actor ConfigStore {
 
     private var configuration: AppConfiguration
     private let fileURL: URL
+    /// 内置默认配置载入失败的原因（nil = 正常）。
+    ///
+    /// ⚠️ 以前这里是 `(try? load()) ?? AppConfiguration()`：载入失败会**静默**退成一份
+    /// 「零 provider」配置，表现是「应用里一个模型都没有」却没有任何提示，极难排查。
+    /// 现在把原因留下来给设置页展示，同时落一条 error 日志。
+    private var loadFailure: String?
 
     public init(fileURL: URL? = nil) {
         self.fileURL = fileURL ?? Self.defaultFileURL()
-        self.configuration = (try? DefaultConfiguration.load()) ?? AppConfiguration()
+        let (base, failure) = Self.loadBase()
+        self.configuration = base
+        self.loadFailure = failure
         if let saved = try? Self.read(from: self.fileURL) {
             self.configuration = Self.merge(base: self.configuration, override: saved)
         }
@@ -78,12 +144,32 @@ public actor ConfigStore {
     }
 
     public var current: AppConfiguration { configuration }
+    /// 用户覆盖层（`config.json`）的绝对路径。设置页「在 Finder 中打开」用它。
     public var storageLocation: URL { fileURL }
+    /// 内置默认配置载入失败的原因（nil = 正常）。
+    public var loadFailureReason: String? { loadFailure }
 
+    /// 重新从磁盘载入：内置默认配置 + 用户覆盖层。
+    ///
+    /// 用途：外部手改了 `config.json`（或把备份的配置拷回来）之后不必重启应用。
     public func reload() {
-        configuration = (try? DefaultConfiguration.load()) ?? AppConfiguration()
+        let (base, failure) = Self.loadBase()
+        configuration = base
+        loadFailure = failure
         if let saved = try? Self.read(from: fileURL) {
             configuration = Self.merge(base: configuration, override: saved)
+        }
+        AppLog.info("配置已重新载入（\(configuration.providers.count) 个供应商）", category: "config")
+    }
+
+    /// 载入内置默认配置。失败时**留痕**，不静默吞掉。
+    private static func loadBase() -> (AppConfiguration, String?) {
+        do {
+            return (try DefaultConfiguration.load(), nil)
+        } catch {
+            let reason = "内置默认配置载入失败：\(error.localizedDescription)"
+            AppLog.error(reason + "（本次以空配置启动）", category: "config")
+            return (AppConfiguration(), reason)
         }
     }
 

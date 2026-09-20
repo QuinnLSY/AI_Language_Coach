@@ -28,6 +28,34 @@
     "I'm allergic to penicillin.",
     "How often should I take this medicine?"
   ],
+  "mainQuest": "Describe your symptoms to a doctor, mention an allergy, and ask how to take the medicine.",
+  "questSteps": [
+    {
+      "id": "doctor_visit-s1",
+      "text": "Describe your main symptom and how long you have had it.",
+      "hint": "说症状，再说持续了多久",
+      "anchors": [
+        "I've had a sore throat for three days.",
+        "It hurts when I swallow."
+      ]
+    },
+    {
+      "id": "doctor_visit-s2",
+      "text": "Mention what you are allergic to.",
+      "hint": "I'm allergic to ...",
+      "anchors": [
+        "I'm allergic to penicillin."
+      ]
+    },
+    {
+      "id": "doctor_visit-s3",
+      "text": "Ask how often to take the medicine.",
+      "hint": "How often ...?",
+      "anchors": [
+        "How often should I take this medicine?"
+      ]
+    }
+  ],
   "maxTurns": 14,
   "correctionMode": "gentle",
   "icon": "stethoscope"

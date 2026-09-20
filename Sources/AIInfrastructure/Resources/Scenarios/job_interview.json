@@ -28,6 +28,34 @@
     "I used to work for a small startup.",
     "I'd like to know more about the salary."
   ],
+  "mainQuest": "Complete a job interview: introduce yourself, give your strengths, describe past experience and ask about the salary.",
+  "questSteps": [
+    {
+      "id": "job_interview-s1",
+      "text": "Introduce yourself and state how much experience you have.",
+      "hint": "I have ... years of experience in ...",
+      "anchors": [
+        "I have five years of experience in marketing."
+      ]
+    },
+    {
+      "id": "job_interview-s2",
+      "text": "Name your main strength and back it up.",
+      "hint": "My strength is ...",
+      "anchors": [
+        "My strength is teamwork."
+      ]
+    },
+    {
+      "id": "job_interview-s3",
+      "text": "Describe past experience and ask about the salary.",
+      "hint": "先讲过去，再主动问一句你想知道的",
+      "anchors": [
+        "I used to work for a small startup.",
+        "I'd like to know more about the salary."
+      ]
+    }
+  ],
   "maxTurns": 16,
   "correctionMode": "strict",
   "icon": "person.badge.clock.fill"

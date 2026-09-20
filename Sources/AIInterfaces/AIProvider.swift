@@ -42,6 +42,11 @@ public struct ProviderCapabilities: Sendable, Equatable {
     public var toolCalling: Bool
     public var vision: Bool
     public var multilingual: Bool
+    /// 是否真的给得出**词级**时间戳（Phase 12 计划的必测项之一）。
+    ///
+    /// 只声明「能 / 不能」：拿不到就 false，调用方据此决定要不要读 `ASRResult.words`，
+    /// 绝不许拿段级区间冒充词级对齐。
+    public var wordTimestamp: Bool
     /// 语音能力（第 24 步）：**只声明能/不能，不暴露任何供应商专属 API**。
     /// 应用层据此决定是否开放克隆 / 风格 / 情感 / 音高控制。
     public var voiceCloning: Bool
@@ -55,6 +60,7 @@ public struct ProviderCapabilities: Sendable, Equatable {
         toolCalling: Bool = false,
         vision: Bool = false,
         multilingual: Bool = false,
+        wordTimestamp: Bool = false,
         voiceCloning: Bool = false,
         style: Bool = false,
         emotion: Bool = false,
@@ -65,6 +71,7 @@ public struct ProviderCapabilities: Sendable, Equatable {
         self.toolCalling = toolCalling
         self.vision = vision
         self.multilingual = multilingual
+        self.wordTimestamp = wordTimestamp
         self.voiceCloning = voiceCloning
         self.style = style
         self.emotion = emotion
@@ -88,7 +95,8 @@ extension ProviderCapabilities {
     }
 }
 
-public struct ProviderMetadata: Sendable, Equatable {    public var id: String
+public struct ProviderMetadata: Sendable, Equatable {
+    public var id: String
     public var displayName: String
     public var runtime: RuntimeKind
     public var version: String?

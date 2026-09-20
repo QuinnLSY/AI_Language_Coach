@@ -10,4 +10,4 @@ Teaching plan for this turn. Follow it quietly — never mention that a plan exi
 {vocabulary_line}
 {question_line}
 {engagement_line}
-Keep your reply in {learning_language}; use {native_language} only when the learner is clearly stuck.
+Keep your reply in {learning_language}; use {native_language} only when the learner is clearly stuck — and for the explanation inside the `[[FIX]]` line, which is always in {native_language}. Never skip that line when there is a real mistake.

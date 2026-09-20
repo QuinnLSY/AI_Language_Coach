@@ -73,6 +73,17 @@ public struct MainView: View {
                     scenariosOverlay
                 }
 
+                // 上传材料浮层：叠在情景面板**之上**（它是从情景面板的头部入口进来的）。
+                if state.showingMaterialUpload {
+                    materialUploadOverlay
+                }
+
+                // 考后结算卡：报告浮在最前面。**只有两个出口**（再来一次 / 完成），
+                // 点遮罩不关 —— 一场考试的报告随手点掉就找不回来了。
+                if let report = state.examReport {
+                    examReportOverlay(report)
+                }
+
                 // 模型启停结果：顶部最前方，向下弹入 → 数秒后向上收起
                 if let toast = state.modelToast {
                     ModelToastView(toast: toast) { state.dismissModelToast() }
@@ -109,28 +120,58 @@ public struct MainView: View {
         }
         .frame(minWidth: 1080, minHeight: 720)
         .forestTheme(state.theme)
+        // 划词气泡的浮层由 `AppState` 持有：中间栏任何页面的句子都能把气泡交给它画。
+        .environment(\.wordLookupPresenter, state.lookupBubble)
+        // 面板一开就把气泡收掉：它浮在内容层之上，否则会跟着留在面板外面。
+        .onChange(of: state.isContentCovered) { _, covered in
+            if covered { state.lookupBubble.hide() }
+        }
         // 日夜切换作用于全局：原生控件（TextField / Picker / 滚动条）也一起跟随。
         .preferredColorScheme(state.theme.isNight ? .dark : .light)
         .animation(.easeInOut(duration: 0.5), value: state.theme.palette)
         .animation(.easeOut(duration: 0.22), value: state.showingSettings)
         .animation(.easeOut(duration: 0.22), value: state.showingScenarios)
+        .animation(.easeOut(duration: 0.22), value: state.showingMaterialUpload)
         .task {
             state.systemIsDark = (colorScheme == .dark)
+            // ⚠️ 界面开关要在 `start()` **前后各压一次**：
+            // `start()` 末尾跑「继续上次练习」，老师开场白是一次真实模型调用
+            // （本机冷加载实测 30～60s）。排在它后面的钩子会被一直堵住 ——
+            // 表现为「--theme night 截出来还是白天」「--open-settings 面板根本不出现」；
+            // 而 `start()` 里若续上了某个情景，又会把页面状态改回去（`startScenario` 会收起面板）。
+            // 所以：先压一次让界面立刻正确，`start()` 之后再压一次盖掉它改过的状态。
+            await applyLaunchViewHooks()
             await state.start()
             await state.loadScenarios()
-            // 截图/验证辅助：--theme day|night|system 临时切换主题（**不写入配置**）
-            if let index = CommandLine.arguments.firstIndex(of: "--theme"),
-               index + 1 < CommandLine.arguments.count,
-               let mode = ThemeMode(rawValue: CommandLine.arguments[index + 1]) {
-                state.themeMode = mode
+            await applyLaunchViewHooks()
+            // 验证辅助：--export-report <路径> 把年度学习记录卡直接导出成 PNG（跳过保存面板）。
+            if let index = CommandLine.arguments.firstIndex(of: "--export-report"),
+               index + 1 < CommandLine.arguments.count {
+                await state.reloadProgress()
+                if let data = ReportExporter.annualRecapPNG(recap: state.annualRecap, theme: state.theme) {
+                    try? data.write(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
+                    try? "report written".write(to: URL(fileURLWithPath: "/tmp/alc-hook-debug.txt"), atomically: true, encoding: .utf8)
+                } else {
+                    try? "report PNG nil".write(to: URL(fileURLWithPath: "/tmp/alc-hook-debug.txt"), atomically: true, encoding: .utf8)
+                }
             }
-            // 截图/验证辅助：--open-settings 启动时直接打开设置面板
-            if CommandLine.arguments.contains("--open-settings") {
-                state.showingSettings = true
+            // 验证辅助：--import-backup <路径> 走完整导入流程（校验 → 确认 → 暂存），跳过确认框。
+            if let index = CommandLine.arguments.firstIndex(of: "--import-backup"),
+               index + 1 < CommandLine.arguments.count {
+                await state.inspectBackup(at: CommandLine.arguments[index + 1])
+                if state.backupImportPlan != nil {
+                    await state.confirmBackupImport()
+                    state.showingSettings = true
+                }
             }
-            // 截图/验证辅助：--open-scenarios 启动时直接打开情景选择面板
-            if CommandLine.arguments.contains("--open-scenarios") {
+            // 验证辅助：--import-material <路径> 导入材料正文并生成拆解（真实模型调用）。
+            if let index = CommandLine.arguments.firstIndex(of: "--import-material"),
+               index + 1 < CommandLine.arguments.count {
+                state.importMaterialFile(at: CommandLine.arguments[index + 1])
+                await state.generateMaterialFromDraft()
                 state.showingScenarios = true
+                try? "material hook done: draft=\(state.materialDraft.count) result=\(state.materialResult ?? "nil") kits=\(state.materialKits.count)"
+                    .write(to: URL(fileURLWithPath: "/tmp/alc-hook-debug2.txt"), atomically: true, encoding: .utf8)
             }
             // 截图/验证辅助：--open-records 启动时直接进入学习记录页
             if CommandLine.arguments.contains("--open-records") {
@@ -150,6 +191,12 @@ public struct MainView: View {
             if CommandLine.arguments.contains("--open-shadowing") {
                 await state.openShadowing()
             }
+            // 段落级跟读（#232）：--open-shadowing-passage 直接进整段模式，
+            // 省掉一次手工点选（本机 UI 自动化对 SwiftUI 不可靠）。
+            if CommandLine.arguments.contains("--open-shadowing-passage") {
+                await state.openShadowing()
+                state.setShadowingMode(.passage)
+            }
             // 截图/验证辅助：--open-vocabulary 启动时直接进入词汇本页
             // （--daily-flip / --vocabulary-tail 自带进页，见 VocabularyView 的验证钩子）
             if CommandLine.arguments.contains("--open-vocabulary")
@@ -157,13 +204,16 @@ public struct MainView: View {
                 || CommandLine.arguments.contains("--vocabulary-tail") {
                 await state.openVocabulary()
             }
-            // 截图/验证辅助：--vocabulary-draft "sign" 进词汇本 + 往添加框塞一段输入，
-            // 直接看「添加」按钮与悬浮联想浮层（本机 UI 自动化打字不可靠）。
-            if let index = CommandLine.arguments.firstIndex(of: "--vocabulary-draft"),
+            // 截图/验证辅助：--open-dictionary 启动时直接进入词典页（空查询态 → 推荐词一排）
+            if CommandLine.arguments.contains("--open-dictionary") {
+                await state.openDictionary()
+            }
+            // 截图/验证辅助：--dictionary-word "nominal" 进词典页并直接查这个词。
+            // （观察固定搭配 / 例句的排版与划词气泡；本机 UI 自动化对 SwiftUI 不可靠。）
+            if let index = CommandLine.arguments.firstIndex(of: "--dictionary-word"),
                index + 1 < CommandLine.arguments.count {
-                await state.openVocabulary()
-                state.vocabularyDraft = CommandLine.arguments[index + 1]
-                state.vocabularyDraftChanged()
+                await state.openDictionary()
+                await state.lookUpDictionaryWord(CommandLine.arguments[index + 1], pushing: false)
             }
             // 截图/验证辅助：--define-vocabulary 进词汇本 + 给第一个每日推荐词查释义、
             // 给最新一条词条重新释义，并朗读「单词 + 例句」。
@@ -196,12 +246,45 @@ public struct MainView: View {
                let scenario = state.scenarios.first(where: { $0.id == CommandLine.arguments[index + 1] }) {
                 await state.startScenario(scenario)
             }
+            // 截图/验证辅助：--expand-scenario <id> 已在 `start()` 之前处理（见上）。
+            // 截图/验证辅助：--free-talk 直接开一段随口练（观察学生主导的引导风格，需求 4）
+            if CommandLine.arguments.contains("--free-talk") {
+                await state.startFreeTalk()
+            }
+            // 端到端验证辅助：--exam <考卷 id> 启动后直接开一场考试（观察考场条 / 出题）
+            if let index = CommandLine.arguments.firstIndex(of: "--exam"),
+               index + 1 < CommandLine.arguments.count {
+                await state.loadExamBlueprints()
+                let wanted = CommandLine.arguments[index + 1]
+                if let blueprint = state.examBlueprints.first(where: { $0.id == wanted }) {
+                    await state.startExam(blueprint)
+                } else {
+                    // 没找到就说清楚是哪一套没找到，别静默什么都不发生。
+                    state.practiceNotice = "没有找到考卷 \(wanted)（可用："
+                        + state.examBlueprints.map(\.id).joined(separator: "、") + "）"
+                }
+            }
+            // 端到端验证辅助：--auto-finish-exam-after <秒> 等 N 秒后自动交卷（观察结算卡）
+            if let index = CommandLine.arguments.firstIndex(of: "--auto-finish-exam-after"),
+               index + 1 < CommandLine.arguments.count,
+               let seconds = Double(CommandLine.arguments[index + 1]) {
+                Task {
+                    try? await Task.sleep(for: .seconds(seconds))
+                    await state.finishExam()
+                }
+            }
             // 端到端验证辅助：--send "文本" 启动后自动发送一条消息
             if let index = CommandLine.arguments.firstIndex(of: "--send"),
                index + 1 < CommandLine.arguments.count {
                 let text = CommandLine.arguments[index + 1]
                 Task {
-                    try? await Task.sleep(for: .seconds(1))
+                    // ⚠️ 必须**等老师开口生成结束**再发，不能固定 sleep：
+                    // `ChatService.send` 里 `guard !isGenerating else { return }` 会**静默丢弃**
+                    // 生成中抢话的消息。原来固定等 1 秒，在本机模型冷加载（几十秒）时必然踩空 ——
+                    // 表现为「--send 传了文本，会话里却一句都没有」，很容易被误读成功能坏了。
+                    for _ in 0..<90 where state.chat.isGenerating || state.chat.messages.isEmpty {
+                        try? await Task.sleep(for: .seconds(1))
+                    }
                     state.chat.send(text)
                 }
             }
@@ -214,6 +297,17 @@ public struct MainView: View {
                 Task {
                     try? await Task.sleep(for: .seconds(12))
                     await state.endScenario()
+                }
+            }
+            // 端到端验证辅助：--auto-free-talk-after <秒> 等 N 秒后走**顶栏「开启新练习」的同一条路径**
+            // （`startFreeTalk` 会先自动复盘上一段并清掉流水）。
+            // 用它一箭三雕：观察「自动复盘回执」（需求 5）+「随口练开场白」（需求 4）。
+            if let index = CommandLine.arguments.firstIndex(of: "--auto-free-talk-after"),
+               index + 1 < CommandLine.arguments.count,
+               let seconds = Double(CommandLine.arguments[index + 1]) {
+                Task {
+                    try? await Task.sleep(for: .seconds(seconds))
+                    await state.startFreeTalk()
                 }
             }
         }
@@ -238,6 +332,51 @@ public struct MainView: View {
         }
     }
 
+    // MARK: - 启动期界面钩子（截图 / 验证用，不影响正常使用）
+
+    /// 处理「纯界面」启动参数：主题、直接打开某个面板、展开某张情景卡。
+    ///
+    /// ⚠️ 分成独立方法是因为它要被调用**两次**（`start()` 前、后各一次）：
+    /// 详见 `.task` 里的注释 —— 一次是为了不被模型开场白挡住，一次是为了盖掉
+    /// `start()` 里「继续上次」改过的页面状态。方法本身是幂等的。
+    private func applyLaunchViewHooks() async {
+        // 整窗光标裁决（幂等）：AppKit 的光标矩形不理会 SwiftUI 浮层遮挡，
+        // 划词卡片 / 按钮上的插入符只能靠按命中测试的裁决压掉（#233 四轮）。
+        CursorGuard.shared.install()
+        // --theme day|night|system 临时切换主题（**不写入配置**）
+        if let index = CommandLine.arguments.firstIndex(of: "--theme"),
+           index + 1 < CommandLine.arguments.count,
+           let mode = ThemeMode(rawValue: CommandLine.arguments[index + 1]) {
+            state.themeMode = mode
+        }
+        // --open-settings 启动时直接打开设置面板
+        if CommandLine.arguments.contains("--open-settings") {
+            state.showingSettings = true
+        }
+        // --open-reading 启动时直接打开阅读页（验证辅助：截屏核对光标形状）
+        if CommandLine.arguments.contains("--open-reading") {
+            await state.openReading()
+        }
+        // --open-scenarios 启动时直接打开情景选择面板
+        // 走 `openScenarios()` 而不是直接置标记：那里顺带加载场景列表，
+        // 否则面板会开出一个空清单（而且这条钩子在 `start()` 前后各调一次）。
+        if CommandLine.arguments.contains("--open-scenarios") {
+            await state.openScenarios()
+        }
+        // --expand-scenario <id> 打开情景面板并展开那张卡
+        // （观察「主线任务 + 教学重点 + 大树联动」，需求 3）
+        if let index = CommandLine.arguments.firstIndex(of: "--expand-scenario"),
+           index + 1 < CommandLine.arguments.count {
+            await state.openScenarios()
+            state.expandedScenarioID = CommandLine.arguments[index + 1]
+        }
+        // --open-blackboard 启动时拉开侧栏并展开老师的今日作业（观察黑板的三个状态与按钮）
+        if CommandLine.arguments.contains("--open-blackboard") {
+            state.isSidebarExpanded = true
+            state.isBlackboardExpanded = true
+        }
+    }
+
     // MARK: - 宽度分配
 
     /// 树宽夹取在 [min, 可用宽 - 聊天最小宽]；保证聊天区永远不小于下限。
@@ -250,9 +389,18 @@ public struct MainView: View {
 
     @ViewBuilder
     private var chatArea: some View {
-        Group {
+        VStack(spacing: 0) {
+            // 今日作业不在中间栏：它在左栏老师的黑板上（见 `TeacherCorner`）。
+            // 中间栏保持一种版式 —— 卷轴挂在这里会破坏三栏的一致性。
+            Group {
             if state.showingShadowing {
                 ShadowingView(state: state)
+            } else if state.showingWriting {
+                WritingView(state: state)
+            } else if state.showingReading {
+                ReadingView(state: state)
+            } else if state.showingDictionary {
+                DictionaryView(state: state)
             } else if state.showingVocabulary {
                 VocabularyView(state: state)
             } else if state.showingProgress {
@@ -264,6 +412,7 @@ public struct MainView: View {
                     chat: state.chat,
                     modelName: state.currentModelName,
                     health: state.health,
+                    isBooting: state.isBooting,
                     providerLabel: state.activeProviderName,
                     contextLimit: state.contextLimit,
                     reasoningLabel: Self.reasoningDisplay(state.activeReasoningEffort),
@@ -274,6 +423,7 @@ public struct MainView: View {
                     autoSpeak: state.autoSpeak,
                     onMicStart: { await state.startVoiceInput() },
                     onMicStop: { await state.finishVoiceInput() },
+                    onCancelVoiceInput: { Task { await state.cancelVoiceInput() } },
                     voiceError: state.voiceError,
                     onDismissVoiceError: { state.clearVoiceError() },
                     onSpeakTap: { text in Task { await state.speak(text) } },
@@ -292,8 +442,11 @@ public struct MainView: View {
                     onTranslate: { id in await state.translateMessage(id) },
                     translationError: state.translationNotice,
                     onDismissTranslationError: { state.clearTranslationNotice() },
+                    wordLookup: state.wordLookupContext,
                     pendingAttachments: state.pendingAttachments,
                     attachmentNotice: state.attachmentNotice,
+                    attachmentSaveNotice: state.attachmentSaveNotice,
+                    llmSupportsVision: state.llmSupportsVision,
                     isImportingAttachments: state.isImportingAttachments,
                     onAddAttachments: { urls in
                         Task { await state.addAttachments(from: urls) }
@@ -306,11 +459,28 @@ public struct MainView: View {
                     },
                     attachmentLocation: { state.attachmentLocation(for: $0) },
                     onDismissAttachmentNotice: { state.clearAttachmentNotice() },
+                    onDismissAttachmentSaveNotice: { state.clearAttachmentSaveNotice() },
+                    onClearAttachments: { state.clearPendingAttachments() },
+                    practiceMode: state.productPracticeMode,
+                    onStartFreeTalk: { await state.startFreeTalk() },
+                    briefing: state.briefing,
+                    practiceNotice: state.practiceNotice,
+                    onDismissPracticeNotice: { state.dismissPracticeNotice() },
+                    exam: state.examBarModel,
+                    onExamTimeout: { Task { await state.examQuestionTimedOut() } },
+                    onExamSkip: { Task { await state.skipExamQuestion() } },
+                    onExamFinish: { Task { await state.finishExam() } },
                     onSend: { text in state.sendChat(text) }
                 )
             }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(state.theme.surfaceAlt.opacity(0.55))
+        // 划词气泡画在这一层之上：句子都在滚动容器里（聊天区还给内容加了渐隐 `mask`），
+        // 挂在句内的 overlay 会被裁掉，也会被后面声明的兄弟视图盖住。
+        // 浮层的位置由 `Anchor` 实时解算，滚动时照样贴着文字走。
+        .wordLookupBubbleOverlay()
     }
 
     // MARK: - 可拖动分割线（聊天 / 成长之树之间）
@@ -339,9 +509,13 @@ public struct MainView: View {
                 }
         )
         .onHover { hovering in
+            // ⚠️ 分裂条的左右箭头是**显式接管**：不暂停策略的话，
+            // 整窗光标裁决（`CursorGuard`）会在下一次鼠标移动时把它盖成箭头。
             if hovering {
+                CursorPolicy.suspend()
                 NSCursor.resizeLeftRight.push()
             } else {
+                CursorPolicy.resume()
                 NSCursor.pop()
             }
         }
@@ -357,16 +531,14 @@ public struct MainView: View {
             Divider().overlay(state.theme.divider)
             // 树可上下滚动；林间地面带固定吸附在底部（小动物始终可见、可点击说话）
             ZStack(alignment: .bottom) {
-                ScrollView(.vertical, showsIndicators: false) {
-                    TreeCanvas(
-                        theme: state.theme,
-                        progress: state.progress,
-                        studentAnimal: state.studentAnimalKind,
-                        bubblesAllowed: state.animalBubblesEnabled
-                    ) { level in
-                        Task { await open(level) }
-                    }
-                    .padding(.top, 6)
+                TreeScrollView(
+                    theme: state.theme,
+                    progress: state.progress,
+                    studentAnimal: state.studentAnimalKind,
+                    bubblesAllowed: state.animalBubblesEnabled,
+                    levelNotes: state.treeLevelNotes
+                ) { level in
+                    Task { await open(level) }
                 }
 
                 ForestGroundBand(
@@ -377,9 +549,11 @@ public struct MainView: View {
                     onActivityToggle: {
                         Task { await state.setAnimalActivity(!state.animalActivityEnabled) }
                     },
+                    // 今日任务全部完成 → 林子里的小动物一起跳一下（一天只触发一次）。
+                    celebrationTick: state.celebrationTick,
                     previewSleepBubble: CommandLine.arguments.contains("--sleep-bubble")
                 )
-                .frame(height: 150)
+                .frame(height: TreeViewport.groundBandHeight)
                 .allowsHitTesting(true)
             }
         }
@@ -419,6 +593,43 @@ public struct MainView: View {
         }
         .padding(.horizontal, 16)
         .frame(maxHeight: .infinity)
+    }
+
+    // MARK: - 考后结算卡（考试模式）
+
+    private func examReportOverlay(_ report: ExamReport) -> some View {
+        ZStack {
+            state.theme.scrim
+                .contentShape(Rectangle())
+                // 点遮罩**不关**：这场考试的报告只有「再来一次」与「完成」两个出口。
+                // 一场考完的分数结构随手点掉就再也拿不回来了（报告不落库，见 #206 说明）。
+                .onTapGesture { }
+
+            ExamReportCard(
+                report: report,
+                sampleAnswers: state.examSampleAnswers,
+                sampleTargets: state.examSampleTargets,
+                sampleNotice: state.examSampleNotice,
+                isGeneratingSamples: state.isGeneratingExamSamples,
+                onRetrySamples: { state.retryExamSampleAnswers() },
+                onSpeak: { text in Task { await state.speak(text) } },
+                onRetake: { Task { await state.retakeExam() } },
+                onClose: { state.dismissExamReport() }
+            )
+            .frame(width: 560, height: 660)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(state.theme.panel)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(state.theme.divider, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .shadow(color: state.theme.shadow, radius: 30, x: 0, y: 14)
+            .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
+        }
+        .zIndex(28)
     }
 
     // MARK: - 设置浮层（全局响应日夜，可关闭）
@@ -473,10 +684,39 @@ public struct MainView: View {
         .zIndex(18)
     }
 
+    // MARK: - 上传材料浮层（#208，比情景面板高一层）
+
+    private var materialUploadOverlay: some View {
+        ZStack {
+            state.theme.scrim
+                .contentShape(Rectangle())
+                .onTapGesture { state.closeMaterialUpload() }
+
+            MaterialUploadSheet(state: state) { state.closeMaterialUpload() }
+                .frame(width: 560)
+                .frame(maxHeight: 640)
+                .background(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(state.theme.panel)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .strokeBorder(state.theme.divider, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .shadow(color: state.theme.shadow, radius: 30, x: 0, y: 14)
+                .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
+        }
+        .zIndex(20)
+    }
+
     // MARK: -
 
     /// 推理强度展示文案（low/medium/high → 低/中/高）。
-    public static func reasoningDisplay(_ effort: String?) -> String? {
+    ///
+    /// `nonisolated`：纯查表函数，不碰任何隔离状态；隔离它只会让非隔离上下文
+    /// （单测）调用时被判越界。
+    public nonisolated static func reasoningDisplay(_ effort: String?) -> String? {
         switch effort {
         case "low": "低"
         case "medium": "中"

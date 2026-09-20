@@ -86,6 +86,62 @@ final class ConfigurationTests: XCTestCase {
         XCTAssertTrue(prompt.contains("zh-CN"))
     }
 
+    // MARK: - 老师人格档位（配置字段）
+
+    /// 老配置文件没有 `teacherPersona` 字段 —— 必须落回 `standard`，
+    /// 也就是「加档位之前的行为」，不能因为升级就把老用户的教学口径改掉。
+    func testLegacyProductConfigWithoutPersonaDefaultsToStandard() throws {
+        let legacy = Data(#"{"learningLanguage":"en-US","teacherAnimal":"panda"}"#.utf8)
+        let product = try JSONDecoder().decode(ProductConfig.self, from: legacy)
+        XCTAssertEqual(product.teacherPersona, "standard")
+
+        let empty = try JSONDecoder().decode(ProductConfig.self, from: Data("{}".utf8))
+        XCTAssertEqual(empty.teacherPersona, "standard")
+    }
+
+    /// 缺字段补齐、写了就保留（`ProductConfig` 的向后兼容解码约定）。
+    func testProductConfigRoundTripsPersona() throws {
+        let product = ProductConfig(teacherPersona: "strict")
+        let data = try JSONEncoder().encode(product)
+        let decoded = try JSONDecoder().decode(ProductConfig.self, from: data)
+        XCTAssertEqual(decoded.teacherPersona, "strict")
+        XCTAssertEqual(decoded, product)
+    }
+
+    // MARK: - 目标档位 / 练习提醒（配置字段）
+
+    /// 老配置没有新字段：档位落回 `advanced`（升级不改口径）、提醒默认关。
+    func testLegacyProductConfigDefaultsForGoalModeAndReminder() throws {
+        let legacy = Data(#"{"learningLanguage":"en-US"}"#.utf8)
+        let product = try JSONDecoder().decode(ProductConfig.self, from: legacy)
+        XCTAssertEqual(product.dailyGoalMode, .advanced)
+        XCTAssertFalse(product.practiceReminderEnabled)
+        XCTAssertEqual(product.practiceReminderHour, 20)
+        XCTAssertEqual(product.practiceReminderMinute, 0)
+    }
+
+    /// 新字段 round-trip；非法时刻被夹取到合法区间。
+    func testProductConfigRoundTripsGoalModeAndReminder() throws {
+        let product = ProductConfig(
+            dailyGoalMode: .baseline,
+            practiceReminderEnabled: true,
+            practiceReminderHour: 8,
+            practiceReminderMinute: 30
+        )
+        let data = try JSONEncoder().encode(product)
+        let decoded = try JSONDecoder().decode(ProductConfig.self, from: data)
+        XCTAssertEqual(decoded.dailyGoalMode, .baseline)
+        XCTAssertTrue(decoded.practiceReminderEnabled)
+        XCTAssertEqual(decoded.practiceReminderHour, 8)
+        XCTAssertEqual(decoded.practiceReminderMinute, 30)
+        XCTAssertEqual(decoded, product)
+
+        // 非法时刻在 init 就被夹取到合法区间。
+        let clamped = ProductConfig(practiceReminderHour: 25, practiceReminderMinute: 99)
+        XCTAssertEqual(clamped.practiceReminderHour, 23)
+        XCTAssertEqual(clamped.practiceReminderMinute, 59)
+    }
+
     // MARK: - 本地 / 云端 Provider 并存
 
     func testDefaultConfigurationContainsRemoteProviders() throws {

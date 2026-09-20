@@ -28,6 +28,34 @@
     "I'd like the soup as a starter.",
     "Can I have the bill, please?"
   ],
+  "mainQuest": "Complete a full restaurant visit: get a table, order a starter and a drink, then pay the bill.",
+  "questSteps": [
+    {
+      "id": "restaurant-s1",
+      "text": "Ask for a table and get the menu.",
+      "hint": "先说人数，再要菜单",
+      "anchors": [
+        "I'd like a table for two, please.",
+        "Could I have the menu, please?"
+      ]
+    },
+    {
+      "id": "restaurant-s2",
+      "text": "Order a starter.",
+      "hint": "I'd like ... as a starter",
+      "anchors": [
+        "I'd like the soup as a starter."
+      ]
+    },
+    {
+      "id": "restaurant-s3",
+      "text": "Ask for the bill and finish the meal.",
+      "hint": "吃完饭要把账结掉",
+      "anchors": [
+        "Can I have the bill, please?"
+      ]
+    }
+  ],
   "maxTurns": 12,
   "correctionMode": "balanced",
   "icon": "fork.knife"

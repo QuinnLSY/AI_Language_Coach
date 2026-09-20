@@ -28,6 +28,34 @@
     "What's my departure gate?",
     "Here's my boarding pass."
   ],
+  "mainQuest": "Finish an airport check-in: pick a seat, check your luggage and find your gate.",
+  "questSteps": [
+    {
+      "id": "airport_checkin-s1",
+      "text": "Ask for the seat you prefer.",
+      "hint": "座位偏好要主动说",
+      "anchors": [
+        "I'd like a window seat, please."
+      ]
+    },
+    {
+      "id": "airport_checkin-s2",
+      "text": "Tell them what luggage you are checking.",
+      "hint": "说清带了几件",
+      "anchors": [
+        "I have one piece of carry-on luggage."
+      ]
+    },
+    {
+      "id": "airport_checkin-s3",
+      "text": "Ask for your gate and show your boarding pass.",
+      "hint": "问登机口，再出示登机牌",
+      "anchors": [
+        "What's my departure gate?",
+        "Here's my boarding pass."
+      ]
+    }
+  ],
   "maxTurns": 14,
   "correctionMode": "balanced",
   "icon": "airplane.departure"

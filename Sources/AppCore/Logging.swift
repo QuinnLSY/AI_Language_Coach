@@ -73,6 +73,51 @@ public actor LogBus {
     public func clear() { entries.removeAll() }
 }
 
+// MARK: - 用户可调项（设置页）
+
+/// 运行日志的**用户可调**选项：级别与清空。
+///
+/// 为什么落 `UserDefaults` 而不是设置页用 `@AppStorage`：级别必须在**启动那一刻**就生效，
+/// 而启动路径（`AppState.start()`）拿不到视图的 `@AppStorage`。
+///
+/// ⚠️ 默认保持 `.debug`（= 全收，与历史行为一致）：项目里不少「写配置失败」的提示
+/// 走的是 `AppLog.debug`，默认抬高门槛会让这些刚接上的留痕又看不见。
+/// 抬高门槛是用户主动选择，不是我们替他决定的。
+public enum LogOptions {
+
+    private static let minimumLevelKey = "logging.minimumLevel"
+
+    /// 生效中的最低级别（默认全收）。
+    public static var minimumLevel: LogLevel {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: minimumLevelKey),
+                  let level = LogLevel(rawValue: raw) else { return .debug }
+            return level
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: minimumLevelKey)
+            apply(newValue)
+        }
+    }
+
+    /// 启动时调用一次，把用户上次选的级别装进日志总线。
+    public static func applyPersistedLevel() {
+        apply(minimumLevel)
+    }
+
+    /// 清空内存里的日志（os_log 那边的历史清不掉，这里只清设置页展示的这一份）。
+    public static func clear() {
+        Task.detached { await LogBus.shared.clear() }
+    }
+
+    private static func apply(_ level: LogLevel) {
+        Task.detached {
+            await LogBus.shared.setMinimumLevel(level)
+            await LogBus.shared.log(.info, category: "log", message: "日志级别已设为 \(level.rawValue)")
+        }
+    }
+}
+
 // MARK: - Convenience
 
 public enum AppLog {

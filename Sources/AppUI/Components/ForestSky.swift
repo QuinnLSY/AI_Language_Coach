@@ -100,21 +100,21 @@ private struct SunView: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(theme.accent.opacity(0.22))
+                .fill(theme.glow.opacity(0.22))
                 .frame(width: 130, height: 130)
             Circle()
-                .fill(theme.accent.opacity(0.35))
+                .fill(theme.glow.opacity(0.35))
                 .frame(width: 96, height: 96)
             Circle()
                 .fill(
-                    RadialGradient(colors: [Color(hex: 0xFFF0B8), theme.accent],
+                    RadialGradient(colors: [Color(hex: 0xFFF0B8), theme.glow],
                                    center: .center, startRadius: 4, endRadius: 40)
                 )
                 .frame(width: 68, height: 68)
 
             ForEach(0..<12, id: \.self) { index in
                 Capsule()
-                    .fill(theme.accent.opacity(0.75))
+                    .fill(theme.glow.opacity(0.75))
                     .frame(width: 5, height: 16)
                     .offset(y: -54)
                     .rotationEffect(.degrees(Double(index) * 30))
@@ -159,10 +159,10 @@ private struct MoonGlow: View {
     let theme: ForestTheme
     var body: some View {
         ZStack {
-            Circle().fill(theme.accent.opacity(0.16)).frame(width: 130, height: 130)
-            Circle().fill(theme.accent.opacity(0.22)).frame(width: 96, height: 96)
+            Circle().fill(theme.glow.opacity(0.16)).frame(width: 130, height: 130)
+            Circle().fill(theme.glow.opacity(0.22)).frame(width: 96, height: 96)
             Circle()
-                .fill(RadialGradient(colors: [Color(hex: 0xFFFBE8), theme.accent],
+                .fill(RadialGradient(colors: [Color(hex: 0xFFFBE8), theme.glow],
                                      center: .center, startRadius: 3, endRadius: 36))
                 .frame(width: 62, height: 62)
                 .overlay(

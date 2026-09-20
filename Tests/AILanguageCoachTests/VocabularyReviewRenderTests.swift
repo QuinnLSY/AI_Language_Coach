@@ -660,4 +660,30 @@ final class VocabularyReviewRenderTests: XCTestCase {
         XCTAssertTrue(state.isDefiningVocabulary.isEmpty, "加载态必须收干净（否则按钮永远转圈）")
         XCTAssertEqual(state.vocabularyStats.due, 1, "查释义不该动复习进度")
     }
+
+    /// 复习入口卡的留档（白天 / 夜晚各一张），供人眼核对「降亮度」这一版。
+    ///
+    /// 卡上那颗「开始复习」是**黄底 + 白字**，外圈还有一道淡黄描边 —— 正是
+    /// 反馈里「夜晚全亮黄刺眼」的那一处。这里只出图不做像素断言：色值本身由
+    /// `ThemeContrastTests` 用对比度钉住，人眼要看的则是「整体观感是否还刺眼」。
+    func testDumpsReviewEntryCardForThemeReview() async throws {
+        let state = makeAppState()
+        _ = await state.services.vocabulary.add(
+            word: "coffee", meaning: definition("/ˈkɒfi/", pos: "n.", senses: "咖啡")
+        )
+        await state.reloadVocabulary()
+        await state.loadDailyWordsIfNeeded()
+        XCTAssertGreaterThan(state.vocabularyStats.due, 0, "有到期的词，入口卡才是有活干的样子")
+
+        let day = try renderPage(
+            state: state, theme: ForestThemeResolver.resolve(mode: .day, systemIsDark: false)
+        )
+        let night = try renderPage(
+            state: state, theme: ForestThemeResolver.resolve(mode: .night, systemIsDark: true)
+        )
+        try dump(day.rep, name: "round39-vocabulary-entry-day.png")
+        try dump(night.rep, name: "round39-vocabulary-entry-night.png")
+        XCTAssertGreaterThan(day.size.height, 300)
+        XCTAssertGreaterThan(night.size.height, 300)
+    }
 }

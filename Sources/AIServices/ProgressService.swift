@@ -45,6 +45,9 @@ public actor ProgressService {
         let shadowing = (try? await learning.shadowingAttempts(since: start)) ?? []
         // 词汇用全量：累计曲线需要窗口之前的存量当起始高度。
         let vocabulary = (try? await learning.allVocabulary()) ?? []
+        // 写作 / 阅读（#233）：阅读只认交卷的（口径见 `ReadingStamp`）。
+        let writings = (try? await learning.writingStamps(since: start)) ?? []
+        let readings = (try? await learning.readingStamps(since: start)) ?? []
 
         return ProgressAggregator.snapshot(
             days: window,
@@ -56,7 +59,9 @@ public actor ProgressService {
             shadowing: shadowing,
             vocabulary: vocabulary,
             totalStars: totalStars,
-            goalMinutes: goalMinutes
+            goalMinutes: goalMinutes,
+            writings: writings,
+            readings: readings
         )
     }
 
@@ -64,6 +69,41 @@ public actor ProgressService {
     public func recentMistakes(limit: Int = 20) async -> [GrammarCorrection] {
         guard let learning else { return [] }
         return (try? await learning.recentCorrections(limit: limit)) ?? []
+    }
+
+    // MARK: - 每周小结与月环比（#228）
+
+    /// 「本周小结」卡的数字：本周 / 上周时长与纠错、本周新增词、月环比。
+    ///
+    /// 与 `snapshot(days:)` **分开取数**（同年度记录的理由）：小结要看 63 天
+    /// （覆盖到上个月 1 号之前，月环比才有整月的上期样本），窗口只要 7–30 天。
+    /// 折算仍走 `ProgressAggregator` 纯函数，不另立第二把尺。
+    public func weeklyInsight(now: Date = Date(), calendar: Calendar = .current) async -> WeeklyInsight? {
+        guard let learning else { return nil }
+        // 63 天 = 上月整月 + 本月至今的最坏情况（31 + 31）再放宽一天。
+        let window = 63
+        let start = calendar.startOfDay(for: now)
+            .addingTimeInterval(-Double(window) * 86_400)
+        let messages = (try? await learning.messageTimestamps(since: start)) ?? []
+        let corrections = (try? await learning.correctionRecords(since: start)) ?? []
+        let shadowing = (try? await learning.shadowingStamps(since: start)) ?? []
+        // 词汇用全量：`dailyActivity` 按 createdAt 折每天新增。
+        let vocabulary = (try? await learning.allVocabulary()) ?? []
+        let writings = (try? await learning.writingStamps(since: start)) ?? []
+        let readings = (try? await learning.readingStamps(since: start)) ?? []
+
+        let days = ProgressAggregator.daySlots(count: window, endingAt: calendar.startOfDay(for: now), calendar: calendar)
+        let activity = ProgressAggregator.dailyActivity(
+            days: days,
+            calendar: calendar,
+            messages: messages,
+            corrections: corrections,
+            shadowing: shadowing,
+            vocabulary: vocabulary,
+            writings: writings,
+            readings: readings
+        )
+        return ProgressAggregator.weeklyInsight(days: activity, now: now, calendar: calendar)
     }
 
     // MARK: - 年度学习记录
@@ -88,13 +128,17 @@ public actor ProgressService {
         let messages = (try? await learning.messageTimestamps(since: start)) ?? []
         let shadowing = (try? await learning.shadowingStamps(since: start)) ?? []
         let reviews = (try? await learning.vocabularyReviewStamps(since: start)) ?? []
+        let writings = (try? await learning.writingStamps(since: start)) ?? []
+        let readings = (try? await learning.readingStamps(since: start)) ?? []
 
         let activity = ProgressAggregator.dailyActivity(
             days: slots,
             calendar: calendar,
             messages: messages,
             shadowing: shadowing,
-            reviews: reviews
+            reviews: reviews,
+            writings: writings,
+            readings: readings
         )
         return AnnualRecapBuilder.build(
             days: activity, goalMinutes: goalMinutes, now: now, calendar: calendar

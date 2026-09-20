@@ -14,13 +14,6 @@ public enum VocabularyWordBank {
         return []
     }
 
-    /// 带「词性 + 中文义项」的完整词库（添加框联想用）。
-    public static func entries() -> [WordBankEntry] {
-        if let loaded = parseEntries(resourceData()) { return loaded }
-        AppLog.warning("未找到雅思词库资源（Resources/Vocabulary/ielts_words.json）", category: "vocabulary")
-        return []
-    }
-
     /// 读词库文件（两种打包布局都试一遍）。
     private static func resourceData() -> Data? {
         if let url = AppResourceBundle.module.url(forResource: "Vocabulary/ielts_words", withExtension: "json"),
@@ -35,33 +28,24 @@ public enum VocabularyWordBank {
         return nil
     }
 
-    /// 解析 `[{"word": "...", "difficulty": 1, "pos": "v.", "zh": "..."}]`。
+    /// 解析 `[{"word": "...", "difficulty": 1, "pos": "v.", "zh": "..."}]` 成 `DailyWord`。
+    ///
+    /// ⚠️ JSON 里的 `pos` / `zh` 只随数据存着（给以后的离线速查留一份），
+    /// 选词与展示都不用它们——**详细释义一律按需问模型**。
     /// 空词 / 非法难度 / 重复词一律忽略；无法解析返回 nil。
-    public static func parseEntries(_ data: Data?) -> [WordBankEntry]? {
+    public static func parse(_ data: Data?) -> [DailyWord]? {
         guard let data,
               let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
         else { return nil }
-        var result: [WordBankEntry] = []
+        var result: [DailyWord] = []
         var seen = Set<String>()
         for item in list {
             guard let raw = item["word"] as? String else { continue }
             let word = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !word.isEmpty, word.count <= 48, !seen.contains(word.lowercased()) else { continue }
             seen.insert(word.lowercased())
-            result.append(
-                WordBankEntry(
-                    word: word,
-                    difficulty: item["difficulty"] as? Int ?? 2,
-                    pos: (item["pos"] as? String ?? "").trimmingCharacters(in: .whitespaces),
-                    translation: (item["zh"] as? String ?? "").trimmingCharacters(in: .whitespaces)
-                )
-            )
+            result.append(DailyWord(word: word, difficulty: item["difficulty"] as? Int ?? 2))
         }
         return result
-    }
-
-    /// 解析成 `DailyWord`（每日推荐选词用 —— 词性 / 中文不参与选词）。
-    public static func parse(_ data: Data?) -> [DailyWord]? {
-        parseEntries(data)?.map { DailyWord(word: $0.word, difficulty: $0.difficulty) }
     }
 }

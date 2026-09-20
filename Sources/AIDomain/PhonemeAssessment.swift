@@ -163,7 +163,7 @@ public enum EnglishG2P {
                singleConsonants[letters[index + 1]] != nil,
                letters[index + 2] == "e",
                index + 3 == letters.count {
-                result.append(contentsOf: lengthened(vowel, after: letters[index + 1]))
+                result.append(contentsOf: lengthened(vowel))
                 index += 3
                 continue
             }
@@ -197,7 +197,10 @@ public enum EnglishG2P {
     }
 
     /// 单字母元音在「辅音 + 哑 e」结构里的长音形式。
-    private static func lengthened(_ vowel: [String], after consonant: Character) -> [String] {
+    ///
+    /// ⚠️ 不看后面的辅音字母：ARPAbet 音标里长音已经由元音符号本身标出来了
+    /// （`AE1 → EY1` 这类映射是固定的），拿它再判一次只会多一个用不上的入参。
+    private static func lengthened(_ vowel: [String]) -> [String] {
         switch vowel.first {
         case "AE1": ["EY1"]
         case "EH1": ["IY1"]

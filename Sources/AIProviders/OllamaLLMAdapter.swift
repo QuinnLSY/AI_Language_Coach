@@ -113,12 +113,8 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
         ProviderMetadata(id: providerID, displayName: "本地大模型", runtime: .ollama)
     }
 
-    public func llmCapabilities() -> LLMCapabilities {
-        LLMCapabilities(
-            streaming: true, structuredOutput: false,
-            vision: declaredVision, multilingual: true
-        )
-    }
+    // `llmCapabilities()` 走协议默认实现（= `capabilities().llmView`）：
+    // 两个方法各写一遍同一份能力，就是漂移的来源。
 
     // MARK: - 生成
 

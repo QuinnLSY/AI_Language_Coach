@@ -103,7 +103,9 @@ final class ChatExperienceTests: XCTestCase {
         chat.greetIfNeeded()
         await waitUntil { chat.isGenerating == false }
 
-        XCTAssertEqual(chat.messages.count, 1, "情景开场白之外不得再插招呼")
+        // 情景有它自己的开场（由老师生成，走 `deliverOpener()`），
+        // 一般招呼 `greetIfNeeded()` 在这里必须一动不动 —— 否则学员一次听到两段开场。
+        XCTAssertEqual(chat.messages.count, 0, "情景内不得再插一般招呼")
     }
 
     // MARK: - 新增 1：预设提问（数据驱动）

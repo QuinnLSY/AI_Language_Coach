@@ -49,7 +49,7 @@ struct MenuPopUpHitArea: NSViewRepresentable {
 }
 
 /// 命中区实现。只负责「被点到 → 弹菜单 → 回调索引」，不画任何东西。
-final class PopUpHitView: NSView {
+final class PopUpHitView: NSView, CursorPreferenceProviding {
 
     private var titles: [String] = []
     private var selectedIndex: Int?
@@ -98,9 +98,10 @@ final class PopUpHitView: NSView {
     }
 
     /// 悬停出「可点」光标：用户反馈里「点了没反应」有很大一部分是**不确定能不能点**。
-    override func resetCursorRects() {
-        if isEnabled { addCursorRect(bounds, cursor: .pointingHand) }
-    }
+    ///
+    /// ⚠️ 走 `CursorPreferenceProviding` 而不是 `addCursorRect`：整窗光标已由
+    /// `CursorPolicy` 按命中链裁决（#233 四轮），命中区的偏好必须落在**命中链**上才有效。
+    var desiredCursor: NSCursor { isEnabled ? .pointingHand : .arrow }
 
     override func mouseDown(with event: NSEvent) {
         guard isEnabled, !titles.isEmpty else { return }

@@ -70,6 +70,19 @@ public actor ShadowingService {
         await voice.speak(drill.text, voice: selection, language: language, rate: rate)
     }
 
+    /// 听整段示范：把段落连成一段交给朗读流水线（分句 / 变速都在里面处理）。
+    ///
+    /// 不逐句拼着播：逐句播会在句间插一次合成边界，学员听到的是「四句各自读一遍」，
+    /// 而段落模式要练的恰恰是**句与句之间的连贯**。
+    public func playPassage(
+        _ passage: ShadowingPassage,
+        selection: SpeechVoiceSelection,
+        language: String,
+        rate: Float
+    ) async {
+        await voice.speak(passage.text, voice: selection, language: language, rate: rate)
+    }
+
     /// 开始跟读录音（录音期间 VoiceService 会流式把识别结果推给 UI）。
     public func startRecording(language: String?) async {
         await voice.setPartialLanguage(language)
@@ -141,6 +154,43 @@ public actor ShadowingService {
             try? await learning.appendShadowingAttempt(attempt)
         }
         return ShadowingResult(comparison: comparison, pronunciation: report)
+    }
+
+    /// 评测一次**段落跟读**并落库：整段识别文本回填到每一句 → 逐句对齐 + 整段发音评测。
+    ///
+    /// 落库口径与一句一练**同一把尺**：每一句记一条 `ShadowingAttempt`，
+    /// 否则「练了几次 / 平均匹配率」会把「一段」和「一句」混着算，统计立刻失真。
+    ///
+    /// ⚠️ 发音报告是**整段**量出来的，只挂在**第一句**那条记录上：
+    /// 一段挂 N 条，统计里同一份发音分就被平均 N 遍。
+    public func evaluatePassage(_ passage: ShadowingPassage, recognized: String) async -> ShadowingPassageEvaluation {
+        let result = ShadowingPassageScorer.evaluate(passage: passage, recognized: recognized)
+
+        var report: PronunciationReport?
+        if !pendingSamples.isEmpty {
+            report = await pronunciation.report(
+                reference: passage.text,
+                recognized: recognized,
+                samples: pendingSamples,
+                sampleRate: await voice.recordingSampleRate
+            )
+        }
+        pendingSamples = []
+
+        if let learning {
+            for (index, drill) in passage.drills.enumerated() {
+                let sentence = result.sentences.indices.contains(index) ? result.sentences[index] : nil
+                let attempt = ShadowingAttempt(
+                    drillID: drill.id,
+                    referenceText: drill.text,
+                    recognizedText: sentence?.recognizedText ?? "",
+                    accuracy: sentence?.accuracy ?? 0,
+                    pronunciation: index == 0 ? report : nil
+                )
+                try? await learning.appendShadowingAttempt(attempt)
+            }
+        }
+        return ShadowingPassageEvaluation(result: result, pronunciation: report)
     }
 
     /// 最近的跟读记录（新 → 旧）。

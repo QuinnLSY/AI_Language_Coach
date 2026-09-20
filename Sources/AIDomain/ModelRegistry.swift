@@ -61,23 +61,6 @@ public struct ModelConfig: Sendable, Equatable, Identifiable {
     }
 }
 
-/// 模型的运行时元信息（由 Adapter 自报，注册表只搬运）。
-public struct ModelMetadata: Sendable, Equatable {
-    public var id: String
-    public var kind: AIProviderKind
-    public var displayName: String
-    public var runtime: RuntimeKind
-    public var version: String?
-
-    public init(id: String, kind: AIProviderKind, displayName: String, runtime: RuntimeKind, version: String? = nil) {
-        self.id = id
-        self.kind = kind
-        self.displayName = displayName
-        self.runtime = runtime
-        self.version = version
-    }
-}
-
 /// 健康检查的**委派目标**。
 ///
 /// 注册表不自己探活：探活要发网络请求、要看 runtime 进程状态，属于 Manager / Adapter 的职责。

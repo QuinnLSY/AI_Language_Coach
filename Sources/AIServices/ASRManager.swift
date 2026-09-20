@@ -9,12 +9,20 @@ public actor ASRManager {
     private var provider: (any ASRProvider)?
     /// 最近一次真实转写的时间（资源管理据此算空闲时长，第 27 步）。
     public private(set) var lastUsedAt: Date?
+    /// 当前 Provider 的**装配时刻**：从未用过时，空闲时长从这里起算。
+    public private(set) var startedAt: Date?
 
     public init() {}
 
-    /// 距上次真实转写的秒数；nil = 注册后从未调用过（资源管理按「最冷」处理）。
+    /// 距上次「真实转写 / 装配」的秒数；nil 只代表**没有注册任何 Provider**（不可挂起）。
+    ///
+    /// ⚠️ 绝不能把「注册后还没转过写」报成 nil：`ResourcePolicy` 把 nil 当 ∞（最冷），
+    /// 于是随应用一起拉起的本地服务（开屏自动启动的 whisper）在**第一次巡检**就被挂起——
+    /// 刚花十几秒载入的模型当场被杀，表现成「设置里明明开着、一用就连接失败」
+    /// （2026-09-19 语音识别反馈）。注册即视为一次「起点事件」，空闲从那一刻起算。
     public var idleSeconds: Double? {
-        lastUsedAt.map { Date().timeIntervalSince($0) }
+        guard provider != nil, let baseline = lastUsedAt ?? startedAt else { return nil }
+        return Date().timeIntervalSince(baseline)
     }
 
     private func noteUsed() {
@@ -23,10 +31,12 @@ public actor ASRManager {
 
     public func register(_ provider: any ASRProvider) {
         self.provider = provider
+        startedAt = Date()
     }
 
     public func unregister() {
         provider = nil
+        startedAt = nil
     }
 
     /// 当前注册的 Provider（供「启动 / 关闭」这类需要拿到实例的能力使用）。

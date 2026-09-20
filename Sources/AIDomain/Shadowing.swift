@@ -76,6 +76,116 @@ public struct ShadowingDrillFile: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - 每日跟读（按情景现生成）
+
+/// 「今日跟读 20 句」的解析与轮转规则（**纯函数**，不碰模型、不碰 IO，可脱机单测）。
+///
+/// 素材来源从「包里写死的 drills.json」改成「每天按情景现生成」之后，稳定性的责任
+/// 就从文件挪到了**日期**上：同一天必须拿到同一批句子（否则用户练到第 7 句去泡了杯茶，
+/// 回来发现句子全换了），换一天才换一批。这条由 `dayKey` + 落盘缓存保证。
+public enum ShadowingDailyRule {
+
+    /// 每天的目标句数。
+    public static let dailySentenceCount = 20
+
+    /// 每天覆盖几个情景（20 句 ÷ 5 个情景 = 每情景 4 句）。
+    public static let dailyScenarioCount = 5
+
+    /// 日期键（`2026-09-16`）。缓存与「今天换没换」都以它为准 ——
+    /// **不用时间戳**：同一天的任意时刻都必须算出同一个键。
+    public static func dayKey(_ date: Date = Date(), calendar: Calendar = .current) -> String {
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        let year = parts.year ?? 0
+        let month = parts.month ?? 0
+        let day = parts.day ?? 0
+        return String(format: "%04d-%02d-%02d", year, month, day)
+    }
+
+    /// 今天轮到哪几个情景：**按日期轮转**（`dayOfYear` 决定起点），
+    /// 保证 ①同一天稳定 ②相邻两天不重样 ③一天之内不重复。
+    public static func rotatedScenarios(
+        from scenarios: [Scenario],
+        date: Date = Date(),
+        calendar: Calendar = .current,
+        pick: Int = dailyScenarioCount
+    ) -> [Scenario] {
+        guard !scenarios.isEmpty else { return [] }
+        let sorted = scenarios.sorted { $0.id < $1.id }
+        let dayOfYear = calendar.ordinality(of: .day, in: .year, for: date) ?? 1
+        let start = ((dayOfYear - 1) % sorted.count + sorted.count) % sorted.count
+        let take = min(max(pick, 1), sorted.count)
+        return (0..<take).map { sorted[(start + $0) % sorted.count] }
+    }
+
+    /// 解析模型输出成跟读素材。
+    ///
+    /// 格式（一行一个键，`|` 分隔子字段，与词典那套同一把尺）：
+    /// ```
+    /// topic: 机场值机 | 3
+    /// sentence: <学习语言例句> | <母语翻译> | <发音 / 连读要点>
+    /// sentence: …
+    /// topic: 酒店入住 | 4
+    /// sentence: …
+    /// ```
+    ///
+    /// `sentence` 归属于**它上面最近的那个 `topic`**；还没出现 `topic` 的句子直接丢弃
+    /// （没有情景归属的句子在页面上无处安放）。单行坏了只丢那一行，不倒整份。
+    public static func parse(_ raw: String, limit: Int = dailySentenceCount) -> [ShadowingDrill] {
+        var drills: [ShadowingDrill] = []
+        var topic = ""
+        var difficulty = 1
+        var topicIndex = -1
+        var indexInTopic = 0
+
+        let lines = raw
+            .replacingOccurrences(of: "```", with: "")
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+
+        for line in lines {
+            guard let separator = line.firstIndex(where: { $0 == ":" || $0 == "：" }) else { continue }
+            let key = line[line.startIndex..<separator]
+                .trimmingCharacters(in: .whitespaces)
+                .replacingOccurrences(of: "_", with: "")
+                .replacingOccurrences(of: " ", with: "")
+                .lowercased()
+            let value = String(line[line.index(after: separator)...])
+                .trimmingCharacters(in: .whitespaces)
+            let fields = value
+                .components(separatedBy: "|")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+
+            switch key {
+            case "topic", "scenario", "theme", "情景", "主题":
+                guard let name = fields.first, !name.isEmpty else { continue }
+                topic = name
+                difficulty = ShadowingDrill.clamp(Int(fields.count > 1 ? fields[1] : "") ?? 1)
+                topicIndex += 1
+                indexInTopic = 0
+            case "sentence", "drill", "line", "句子", "例句":
+                guard !topic.isEmpty, let text = fields.first, !text.isEmpty else { continue }
+                drills.append(
+                    ShadowingDrill(
+                        id: "daily-\(topicIndex)-\(indexInTopic)",
+                        text: text,
+                        translation: fields.count > 1 ? fields[1] : "",
+                        topic: topic,
+                        difficulty: difficulty,
+                        focus: fields.count > 2 ? fields[2] : ""
+                    )
+                )
+                indexInTopic += 1
+            default:
+                break
+            }
+            if drills.count >= limit { break }
+        }
+        return drills
+    }
+}
+
 // MARK: - 逐词对齐结果
 
 /// 参考句里每个词的跟读结果。
@@ -363,6 +473,28 @@ public enum ShadowingScorer {
                 ? "这次和示范差得有点多，先听两遍示范再开口"
                 : "慢慢来，先听两遍示范，重点跟上：\(missed.prefix(4).joined(separator: "、"))"
         }
+    }
+
+    /// 两组词的**最长公共子序列长度**（骨架对齐最多能命中几个词）。
+    ///
+    /// 段落级跟读要反复问「第 i 句对上整段识别里的哪一段」，一次评测要问几千遍，
+    /// 所以这里走**滚动两行**而不是 `lcsTable` 的全表：只要长度、不要回溯，
+    /// 全表版本在这个量级下会把时间全花在分配二维数组上。
+    public static func lcsMatchedCount(_ lhs: [String], _ rhs: [String]) -> Int {
+        guard !lhs.isEmpty, !rhs.isEmpty else { return 0 }
+        // 让 `previous` 对应较短的一侧，内存与内层循环都按它算。
+        let (rows, columns) = lhs.count <= rhs.count ? (lhs, rhs) : (rhs, lhs)
+        var previous = [Int](repeating: 0, count: columns.count + 1)
+        var current = [Int](repeating: 0, count: columns.count + 1)
+        for rowIndex in stride(from: rows.count - 1, through: 0, by: -1) {
+            for columnIndex in stride(from: columns.count - 1, through: 0, by: -1) {
+                current[columnIndex] = rows[rowIndex] == columns[columnIndex]
+                    ? previous[columnIndex + 1] + 1
+                    : max(previous[columnIndex], current[columnIndex + 1])
+            }
+            swap(&previous, &current)
+        }
+        return previous[0]
     }
 
     // MARK: - 私有

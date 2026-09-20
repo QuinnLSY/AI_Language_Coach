@@ -197,6 +197,10 @@ public struct CuteAnimalView: View {
     public var accessory: AnimalAccessory = .none
     /// 是否持续蹦跳；地面个体可关闭以获得「有的动、有的安静」的差异。
     public var bobbing: Bool = true
+    /// 教棍敲击计数（+1 = 敲两下）。**默认 0**：森林里其它持教棍的老师不受影响。
+    ///
+    /// 只有「老师黑板」这一处会传 —— 那是唯一需要「敲黑板引起注意」的地方。
+    public var knockTick: Int = 0
 
     @State private var isBlinking = false
     @State private var isHopping = false
@@ -204,12 +208,13 @@ public struct CuteAnimalView: View {
     private let blinkTimer = Timer.publish(every: 3.2, on: .main, in: .common).autoconnect()
 
     public init(kind: AnimalKind, isSleeping: Bool = false, size: CGFloat = 64,
-                accessory: AnimalAccessory = .none, bobbing: Bool = true) {
+                accessory: AnimalAccessory = .none, bobbing: Bool = true, knockTick: Int = 0) {
         self.kind = kind
         self.isSleeping = isSleeping
         self.size = size
         self.accessory = accessory
         self.bobbing = bobbing
+        self.knockTick = knockTick
     }
 
     public var body: some View {
@@ -224,7 +229,7 @@ public struct CuteAnimalView: View {
 
             switch accessory {
             case .none: EmptyView()
-            case .teacher: TeacherPointer(size: size)
+            case .teacher: TeacherPointer(size: size, knockTick: knockTick)
             case .student: RedScarf(size: size)
             }
         }
@@ -810,13 +815,47 @@ private enum AccessoryPalette {
     static let tip = Color(hex: 0xFFD34D)
 }
 
+/// 教棍的姿态（纯函数，方便钉住「往哪边敲」这件事）。
+///
+/// ⚠️ **符号约定**：`degrees` 是相对竖直的旋转角，SwiftUI 的 y 轴朝下，
+/// 所以**正角 = 顺时针 = 棍梢往右**。用户看到「敲黑板时棍梢往左扫」后点名要改成往右，
+/// 敲击角因此是正的 —— 改符号等于改方向，别当普通数值随手调。
+struct PointerPose: Equatable {
+    /// 棍身相对竖直的旋转角（度）。
+    var degrees: Double
+    /// 整根棍相对老师画框中心的位移（`size` 的倍数）。
+    var xRatio: CGFloat
+    var yRatio: CGFloat
+
+    static let stickLengthRatio: CGFloat = 0.40
+
+    /// 棍梢相对棍底的横向位移（`size` 的倍数）。正 = 往右。
+    var tipOffsetXRatio: CGFloat {
+        Self.stickLengthRatio * CGFloat(sin(degrees * .pi / 180))
+    }
+
+    /// 三种姿态：敲击 / 随手挥 / 立着。
+    static func make(knocking: Bool, waving: Bool) -> PointerPose {
+        // 敲黑板：往**右**上方抬起来敲两下（棍梢扫到画框右缘之外，看着才像真敲在板上）。
+        if knocking { return PointerPose(degrees: 46, xRatio: 0.22, yRatio: -0.02) }
+        // 随手挥：小幅、往左一点点（讲课的节奏感）。
+        if waving { return PointerPose(degrees: -18, xRatio: 0.26, yRatio: 0.06) }
+        return PointerPose(degrees: 6, xRatio: 0.26, yRatio: 0.06)
+    }
+}
+
 /// 教棍：握在老师手边的木质小棍 + 金色圆头；比身体短一号，
 /// 每隔几秒以棍身底端为轴小幅上下挥动一次（讲课的节奏感）。
 private struct TeacherPointer: View {
     let size: CGFloat
+    /// +1 → 敲两下（黑板展开时用：教棍点两下引起注意）。0 = 只保留原本的随手挥动。
+    let knockTick: Int
 
     @State private var isWaving = false
+    @State private var isKnocking = false
     private let waveTimer = Timer.publish(every: 4.2, on: .main, in: .common).autoconnect()
+
+    private var pose: PointerPose { PointerPose.make(knocking: isKnocking, waving: isWaving) }
 
     var body: some View {
         ZStack {
@@ -830,7 +869,7 @@ private struct TeacherPointer: View {
                             startPoint: .top, endPoint: .bottom
                         )
                     )
-                    .frame(width: max(2.2, size * 0.042), height: size * 0.40)
+                    .frame(width: max(2.2, size * 0.042), height: size * PointerPose.stickLengthRatio)
                 // 高光
                 Capsule()
                     .fill(.white.opacity(0.35))
@@ -843,15 +882,31 @@ private struct TeacherPointer: View {
                     .overlay(Circle().stroke(AccessoryPalette.woodDark.opacity(0.55), lineWidth: max(1, size * 0.01)))
                     .offset(y: -size * 0.20)
             }
-            .rotationEffect(.degrees(isWaving ? -18 : 6), anchor: .bottom)
-            .animation(.easeInOut(duration: 0.45), value: isWaving)
-            .offset(x: size * 0.26, y: size * 0.06)
+            .rotationEffect(.degrees(pose.degrees), anchor: .bottom)
+            .animation(isKnocking
+                       ? .easeOut(duration: 0.11)
+                       : .easeInOut(duration: 0.45), value: pose)
+            .offset(x: size * pose.xRatio, y: size * pose.yRatio)
         }
         .frame(width: size, height: size)
         .onReceive(waveTimer) { _ in
+            // 敲黑板的时候不随手挥：两个动作叠在一起会像抽筋
+            guard !isKnocking else { return }
             // 挥一下再收回：小幅、不频繁
             isWaving = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { isWaving = false }
+        }
+        .onChange(of: knockTick) { _, _ in
+            guard knockTick > 0 else { return }
+            Task { @MainActor in
+                // 敲两下，中间留一个能看清的间隔（0.11s 出去 / 0.13s 回来 / 停 0.17s）
+                for _ in 0..<2 {
+                    withAnimation(.easeOut(duration: 0.11)) { isKnocking = true }
+                    try? await Task.sleep(nanoseconds: 120_000_000)
+                    withAnimation(.easeIn(duration: 0.13)) { isKnocking = false }
+                    try? await Task.sleep(nanoseconds: 170_000_000)
+                }
+            }
         }
     }
 }

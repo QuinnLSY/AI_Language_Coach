@@ -32,6 +32,9 @@ public struct LearningProgressView: View {
 
     @State private var rhythmMode: RhythmMode = .minutes
 
+    /// 「今日任务」卡的滚动锚点（黑板上的小图标点进来就定位到它）。
+    private static let dailyTasksAnchorID = "progress.dailyTasks"
+
     public init(state: AppState) { self.state = state }
 
     private var snapshot: ProgressSnapshot { state.progressSnapshot }
@@ -40,21 +43,38 @@ public struct LearningProgressView: View {
         VStack(spacing: 0) {
             header
             Divider().overlay(theme.divider)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    todayCard
-                    dailyTasksCard
-                    annualRecapCard
-                    curriculumCard
-                    rhythmCard
-                    grammarCard
-                    vocabularyCard
-                    pronunciationCard
-                    skillsCard
-                    mistakesCard
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        todayCard
+                        dailyTasksCard
+                            // 黑板上的小图标点进来就滚到这里（见 `AppState.openTodayTasksInProgress`）。
+                            // ⚠️ 锚点就是卡片本身，**不要给它套 `.position`**：那会让
+                            // `scrollTo(anchor:)` 按整张内容画布的百分比对位（大树那条老教训）。
+                            .id(Self.dailyTasksAnchorID)
+                        weeklyCard
+                        annualRecapCard
+                        curriculumCard
+                        placementCard
+                        rhythmCard
+                        grammarCard
+                        vocabularyCard
+                        pronunciationCard
+                        writingCard
+                        readingCard
+                        skillsCard
+                        mistakesCard
+                    }
+                    .padding(20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                // ⚠️ 两条路都要：`onChange` 管「已经在这一页时再点一次」；
+                // `.task` 管「页面是刚被切出来的」—— 那种情况下 tick 在本视图出现**之前**
+                // 就已经加过了，`onChange` 永远不补首帧（用户实测：跳转指令收到了、页面不滚）。
+                .task { await jumpToTodayTasks(proxy) }
+                .onChange(of: state.progressFocusTick) { _, _ in
+                    Task { await jumpToTodayTasks(proxy) }
+                }
             }
         }
         .background(theme.surfaceAlt.opacity(0.35))
@@ -84,12 +104,205 @@ public struct LearningProgressView: View {
         DailyTasksCard(plan: state.dailyPlan, onOpen: open)
     }
 
+    /// 消费一次「滚到今日任务卡」的意图：滚过去 + 把意图收掉。
+    ///
+    /// ⚠️ **先消费再看要不要滚**：没有跳转意图（从侧栏正常进来）就直接返回 ——
+    /// 不然每次打开这一页都会莫名其妙地滚一屏。
+    /// 消费后等一小会儿再滚：页面是刚切出来的，`ScrollView` 的内容这一帧还没落位，
+    /// 立刻 `scrollTo` 会滚到旧的内容高度上（学习记录页那条跳转也是这么处理的）。
+    private func jumpToTodayTasks(_ proxy: ScrollViewProxy) async {
+        guard state.consumeProgressFocus() else { return }
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        withAnimation(.easeOut(duration: 0.32)) {
+            proxy.scrollTo(Self.dailyTasksAnchorID, anchor: .top)
+        }
+    }
+
+    // MARK: - 本周小结 / 月环比（#228）
+
+    /// 一格小结数字。
+    private func statChip(value: String, label: String, tint: Color? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundStyle(tint ?? theme.primaryText)
+                .monospacedDigit()
+            Text(label)
+                .font(.system(size: 10, design: .rounded))
+                .foregroundStyle(theme.secondaryText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var weeklyCard: some View {
+        card(title: "本周小结", systemImage: "calendar") {
+            if let insight = state.weeklyInsight {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top, spacing: 14) {
+                        statChip(
+                            value: ProgressAggregator.durationText(insight.weekSeconds),
+                            label: "本周开口"
+                        )
+                        statChip(
+                            value: correctionChangeText(insight.correctionChange),
+                            label: insight.correctionChange == 0
+                                ? "批注与上周持平"
+                                : (insight.correctionChange > 0 ? "批注比上周多" : "批注比上周少"),
+                            tint: insight.correctionChange > 0 ? theme.warning : theme.success
+                        )
+                        statChip(
+                            value: "\(insight.weekNewWords) 词",
+                            label: "本周新增词汇"
+                        )
+                        statChip(
+                            value: "\(snapshot.streakDays) 天",
+                            label: "连续练习",
+                            tint: snapshot.streakDays > 0 ? theme.accent : theme.secondaryText
+                        )
+                    }
+                    HStack(alignment: .top, spacing: 14) {
+                        statChip(
+                            value: "\(insight.weekWriting) 篇",
+                            label: "本周写作"
+                        )
+                        statChip(
+                            value: "\(insight.weekReading) 篇",
+                            label: "本周阅读"
+                        )
+                        Spacer(minLength: 0)
+                    }
+                    Divider().overlay(theme.divider)
+                    monthChangeRow(insight)
+                }
+            } else {
+                Text("攒一周的记录，这里就会开始说人话 —— 现在还没有足够的数据。")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                    .lineSpacing(3)
+            }
+        }
+    }
+
+    /// 月环比一行：有样本给百分比，没有就说「还不够」——绝不拿 0% 冒充。
+    private func monthChangeRow(_ insight: WeeklyInsight) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "chart.line.uptrend.xyaxis")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(theme.secondaryText)
+            if let percent = insight.monthChangePercent {
+                let rounded = Int(percent.rounded())
+                HStack(spacing: 4) {
+                    Image(systemName: percent >= 0 ? "arrow.up.right" : "arrow.down.right")
+                        .font(.system(size: 10, weight: .bold))
+                    Text("开口时长 \(abs(rounded))%")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                }
+                .foregroundStyle(percent >= 0 ? theme.success : theme.warning)
+                Text("本月至今 vs 上月整月")
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+            } else {
+                Text("开口时长环比：还不够 —— 上个月练满 5 分钟，下个月再来比")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func correctionChangeText(_ change: Int) -> String {
+        guard change != 0 else { return "持平" }
+        return change > 0 ? "+\(change) 处" : "\(change) 处"
+    }
+
+    // MARK: - 能力定位（placement，#229）
+
+    private var placementCard: some View {
+        card(title: "能力定位", systemImage: "scope") {
+            let estimate = state.placementEstimate
+            VStack(alignment: .leading, spacing: 10) {
+                if estimate.isConfident, let level = estimate.level {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(level.code)
+                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                            .foregroundStyle(theme.accent)
+                        Text("· \(level.displayName)")
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundStyle(theme.primaryText)
+                        Spacer(minLength: 0)
+                    }
+                    Text(level.canDo)
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                        .lineSpacing(3)
+                } else {
+                    Text("还在观察中")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                    Text("再多聊几轮、收几个词，我就能比较有把握地告诉你现在站在哪一档。")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                        .lineSpacing(3)
+                }
+
+                // 依据：口径透明，每条一句话。
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(estimate.signals.enumerated()), id: \.offset) { _, signal in
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(theme.accent.opacity(0.7))
+                                .frame(width: 4, height: 4)
+                            Text(signal)
+                                .font(.system(size: 11, design: .rounded))
+                                .foregroundStyle(theme.secondaryText)
+                                .monospacedDigit()
+                        }
+                    }
+                }
+
+                if !estimate.gaps.isEmpty, let next = estimate.nextLevel {
+                    Divider().overlay(theme.divider)
+                    Text("距 \(next.code)（\(next.displayName)）还差")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                    ForEach(Array(estimate.gaps.enumerated()), id: \.offset) { _, gap in
+                        Text("· \(gap)")
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(theme.secondaryText)
+                            .lineSpacing(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - 年度学习记录
 
     /// 近一年 53 周 × 7 天的分布。放在「今日任务」之后：
     /// 上面两张卡说的是今天，这张把镜头拉到一年 —— 今天的格子由上面两张卡决定。
+    /// 右上角「导出图片」：把这张卡存成 PNG 分享（#210）。
     private var annualRecapCard: some View {
-        AnnualRecapCard(recap: state.annualRecap)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Spacer()
+                Button {
+                    ReportExporter.exportAnnualRecapPanel(recap: state.annualRecap, theme: theme)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text("导出图片")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .help("把年度学习记录导出成 PNG 图片")
+            }
+            AnnualRecapCard(recap: state.annualRecap)
+        }
     }
 
     // MARK: - 课程阶梯（P1-2：CEFR 课程体系）
@@ -98,7 +311,9 @@ public struct LearningProgressView: View {
     ///
     /// 不做「按档筛选」：情景面板只按分组展示，没有档位筛选这个入口。
     /// 与其新造一个半成品控件，不如就把他送到情景列表 —— 少一个要维护的东西。
-    private func openStage(_ level: CEFRLevel) {
+    /// 因此**档位本身用不上**（`_:` 标注），签名仍收一个 `CEFRLevel` 是因为
+    /// 它是 `CurriculumLadderCard.onOpen` 的回调类型。
+    private func openStage(_: CEFRLevel) {
         Task { await state.openScenarios() }
     }
 
@@ -179,12 +394,23 @@ public struct LearningProgressView: View {
                         Text(snapshot.goalReached ? "今天的目标已完成" : "每日目标")
                             .font(.system(size: 12, weight: .semibold, design: .rounded))
                             .foregroundStyle(theme.primaryText)
-                        Text("\(snapshot.today.minutes) / \(snapshot.goalMinutes) 分钟")
-                            .font(.system(size: 11, design: .rounded))
-                            .foregroundStyle(theme.secondaryText)
-                            .monospacedDigit()
+                        if state.dailyGoalMode == .baseline {
+                            // 保底档：判定口径就是 5 分钟（与黑板计划的量一致）。
+                            Text("保底 \(snapshot.today.minutes) / 5 分钟")
+                                .font(.system(size: 11, design: .rounded))
+                                .foregroundStyle(theme.secondaryText)
+                                .monospacedDigit()
+                        } else {
+                            Text("\(snapshot.today.minutes) / \(snapshot.goalMinutes) 分钟")
+                                .font(.system(size: 11, design: .rounded))
+                                .foregroundStyle(theme.secondaryText)
+                                .monospacedDigit()
+                        }
                         Spacer(minLength: 4)
-                        goalStepper
+                        if state.dailyGoalMode == .advanced {
+                            goalStepper
+                        }
+                        goalModePicker
                     }
 
                     GeometryReader { proxy in
@@ -208,7 +434,41 @@ public struct LearningProgressView: View {
         }
     }
 
-    /// 目标分钟数的加减（5 分钟一档，5...180）。
+    /// 目标档位切换（保底 5 分钟 / 进阶目标）。
+    ///
+    /// ⚠️ 不用系统 `Picker`（macOS 命中区退化），沿用两个小圆钮的自绘口径。
+    private var goalModePicker: some View {
+        HStack(spacing: 4) {
+            ForEach(DailyGoalMode.allCases, id: \.id) { mode in
+                let isSelected = state.dailyGoalMode == mode
+                Button {
+                    guard !isSelected else { return }
+                    Task { await state.setDailyGoalMode(mode) }
+                } label: {
+                    Text(mode.displayName)
+                        .font(.system(size: 10, weight: isSelected ? .bold : .regular, design: .rounded))
+                        .foregroundStyle(isSelected ? theme.accent : theme.secondaryText)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule().fill(theme.accent.opacity(isSelected ? 0.14 : 0))
+                        )
+                        .overlay(
+                            Capsule().strokeBorder(
+                                isSelected ? theme.accent.opacity(0.6) : theme.divider,
+                                lineWidth: 1
+                            )
+                        )
+                }
+                .buttonStyle(.plain)
+                .help(mode == .baseline
+                      ? "保底档：5 分钟内做完即算今日完成，保住连续"
+                      : "进阶档：按每日目标分钟数排计划")
+            }
+        }
+    }
+
+    /// 目标分钟数的加减（5 分钟一档，5...180）。仅进阶档显示 —— 保底档没有可调的分钟数。
     private var goalStepper: some View {
         HStack(spacing: 6) {
             goalButton(systemImage: "minus", enabled: snapshot.goalMinutes > 5) {
@@ -369,6 +629,61 @@ public struct LearningProgressView: View {
                 } else {
                     ProgressLineChart(points: snapshot.pronunciationTrend, tint: Color(hex: 0xC08BF0), valueSuffix: " 分")
                     Text("共跟读 \(snapshot.shadowing.attempts) 次，平均匹配率 \(Int((snapshot.shadowing.averageAccuracy * 100).rounded()))%。")
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                }
+            }
+        }
+    }
+
+    // MARK: - 写作练习 / 阅读理解（#233）
+
+    /// 写作口径：窗口内的 activity 已经带着每天的篇数 / 平均分 / 词数（与快照同源）。
+    private var writingCard: some View {
+        card(title: "写作练习", systemImage: "square.and.pencil") {
+            let writings = snapshot.activity.reduce(0) { $0 + $1.writings }
+            if writings == 0 {
+                emptyHint("这段时间还没交过作文。去写作页写几句，交给老师批改。")
+            } else {
+                let scores = snapshot.activity.compactMap(\.writingScore)
+                let words = snapshot.activity.reduce(0) { $0 + $1.writingWords }
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 12) {
+                        tile(icon: "square.and.pencil",
+                             value: "\(writings)", label: "写作篇数")
+                        tile(icon: "star.leadinghalf.filled",
+                             value: scores.isEmpty ? "—" : "\(Int((scores.reduce(0, +) / Double(scores.count)).rounded()))",
+                             label: "平均分")
+                        tile(icon: "textformat.abc",
+                             value: "\(words)", label: "累计词数")
+                    }
+                    Text("近 \(snapshot.days) 天写了 \(writings) 篇。批改分数只记交卷的那次。")
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                }
+            }
+        }
+    }
+
+    private var readingCard: some View {
+        card(title: "阅读理解", systemImage: "book.fill") {
+            let readings = snapshot.activity.reduce(0) { $0 + $1.readings }
+            if readings == 0 {
+                emptyHint("这段时间还没交过卷。去阅读页读一篇，答完题看看溯源讲解。")
+            } else {
+                let correct = snapshot.activity.reduce(0) { $0 + $1.readingCorrect }
+                let questions = snapshot.activity.reduce(0) { $0 + $1.readingQuestions }
+                let rate = questions > 0 ? Int((Double(correct) / Double(questions) * 100).rounded()) : 0
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 12) {
+                        tile(icon: "book.fill",
+                             value: "\(readings)", label: "阅读篇数")
+                        tile(icon: "checkmark.seal.fill",
+                             value: questions > 0 ? "\(rate)%" : "—", label: "答对率")
+                        tile(icon: "checkmark.circle.fill",
+                             value: questions > 0 ? "\(correct)/\(questions)" : "—", label: "答对题数")
+                    }
+                    Text("近 \(snapshot.days) 天交卷 \(readings) 篇，答对 \(correct) / \(questions) 题。只统计交过卷的阅读。")
                         .font(.system(size: 10, design: .rounded))
                         .foregroundStyle(theme.secondaryText)
                 }

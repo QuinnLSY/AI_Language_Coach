@@ -1,5 +1,55 @@
 import AIInterfaces
+import AppCore
 import Foundation
+
+// MARK: - 重试策略
+
+/// 瞬时故障重试策略。
+///
+/// 存在的理由：`AIProviderError.isRetryable` 把「哪些错误值得重试」写得很完整，
+/// 但**没有任何调用方读它** —— 也就是说不存在重试。断线、服务端 5xx 这类
+/// 一秒钟后自愈的问题，用户看到的是直接失败。
+///
+/// 两条护栏写死在契约里：
+/// - **只重试「上一次根本没拿到响应」的情况**（`perform` 是非流式路径）。
+///   流式请求（`streamSSE`）绝不重试：那会把同一份 Prompt 再发一遍 = 重复计费。
+/// - **超时不重试**：用户已经等满一整轮超时，再等一轮等于把「卡住」变成「卡死」。
+public struct RetryPolicy: Sendable {
+
+    /// 默认：最多 2 次尝试（= 允许 1 次重试），退避 0.35s。
+    public static let `default` = RetryPolicy(maxAttempts: 2, baseDelay: 0.35)
+
+    /// 总尝试次数（1 = 不重试）。
+    public let maxAttempts: Int
+    /// 第 n 次重试前的退避（线性：`baseDelay × n`）。
+    public let baseDelay: TimeInterval
+
+    public init(maxAttempts: Int, baseDelay: TimeInterval) {
+        self.maxAttempts = max(1, maxAttempts)
+        self.baseDelay = max(0, baseDelay)
+    }
+
+    /// 该不该再试一次（传输层错误）。
+    func shouldRetry(_ error: Error, attempt: Int) -> Bool {
+        guard attempt < maxAttempts else { return false }
+        guard let providerError = error as? AIProviderError else { return false }
+        // 用户主动取消：立刻停，不许偷偷再发一次。
+        if case .cancelled = providerError { return false }
+        if case .timeout = providerError { return false }
+        return providerError.isRetryable
+    }
+
+    /// 该不该再试一次（服务端状态码）。
+    ///
+    /// 判定口径**复用** `AIProviderError.isRetryable`，不在这里另写一份 ——
+    /// 「哪些错值得重试」只能有一个答案，两份口径迟早分叉。
+    func shouldRetry(status: Int, attempt: Int) -> Bool {
+        guard attempt < maxAttempts else { return false }
+        return AIProviderError.serverError(status: status, message: nil).isRetryable
+    }
+
+    func delay(forAttempt attempt: Int) -> TimeInterval { baseDelay * Double(attempt) }
+}
 
 /// 本地 runtime 专用 HTTP 客户端。
 ///
@@ -13,14 +63,21 @@ public struct HTTPClient: Sendable {
     /// 测试注入点：给出后 `perform` 直接走它，**不发起真实网络**。
     /// 生产代码永远不传（nil = 真实 URLSession）。
     private let transport: Transport?
+    /// 瞬时故障重试策略（见 `RetryPolicy`）。
+    private let retryPolicy: RetryPolicy
 
     /// 传输抽象：测试用它把适配器完整跑一遍（请求形状 / 响应解析 / 错误映射），
     /// 无需真的起一个 runtime。
     public typealias Transport = @Sendable (_ request: URLRequest, _ timeout: TimeInterval) async throws -> (Data, HTTPURLResponse)
 
-    public init(useSystemProxy: Bool = false, transport: Transport? = nil) {
+    public init(
+        useSystemProxy: Bool = false,
+        transport: Transport? = nil,
+        retryPolicy: RetryPolicy = .default
+    ) {
         self.useSystemProxy = useSystemProxy
         self.transport = transport
+        self.retryPolicy = retryPolicy
     }
 
     private func makeSession(timeout: TimeInterval) -> URLSession {
@@ -36,11 +93,68 @@ public struct HTTPClient: Sendable {
     }
 
     /// 发起请求并返回原始数据与响应，便于 Adapter 自行做状态码与错误体映射。
+    ///
+    /// 瞬时故障（连不上 / 5xx / 限流）按 `retryPolicy` 自动重试一次 —— 重试只可能发生在
+    /// **上一次没有拿到任何可用响应**时，因此不会出现「一次操作被计两次费」。
     public func perform(_ request: URLRequest, timeout: TimeInterval) async throws -> (Data, HTTPURLResponse) {
-        // 测试注入：走假传输，不碰真实网络。
+        // 测试注入：走假传输，不碰真实网络，也不重试（测试要的是确定的单次行为）。
         if let transport {
             return try await transport(request, timeout)
         }
+        return try await Self.retrying(
+            policy: retryPolicy,
+            sleep: { delay in
+                guard delay > 0 else { return }
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            },
+            onRetry: { attempt, reason in
+                AppLog.debug(
+                    "请求失败（\(reason)），\(String(format: "%.2f", retryPolicy.delay(forAttempt: attempt)))s 后重试第 \(attempt + 1)/\(retryPolicy.maxAttempts) 次",
+                    category: "transport"
+                )
+            },
+            { _ in
+                let (data, http) = try await performOnce(request, timeout: timeout)
+                return ((data, http), http.statusCode)
+            }
+        )
+    }
+
+    /// 重试循环本体。
+    ///
+    /// 抽成独立函数是为了**能测**：真实 `URLSession` 造不出可控的 5xx，
+    /// 而这段逻辑恰恰最该有测试 —— 多发一次请求就是「一次操作被计两次费」。
+    ///
+    /// `attemptBody` 返回 `(值, HTTP 状态码)`；状态码非 nil 时按策略决定要不要再来一次。
+    static func retrying<T>(
+        policy: RetryPolicy,
+        sleep: (TimeInterval) async -> Void,
+        onRetry: (Int, String) -> Void,
+        _ attemptBody: (Int) async throws -> (T, Int?)
+    ) async throws -> T {
+        var attempt = 1
+        while true {
+            do {
+                let (value, status) = try await attemptBody(attempt)
+                // 5xx / 429 交给适配器之前先生效一次重试：适配器的错误映射一个字都不动，
+                // 最后一轮仍会把原始 response 交回去让它报「服务端错误 (500)」。
+                guard let status,
+                      !Task.isCancelled,
+                      policy.shouldRetry(status: status, attempt: attempt) else { return value }
+                onRetry(attempt, "HTTP \(status)")
+                await sleep(policy.delay(forAttempt: attempt))
+                attempt += 1
+            } catch {
+                // `shouldRetry` 内部已经把「用户取消」排除掉了，这里只补任务级别的取消。
+                guard !Task.isCancelled, policy.shouldRetry(error, attempt: attempt) else { throw error }
+                onRetry(attempt, error.localizedDescription)
+                await sleep(policy.delay(forAttempt: attempt))
+                attempt += 1
+            }
+        }
+    }
+
+    private func performOnce(_ request: URLRequest, timeout: TimeInterval) async throws -> (Data, HTTPURLResponse) {
         let session = makeSession(timeout: timeout)
         defer { session.invalidateAndCancel() }
 

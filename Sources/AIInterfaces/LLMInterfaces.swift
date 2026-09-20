@@ -142,6 +142,12 @@ public struct LLMChunk: Sendable, Equatable {
     }
 }
 
+/// LLM 视角的能力视图。
+///
+/// ⚠️ 它的字段是 `ProviderCapabilities` 的**子集**，不是另一套能力。
+/// 两个结构曾经各自被适配器实现一遍（`RemoteLLMAdapter` 里两个方法逐字等价），
+/// 改一处忘一处就会漂移 —— 现在只有 `capabilities()` 一个真源，
+/// 本视图由 `ProviderCapabilities.llmView` 投影出来（见下）。
 public struct LLMCapabilities: Sendable, Equatable {
     public var streaming: Bool
     public var structuredOutput: Bool
@@ -164,6 +170,24 @@ public struct LLMCapabilities: Sendable, Equatable {
     }
 }
 
+public extension ProviderCapabilities {
+    /// 投影出 LLM 视角（`capabilities()` 是唯一真源）。
+    ///
+    /// 为什么不直接删掉 `llmCapabilities()` 而保留一个投影：调用点（对话引擎 / 选型提示）
+    /// 只关心「这个模型支不支持流式、结构化输出、看图」，拿到 `ProviderCapabilities` 全量
+    /// 反而要在一堆与 LLM 无关的位（wordTimestamp / voiceCloning …）里挑。投影让调用点
+    /// 只依赖自己真正需要的那 5 位，同时**不再有第二份真源**。
+    var llmView: LLMCapabilities {
+        LLMCapabilities(
+            streaming: streaming,
+            structuredOutput: structuredOutput,
+            toolCalling: toolCalling,
+            vision: vision,
+            multilingual: multilingual
+        )
+    }
+}
+
 // MARK: - LLM Provider 契约
 
 public protocol LLMProvider: AIProvider {
@@ -172,4 +196,12 @@ public protocol LLMProvider: AIProvider {
     func llmCapabilities() -> LLMCapabilities
     /// runtime 提供发现接口时返回已装模型；不支持时抛 `unsupportedCapability`。
     func discoverModels() async throws -> [DiscoveredModel]
+}
+
+public extension LLMProvider {
+    /// 默认实现 = 从 `capabilities()` 投影。
+    ///
+    /// 适配器**不需要**再写一遍：那两个方法曾经逐字等价，改一处忘一处就漂移。
+    /// 特殊适配器（测试替身等）仍可自行覆写。
+    func llmCapabilities() -> LLMCapabilities { capabilities().llmView }
 }

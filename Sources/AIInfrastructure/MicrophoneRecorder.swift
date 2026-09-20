@@ -127,17 +127,6 @@ public final class MicrophoneRecorder: @unchecked Sendable {
         return captured
     }
 
-    /// 实时电平（0…1），供 UI 画波形；未录音时为 0。
-    public var level: Float {
-        lock.lock(); defer { lock.unlock() }
-        guard _isRecording else { return 0 }
-        let tail = buffer.suffix(2048)
-        guard !tail.isEmpty else { return 0 }
-        var sum: Float = 0
-        for sample in tail { sum += sample * sample }
-        return min(1, sqrt(sum / Float(tail.count)) * 4)
-    }
-
     /// 当前已采集音频的快照（**不断流**）。
     ///
     /// 供「流式识别」用：边说边把已录到的音频送去识别，把中间结果实时显示出来。
@@ -146,12 +135,6 @@ public final class MicrophoneRecorder: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard _isRecording else { return [] }
         return buffer
-    }
-
-    /// 已采集的采样点数量（用于判断「有没有新声音」）。
-    public var capturedSampleCount: Int {
-        lock.lock(); defer { lock.unlock() }
-        return buffer.count
     }
 
     // MARK: - 格式（可测的纯逻辑）
@@ -206,14 +189,15 @@ public final class MicrophoneRecorder: @unchecked Sendable {
         }
 
         // 一个输入缓冲只喂一次；之后必须报 noDataNow，否则转换器会反复索要同一个缓冲。
-        var supplied = false
+        // ⚠️ 回调签名是 `@Sendable`，直接捕获局部 `var` 会被判「在并发执行的代码里改可变状态」；
+        // 该回调其实是同步调用的，「只喂一次」的语义用一次性标志位表达，顺带线程安全。
+        let feedOnce = OneShotFlag()
         var conversionError: NSError?
         let status = converter.convert(to: output, error: &conversionError) { _, inputStatus in
-            guard !supplied else {
+            guard feedOnce.consume() else {
                 inputStatus.pointee = .noDataNow
                 return nil
             }
-            supplied = true
             inputStatus.pointee = .haveData
             return pcm
         }
@@ -222,6 +206,24 @@ public final class MicrophoneRecorder: @unchecked Sendable {
               output.frameLength > 0,
               let channel = output.floatChannelData?[0] else { return nil }
         return Array(UnsafeBufferPointer(start: channel, count: Int(output.frameLength)))
+    }
+
+    /// 一次性许可：第一次 `consume()` 拿得到，之后一律拿不到。
+    ///
+    /// 专门为 `AVAudioConverter.convert(to:error:inputBlock:)` 这类
+    /// 「`@Sendable` 但同步调用」的回调服务——用锁把「只喂一次」变成线程安全的，
+    /// 免得在闭包里捕获可变的局部变量（那会被并发检查判为数据竞争）。
+    private final class OneShotFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var consumed = false
+
+        /// 返回 true 表示**本次**拿到了许可；返回 false 表示之前已经有人拿过。
+        func consume() -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            if consumed { return false }
+            consumed = true
+            return true
+        }
     }
 
     private func noteCaptureError(_ message: String) {

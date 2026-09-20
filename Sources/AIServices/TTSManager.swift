@@ -8,12 +8,18 @@ public actor TTSManager {
     private var provider: (any TTSProvider)?
     /// 最近一次真实合成的时间（资源管理据此算空闲时长，第 27 步）。
     public private(set) var lastUsedAt: Date?
+    /// 当前 Provider 的**装配时刻**：从未用过时，空闲时长从这里起算。
+    public private(set) var startedAt: Date?
 
     public init() {}
 
-    /// 距上次真实合成的秒数；nil = 注册后从未调用过（资源管理按「最冷」处理）。
+    /// 距上次「真实合成 / 装配」的秒数；nil 只代表**没有注册任何 Provider**（不可挂起）。
+    ///
+    /// ⚠️ 与 ASR / LLM 同一条教训：把「注册后还没合成过」报成 nil 会被 `ResourcePolicy`
+    /// 当成 ∞（最冷），开屏刚拉起的本地语音服务会立刻被挂起。注册即视为一次「起点事件」。
     public var idleSeconds: Double? {
-        lastUsedAt.map { Date().timeIntervalSince($0) }
+        guard provider != nil, let baseline = lastUsedAt ?? startedAt else { return nil }
+        return Date().timeIntervalSince(baseline)
     }
 
     private func noteUsed() {
@@ -22,10 +28,12 @@ public actor TTSManager {
 
     public func register(_ provider: any TTSProvider) {
         self.provider = provider
+        startedAt = Date()
     }
 
     public func unregister() {
         provider = nil
+        startedAt = nil
     }
 
     /// 当前注册的 Provider（供「启动 / 关闭」这类需要拿到实例的能力使用）。

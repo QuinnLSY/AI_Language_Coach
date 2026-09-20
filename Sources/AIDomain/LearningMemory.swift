@@ -20,19 +20,30 @@ public struct LearningMemory: Sendable, Equatable {
     public var sessionsPracticed: Int
     /// 累计纠错条数（本轮检索窗口内）。
     public var totalCorrections: Int
+    /// 最近练过的话题（新 → 旧，已去重）。
+    ///
+    /// 计划 §19 要求长期记忆存 `conversation topics`。话题来自会话真实绑定的情景，
+    /// 普通练习（没绑情景）不编话题 —— 宁可这块空着，也不猜学员在练什么。
+    public var recentTopics: [String]
+    /// 练习难度趋势（见 `PracticeTrend`：由**真实纠错密度**推算，不是系统记录的难度档位）。
+    public var practiceTrend: PracticeTrend
 
     public init(
         recurringErrors: [RecurringError] = [],
         focusWords: [String] = [],
         weakDimensions: [WeakDimension] = [],
         sessionsPracticed: Int = 0,
-        totalCorrections: Int = 0
+        totalCorrections: Int = 0,
+        recentTopics: [String] = [],
+        practiceTrend: PracticeTrend = .unknown
     ) {
         self.recurringErrors = recurringErrors
         self.focusWords = focusWords
         self.weakDimensions = weakDimensions
         self.sessionsPracticed = sessionsPracticed
         self.totalCorrections = totalCorrections
+        self.recentTopics = recentTopics
+        self.practiceTrend = practiceTrend
     }
 
     /// 空记忆：没有任何历史时，老师就像面对新学员。
@@ -40,8 +51,86 @@ public struct LearningMemory: Sendable, Equatable {
 
     /// 没有任何**可用内容**（练习次数之类的计数不算内容）。
     public var isEmpty: Bool {
-        recurringErrors.isEmpty && focusWords.isEmpty && weakDimensions.isEmpty
+        recurringErrors.isEmpty && focusWords.isEmpty && weakDimensions.isEmpty && recentTopics.isEmpty
     }
+}
+
+/// 一次「清除学习记忆」到底删掉了什么。
+///
+/// 清除是**不可逆**的，所以必须先把数字摆给用户看，而不是让他点完才发现删多了。
+/// 这里只统计要删的四类；对话记录与单词本**不在**其中（它们各有自己的管理入口）。
+public struct MemoryClearance: Sendable, Equatable {
+    public var corrections: Int
+    public var reviews: Int
+    public var shadowing: Int
+    public var vocabularyReviews: Int
+
+    public init(corrections: Int = 0, reviews: Int = 0, shadowing: Int = 0, vocabularyReviews: Int = 0) {
+        self.corrections = corrections
+        self.reviews = reviews
+        self.shadowing = shadowing
+        self.vocabularyReviews = vocabularyReviews
+    }
+
+    public var total: Int { corrections + reviews + shadowing + vocabularyReviews }
+}
+
+/// 一次会话交给记忆检索的最少事实。
+///
+/// 服务层从真实记录里取出来，**检索层只做纯计算**（编排 / 折算口径都在 `MemoryRetriever`）。
+/// 这样同一份算法既能跑真库，也能拿构造出来的数据完整单测。
+public struct MemorySessionFact: Sendable, Equatable {
+    public var startedAt: Date
+    /// 话题名（情景标题）；普通练习无话题为 nil。
+    public var topic: String?
+    /// 这次会话被纠错的条数。
+    public var correctionCount: Int
+    /// 这次会话的对话轮数；0 = 未知（不参与趋势计算）。
+    public var messageCount: Int
+
+    public init(startedAt: Date, topic: String? = nil, correctionCount: Int = 0, messageCount: Int = 0) {
+        self.startedAt = startedAt
+        self.topic = topic
+        self.correctionCount = correctionCount
+        self.messageCount = messageCount
+    }
+}
+
+/// 练习难度趋势。
+///
+/// ⚠️ **命名与口径的诚实边界**：应用并没有把「老师当轮用的难度档位」落库，
+/// 所以这里不是难度档位的历史，而是**纠错密度的变化**——每次会话里平均每轮被纠几次错。
+/// 说得再好听也只是个代理指标，因此对外一律叫「练习趋势」，不冒充难度曲线。
+public struct PracticeTrend: Sendable, Equatable {
+
+    public enum Direction: String, Sendable, Equatable {
+        /// 最近比之前更顺（纠错密度下降）。
+        case improving
+        /// 差不多。
+        case steady
+        /// 最近比之前更容易卡住（纠错密度上升）。
+        case slipping
+        /// 样本不够（会话数太少），不下结论。
+        case unknown
+    }
+
+    public var direction: Direction
+    /// 最近若干会话的平均纠错密度（纠错条数 ÷ 轮数）。
+    public var recentRate: Double?
+    /// 更早若干会话的平均纠错密度。
+    public var earlierRate: Double?
+    /// 参与计算的会话数（不含轮数为 0 / 未知的）。
+    public var sessionCount: Int
+
+    public init(direction: Direction, recentRate: Double?, earlierRate: Double?, sessionCount: Int) {
+        self.direction = direction
+        self.recentRate = recentRate
+        self.earlierRate = earlierRate
+        self.sessionCount = sessionCount
+    }
+
+    /// 样本不足时的唯一取值：不给数字、不下结论。
+    public static let unknown = PracticeTrend(direction: .unknown, recentRate: nil, earlierRate: nil, sessionCount: 0)
 }
 
 /// 一条反复出现的错误：同一处「原句 → 改正」进入过多少次。
@@ -198,15 +287,81 @@ public enum MemoryRetriever {
         return result.sorted { $0.averageScore < $1.averageScore }.prefix(limit).map { $0 }
     }
 
+    /// 最近练过的话题（新 → 旧，已去重）。
+    ///
+    /// 没有话题就不编：普通练习（没绑情景）的会话不会产生话题词，
+    /// 拿模式名或时间拼一个出来，只会让老师「以为」学员在练什么。
+    public static func recentTopics(from facts: [MemorySessionFact], limit: Int = 4) -> [String] {
+        guard limit > 0 else { return [] }
+        var seen: Set<String> = []
+        var result: [String] = []
+        for fact in facts.sorted(by: { $0.startedAt > $1.startedAt }) {
+            let topic = fact.topic?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !topic.isEmpty, seen.insert(topic).inserted else { continue }
+            result.append(topic)
+            if result.count >= limit { break }
+        }
+        return result
+    }
+
+    /// 练习趋势：最近一半会话的**纠错密度**对比更早一半。
+    ///
+    /// 只认轮数已知的会话（轮数为 0 的算不出密度，硬算等于把 0 当分母）。
+    /// 会话数不足 `minimumSessions` 时返回 `.unknown` —— 两三次练习就下
+    /// 「进步了 / 退步了」的结论，是拿噪音当信号。
+    public static func practiceTrend(
+        from facts: [MemorySessionFact],
+        minimumSessions: Int = 4,
+        relativeThreshold: Double = 0.2
+    ) -> PracticeTrend {
+        let usable = facts.filter { $0.messageCount > 0 }.sorted { $0.startedAt > $1.startedAt }
+        guard usable.count >= minimumSessions else { return .unknown }
+        let half = usable.count / 2
+        guard half > 0, usable.count - half > 0 else { return .unknown }
+
+        let recent = Array(usable.prefix(half))
+        let earlier = Array(usable.suffix(usable.count - half))
+
+        /// 纠错密度 = 纠错条数 ÷ 对话轮数（每轮平均被纠几次）。
+        func density(_ group: [MemorySessionFact]) -> Double {
+            let turns = group.reduce(0) { $0 + $1.messageCount }
+            guard turns > 0 else { return 0 }
+            return Double(group.reduce(0) { $0 + $1.correctionCount }) / Double(turns)
+        }
+
+        let recentRate = density(recent)
+        let earlierRate = density(earlier)
+        let direction: PracticeTrend.Direction
+        if earlierRate < 0.0001 {
+            // 以前几乎不犯错：现在犯错变多就是变卡，否则持平。
+            direction = recentRate < 0.0001 ? .steady : .slipping
+        } else {
+            let change = (recentRate - earlierRate) / earlierRate
+            if change <= -relativeThreshold {
+                direction = .improving
+            } else if change >= relativeThreshold {
+                direction = .slipping
+            } else {
+                direction = .steady
+            }
+        }
+        return PracticeTrend(direction: direction,
+                             recentRate: recentRate,
+                             earlierRate: earlierRate,
+                             sessionCount: usable.count)
+    }
+
     /// 组装一份完整摘要。数据库侧只需把原始事实取出来，口径全在这里。
     public static func brief(
         corrections: [CorrectionRecord],
         vocabulary: [VocabularyEntry],
         reports: [PronunciationReport],
         sessionCount: Int,
+        sessionFacts: [MemorySessionFact] = [],
         errorLimit: Int = 5,
         wordLimit: Int = 6,
         dimensionLimit: Int = 3,
+        topicLimit: Int = 4,
         now: Date = Date()
     ) -> LearningMemory {
         LearningMemory(
@@ -214,7 +369,9 @@ public enum MemoryRetriever {
             focusWords: focusWords(from: vocabulary, limit: wordLimit, now: now),
             weakDimensions: weakDimensions(from: reports, limit: dimensionLimit),
             sessionsPracticed: sessionCount,
-            totalCorrections: corrections.count
+            totalCorrections: corrections.count,
+            recentTopics: recentTopics(from: sessionFacts, limit: topicLimit),
+            practiceTrend: practiceTrend(from: sessionFacts)
         )
     }
 

@@ -96,12 +96,12 @@ final class ProgressTests: XCTestCase {
             DailyActivity(day: day(2026, 9, 11), messages: 6),
             DailyActivity(day: day(2026, 9, 12)),
         ]
-        XCTAssertEqual(ProgressAggregator.streak(activity, calendar: calendar), 2)
+        XCTAssertEqual(ProgressAggregator.streak(activity), 2)
 
         // 今天也练了 → 3。
         var withToday = activity
         withToday[4] = DailyActivity(day: day(2026, 9, 12), messages: 2)
-        XCTAssertEqual(ProgressAggregator.streak(withToday, calendar: calendar), 3)
+        XCTAssertEqual(ProgressAggregator.streak(withToday), 3)
 
         // 中间断过 → 只数到断档前。
         let broken = [
@@ -109,8 +109,8 @@ final class ProgressTests: XCTestCase {
             DailyActivity(day: day(2026, 9, 11)),
             DailyActivity(day: day(2026, 9, 12), messages: 1),
         ]
-        XCTAssertEqual(ProgressAggregator.streak(broken, calendar: calendar), 1)
-        XCTAssertEqual(ProgressAggregator.streak([], calendar: calendar), 0)
+        XCTAssertEqual(ProgressAggregator.streak(broken), 1)
+        XCTAssertEqual(ProgressAggregator.streak([]), 0)
     }
 
     func testCorrectionsAndPronunciationAndVocabularyLandOnTheirOwnDays() {
@@ -302,7 +302,10 @@ final class ProgressTests: XCTestCase {
     func testProgressServiceAggregatesFromDatabase() async throws {
         let db = try LearningDatabase.inMemory()
         let service = ProgressService(learning: db)
-        let now = Date()
+        // ⚠️ 「现在」要固定在**当天正午**，不能用 `Date()`：用例把三条消息放在 now-600/-300/0 秒，
+        // 若真在午夜后 10 分钟内跑，前两条会落到前一天 —— `today.messages` 变 1、`activeDays` 变 2，
+        // 深夜里随机挂一次（2026-09-17 → 18 跨零点那轮全量回归就是这么挂了 3 条断言）。
+        let now = calendar.date(byAdding: .hour, value: 12, to: calendar.startOfDay(for: Date())) ?? Date()
         let session = ChatSession(id: UUID(), startedAt: now, mode: .conversation)
         try await db.createSession(session)
         for offset in [0.0, 300, 600] {

@@ -147,7 +147,7 @@ struct VocabularyReviewCard: View {
                         .font(.system(size: 12, design: .rounded))
                         .foregroundStyle(theme.secondaryText)
                 }
-                speakButton(entry.word)
+                speakButton()
                 Spacer(minLength: 0)
             }
             if revealed {
@@ -413,7 +413,7 @@ struct VocabularyReviewCard: View {
                 .foregroundStyle(theme.secondaryText)
             Spacer(minLength: 0)
             gradeButton(remembered: true, title: "认识", systemImage: "checkmark.circle.fill", color: .green)
-            gradeButton(remembered: false, title: "忘了", systemImage: "xmark.circle.fill", color: .orange)
+            gradeButton(remembered: false, title: "忘了", systemImage: "xmark.circle.fill", color: theme.warning)
         }
     }
 
@@ -438,7 +438,16 @@ struct VocabularyReviewCard: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help(remembered ? "记住了：掌握度 +1，下次复习间隔变长" : "忘了：掌握度 −1，今天还会再见一面")
+        .help(gradeHint(remembered))
+        // VoiceOver：光读「认识 / 忘了」两个词说明不了后果（会不会当天再见到它、
+        // 掌握度往哪边走），把 tooltip 那套话原样报出来 —— 两处同源，不会各自漂。
+        .accessibilityLabel(title)
+        .accessibilityHint(gradeHint(remembered))
+    }
+
+    /// 「认识 / 忘了」的后果说明：tooltip 与 VoiceOver 提示**同一份文案**。
+    private func gradeHint(_ remembered: Bool) -> String {
+        remembered ? "记住了：掌握度 +1，下次复习间隔变长" : "忘了：掌握度 −1，今天还会再见一面"
     }
 
     // MARK: - 结算
@@ -461,10 +470,10 @@ struct VocabularyReviewCard: View {
                         Text("回到词表")
                             .font(.system(size: 11, weight: .semibold))
                     }
-                    .foregroundStyle(.white)
+                    .foregroundStyle(theme.onAccentFill)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 5)
-                    .background(Capsule().fill(theme.accent))
+                    .background(Capsule().fill(theme.accentFill))
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -479,7 +488,7 @@ struct VocabularyReviewCard: View {
             HStack(spacing: 18) {
                 statTile("复习", "\(summary.total)", theme.primaryText)
                 statTile("认识", "\(summary.remembered)", .green)
-                statTile("忘了", "\(summary.forgotten)", .orange)
+                statTile("忘了", "\(summary.forgotten)", theme.warning)
                 statTile("正确率", "\(summary.accuracyPercent)%", theme.accent)
                 if let percent = summary.averagePronunciationPercent {
                     statTile("朗读均分", "\(percent)", theme.accentCool)
@@ -514,7 +523,7 @@ struct VocabularyReviewCard: View {
     ///
     /// 首句还在合成时转圈、出声后是声波逐层点亮 —— 与词表卡片、跟读页同一套相位语义，
     /// 不用 ⏸/🔇 之类的静音图标（那看着像「已经静音了」）。
-    private func speakButton(_ text: String) -> some View {
+    private func speakButton() -> some View {
         Button(action: onSpeak) {
             ZStack {
                 if isPreparingSpeech {
@@ -526,7 +535,8 @@ struct VocabularyReviewCard: View {
                 } else {
                     Image(systemName: isSpeaking ? "speaker.wave.3.fill" : "speaker.wave.2.fill")
                         .font(.system(size: 12))
-                        .foregroundStyle(Color.yellow)
+                        // 与 `SpeakButton` 同一个黄：`Color.yellow` 在白天卡片上等于看不见。
+                        .foregroundStyle(theme.accent)
                         .symbolEffect(.variableColor.iterative, isActive: isSpeaking)
                 }
             }

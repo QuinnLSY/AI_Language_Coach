@@ -36,6 +36,18 @@ public struct DailyActivity: Sendable, Equatable, Identifiable {
     ///
     /// 与「今日任务」卡片上的复习进度、年度记录里那天格子的深浅同源。
     public var vocabularyReviewed: Int
+    /// 当天交卷批改的作文篇数（#233）。
+    public var writings: Int
+    /// 当天作文的平均批改分（0...100；没交过为 nil）。
+    public var writingScore: Double?
+    /// 当天交卷的阅读篇数（#233；只算交了卷的）。
+    public var readings: Int
+    /// 当天阅读答对的题数（与 `readingQuestions` 配对使用）。
+    public var readingCorrect: Int
+    /// 当天阅读的总题数。
+    public var readingQuestions: Int
+    /// 当天作文的总词数。
+    public var writingWords: Int
 
     public var id: Date { day }
 
@@ -47,7 +59,13 @@ public struct DailyActivity: Sendable, Equatable, Identifiable {
         shadowingAttempts: Int = 0,
         pronunciation: Double? = nil,
         vocabularyAdded: Int = 0,
-        vocabularyReviewed: Int = 0
+        vocabularyReviewed: Int = 0,
+        writings: Int = 0,
+        writingScore: Double? = nil,
+        readings: Int = 0,
+        readingCorrect: Int = 0,
+        readingQuestions: Int = 0,
+        writingWords: Int = 0
     ) {
         self.day = day
         self.seconds = max(seconds, 0)
@@ -57,6 +75,12 @@ public struct DailyActivity: Sendable, Equatable, Identifiable {
         self.pronunciation = pronunciation
         self.vocabularyAdded = vocabularyAdded
         self.vocabularyReviewed = max(vocabularyReviewed, 0)
+        self.writings = max(writings, 0)
+        self.writingScore = writingScore
+        self.readings = max(readings, 0)
+        self.readingCorrect = max(readingCorrect, 0)
+        self.readingQuestions = max(readingQuestions, 0)
+        self.writingWords = max(writingWords, 0)
     }
 
     /// 练习时长（分钟，四舍五入）。
@@ -70,6 +94,7 @@ public struct DailyActivity: Sendable, Equatable, Identifiable {
     public var hasPractice: Bool {
         seconds > 0 || messages > 0 || shadowingAttempts > 0
             || vocabularyAdded > 0 || vocabularyReviewed > 0
+            || writings > 0 || readings > 0
     }
 }
 
@@ -200,6 +225,36 @@ public struct VocabularyReviewStamp: Sendable, Equatable {
     public init(itemID: UUID, reviewedAt: Date) {
         self.itemID = itemID
         self.reviewedAt = reviewedAt
+    }
+}
+
+/// 一次写作批改的极简记录（#233：写作/阅读进学习记录）。
+public struct WritingStamp: Sendable, Equatable {
+    /// 批改分数（0...100；模型没给分为 nil，不冒充 0 分）。
+    public var score: Double?
+    /// 作文词数（与跟读同一把分词尺）。
+    public var wordCount: Int
+    public var createdAt: Date
+
+    public init(score: Double?, wordCount: Int, createdAt: Date) {
+        self.score = score
+        self.wordCount = max(wordCount, 0)
+        self.createdAt = createdAt
+    }
+}
+
+/// 一次**交卷**阅读的极简记录。
+///
+/// 只记交卷的：光生成一篇不读不算练习 —— 「读过」的口径是答完题交了卷。
+public struct ReadingStamp: Sendable, Equatable {
+    public var correct: Int
+    public var total: Int
+    public var createdAt: Date
+
+    public init(correct: Int, total: Int, createdAt: Date) {
+        self.correct = max(correct, 0)
+        self.total = max(total, 0)
+        self.createdAt = createdAt
     }
 }
 
@@ -345,7 +400,9 @@ public enum ProgressAggregator {
         vocabulary: [VocabularyEntry],
         totalStars: Int,
         goalMinutes: Int = defaultGoalMinutes,
-        reviews: [VocabularyReviewStamp] = []
+        reviews: [VocabularyReviewStamp] = [],
+        writings: [WritingStamp] = [],
+        readings: [ReadingStamp] = []
     ) -> ProgressSnapshot {
         let window = max(days, 1)
         let today = calendar.startOfDay(for: now)
@@ -366,7 +423,9 @@ public enum ProgressAggregator {
                 calendar: calendar
             ).mapValues { attempts in attempts.compactMap { $0.pronunciation?.overall } },
             vocabulary: vocabulary,
-            reviews: reviews
+            reviews: reviews,
+            writings: writings,
+            readings: readings
         )
         let todayActivity = windowActivity.last ?? DailyActivity(day: today)
 
@@ -405,7 +464,6 @@ public enum ProgressAggregator {
 
         let windowMessages = windowActivity.reduce(0) { $0 + $1.messages }
         let windowCorrections = windowActivity.reduce(0) { $0 + $1.corrections }
-        let windowSeconds = windowActivity.reduce(0) { $0 + $1.seconds }
 
         let skills = skillScores(
             messages: windowMessages,
@@ -423,7 +481,7 @@ public enum ProgressAggregator {
             grammarTrend: grammarTrend,
             skills: skills,
             today: todayActivity,
-            streakDays: streak(windowActivity, calendar: calendar),
+            streakDays: streak(windowActivity),
             activeDays: windowActivity.filter(\.hasPractice).count,
             totalSeconds: sessions.reduce(0) { $0 + sessionSeconds($1) } + shadowingSessionSeconds(shadowing),
             totalMessages: sessions.reduce(0) { $0 + $1.messageCount },
@@ -456,7 +514,9 @@ public enum ProgressAggregator {
         shadowing: [ShadowingStamp] = [],
         pronunciationByDay: [Date: [Double]] = [:],
         vocabulary: [VocabularyEntry] = [],
-        reviews: [VocabularyReviewStamp] = []
+        reviews: [VocabularyReviewStamp] = [],
+        writings: [WritingStamp] = [],
+        readings: [ReadingStamp] = []
     ) -> [DailyActivity] {
         // 传进来的「天」一律归一到当天 0 点：下面所有查表都以 0 点为键，
         // 不给这一刀的话，传进来一个带时刻的日期会**静默查不到**任何记录
@@ -468,6 +528,8 @@ public enum ProgressAggregator {
         let shadowingByDay = group(shadowing, by: { $0.createdAt }, calendar: calendar)
         let vocabularyByDay = group(vocabulary, by: { $0.createdAt }, calendar: calendar)
         let reviewedByDay = reviewedCountsByDay(reviews, calendar: calendar)
+        let writingsByDay = group(writings, by: { $0.createdAt }, calendar: calendar)
+        let readingsByDay = group(readings, by: { $0.createdAt }, calendar: calendar)
 
         var activity: [DailyActivity] = []
         for day in dayList {
@@ -486,7 +548,13 @@ public enum ProgressAggregator {
                     shadowingAttempts: dayShadowing.count,
                     pronunciation: scores.isEmpty ? nil : scores.reduce(0, +) / Double(scores.count),
                     vocabularyAdded: (vocabularyByDay[day] ?? []).count,
-                    vocabularyReviewed: reviewedCounts(reviews, by: reviewedByDay, on: day, vocabulary: vocabulary, calendar: calendar)
+                    vocabularyReviewed: reviewedCounts(reviews, by: reviewedByDay, on: day, vocabulary: vocabulary, calendar: calendar),
+                    writings: (writingsByDay[day] ?? []).count,
+                    writingScore: Self.averageWritingScore(writingsByDay[day] ?? []),
+                    readings: (readingsByDay[day] ?? []).count,
+                    readingCorrect: (readingsByDay[day] ?? []).reduce(0) { $0 + $1.correct },
+                    readingQuestions: (readingsByDay[day] ?? []).reduce(0) { $0 + $1.total },
+                    writingWords: (writingsByDay[day] ?? []).reduce(0) { $0 + $1.wordCount }
                 )
             )
         }
@@ -543,6 +611,13 @@ public enum ProgressAggregator {
             return ReviewScheduler.reviewedCount(vocabulary, on: target, calendar: calendar)
         }
         return day[target]?.count ?? 0
+    }
+
+    /// 当天作文的平均批改分（没有分数样本返回 nil —— 不冒充 0 分）。
+    static func averageWritingScore(_ stamps: [WritingStamp]) -> Double? {
+        let scores = stamps.compactMap(\.score)
+        guard !scores.isEmpty else { return nil }
+        return scores.reduce(0, +) / Double(scores.count)
     }
 
     // MARK: 技能分布
@@ -651,7 +726,10 @@ public enum ProgressAggregator {
     }
 
     /// 连续练习天数：从今天（今天没练则从昨天）往前数，遇到空白天停下。
-    public static func streak(_ activity: [DailyActivity], calendar: Calendar) -> Int {
+    ///
+    /// ⚠️ 不需要 `Calendar`：只按数组顺序数连续段，日期切分是调用方的事
+    /// （早先收了个 `calendar` 却一次没用，读签名的人会以为它会做日期对齐）。
+    public static func streak(_ activity: [DailyActivity]) -> Int {
         var days = activity
         // 今天还没练不该把连续记录清零 —— 今天才开始而已。
         if let last = days.last, !last.hasPractice { days.removeLast() }
@@ -664,7 +742,7 @@ public enum ProgressAggregator {
     }
 
     /// 窗口内的天列表（旧 → 新）。
-    static func daySlots(count: Int, endingAt end: Date, calendar: Calendar) -> [Date] {
+    public static func daySlots(count: Int, endingAt end: Date, calendar: Calendar) -> [Date] {
         (0..<count).reversed().compactMap { offset in
             calendar.date(byAdding: .day, value: -offset, to: end)
         }
@@ -698,4 +776,114 @@ public enum ProgressAggregator {
         if minutes < 60 { return "\(minutes) 分 \(total % 60) 秒" }
         return "\(minutes / 60) 小时 \(minutes % 60) 分"
     }
+
+    // MARK: 每周小结 / 月环比（#228）
+
+    /// 月环比的**样本门槛**：上个月开口不足 5 分钟就不算环比 ——
+    /// 拿「3 秒 vs 0 秒」算出「+∞%」或拿 0 冒充「没变化」，都是撒谎。
+    public static let monthOverMonthMinSeconds: TimeInterval = 5 * 60
+
+    /// 某天所在周的周一 0 点（**周一起算**的中国习惯，与系统日历设置无关）。
+    public static func monday(of day: Date, calendar: Calendar) -> Date {
+        let start = calendar.startOfDay(for: day)
+        // Gregorian weekday：周日 = 1 … 周六 = 7。距周一要回退 (weekday + 5) % 7 天。
+        let backDays = (calendar.component(.weekday, from: start) + 5) % 7
+        return calendar.date(byAdding: .day, value: -backDays, to: start) ?? start
+    }
+
+    /// 从逐日活动里折出「本周小结 + 月环比」。
+    ///
+    /// 口径与快照**完全同一份**：传入的 `activity` 必须是 `dailyActivity(days:…)`
+    /// 的产物（时长唯一尺 `practiceSeconds` 在里面），这里只做切片求和，不再另算一遍。
+    ///
+    /// - Parameter activity: 旧 → 新的逐日活动，**必须覆盖到上个月 1 号之前**——
+    ///   覆盖不到时月环比标记为「样本不足」（数字可以缺，不能是编出来的）。
+    public static func weeklyInsight(
+        days activity: [DailyActivity],
+        now: Date,
+        calendar: Calendar
+    ) -> WeeklyInsight? {
+        guard !activity.isEmpty else { return nil }
+
+        let thisMonday = monday(of: calendar.startOfDay(for: now), calendar: calendar)
+        let lastMonday = calendar.date(byAdding: .day, value: -7, to: thisMonday) ?? thisMonday
+
+        func monthStart(containing day: Date) -> Date {
+            let comps = calendar.dateComponents([.year, .month], from: day)
+            return calendar.date(from: comps) ?? day
+        }
+        let thisMonthStart = monthStart(containing: now)
+        let lastMonthStart: Date = {
+            let firstOfThis = monthStart(containing: now)
+            let endOfLast = calendar.date(byAdding: .day, value: -1, to: firstOfThis) ?? firstOfThis
+            return monthStart(containing: endOfLast)
+        }()
+
+        var insight = WeeklyInsight()
+        for day in activity {
+            let d = calendar.startOfDay(for: day.day)
+            if d >= thisMonday {
+                insight.weekSeconds += day.seconds
+                insight.weekCorrections += day.corrections
+                insight.weekNewWords += day.vocabularyAdded
+                insight.weekWriting += day.writings
+                insight.weekReading += day.readings
+            } else if d >= lastMonday {
+                insight.lastWeekSeconds += day.seconds
+                insight.lastWeekCorrections += day.corrections
+            }
+            if d >= thisMonthStart {
+                insight.monthSeconds += day.seconds
+            } else if d >= lastMonthStart {
+                insight.lastMonthSeconds += day.seconds
+            }
+        }
+        // 覆盖检查：数据最早的那天如果晚于上月 1 号，「上月」只是残片 → 不给环比。
+        if let first = activity.first, calendar.startOfDay(for: first.day) > lastMonthStart {
+            insight.isMonthSampleSufficient = false
+        }
+        return insight
+    }
+}
+
+// MARK: - 每周小结与月环比（#228）
+
+/// 「本周小结」卡的全部数字。
+///
+/// 时长口径与快照同一把尺（`practiceSeconds`）；环比只报**有把握**的数字 ——
+/// 上月样本不足时 `monthChangePercent == nil`，UI 显示「还不够」而不是 0%。
+public struct WeeklyInsight: Sendable, Equatable {
+
+    /// 本周（周一至今）开口时长（秒）。
+    public var weekSeconds: TimeInterval = 0
+    /// 上周同时长。
+    public var lastWeekSeconds: TimeInterval = 0
+    /// 本周纠错处数。
+    public var weekCorrections: Int = 0
+    /// 上周纠错处数。
+    public var lastWeekCorrections: Int = 0
+    /// 本周新增词汇数。
+    public var weekNewWords: Int = 0
+    /// 本周交卷批改的作文篇数（#233）。
+    public var weekWriting: Int = 0
+    /// 本周交卷的阅读篇数（#233）。
+    public var weekReading: Int = 0
+    /// 本月（1 号至今）开口时长（秒）。
+    public var monthSeconds: TimeInterval = 0
+    /// 上月整月开口时长（秒）。
+    public var lastMonthSeconds: TimeInterval = 0
+    /// 月环比是否有足够样本（数据没覆盖到上月 / 上月开口太少都会是 false）。
+    public var isMonthSampleSufficient: Bool = true
+
+    public init() {}
+
+    /// 月环比（百分比，正 = 练得更多）。样本不足返回 nil。
+    public var monthChangePercent: Double? {
+        guard isMonthSampleSufficient else { return nil }
+        guard lastMonthSeconds >= ProgressAggregator.monthOverMonthMinSeconds else { return nil }
+        return ((monthSeconds - lastMonthSeconds) / lastMonthSeconds) * 100
+    }
+
+    /// 本周纠错相对上周的变化（正 = 批注变多）。
+    public var correctionChange: Int { weekCorrections - lastWeekCorrections }
 }

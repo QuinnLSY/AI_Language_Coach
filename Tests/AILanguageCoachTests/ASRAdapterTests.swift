@@ -9,8 +9,8 @@ import XCTest
 /// 第 12 步 本地 ASR（Phase 12）的适配器级测试。
 ///
 /// 计划要求的八类用例里，能在**离线**完整覆盖的都在这里：短句 / 长句 / 噪音 /
-/// 静音（空音频）/ 多语言 / 错误映射 / 音频封装；「流式」与「时间戳」本适配器
-/// 并不提供（capabilities 明确为 false），用一条断言把这件事钉死，避免假装支持。
+/// 静音（空音频）/ 多语言 / 错误映射 / 音频封装 / **时间戳精度**（verbose_json 实测字段）。
+/// 「流式」本适配器确实没有（whisper.cpp 无流式端点），用断言钉死而不是假装支持。
 ///
 /// 采用注入式假传输，**不依赖任何本地 runtime / 网络**。
 @MainActor
@@ -219,12 +219,178 @@ final class ASRAdapterTests: XCTestCase {
 
     // MARK: - 能力口径（不假装支持）
 
-    func testDoesNotAdvertiseStreamingOrTimestamps() {
+    func testStreamingIsNotAdvertisedButWordTimestampsAre() {
         let adapter = WhisperASRAdapter(providerID: "local.asr")
         let capabilities = adapter.capabilities()
-        XCTAssertFalse(capabilities.streaming, "本适配器不做流式识别，不得声称支持")
-        // 计划里的「时间戳精度」不适用于本适配器（/inference 的 json 形态只有整段 text）。
+        XCTAssertFalse(capabilities.streaming, "whisper.cpp 没有流式端点，不得声称支持")
+        XCTAssertTrue(capabilities.wordTimestamp,
+                      "verbose_json 实测给得出词级时间戳（计划 Phase 12 的 timestamp accuracy 项）")
         XCTAssertEqual(adapter.metadata().runtime, .externalLocalRuntime)
+    }
+
+    // MARK: - 时间戳（verbose_json）
+
+    func testRequestsVerboseJSON() async throws {
+        let recorder = CallRecorder()
+        let adapter = makeAdapter(recorder: recorder, body: #"{"text":"Hi"}"#)
+        try await configured(adapter)
+
+        _ = try await adapter.transcribe(ASRRequest(audioSamples: samples(seconds: 0.4)))
+        let body = String(decoding: await recorder.lastBody ?? Data(), as: UTF8.self)
+        XCTAssertTrue(body.contains("verbose_json"), "要时间戳就必须显式要 verbose_json")
+    }
+
+    func testVerboseResponseYieldsWordTimestamps() async throws {
+        let recorder = CallRecorder()
+        let payload = """
+        {"text":" Good morning.","segments":[{"id":0,"text":" Good morning.",\
+        "start":0.0,"end":2.12,"words":[{"word":" Good","start":0.03,"end":0.26,\
+        "probability":0.82},{"word":" morning","start":0.26,"end":0.58,"probability":0.83}]}]}
+        """
+        let adapter = makeAdapter(recorder: recorder, body: payload)
+        try await configured(adapter)
+
+        let result = try await adapter.transcribe(ASRRequest(audioSamples: samples(seconds: 0.4)))
+        XCTAssertEqual(result.text, "Good morning.")
+        let segments = try XCTUnwrap(result.segments, "有 segments 就该解析出来")
+        XCTAssertEqual(segments.count, 1)
+        XCTAssertEqual(segments[0].start, 0.0, accuracy: 1e-6)
+        XCTAssertEqual(segments[0].end, 2.12, accuracy: 1e-6)
+        XCTAssertEqual(result.words?.map(\.word), [" Good", " morning"])
+        XCTAssertEqual(result.words?.first?.start ?? -1, 0.03, accuracy: 1e-6)
+        XCTAssertEqual(result.words?.first?.confidence ?? 0, 0.82, accuracy: 1e-6)
+    }
+
+    func testResponseWithoutSegmentsYieldsNilTimestamps() async throws {
+        let recorder = CallRecorder()
+        let adapter = makeAdapter(recorder: recorder, body: #"{"text":"Hello"}"#)
+        try await configured(adapter)
+
+        let result = try await adapter.transcribe(ASRRequest(audioSamples: samples(seconds: 0.4)))
+        XCTAssertNil(result.segments, "runtime 没给时间戳就是 nil，不能是空数组")
+        XCTAssertNil(result.words)
+        XCTAssertEqual(result.text, "Hello", "拿不到时间戳也要拿到文字")
+    }
+
+    func testEmptySegmentsBecomeNilNotAmbiguousEmptyArray() async throws {
+        let recorder = CallRecorder()
+        let adapter = makeAdapter(recorder: recorder, body: #"{"text":"","segments":[]}"#)
+        try await configured(adapter)
+
+        let result = try await adapter.transcribe(ASRRequest(audioSamples: samples(seconds: 0.4)))
+        XCTAssertNil(result.segments, "空 segments 要退化成 nil，避免与「无时间戳」混淆")
+    }
+
+    func testSegmentWithPartialTimestampsIsDropped() async throws {
+        let recorder = CallRecorder()
+        // 第二段只有 start 没有 end —— 报一半等于没报，宁可丢。
+        let payload = """
+        {"text":"a b","segments":[{"text":"a","start":0.0,"end":1.0,"words":[]},\
+        {"text":"b","start":1.0}]}
+        """
+        let adapter = makeAdapter(recorder: recorder, body: payload)
+        try await configured(adapter)
+
+        let result = try await adapter.transcribe(ASRRequest(audioSamples: samples(seconds: 0.4)))
+        XCTAssertEqual(result.segments?.count, 1, "时间戳不全的那一段必须丢掉，不能拿 0 冒充")
+        XCTAssertEqual(result.segments?.first?.text, "a")
+    }
+
+    // MARK: - 真机时间戳（runtime 不在时 Skip，不算失败）
+
+    /// 计划 Phase 12 的 `timestamp accuracy` 项：拿**真实语音**打真机，确认时间戳不是纸面支持。
+    ///
+    /// 上面那几条用的是构造出来的 JSON —— 只能证明「给我这个形状我解析得对」，
+    /// 证明不了「这个 runtime 真的会给时间戳，而且时间戳是合理的」。
+    /// 本机没装 whisper.cpp / 服务没起 / 没有 `say` 时一律 Skip。
+    func testRealRuntimeReturnsWordTimestampsForRealSpeech() async throws {
+        let adapter = WhisperASRAdapter(providerID: "local.asr")
+        try await adapter.initialize(
+            config: ProviderConfig(
+                id: "local.asr", kind: .asr, enabled: true, runtime: .externalLocalRuntime,
+                endpoint: "http://127.0.0.1:8858", requestTimeout: 60
+            )
+        )
+        guard case .connected = await adapter.healthCheck() else {
+            throw XCTSkip("本地 whisper.cpp 未运行（127.0.0.1:8858），跳过真机时间戳用例")
+        }
+
+        let samples = try Self.realSpeechSamples()
+        let result = try await adapter.transcribe(ASRRequest(audioSamples: samples, language: "en"))
+        XCTAssertFalse(result.text.isEmpty, "真实语音应能转出文字")
+
+        let words = try XCTUnwrap(result.words, "真机必须给得出词级时间戳，否则不该声明 wordTimestamp")
+        XCTAssertFalse(words.isEmpty)
+        let duration = Double(samples.count) / 16_000
+        for word in words {
+            XCTAssertGreaterThanOrEqual(word.start, -0.001, "时间戳不该是负数")
+            XCTAssertLessThanOrEqual(word.start, word.end + 1e-6, "起点不该晚于终点（\(word.word)）")
+            XCTAssertLessThanOrEqual(word.end, duration + 0.5, "终点不该明显超出音频长度")
+        }
+        let starts = words.map(\.start)
+        XCTAssertEqual(starts, starts.sorted(), "词级时间戳应随音频推进单调不减")
+    }
+
+    /// 用系统 `say` 合成一句真实语音，再用 `afconvert` 转成 16k 单声道 WAV 后解码。
+    /// 机器上缺工具就 Skip —— 不为了一条用例把音频素材提交进仓库。
+    private static func realSpeechSamples() throws -> [Float] {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("alc-asr-probe-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let aiff = directory.appendingPathComponent("probe.aiff")
+        let wav = directory.appendingPathComponent("probe.wav")
+        try run("/usr/bin/say", ["-v", "Samantha", "-o", aiff.path, "Good morning, how are you doing today"])
+        try run("/usr/bin/afconvert",
+                ["-f", "WAVE", "-d", "LEI16@16000", "-c", "1", aiff.path, wav.path])
+        return try decodePCM16WAV(Data(contentsOf: wav))
+    }
+
+    private static func run(_ path: String, _ arguments: [String]) throws {
+        guard FileManager.default.isExecutableFile(atPath: path) else {
+            throw XCTSkip("缺少 \(path)，跳过真机用例")
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = arguments
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw XCTSkip("\(path) 退出码非 0，跳过真机用例")
+        }
+    }
+
+    /// 极简 16bit PCM WAV 解码（按 chunk 找 `data`，不假设头固定 44 字节 ——
+    /// `afconvert` 会插别的 chunk）。
+    private static func decodePCM16WAV(_ data: Data) throws -> [Float] {
+        let bytes = [UInt8](data)
+        guard bytes.count > 44,
+              String(bytes: bytes[0..<4], encoding: .ascii) == "RIFF",
+              String(bytes: bytes[8..<12], encoding: .ascii) == "WAVE" else {
+            throw AIProviderError.invalidResponse("不是合法的 WAV")
+        }
+        var offset = 12
+        while offset + 8 <= bytes.count {
+            let id = String(bytes: bytes[offset..<(offset + 4)], encoding: .ascii) ?? ""
+            let size = Int(bytes[offset + 4]) | (Int(bytes[offset + 5]) << 8)
+                | (Int(bytes[offset + 6]) << 16) | (Int(bytes[offset + 7]) << 24)
+            let body = offset + 8
+            if id == "data" {
+                let end = min(body + size, bytes.count)
+                var samples: [Float] = []
+                samples.reserveCapacity((end - body) / 2)
+                var index = body
+                while index + 1 < end {
+                    let raw = UInt16(bytes[index]) | (UInt16(bytes[index + 1]) << 8)
+                    samples.append(Float(Int16(bitPattern: raw)) / 32_768)
+                    index += 2
+                }
+                return samples
+            }
+            offset = body + size + (size % 2)
+        }
+        throw AIProviderError.invalidResponse("WAV 里没有 data chunk")
     }
 
     // MARK: - WAV 封装

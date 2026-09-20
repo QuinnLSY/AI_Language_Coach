@@ -43,16 +43,15 @@ public final class MockLLMProvider: LLMProvider, @unchecked Sendable {
         ProviderMetadata(id: providerID, displayName: "Mock 大脑", runtime: .mock, version: "1.0")
     }
 
-    public func llmCapabilities() -> LLMCapabilities {
-        LLMCapabilities(streaming: true, structuredOutput: true, multilingual: true)
-    }
+    // `llmCapabilities()` 走协议默认实现（= `capabilities().llmView`）。
 
     public func generate(_ request: LLMRequest) async throws -> LLMResponse {
         guard await state.currentConfig != nil else { throw AIProviderError.notInitialized }
         return LLMResponse(text: scriptedResponse, model: request.model, finishReason: "stop")
     }
 
-    public func stream(_ request: LLMRequest) -> AsyncThrowingStream<LLMChunk, Error> {
+    /// 固定脚本回放，不看请求内容（协议要求带 `request`，这里照实标注不用它）。
+    public func stream(_: LLMRequest) -> AsyncThrowingStream<LLMChunk, Error> {
         let pieces = scriptedResponse.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
         let delay = chunkDelayNanoseconds
         return AsyncThrowingStream { continuation in
@@ -202,7 +201,8 @@ public final class MockPronunciationProvider: PronunciationProvider, @unchecked 
     public func healthCheck() async -> ProviderHealth { .connected(model: nil) }
     public func capabilities() -> ProviderCapabilities { ProviderCapabilities() }
     public func metadata() -> ProviderMetadata { ProviderMetadata(id: providerID, displayName: "Mock 发音评测", runtime: .mock) }
-    public func evaluate(audioSamples: [Float], referenceText: String) async throws -> PronunciationScore {
+    /// 分数只由参考句词数派生，音频内容不参与（协议要求带 `audioSamples`，标注不用它）。
+    public func evaluate(audioSamples _: [Float], referenceText: String) async throws -> PronunciationScore {
         let score = min(100, max(0, 60 + Double(referenceText.count % 40)))
         return PronunciationScore(overall: score, phonemes: [])
     }

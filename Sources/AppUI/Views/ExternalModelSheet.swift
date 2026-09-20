@@ -189,12 +189,12 @@ struct ExternalModelSheet: View {
                 Text(vendor.name)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
             }
-            .foregroundStyle(selected ? Color.white : theme.primaryText)
+            .foregroundStyle(selected ? theme.onAccentFill : theme.primaryText)
             .padding(.horizontal, 11)
             .frame(height: 28)
             .background(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(selected ? theme.accent : theme.surfaceAlt)
+                    .fill(selected ? theme.accentFill : theme.surfaceAlt)
             )
             // 绿点 = **正在使用**（当前生效的就是它），不是「有 Key 草稿」。
             // 位置在按钮**右上角**：与名称并排会被长的厂商名挤走，也让「选中态」
@@ -317,14 +317,14 @@ struct ExternalModelSheet: View {
                     // 粘进来的引号 / 「Bearer 」前缀 / 换行会被自动去掉：
                     // 说清楚做过什么，用户才不会以为「我贴的和发出去的一样」。
                     Text("· 已自动去掉引号/前缀/换行")
-                        .foregroundStyle(Color.orange)
+                        .foregroundStyle(theme.warning)
                 }
                 switch saved {
                 case .some(let value) where value == suffixFingerprint:
                     Text("· 已保存到本机并生效")
                 case .some(let value):
                     Text("· 与已保存的 \(value) 不同，点「确认配置」才会保存")
-                        .foregroundStyle(Color.orange)
+                        .foregroundStyle(theme.warning)
                 case .none:
                     Text("· 尚未保存，点「确认配置」后生效")
                 }
@@ -407,9 +407,9 @@ struct ExternalModelSheet: View {
         HStack(spacing: 6) {
             Text(index)
                 .font(.system(size: 10, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.onAccentFill)
                 .frame(width: 16, height: 16)
-                .background(Circle().fill(theme.accent))
+                .background(Circle().fill(theme.accentFill))
             Text(text)
                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                 .foregroundStyle(theme.primaryText)
@@ -420,7 +420,7 @@ struct ExternalModelSheet: View {
         let ok = message.contains("成功") || message.contains("已启用")
         return Text(message)
             .font(.system(size: 11, design: .rounded))
-            .foregroundStyle(ok ? Color.green : Color.orange)
+            .foregroundStyle(ok ? Color.green : theme.warning)
             .fixedSize(horizontal: false, vertical: true)
     }
 

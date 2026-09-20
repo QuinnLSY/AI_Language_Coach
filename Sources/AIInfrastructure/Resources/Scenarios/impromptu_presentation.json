@@ -28,6 +28,34 @@
     "For example, the local food is amazing.",
     "To sum up, it is a place worth visiting."
   ],
+  "mainQuest": "Give a short unprepared talk: open with a topic, give an overview and an example, then summarise.",
+  "questSteps": [
+    {
+      "id": "impromptu_presentation-s1",
+      "text": "Open by naming your topic.",
+      "hint": "今天我要讲的是 ...",
+      "anchors": [
+        "Today I would like to talk about my hometown."
+      ]
+    },
+    {
+      "id": "impromptu_presentation-s2",
+      "text": "Give a quick overview and one concrete example.",
+      "hint": "先给轮廓，再举一个例子",
+      "anchors": [
+        "First, let me give you a quick overview.",
+        "For example, the local food is amazing."
+      ]
+    },
+    {
+      "id": "impromptu_presentation-s3",
+      "text": "Close with a one-sentence summary.",
+      "hint": "To sum up, ...",
+      "anchors": [
+        "To sum up, it is a place worth visiting."
+      ]
+    }
+  ],
   "maxTurns": 16,
   "correctionMode": "balanced",
   "icon": "mic.fill"

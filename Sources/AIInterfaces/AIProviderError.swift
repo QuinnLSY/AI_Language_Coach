@@ -37,9 +37,18 @@ public enum AIProviderError: Error, Sendable, LocalizedError, Equatable {
     }
 
     /// 是否值得重试。**非法请求 / 不支持的能力 / 配置错误一律不重试**。
+    ///
+    /// ⚠️ 两处容易写错的地方：
+    /// 1. `serverError` 要看状态码 —— **4xx 是「你的请求不对」，重试再多次也是同一个结果**，
+    ///    只有 5xx（服务端自己出问题）与 429（限流，等一会儿就好）才值得再来一次。
+    ///    早先这里不区分状态码，401 也会被重试。
+    /// 2. 「值得重试」≠「立刻重试」。`.timeout` 语义上值得重试，但**不该在同一处干等**
+    ///    （用户已经等满一整轮超时了），是否真的再试由调用方按自己的耐心窗口决定，
+    ///    见 `HTTPClient.RetryPolicy.shouldRetry(_:attempt:)`。
     public var isRetryable: Bool {
         switch self {
-        case .connectionFailed, .timeout, .serverError, .runtimeCrash: true
+        case .connectionFailed, .timeout, .runtimeCrash: true
+        case .serverError(let status, _): status >= 500 || status == 429
         default: false
         }
     }

@@ -13,6 +13,9 @@ public struct ChatView: View {
     let chat: ChatService
     let modelName: String?
     let health: ProviderHealth
+    /// 启动装配中（`AppState.isBooting`）：模型还没接上，对话区要给等待态 ——
+    /// 此时显示「和老师打个招呼」是在说谎，那一刻打招呼不会有回应。
+    var isBooting: Bool = false
     /// 状态栏用：生效 Provider 名称（本地模型 / DeepSeek / OpenRouter…）。
     var providerLabel: String = ""
     /// 上下文窗口长度（token）；nil = 未知，只展示估算用量。
@@ -30,6 +33,8 @@ public struct ChatView: View {
     /// 点击麦克风：开始录音 / 停止并识别。
     var onMicStart: (() async -> Void)? = nil
     var onMicStop: (() async -> String?)? = nil
+    /// 取消这次录音（丢掉，不识别）。
+    var onCancelVoiceInput: (() -> Void)? = nil
     /// 语音输入错误（录音 / 识别失败）；显示在输入框上方，可关闭。
     var voiceError: String? = nil
     /// 关闭语音错误提示。
@@ -69,12 +74,42 @@ public struct ChatView: View {
     var translationError: String? = nil
     /// 关闭翻译失败提示。
     var onDismissTranslationError: (() -> Void)? = nil
+    /// 划词上下文（对话正文与纠错卡里的英文都能划过看释义）。
+    /// nil = 不启用划词（离屏渲染 / 既有测试走这条路，不受影响）。
+    var wordLookup: WordLookupContext? = nil
+
+    // MARK: 练习模式 / 前情提要（需求 3 / 4）
+    /// 当前练习模式：随口练与情景对话在界面上要区分得开。
+    var practiceMode: PracticeMode = .conversation
+    /// 「开启新练习」：先复盘上一段、再进随口练。
+    var onStartFreeTalk: (() async -> Void)? = nil
+    /// 当前任务的前情提要（情景模式下的引导卡；nil = 不显示）。
+    var briefing: ScenarioBriefing? = nil
+    /// 上一段练习自动复盘的结果提示（nil = 不显示）。
+    var practiceNotice: String? = nil
+    var onDismissPracticeNotice: (() -> Void)? = nil
+
+    // MARK: 考试模式（雅思口语 / 面试问答）
+    /// 考场条数据（nil = 没在考试）。有值时对话区顶部换成考场条、
+    /// 输入框不再轮换预设提问 —— 考场上学员该自己开口，不是挑一句现成的说。
+    var exam: ExamBarModel? = nil
+    var onExamTimeout: (() -> Void)? = nil
+    var onExamSkip: (() -> Void)? = nil
+    var onExamFinish: (() -> Void)? = nil
 
     // 附件（第 3 项需求：图片 / 视频 / 文件）
     /// 已选好、还没发出去的附件。
     var pendingAttachments: [ChatAttachment] = []
     /// 附件提示（超限 / 导入失败），显示在输入框上方，可关闭。
     var attachmentNotice: String? = nil
+    /// 附件**下载成功**的回执。
+    ///
+    /// ⚠️ 这个状态一度只被写入、从来没被显示过：`downloadAttachment` 把
+    /// `attachmentSaveNotice` 置上，却没有一个视图读它 —— 用户点了下载，文件落到了
+    /// 选择的目录，界面上**一点反应都没有**（回执永远不会被清除，因为它压根没出现过）。
+    var attachmentSaveNotice: String? = nil
+    /// 当前生效的模型能不能**真的读图**（false = 图片只会以文件名告诉老师）。
+    var llmSupportsVision: Bool = true
     /// 正在导入附件。
     var isImportingAttachments: Bool = false
     /// 选中一批文件（由外部导入；面板在视图层弹，状态在 AppState）。
@@ -87,6 +122,10 @@ public struct ChatView: View {
     var attachmentLocation: ((ChatAttachment) -> URL)? = nil
     /// 关闭附件提示。
     var onDismissAttachmentNotice: (() -> Void)? = nil
+    /// 关闭「已保存」回执。
+    var onDismissAttachmentSaveNotice: (() -> Void)? = nil
+    /// 清空待发附件（一次删掉全部；单个移除走 `onRemoveAttachment`）。
+    var onClearAttachments: (() -> Void)? = nil
     /// 发送（带附件）：发送动作收在 AppState 里，视图不自己拼「取附件 + 清空」的顺序。
     var onSend: ((String) -> Void)? = nil
 
@@ -112,12 +151,14 @@ public struct ChatView: View {
     private let timestampGap: TimeInterval = 5 * 60
 
     public init(chat: ChatService, modelName: String?, health: ProviderHealth,
+                isBooting: Bool = false,
                 providerLabel: String = "", contextLimit: Int? = nil, reasoningLabel: String? = nil,
                 teacherKind: AnimalKind = .panda, studentKind: AnimalKind = .bear,
                 isRecording: Bool = false, isTranscribing: Bool = false,
                 autoSpeak: Bool = false,
                 onMicStart: (() async -> Void)? = nil,
                 onMicStop: (() async -> String?)? = nil,
+                onCancelVoiceInput: (() -> Void)? = nil,
                 voiceError: String? = nil,
                 onDismissVoiceError: (() -> Void)? = nil,
                 onSpeakTap: ((String) -> Void)? = nil,
@@ -136,18 +177,33 @@ public struct ChatView: View {
                 onTranslate: ((UUID) async -> Void)? = nil,
                 translationError: String? = nil,
                 onDismissTranslationError: (() -> Void)? = nil,
+                wordLookup: WordLookupContext? = nil,
                 pendingAttachments: [ChatAttachment] = [],
                 attachmentNotice: String? = nil,
+                attachmentSaveNotice: String? = nil,
+                llmSupportsVision: Bool = true,
                 isImportingAttachments: Bool = false,
                 onAddAttachments: (([URL]) -> Void)? = nil,
                 onRemoveAttachment: ((UUID) -> Void)? = nil,
                 onDownloadAttachment: ((ChatAttachment) -> Void)? = nil,
                 attachmentLocation: ((ChatAttachment) -> URL)? = nil,
                 onDismissAttachmentNotice: (() -> Void)? = nil,
+                onDismissAttachmentSaveNotice: (() -> Void)? = nil,
+                onClearAttachments: (() -> Void)? = nil,
+                practiceMode: PracticeMode = .conversation,
+                onStartFreeTalk: (() async -> Void)? = nil,
+                briefing: ScenarioBriefing? = nil,
+                practiceNotice: String? = nil,
+                onDismissPracticeNotice: (() -> Void)? = nil,
+                exam: ExamBarModel? = nil,
+                onExamTimeout: (() -> Void)? = nil,
+                onExamSkip: (() -> Void)? = nil,
+                onExamFinish: (() -> Void)? = nil,
                 onSend: ((String) -> Void)? = nil) {
         self.chat = chat
         self.modelName = modelName
         self.health = health
+        self.isBooting = isBooting
         self.providerLabel = providerLabel
         self.contextLimit = contextLimit
         self.reasoningLabel = reasoningLabel
@@ -158,6 +214,7 @@ public struct ChatView: View {
         self.autoSpeak = autoSpeak
         self.onMicStart = onMicStart
         self.onMicStop = onMicStop
+        self.onCancelVoiceInput = onCancelVoiceInput
         self.voiceError = voiceError
         self.onDismissVoiceError = onDismissVoiceError
         self.onSpeakTap = onSpeakTap
@@ -180,14 +237,28 @@ public struct ChatView: View {
         self.onTranslate = onTranslate
         self.translationError = translationError
         self.onDismissTranslationError = onDismissTranslationError
+        self.wordLookup = wordLookup
         self.pendingAttachments = pendingAttachments
         self.attachmentNotice = attachmentNotice
+        self.attachmentSaveNotice = attachmentSaveNotice
+        self.llmSupportsVision = llmSupportsVision
         self.isImportingAttachments = isImportingAttachments
         self.onAddAttachments = onAddAttachments
         self.onRemoveAttachment = onRemoveAttachment
         self.onDownloadAttachment = onDownloadAttachment
         self.attachmentLocation = attachmentLocation
         self.onDismissAttachmentNotice = onDismissAttachmentNotice
+        self.onDismissAttachmentSaveNotice = onDismissAttachmentSaveNotice
+        self.onClearAttachments = onClearAttachments
+        self.practiceMode = practiceMode
+        self.onStartFreeTalk = onStartFreeTalk
+        self.briefing = briefing
+        self.practiceNotice = practiceNotice
+        self.onDismissPracticeNotice = onDismissPracticeNotice
+        self.exam = exam
+        self.onExamTimeout = onExamTimeout
+        self.onExamSkip = onExamSkip
+        self.onExamFinish = onExamFinish
         self.onSend = onSend
     }
 
@@ -195,23 +266,44 @@ public struct ChatView: View {
         VStack(spacing: 0) {
             header
             Divider().overlay(theme.divider)
+            // 考场条取代情景胶囊与目标条：考场上只需要「第几题 / 还剩多久 / 怎么结束」。
+            if let exam {
+                ExamSessionBar(
+                    model: exam,
+                    onTimeout: { onExamTimeout?() },
+                    onSkip: { onExamSkip?() },
+                    onFinish: { onExamFinish?() }
+                )
+                Divider().overlay(theme.divider)
+            }
             if let scenario {
                 scenarioStrip(scenario)
                 Divider().overlay(theme.divider)
             }
+            if let briefing, briefing.lines.isEmpty == false {
+                briefingStrip(briefing)
+                Divider().overlay(theme.divider)
+            }
             messageArea
+            practiceNoticeBanner
             if let modelStoppedNotice {
                 modelStoppedBanner(modelStoppedNotice)
             }
             voiceErrorBanner
             translationErrorBanner
             attachmentErrorBanner
+            attachmentSavedBanner
             composer
         }
         .background(theme.surfaceAlt.opacity(0.35))
         // 教师回复完成后自动朗读（设置里可关）；挂在最外层，空态切换分支也不丢事件。
-        .onChange(of: chat.messages.count) { _, count in
-            if autoSpeak, count > 0, let last = chat.messages.last, last.role == .assistant {
+        // ⚠️ 一律读 `visibleMessages`：启动时被「藏起来待复盘」的上一段对话既不该上屏，
+        // 也不该在开屏时被念出来（`messages` 里那一刻装的正是它）。
+        // ⚠️ 还要挡住 `isBooting`：续做决策走完之后会**揭开**上次那段历史（情景续做 / 接着聊），
+        // 那一下同样是「条数从 0 跳上来」，但它揭开的是旧消息，念出来就是「开屏自己说话」。
+        .onChange(of: chat.visibleMessages.count) { _, count in
+            guard !isBooting else { return }
+            if autoSpeak, count > 0, let last = chat.visibleMessages.last, last.role == .assistant {
                 onSpeakTap?(last.content)
             }
         }
@@ -231,8 +323,11 @@ public struct ChatView: View {
     }
 
     /// 当前轮换到的预设提问（没有预设时返回 nil，输入框退回普通占位）。
+    ///
+    /// ⚠️ 考试模式下**恒为 nil**：预置提问是「陪练」的产物，
+    /// 考场上出现一句现成的话，学员会以为把那句念出来就算答过了。
     private var currentStarterQuestion: String? {
-        guard !starterQuestions.isEmpty else { return nil }
+        guard exam == nil, !starterQuestions.isEmpty else { return nil }
         return starterQuestions[questionIndex % starterQuestions.count]
     }
 
@@ -255,9 +350,19 @@ public struct ChatView: View {
                 Text("\(teacherKind.displayName)老师")
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.primaryText)
-                Text(statusLine)
-                    .font(.system(size: 11, design: .rounded))
-                    .foregroundStyle(theme.secondaryText)
+                HStack(spacing: 5) {
+                    // 「老师正在准备」时状态行跟着转：顶栏与对话区必须说同一件事，
+                    // 不能底下在等、上面看着像闲着。
+                    if isTeacherPreparing {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .scaleEffect(0.6)
+                            .frame(width: 10, height: 10)
+                    }
+                    Text(statusLine)
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                }
             }
 
             Spacer()
@@ -330,9 +435,101 @@ public struct ChatView: View {
                     .padding(.vertical, 4)
                     .background(Capsule().fill(theme.surfaceAlt))
             }
+
+            // 「开启新练习」（需求 4）：结束当前这一段（自动复盘）并进随口练。
+            // 与情景对话的区别写在按钮的 hover 提示里 —— 学员按下之前就该知道两件事不一样。
+            Button {
+                guard let onStartFreeTalk else { return }
+                Task { await onStartFreeTalk() }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(practiceMode == .freeTalk ? "重开随口练" : "开启新练习")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                }
+                .foregroundStyle(theme.onAccentFill)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(theme.accentFill))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(onStartFreeTalk == nil)
+            .help("换一段自由练习：你定话题、老师跟着你聊，多给建议与纠错（上一段会自动复盘收进学习记录）")
         }
         .padding(.horizontal, 18)
         .frame(height: 64)
+    }
+
+    // MARK: - 前情提要条（需求 3：进任务先讲清「上次练到哪」）
+
+    /// 老师进任务前先交代的内容。与 `scenarioStrip`（角色 / 轮次）分工不同：
+    /// 那条说「你在演谁」，这条说「我们上次做到哪、这次先做什么」。
+    private func briefingStrip(_ briefing: ScenarioBriefing) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(theme.accent)
+                Text(briefing.isFirstTime ? "今天的任务" : "前情提要")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                if briefing.quest.total > 0 {
+                    Text(briefing.quest.summary)
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.accentCool)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(theme.hover))
+                }
+                Spacer(minLength: 0)
+            }
+            ForEach(briefing.lines, id: \.self) { line in
+                HStack(alignment: .top, spacing: 5) {
+                    Circle()
+                        .fill(theme.accent.opacity(0.7))
+                        .frame(width: 3, height: 3)
+                        .padding(.top, 5)
+                    Text(line)
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.selection.opacity(0.5))
+    }
+
+    /// 上一段练习自动复盘的结果（需求 5：复盘变成自动，所以必须给一句回执）。
+    @ViewBuilder
+    private var practiceNoticeBanner: some View {
+        if let practiceNotice {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.accent)
+                Text(practiceNotice)
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                Spacer(minLength: 0)
+                Button { onDismissPracticeNotice?() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 6)
+            .background(theme.surfaceAlt.opacity(0.9))
+            .overlay(alignment: .top) { Divider().overlay(theme.divider) }
+            .overlay(alignment: .bottom) { Divider().overlay(theme.divider) }
+        }
     }
 
     // MARK: - 情景目标条（数据来自场景本体，UI 不解释语义）
@@ -397,9 +594,21 @@ public struct ChatView: View {
 
     // MARK: - 消息区
 
+    /// 老师开场白 / 启动装配期间：这两段都没有流式内容，却可能是最长的一次等待
+    /// （冷启动实测 30–60s），必须由专门的等待卡承接（见 `pendingCard`）。
+    private var isTeacherPreparing: Bool { isBooting || chat.isGreeting }
+
     @ViewBuilder
     private var messageArea: some View {
-        if chat.messages.isEmpty && chat.streamingText.isEmpty && chat.streamingReasoning.isEmpty && !chat.isGenerating {
+        // ⚠️ 判据走 `ChatEmptyStateRule`（纯函数、有单测）：这条逻辑漏一个条件，
+        // 界面就开始说谎 —— 启动装配那几秒的「和老师打个招呼」正是这么来的。
+        if ChatEmptyStateRule.showsInvitation(
+            messageCount: chat.visibleMessages.count,
+            hasStreamingText: !chat.streamingText.isEmpty,
+            hasStreamingReasoning: !chat.streamingReasoning.isEmpty,
+            isGenerating: chat.isGenerating,
+            isBooting: isBooting
+        ) {
             // 空态：小动物相对整个对话区垂直居中。
             GeometryReader { geo in
                 emptyHint
@@ -409,11 +618,11 @@ public struct ChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
-                        ForEach(Array(chat.messages.enumerated()), id: \.element.id) { index, message in
+                        ForEach(Array(chat.visibleMessages.enumerated()), id: \.element.id) { index, message in
                             VStack(alignment: .leading, spacing: 6) {
                                 // 距上一条超过 5 分钟才显示时间戳；首条消息必显示。
                                 if index == 0
-                                    || message.createdAt.timeIntervalSince(chat.messages[index - 1].createdAt) > timestampGap {
+                                    || message.createdAt.timeIntervalSince(chat.visibleMessages[index - 1].createdAt) > timestampGap {
                                     timestamp(message.createdAt)
                                 }
                                 bubble(message)
@@ -421,8 +630,12 @@ public struct ChatView: View {
                             .id(message.id.uuidString)
                         }
 
-                        if chat.isGenerating {
-                            streamingCard
+                        // 判据同样走纯函数：`isBooting` 那段 `isGenerating` 还是 false，
+                        // 漏掉就是几秒全白（消息也是空的）。
+                        if ChatEmptyStateRule.showsPendingCard(
+                            isGenerating: chat.isGenerating, isBooting: isBooting
+                        ) {
+                            pendingCard
                                 .id("streaming")
                         }
 
@@ -453,7 +666,7 @@ public struct ChatView: View {
                         distanceFromBottom: distance
                     )
                 }
-                .onChange(of: chat.messages.count) { _, _ in scrollToBottom(proxy) }
+                .onChange(of: chat.visibleMessages.count) { _, _ in scrollToBottom(proxy) }
                 .onChange(of: chat.streamingText) { scrollToBottom(proxy) }
                 .onChange(of: chat.streamingReasoning) { _, _ in
                     // 思考阶段也保持滚动到底（面板自动跟随最新内容）
@@ -520,6 +733,19 @@ public struct ChatView: View {
         }
     }
 
+    /// 生成中该显示哪张卡：老师开场白 / 启动装配 → 等待卡；其余 → 流式卡。
+    ///
+    /// 两者不合并：等待卡报的是「已等待 N 秒」这个事实，而流式卡兜底的那三个跳点
+    /// 从第一秒起就没有变化，用户看到的「卡住」与「在算」是同一种样子。
+    @ViewBuilder
+    private var pendingCard: some View {
+        if isTeacherPreparing {
+            TeacherPreparingCard(teacherKind: teacherKind)
+        } else {
+            streamingCard
+        }
+    }
+
     /// 生成中的卡片：思考面板（实时增长）+ 流式正文。
     @ViewBuilder
     private var streamingCard: some View {
@@ -549,7 +775,7 @@ public struct ChatView: View {
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        let target: String? = chat.isGenerating ? "streaming" : chat.messages.last?.id.uuidString
+        let target: String? = chat.isGenerating ? "streaming" : chat.visibleMessages.last?.id.uuidString
         guard let target else { return }
         withAnimation(.easeOut(duration: 0.2)) {
             proxy.scrollTo(target, anchor: .bottom)
@@ -582,7 +808,7 @@ public struct ChatView: View {
     private func errorBanner(_ message: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
+                .foregroundStyle(theme.warning)
             Text(message)
                 .font(.system(size: 12, design: .rounded))
                 .foregroundStyle(theme.primaryText)
@@ -591,7 +817,7 @@ public struct ChatView: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.orange.opacity(0.14))
+                .fill(theme.warning.opacity(0.14))
         )
     }
 
@@ -637,7 +863,7 @@ public struct ChatView: View {
                                 Task { await onTranslate?(message.id) }
                             }
                         }
-                        MarkdownText(message.content, fontSize: 14, color: theme.primaryText)
+                        MarkdownText(message.content, fontSize: 14, color: theme.primaryText, lookup: wordLookup)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
                             .background(
@@ -793,9 +1019,14 @@ public struct ChatView: View {
                 .font(.system(size: 12, design: .rounded))
                 .strikethrough()
                 .foregroundStyle(theme.secondaryText)
-            Text(correction.corrected)
-                .font(.system(size: 12, weight: .medium, design: .rounded))
-                .foregroundStyle(theme.primaryText)
+            // 「改一改」里的改后句是最值得划词的：它就是要学员记住的那一句。
+            LookupText(
+                text: correction.corrected,
+                fontSize: 12,
+                weight: .medium,
+                color: theme.primaryText,
+                context: wordLookup
+            )
             if !correction.explanation.isEmpty {
                 Text(correction.explanation)
                     .font(.system(size: 11, design: .rounded))
@@ -853,11 +1084,11 @@ public struct ChatView: View {
                     Text(labelText)
                 }
                 .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .foregroundStyle(isHighlighted ? Color.white : theme.secondaryText)
+                .foregroundStyle(isHighlighted ? theme.onAccentFill : theme.secondaryText)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(
-                    Capsule().fill(isHighlighted ? theme.accent : theme.surfaceAlt)
+                    Capsule().fill(isHighlighted ? theme.accentFill : theme.surfaceAlt)
                 )
                 .overlay(
                     Capsule().strokeBorder(theme.accent, lineWidth: isHighlighted ? 2 : 0)
@@ -968,7 +1199,7 @@ public struct ChatView: View {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 11))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(theme.warning)
                 Text(voiceError)
                     .font(.system(size: 12, design: .rounded))
                     .foregroundStyle(theme.primaryText)
@@ -988,11 +1219,11 @@ public struct ChatView: View {
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.orange.opacity(0.12))
+                    .fill(theme.warning.opacity(0.12))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.orange.opacity(0.35), lineWidth: 1)
+                    .strokeBorder(theme.warning.opacity(0.35), lineWidth: 1)
             )
             .padding(.horizontal, 18)
             .padding(.top, 10)
@@ -1007,7 +1238,7 @@ public struct ChatView: View {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 11))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(theme.warning)
                 Text(translationError)
                     .font(.system(size: 12, design: .rounded))
                     .foregroundStyle(theme.primaryText)
@@ -1027,11 +1258,11 @@ public struct ChatView: View {
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.orange.opacity(0.12))
+                    .fill(theme.warning.opacity(0.12))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.orange.opacity(0.35), lineWidth: 1)
+                    .strokeBorder(theme.warning.opacity(0.35), lineWidth: 1)
             )
             .padding(.horizontal, 18)
             .padding(.top, 10)
@@ -1046,7 +1277,7 @@ public struct ChatView: View {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 11))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(theme.warning)
                 Text(attachmentNotice)
                     .font(.system(size: 12, design: .rounded))
                     .foregroundStyle(theme.primaryText)
@@ -1066,11 +1297,72 @@ public struct ChatView: View {
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.orange.opacity(0.12))
+                    .fill(theme.warning.opacity(0.12))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.orange.opacity(0.35), lineWidth: 1)
+                    .strokeBorder(theme.warning.opacity(0.35), lineWidth: 1)
+            )
+            .padding(.horizontal, 18)
+            .padding(.top, 10)
+            .transition(.opacity)
+        }
+    }
+
+    /// 「当前模型不读图」的提醒。
+    ///
+    /// 适配器对这类模型的降级是「把图片换成一句『附了一张图 xxx.png』」——**合理但静默**：
+    /// 用户以为老师看见了照片，其实只看见文件名。带图之前先说实话。
+    @ViewBuilder
+    private var visionFallbackHint: some View {
+        if !llmSupportsVision, pendingAttachments.contains(where: { $0.isImage }) {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "eye.slash.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.warning)
+                Text("当前模型不读图：这些图片会以文件名告诉老师。想让它真的看图，去设置里换一个声明了视觉能力的模型。")
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    /// 附件下载成功的回执。与「导入失败」共用一套外观骨架，但语气是**成功**：
+    /// 下载是个没有界面变化的动作（文件落到了用户自己挑的目录里），不给回执，
+    /// 用户只能去 Finder 里翻，翻不到就会以为没成功、再点一次。
+    @ViewBuilder
+    private var attachmentSavedBanner: some View {
+        if let attachmentSaveNotice {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.green)
+                Text(attachmentSaveNotice)
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button {
+                    onDismissAttachmentSaveNotice?()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .help("关闭回执")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.green.opacity(0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.green.opacity(0.35), lineWidth: 1)
             )
             .padding(.horizontal, 18)
             .padding(.top, 10)
@@ -1159,13 +1451,41 @@ public struct ChatView: View {
     /// 行划分规则见 `AIDomain/AttachmentTrayLayout`（纯函数），
     /// `FlowLayout` 只负责把行划分落成位置。
     private var attachmentTray: some View {
-        FlowLayout(spacing: 8, lineSpacing: 8) {
-            ForEach(pendingAttachments) { attachment in
-                AttachmentChip(
-                    attachment: attachment,
-                    fileURL: attachmentLocation?(attachment)
-                ) {
-                    onRemoveAttachment?(attachment.id)
+        VStack(alignment: .leading, spacing: 7) {
+            visionFallbackHint
+            FlowLayout(spacing: 8, lineSpacing: 8) {
+                ForEach(pendingAttachments) { attachment in
+                    AttachmentChip(
+                        attachment: attachment,
+                        fileURL: attachmentLocation?(attachment)
+                    ) {
+                        onRemoveAttachment?(attachment.id)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // 一次清空。**两个及以上才出现**：只剩一个时 chip 自己那个 × 就够，
+            // 再摆一个「清空」是纯噪音 —— 两个按钮做同一件事只会让人犹豫点哪个。
+            if pendingAttachments.count > 1, let onClearAttachments {
+                HStack {
+                    Spacer(minLength: 0)
+                    Button(action: onClearAttachments) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 9))
+                            Text("全部移除")
+                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundStyle(theme.secondaryText)
+                        .padding(.horizontal, 8)
+                        .frame(height: 20)
+                        .background(Capsule().fill(theme.surfaceAlt))
+                        .overlay(Capsule().strokeBorder(theme.divider, lineWidth: 1))
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("把 \(pendingAttachments.count) 个待发附件全部移除")
                 }
             }
         }
@@ -1225,14 +1545,31 @@ public struct ChatView: View {
             Image(systemName: chat.isGenerating ? "stop.fill" : "paperplane.fill")
                 .font(.system(size: 13, weight: .semibold))
                 .modifier(ComposerButtonChrome(
-                    tint: .white,
-                    fill: chat.isGenerating ? Color.red.opacity(0.85) : theme.accent,
+                    tint: chat.isGenerating ? .white : theme.onAccentFill,
+                    fill: chat.isGenerating ? Color.red.opacity(0.85) : theme.accentFill,
                     border: .clear
                 ))
         }
         .buttonStyle(.plain)
         .disabled(chat.isGenerating ? false : !canSend)
-        .help(chat.isGenerating ? "停止" : (modelStoppedNotice != nil ? "请先启动对话模型" : "发送"))
+        // ⌘↩ 发送。
+        // ⚠️ 生成中**不给**快捷键：此时这颗按钮是「停止」，把 ⌘↩ 绑成中止只是让人误触
+        // （输入框是多行控件，回车本身不会发送，所以这里不会与换行打架）。
+        .keyboardShortcut(
+            (canSend && !chat.isGenerating)
+                ? KeyboardShortcut(.return, modifiers: .command)
+                : nil
+        )
+        .help(sendButtonHelp)
+        // VoiceOver：这颗粒按钮的内容是图标，读屏读不出「发送 / 停止」的区别 ——
+        // 而它恰恰是**同一个控件在两种语义之间切换**，不读出来等于没有出口。
+        .accessibilityLabel(chat.isGenerating ? "停止生成" : "发送")
+    }
+
+    private var sendButtonHelp: String {
+        if chat.isGenerating { return "停止" }
+        if modelStoppedNotice != nil { return "请先启动对话模型" }
+        return "发送（⌘↩）"
     }
 
     /// 输入区下排按钮的统一外观：**同一形状（圆）、同一尺寸、同一描边**。
@@ -1375,6 +1712,19 @@ public struct ChatView: View {
                     .padding(.top, 10)
                     .allowsHitTesting(false)
             }
+
+            // 考试模式：输入框里写的是「这一问的要求」，不是一句可以照念的话。
+            if input.isEmpty, let exam {
+                Text(Self.examComposerHint(exam))
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundStyle(theme.secondaryText.opacity(0.7))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.leading, 14)
+                    .padding(.trailing, 20)
+                    .padding(.top, 10)
+                    .allowsHitTesting(false)
+            }
         }
         .animation(.easeOut(duration: 0.45), value: questionIndex)
     }
@@ -1401,6 +1751,30 @@ public struct ChatView: View {
         if !pendingAttachments.isEmpty { return true }
         if !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
         return currentStarterQuestion != nil
+    }
+
+    /// 录音期间的「取消」：这一整段不要了 —— 不识别、不填进输入框。
+    ///
+    /// 为什么单开一颗：麦克风按钮的语义是「停止并**识别**」，所以「我刚才是说错了」
+    /// 原本没有出口，只能让它识别完、再把输入框里的字删掉。
+    /// ⚠️ 取消时要把输入框退回录音前的样子（`voiceBase`）：流式结果已经往里面写过字了。
+    private var cancelVoiceButton: some View {
+        Button {
+            isMergingVoice = false
+            input = voiceBase
+            onCancelVoiceInput?()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 12, weight: .semibold))
+                .modifier(ComposerButtonChrome(
+                    tint: theme.secondaryText,
+                    fill: theme.surfaceAlt,
+                    border: theme.divider
+                ))
+        }
+        .buttonStyle(.plain)
+        .help("取消这次录音（不识别、不填入输入框）")
+        .accessibilityLabel("取消语音输入")
     }
 
     /// 麦克风按钮：点击说话 → 录音期间流式出字 → 再点识别并纠正拼写后定稿。
@@ -1441,6 +1815,7 @@ public struct ChatView: View {
         }
         .buttonStyle(.plain)
         .help(isRecording ? "停止并识别" : "点击说话")
+        .accessibilityLabel(isRecording ? "停止录音并识别" : "语音输入")
     }
 
     // MARK: - 输入区信息显示
@@ -1465,6 +1840,14 @@ public struct ChatView: View {
     /// token 数缩写：1234 → 1.2k。
     public nonisolated static func tokenCount(_ tokens: Int) -> String {
         tokens >= 1000 ? String(format: "%.1fk", Double(tokens) / 1000) : "\(tokens)"
+    }
+
+    /// 考场态输入框的占位提示：说清「第几问、要答多长」，不提供可以照念的句子。
+    static func examComposerHint(_ exam: ExamBarModel) -> String {
+        if exam.minimumWords > 0 {
+            return "第 \(exam.questionNumber)/\(exam.totalQuestions) 问 · 至少 \(exam.minimumWords) 词，答完自动进下一题"
+        }
+        return "第 \(exam.questionNumber)/\(exam.totalQuestions) 问 · 答完自动进下一题"
     }
 
     private func send() {
@@ -1644,7 +2027,7 @@ struct ContextGauge: View {
     }
 }
 
-private struct TypingDots: View {
+struct TypingDots: View {
     let color: Color
     @State private var phase = 0
 

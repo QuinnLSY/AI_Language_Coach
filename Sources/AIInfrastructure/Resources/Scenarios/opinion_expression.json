@@ -28,6 +28,34 @@
     "The main reason is that it saves time.",
     "However, I agree there are some problems."
   ],
+  "mainQuest": "State a clear opinion, give one reason for it, and disagree politely.",
+  "questSteps": [
+    {
+      "id": "opinion_expression-s1",
+      "text": "Say your opinion clearly.",
+      "hint": "In my opinion, ... / I prefer ...",
+      "anchors": [
+        "In my opinion, working from home is better.",
+        "I prefer to study in the morning."
+      ]
+    },
+    {
+      "id": "opinion_expression-s2",
+      "text": "Give the main reason behind your view.",
+      "hint": "The main reason is that ...",
+      "anchors": [
+        "The main reason is that it saves time."
+      ]
+    },
+    {
+      "id": "opinion_expression-s3",
+      "text": "Soften the disagreement by conceding a point.",
+      "hint": "However 开头，先让一步再守住观点",
+      "anchors": [
+        "However, I agree there are some problems."
+      ]
+    }
+  ],
   "maxTurns": 14,
   "correctionMode": "balanced",
   "icon": "quote.bubble.fill"

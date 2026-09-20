@@ -28,7 +28,10 @@
       "display_name": "本地模型",
       "endpoint": "http://127.0.0.1:11434",
       "model": "qwen3:8b",
-      "candidate_models": ["qwen3:8b", "deepseek-r1:7b"],
+      "candidate_models": [
+        "qwen3:8b",
+        "deepseek-r1:7b"
+      ],
       "streaming": true,
       "temperature": 0.7,
       "top_p": 0.9,
@@ -151,7 +154,18 @@
       "display_name": "OpenAI 教师语音",
       "endpoint": "https://api.openai.com/v1",
       "models_path": "v1/models",
-      "voices": ["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer"],
+      "voices": [
+        "alloy",
+        "ash",
+        "ballad",
+        "coral",
+        "echo",
+        "fable",
+        "nova",
+        "onyx",
+        "sage",
+        "shimmer"
+      ],
       "candidate_models": [],
       "streaming": false,
       "request_timeout": 180
@@ -178,12 +192,13 @@
       "kind": "tts",
       "enabled": false,
       "runtime": "remoteAPI",
-      "display_name": "在线语音（免费）",
-      "endpoint": "https://tts.kina.ink",
+      "display_name": "Edge TTS 本地语音（免费）",
+      "endpoint": "http://127.0.0.1:8856",
+      "service_start_command": "nohup \"$HOME/AI_Models/services/start_edge_tts.sh\" >/dev/null 2>&1 &",
+      "service_stop_command": "pkill -f services/edge_tts_proxy.py",
       "speech_path": "tts",
       "speech_request_style": "textJSON",
       "voice_list_path": "voices",
-      "health_path": "health",
       "api_key_required": false,
       "billable": false,
       "model": "en-US-AriaNeural",
@@ -237,7 +252,9 @@
       "enabled": true,
       "runtime": "externalLocalRuntime",
       "endpoint": "http://127.0.0.1:8858",
-      "candidate_models": ["ggml-small.en"],
+      "candidate_models": [
+        "ggml-small.en"
+      ],
       "model": "ggml-small.en",
       "streaming": false,
       "request_timeout": 60,
@@ -251,10 +268,18 @@
       "runtime": "externalLocalRuntime",
       "endpoint": "http://127.0.0.1:8855",
       "model": "serena",
-      "candidate_models": ["serena", "vivian", "ryan", "aiden", "eric"],
+      "candidate_models": [
+        "serena",
+        "vivian",
+        "ryan",
+        "aiden",
+        "eric"
+      ],
       "streaming": false,
       "request_timeout": 180,
-      "capabilities": ["voiceCloning"],
+      "capabilities": [
+        "voiceCloning"
+      ],
       "service_start_command": "nohup \"$HOME/AI_Models/bin/start-tts.sh\" >/dev/null 2>&1 &",
       "service_stop_command": "pkill -f services/tts_server.py"
     },
@@ -289,9 +314,12 @@
       "runtime": "ollama",
       "display_name": "本地记忆索引",
       "endpoint": "http://127.0.0.1:11434",
+      "model": "nomic-embed-text",
       "candidate_models": ["nomic-embed-text"],
       "dimensions": 768,
       "streaming": false,
+      "api_key_required": false,
+      "billable": false,
       "request_timeout": 60,
       "service_start_command": "open -a Ollama"
     },

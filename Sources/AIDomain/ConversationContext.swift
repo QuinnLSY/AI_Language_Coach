@@ -148,7 +148,11 @@ public struct ScenarioFocus: Codable, Sendable, Equatable {
     }
 }
 
-/// 老师偏好（用户可调 / 由产品配置推导）。
+/// 老师偏好（由产品配置里的 `TeacherPersona` 推导）。
+///
+/// ⚠️ **只存档位，不存参数**：回复长度 / 纠错强度 / 是否允许母语提示都是计算属性。
+/// 早先这三个字段各自存储，而它们之间没有任何约束 —— 出现「档位写着温和、
+/// 强度却存着严格」这种组合时，没有任何地方能判它错，只能靠人眼发现。
 public struct TeacherPreference: Codable, Sendable, Equatable {
     /// 回复长度倾向。
     public enum ResponseLength: String, Codable, Sendable, Equatable, CaseIterable {
@@ -165,20 +169,17 @@ public struct TeacherPreference: Codable, Sendable, Equatable {
         }
     }
 
-    public var responseLength: ResponseLength
-    public var correctionStyle: CorrectionIntensity
-    /// 学员卡住时是否允许用母语解释。
-    public var allowsNativeLanguageHints: Bool
+    /// 教学风格档位。
+    public var persona: TeacherPersona
 
-    public init(
-        responseLength: ResponseLength = .normal,
-        correctionStyle: CorrectionIntensity = .balanced,
-        allowsNativeLanguageHints: Bool = true
-    ) {
-        self.responseLength = responseLength
-        self.correctionStyle = correctionStyle
-        self.allowsNativeLanguageHints = allowsNativeLanguageHints
+    public init(persona: TeacherPersona = .standard) {
+        self.persona = persona
     }
+
+    public var responseLength: ResponseLength { persona.responseLength }
+    public var correctionStyle: CorrectionIntensity { persona.correctionStyle }
+    /// 学员卡住时是否允许用母语解释。
+    public var allowsNativeLanguageHints: Bool { persona.allowsNativeLanguageHints }
 
     public static let standard = TeacherPreference()
 }
@@ -235,8 +236,6 @@ public struct ConversationContext: Codable, Sendable, Equatable {
 
     /// 难度合法区间 1...5（越界一律夹回，不信任外部赋值）。
     public static func clampDifficulty(_ value: Int) -> Int { min(max(value, 1), 5) }
-
-    public var difficultyIsMaxed: Bool { difficulty >= 5 }
 
     /// 学员最近的若干轮（时间正序）。
     public func learnerTurns(limit: Int = 3) -> [ConversationTurn] {

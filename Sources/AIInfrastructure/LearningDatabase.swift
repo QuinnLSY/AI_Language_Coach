@@ -16,7 +16,11 @@ public actor LearningDatabase {
     /// v6：shadowing_attempts 增加 pronunciation 列（发音评测报告 JSON，第 23 步）。
     /// v7：词汇本（vocabulary_items / vocabulary_reviews）。
     /// v8：messages 增加 attachments 列（图片 / 视频 / 文件附件，JSON 数组）。
-    public static let schemaVersion = 8
+    /// v9：新增 scenario_quests（情景主线任务进度，需求 3/5：跨会话续做）
+    ///     + **一次性清零闯关进度**（需求 1：从零开始学习）。
+    /// v10：新增 writing_entries（写作批改记录）/ reading_passages（当天短文与作答进度，
+    ///      #233：阅读当天多篇固定展示、写作与阅读进学习记录）。
+    public static let schemaVersion = 10
 
     /// 测试用内存库。
     public static func inMemory() throws -> LearningDatabase {
@@ -160,6 +164,59 @@ public actor LearningDatabase {
         // 用 JSON 一列而不是建附件表：附件永远跟着消息整体读写，没有「单独查某个附件」的场景，
         // 拆表只会多一次 join 和一次一致性维护。旧行为 NULL = 当时没有附件。
         try? db.run("ALTER TABLE messages ADD COLUMN attachments TEXT")
+
+        // v8 → v9：情景主线任务进度（需求 3 / 5）。
+        //
+        // 独立一张表而不是塞进 levels：主线任务是**按情景**记的（没绑关卡的场景也要能续做），
+        // 而 levels 是**按关卡**记的，两者维度不同 —— 混在一起会在「一个关卡换绑情景」时错乱。
+        // done_steps 存 JSON 数组：永远整体读写，没有「单独查某一步」的场景。
+        try db.run("""
+        CREATE TABLE IF NOT EXISTS scenario_quests (
+            scenario_id TEXT PRIMARY KEY,
+            session_id TEXT,
+            done_steps TEXT NOT NULL DEFAULT '[]',
+            is_complete INTEGER NOT NULL DEFAULT 0,
+            updated_at REAL NOT NULL
+        )
+        """)
+
+        // v8 → v9：**一次性清零闯关进度**（需求 1：闯关进度归零，从零开始学习）。
+        //
+        // 老库里的 levels 是老种子（前三关已完成），光改 `LearnerProgress.seed()` 动不了它 ——
+        // 这里直接清空，下一次 `loadProgress()` 因「无记录」而写入零进度种子
+        // （第 1 关 unlocked，其余 locked）。
+        // ⚠️ 只清 levels：练习记录 / 复盘 / 单词本 / 跟读记录都属于学习成果，不动。
+        try db.run("DELETE FROM levels")
+
+        // v9 → v10：写作记录 + 当天阅读（#233）。
+        //
+        // 写作只留极简一行（题目 / 分数 / 词数 / 时间）—— 批改正文随交话即逝，
+        // 学习记录要的是「写了没有、写得怎样」，不是整篇作文。
+        // 阅读整篇存 JSON（题目/答案/解析一体）：当天回看与重启恢复是同一个读法，
+        // 分列只会造成「文章新、答案旧」的错位。
+        try db.run("""
+        CREATE TABLE IF NOT EXISTS writing_entries (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            score REAL,
+            word_count INTEGER NOT NULL,
+            created_at REAL NOT NULL
+        )
+        """)
+        try db.run("CREATE INDEX IF NOT EXISTS idx_writing_created ON writing_entries(created_at DESC)")
+        try db.run("""
+        CREATE TABLE IF NOT EXISTS reading_passages (
+            id TEXT PRIMARY KEY,
+            day_key INTEGER NOT NULL,
+            payload TEXT NOT NULL,
+            choices TEXT NOT NULL DEFAULT '{}',
+            is_reviewed INTEGER NOT NULL DEFAULT 0,
+            correct_count INTEGER,
+            question_count INTEGER,
+            created_at REAL NOT NULL
+        )
+        """)
+        try db.run("CREATE INDEX IF NOT EXISTS idx_reading_day ON reading_passages(day_key, created_at ASC)")
 
         try db.setSchemaVersion(Self.schemaVersion)
     }
@@ -678,6 +735,98 @@ public actor LearningDatabase {
         )
     }
 
+    // MARK: - 情景主线任务进度（需求 3 / 5：实时保存 + 断点续做）
+
+    /// 某情景的主线任务进度（没练过返回 nil）。
+    public func questProgress(scenarioID: String) throws -> ScenarioQuestRecord? {
+        try db.query(
+            "SELECT scenario_id, session_id, done_steps, is_complete, updated_at FROM scenario_quests WHERE scenario_id = ?1",
+            [.text(scenarioID)]
+        ) { row in Self.questRecord(from: row) }.compactMap { $0 }.first
+    }
+
+    /// 全部情景的主线任务进度（大树 / 情景卡片一次取完，避免 N 次查询）。
+    public func allQuestProgress() throws -> [ScenarioQuestRecord] {
+        try db.query(
+            "SELECT scenario_id, session_id, done_steps, is_complete, updated_at FROM scenario_quests ORDER BY updated_at DESC"
+        ) { row in Self.questRecord(from: row) }.compactMap { $0 }
+    }
+
+    /// 写入主线任务进度（upsert）。
+    public func saveQuestProgress(_ record: ScenarioQuestRecord) throws {
+        try db.run(
+            """
+            INSERT OR REPLACE INTO scenario_quests
+                (scenario_id, session_id, done_steps, is_complete, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            """,
+            [
+                .text(record.scenarioID),
+                record.sessionID.map { .text($0.uuidString) } ?? .null,
+                .text(Self.encodeList(record.doneStepIDs)),
+                .int(record.isComplete ? 1 : 0),
+                .real(record.updatedAt.timeIntervalSince1970),
+            ]
+        )
+    }
+
+    /// 清掉某情景的主线任务进度（重新开始这一关时调用）。
+    public func clearQuestProgress(scenarioID: String) throws {
+        try db.run("DELETE FROM scenario_quests WHERE scenario_id = ?1", [.text(scenarioID)])
+    }
+
+    private static func questRecord(from row: SQLiteRow) -> ScenarioQuestRecord? {
+        guard let scenarioID = row.string(0) else { return nil }
+        return ScenarioQuestRecord(
+            scenarioID: scenarioID,
+            sessionID: row.string(1).flatMap { UUID(uuidString: $0) },
+            doneStepIDs: decodeList(row.string(2)),
+            isComplete: (row.int(3) ?? 0) != 0,
+            updatedAt: Date(timeIntervalSince1970: row.double(4) ?? 0)
+        )
+    }
+
+    /// 某情景最近一次复盘（跨会话找，因为复盘是跟着会话走的）。
+    ///
+    /// 「任务前情提要」要的正是这一条：上次练这个情景时复盘说了什么。
+    public func latestReview(scenarioID: String) throws -> SessionReview? {
+        try db.query(
+            """
+            SELECT r.id, r.session_id, r.created_at, r.duration, r.message_count, r.correction_count,
+                   r.headline, r.new_words, r.strengths, r.improvements, r.suggestion, r.source
+            FROM session_reviews r
+            JOIN sessions s ON s.id = r.session_id
+            WHERE s.scenario_id = ?1
+            ORDER BY r.created_at DESC LIMIT 1
+            """,
+            [.text(scenarioID)]
+        ) { row in Self.review(from: row) }.compactMap { $0 }.first
+    }
+
+    /// 某会话最近一次复盘记录下来的消息数（判断「有没有新内容需要复盘」）。
+    public func reviewedMessageCount(sessionID: UUID) throws -> Int {
+        try db.query(
+            "SELECT message_count FROM session_reviews WHERE session_id = ?1 ORDER BY created_at DESC LIMIT 1",
+            [.text(sessionID.uuidString)],
+            map: { $0.int(0) ?? 0 }
+        ).first ?? 0
+    }
+
+    /// 删除某个会话的**练习流水**：消息与纠错。
+    ///
+    /// ⚠️ 刻意保留 `sessions` 行与 `session_reviews`：
+    /// 「上次练习卡片」要显示情景名、时长、复盘内容，删了会话行这些就全丢了。
+    /// 复盘成功之后才允许调用（`PracticeReviewPolicy.canPurgeSource`）。
+    @discardableResult
+    public func purgeSessionMessages(sessionID: UUID) throws -> Int {
+        let before = try messageCount(sessionID: sessionID)
+        try db.runInTransaction([
+            ("DELETE FROM corrections WHERE session_id = ?1", [.text(sessionID.uuidString)]),
+            ("DELETE FROM messages WHERE session_id = ?1", [.text(sessionID.uuidString)]),
+        ])
+        return before
+    }
+
     // MARK: - 跟读记录（第 22 步 Shadowing）
 
     /// 记一次跟读（评测完成后写入；跟读不挂在对话会话上，故无 session 外键）。
@@ -719,6 +868,116 @@ public actor LearningDatabase {
                 id: id, drillID: drillID, referenceText: reference,
                 recognizedText: recognized, accuracy: accuracy,
                 pronunciation: Self.decodeJSON(row.string(5)),
+                createdAt: Date(timeIntervalSince1970: created)
+            )
+        }.compactMap { $0 }
+    }
+
+    // MARK: - 写作与阅读记录（#233）
+
+    /// 记一次写作批改（交卷成功后写入；一次写作 = 一行）。
+    public func appendWritingEntry(
+        id: UUID = UUID(),
+        title: String,
+        score: Double?,
+        wordCount: Int,
+        createdAt: Date = Date()
+    ) throws {
+        try db.run(
+            """
+            INSERT OR REPLACE INTO writing_entries (id, title, score, word_count, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            """,
+            [
+                .text(id.uuidString),
+                .text(title),
+                score.map { .real($0) } ?? .null,
+                .int(max(wordCount, 0)),
+                .real(createdAt.timeIntervalSince1970),
+            ]
+        )
+    }
+
+    /// 窗口内的写作记录（旧 → 新）：哪天写了几篇、平均分多少。
+    ///
+    /// ⚠️ 不设 LIMIT：统计口径靠 `since` 兜住，截断等于悄悄少算。
+    public func writingStamps(since: Date) throws -> [WritingStamp] {
+        try db.query(
+            "SELECT score, word_count, created_at FROM writing_entries WHERE created_at >= ?1 ORDER BY created_at ASC",
+            [.real(since.timeIntervalSince1970)]
+        ) { row -> WritingStamp? in
+            guard let created = row.double(2) else { return nil }
+            return WritingStamp(
+                score: row.double(0),
+                wordCount: row.int(1) ?? 0,
+                createdAt: Date(timeIntervalSince1970: created)
+            )
+        }.compactMap { $0 }
+    }
+
+    /// 保存一篇短文（含作答进度）。整篇 upsert：同一篇的每次作答变化都整体覆盖。
+    public func saveReading(_ entry: StoredReading) throws {
+        let payload = Self.encodeJSON(entry.passage)
+        let choices = Self.encodeJSON(entry.choices)
+        let correct = entry.isReviewed ? entry.correctCount() : nil
+        try db.run(
+            """
+            INSERT OR REPLACE INTO reading_passages
+                (id, day_key, payload, choices, is_reviewed, correct_count, question_count, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            """,
+            [
+                .text(entry.id.uuidString),
+                .int(entry.passage.dayKey),
+                payload,
+                choices,
+                .int(entry.isReviewed ? 1 : 0),
+                correct.map { .int($0) } ?? .null,
+                .int(entry.isReviewed ? entry.passage.questions.count : 0),
+                .real(entry.createdAt.timeIntervalSince1970),
+            ]
+        )
+    }
+
+    /// 某一天的短文（旧 → 新，「编号 1、2、3…」的顺序）。
+    public func readings(dayKey: Int) throws -> [StoredReading] {
+        try db.query(
+            """
+            SELECT id, payload, choices, is_reviewed, created_at
+            FROM reading_passages WHERE day_key = ?1 ORDER BY created_at ASC, rowid ASC
+            """,
+            [.int(dayKey)]
+        ) { row -> StoredReading? in
+            guard let idText = row.string(0), let id = UUID(uuidString: idText),
+                  let payloadText = row.string(1),
+                  let passage = Self.decodeJSON(payloadText, as: ReadingPassage.self),
+                  let created = row.double(4)
+            else { return nil }
+            return StoredReading(
+                id: id,
+                passage: passage,
+                choices: Self.decodeJSON(row.string(2), as: [Int: Int].self) ?? [:],
+                isReviewed: (row.int(3) ?? 0) != 0,
+                createdAt: Date(timeIntervalSince1970: created)
+            )
+        }.compactMap { $0 }
+    }
+
+    /// 窗口内**交卷**的阅读（旧 → 新）：进度统计只认交卷的。
+    public func readingStamps(since: Date) throws -> [ReadingStamp] {
+        try db.query(
+            """
+            SELECT correct_count, question_count, created_at
+            FROM reading_passages
+            WHERE is_reviewed = 1 AND created_at >= ?1
+            ORDER BY created_at ASC
+            """,
+            [.real(since.timeIntervalSince1970)]
+        ) { row -> ReadingStamp? in
+            guard let created = row.double(2) else { return nil }
+            return ReadingStamp(
+                correct: row.int(0) ?? 0,
+                total: row.int(1) ?? 0,
                 createdAt: Date(timeIntervalSince1970: created)
             )
         }.compactMap { $0 }
@@ -792,6 +1051,32 @@ public actor LearningDatabase {
     /// 删除一条词汇（连带复习流水，外键 CASCADE）。
     public func deleteVocabulary(id: UUID) throws {
         try db.run("DELETE FROM vocabulary_items WHERE id = ?1", [.text(id.uuidString)])
+    }
+
+    /// 清除「学习记忆」喂给老师的那部分素材（**不可逆**）。
+    ///
+    /// 范围刻意限定在四类：纠错记录 / 练习复盘 / 跟读发音记录 / 词汇复习流水。
+    /// **对话记录与单词本不删** —— 那是学员自己攒的资产，另有管理入口；
+    /// 混进「清除记忆」里一起删掉是最容易挨骂的那种顺手。
+    ///
+    /// 返回实际删掉的数量，供上层先给用户看清楚再让他确认。
+    @discardableResult
+    public func clearLearningMemory() throws -> MemoryClearance {
+        func count(in table: String) throws -> Int {
+            try db.query("SELECT COUNT(*) FROM \(table)", []) { row in row.int(0) }
+                .compactMap { $0 }
+                .first ?? 0
+        }
+        let clearance = MemoryClearance(
+            corrections: try count(in: "corrections"),
+            reviews: try count(in: "session_reviews"),
+            shadowing: try count(in: "shadowing_attempts"),
+            vocabularyReviews: try count(in: "vocabulary_reviews")
+        )
+        for table in ["corrections", "session_reviews", "shadowing_attempts", "vocabulary_reviews"] {
+            try db.run("DELETE FROM \(table)", [])
+        }
+        return clearance
     }
 
     /// 记一次复习：更新掌握度 / 次数 / 时间，并落复习流水。

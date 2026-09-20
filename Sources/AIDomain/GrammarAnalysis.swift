@@ -253,7 +253,7 @@ public enum GrammarAgent {
         // ④ 词数不同 → 增删。按「删了什么 / 加了什么」判。
         let removed = multisetDifference(lhsBare, rhsBare)
         let added = multisetDifference(rhsBare, lhsBare)
-        if let category = insertionCategory(removed: removed, added: added, original: original, corrected: corrected) {
+        if let category = insertionCategory(removed: removed, added: added) {
             return category
         }
         return .other
@@ -300,9 +300,7 @@ public enum GrammarAgent {
     /// 增删词的类型判定。
     private static func insertionCategory(
         removed: [String],
-        added: [String],
-        original: String,
-        corrected: String
+        added: [String]
     ) -> GrammarErrorCategory? {
         let removedLower = removed.map { $0.lowercased() }
         let addedLower = added.map { $0.lowercased() }

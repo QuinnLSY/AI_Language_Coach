@@ -190,9 +190,27 @@ final class CurriculumRenderTests: XCTestCase {
         return count
     }
 
+    /// 两张同尺寸位图里颜色明显不同的像素数（「日夜两版真的不一样」的判据）。
+    ///
+    /// 比 `luma(0,0)` 可靠：不带底色的面板（情景选择面板）角落像素两版都是透明，
+    /// 角落取值永远相等，断言就永远失败 —— 那不是「主题没生效」，是探针选错了位置。
+    private func differingPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
+        guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh else { return 0 }
+        var count = 0
+        for x in stride(from: 0, to: a.pixelsWide, by: 2) {
+            for y in stride(from: 0, to: a.pixelsHigh, by: 2) {
+                guard let ca = a.colorAt(x: x, y: y), let cb = b.colorAt(x: x, y: y) else { continue }
+                let delta = abs(ca.redComponent - cb.redComponent)
+                    + abs(ca.greenComponent - cb.greenComponent)
+                    + abs(ca.blueComponent - cb.blueComponent)
+                if delta > 0.15 { count += 1 }
+            }
+        }
+        return count
+    }
+
     /// 全图最大的「红 − 蓝」差值（琥珀 / 暖色的指纹）。
-    private func maxAmberDelta(_ rep: NSBitmapImageRep) -> Double {
-        var best = -1.0
+    private func maxAmberDelta(_ rep: NSBitmapImageRep) -> Double {        var best = -1.0
         for x in stride(from: 0, to: rep.pixelsWide, by: 2) {
             for y in stride(from: 0, to: rep.pixelsHigh, by: 2) {
                 guard let color = rep.colorAt(x: x, y: y) else { continue }
@@ -341,7 +359,10 @@ final class CurriculumRenderTests: XCTestCase {
                 "\(code.code) 档必须挂到成长树的关卡上"
             )
         }
-        XCTAssertGreaterThan(state.curriculumProgress, 0, "种子里 l1–l3 已通关，整体进度不该是 0")
+        // 需求 1：闯关进度**从零开始**，所以整体进度必须是 0，
+        // 而不是「种子里已经过了几关」。这条断言就是「清零」的守卫。
+        XCTAssertEqual(state.curriculumProgress, 0, "清零后整体进度从 0 起算")
+        XCTAssertEqual(state.progress.levels.filter { $0.state == .completed }.count, 0, "没有已通关的关卡")
 
         let theme = ForestThemeResolver.resolve(mode: .day, systemIsDark: false)
         let host = NSHostingView(rootView: AnyView(
@@ -382,9 +403,12 @@ final class CurriculumRenderTests: XCTestCase {
         XCTAssertEqual(silent.verdict, .notYet, "只说 ok / yes 不能过关：\(silent.reasons)")
     }
 
-    /// 情景选择面板里**练之前就能看见目标句** —— 这是判定能成立的前提。
-    /// 练完才告诉学员「你只说到 2 句」是耍赖：他事先并不知道要说这几句。
-    func testScenarioPickerShowsTargetSentencesEndToEnd() async throws {
+    /// 情景选择面板：**练之前就能看见主线任务与教学重点**（需求 3）。
+    ///
+    /// 与旧版的区别：卡片默认是**收起**的（点一下才展开），所以不能再用
+    /// 「列表总高必须体现目标句」来判 —— 改成「展开前后高度差」，
+    /// 那一段高度差正是主线任务 + 教学重点 + 大树联动那一块。
+    func testScenarioPickerExpandsToShowQuestAndFocusEndToEnd() async throws {
         let store = ConfigStore(
             fileURL: FileManager.default.temporaryDirectory
                 .appendingPathComponent("picker-probe-\(UUID().uuidString).json")
@@ -393,16 +417,90 @@ final class CurriculumRenderTests: XCTestCase {
         await state.loadScenarios()
 
         XCTAssertFalse(state.scenarios.isEmpty, "随包情景应能加载")
+        // 需求 3：**每一关都要有主线任务**。随包素材必须都写了，否则会退回自动推导 ——
+        // 推导出来的步骤名是目标句原文，读起来不像「任务」。
+        for scenario in state.scenarios {
+            let plan = scenario.questPlan
+            XCTAssertGreaterThan(plan.total, 0, "「\(scenario.id)」没有主线任务")
+            XCTAssertGreaterThan(plan.anchoredSteps.count, 0, "「\(scenario.id)」的主线任务没有可判定的锚点")
+            XCTAssertFalse(plan.title.isEmpty, "「\(scenario.id)」的主线任务没有标题")
+        }
         XCTAssertTrue(
             state.scenarios.allSatisfy { !$0.targetSentences.isEmpty },
-            "每个随包情景都要有目标句，否则选择面板上会出现「没有目标」的空档"
+            "每个随包情景都要有目标句，否则「教学重点」判不了"
         )
 
-        let theme = ForestThemeResolver.resolve(mode: .day, systemIsDark: false)
+        // 收回合态。
+        state.expandedScenarioID = nil
+        let collapsed = try renderPicker(state, name: nil)
+
+        // 展开第一张卡。
+        let target = try XCTUnwrap(state.scenarios.first?.id)
+        state.expandedScenarioID = target
+        let expanded = try renderPicker(state, name: "round34-scenario-picker-expanded.png")
+
+        XCTAssertGreaterThan(
+            expanded.size.height - collapsed.size.height, 60,
+            "展开后要多出「主线任务 + 教学重点 + 大树联动」这一块（实测差 \(expanded.size.height - collapsed.size.height)）"
+        )
+        XCTAssertGreaterThan(inkCount(expanded.rep), inkCount(collapsed.rep), "展开区确实画了东西")
+    }
+
+    /// 需求 3 的**视觉留档**：展开态卡片日夜两版都能看清，且「完成情况」真的跟着进度走。
+    ///
+    /// 这条同时是一条真断言（不只是出图）：主线进度必须**从库里读**出来 ——
+    /// 若卡片上的「主线 x/y」是自己编的，`saveQuestProgress` 之后数字就不会变。
+    func testScenarioPickerExpandedDumpBothThemesAndProgress() async throws {
+        let store = ConfigStore(
+            fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("picker-dump-\(UUID().uuidString).json")
+        )
+        let services = CoachServices(config: store, databasePath: ":memory:")
+        let state = AppState(services: services)
+        await state.loadScenarios()
+
+        let target = try XCTUnwrap(state.scenarios.first, "随包情景应能加载")
+        let plan = target.questPlan
+        let firstStep = try XCTUnwrap(plan.steps.first, "第一关必须有主线任务步骤")
+        state.expandedScenarioID = target.id
+
+        let zeroDay = try renderPicker(state, day: true, name: "round43-scenario-expanded-day.png")
+        let zeroNight = try renderPicker(state, day: false, name: "round43-scenario-expanded-night.png")
+        // ⚠️ 这里**不能**用 `luma(0,0)` 判日夜：情景面板没有铺满底色，
+        // 角落像素在两版里都是透明（读出来都是 0）。改成量「两张图真的不一样」。
+        XCTAssertGreaterThan(inkCount(zeroDay.rep), 3000, "日间版必须真画出内容")
+        XCTAssertGreaterThan(inkCount(zeroNight.rep), 3000, "夜间版必须真画出内容")
+        XCTAssertGreaterThan(
+            differingPixels(zeroDay.rep, zeroNight.rep), 3000,
+            "日夜两版必须真的渲染成不同颜色，否则「夜间版」是没生效的"
+        )
+
+        // 推进一步并落库：卡片的「完成情况 / 当前节点」必须跟着变。
+        await services.saveQuestProgress(
+            ScenarioQuestRecord(scenarioID: target.id, doneStepIDs: [firstStep.id])
+        )
+        await state.refreshQuestRecords()
+        let progressed = state.questProgress(for: target)
+        XCTAssertEqual(progressed.doneCount, 1, "进度没从库里读出来 → 卡片上的「主线 x/y」就是假的")
+        XCTAssertEqual(
+            progressed.currentStep?.id, plan.steps.dropFirst().first?.id,
+            "第一步完成后，当前节点必须前移到下一步（否则老师催的还是已经做过的事）"
+        )
+        _ = try renderPicker(state, day: true, name: "round43-scenario-progressed-day.png")
+    }
+    /// 离屏渲染情景选择面板并返回自然高度（同时留档 PNG）。
+    ///
+    /// ⚠️ 必须自己铺 `theme.panel`：面板本身**不带底色**（真实应用里由
+    /// `MainView.scenariosOverlay` 的圆角底托着）。不铺的话夜间版会被合成到浅色上，
+    /// 出来一张「浅底 + 浅字」的图 —— 看着像配色坏了，其实只是少了那层底。
+    private func renderPicker(_ state: AppState, day: Bool = true, name: String?) throws -> Render {
+        let theme = ForestThemeResolver.resolve(mode: day ? .day : .night, systemIsDark: !day)
         let host = NSHostingView(rootView: AnyView(
-            ScenarioPickerView(state: state, onClose: {}).forestTheme(theme)
+            ScenarioPickerView(state: state, onClose: {})
+                .forestTheme(theme)
+                .background(theme.panel)
         ))
-        host.frame = NSRect(x: 0, y: 0, width: 720, height: 2000)
+        host.frame = NSRect(x: 0, y: 0, width: 720, height: 2400)
         let window = NSWindow(
             contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false
         )
@@ -410,16 +508,18 @@ final class CurriculumRenderTests: XCTestCase {
         self.window = window
         host.layoutSubtreeIfNeeded()
         window.layoutIfNeeded()
+
+        let height = max(ceil(host.fittingSize.height), 200)
+        let size = CGSize(width: 720, height: height)
+        host.frame = NSRect(origin: .zero, size: size)
+        window.setContentSize(size)
+        host.layoutSubtreeIfNeeded()
+        window.layoutIfNeeded()
+
         let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: rep)
-
-        // 13 张卡 × 每张至少 4 行目标句，列表总高必然远超「只有标题 + 词汇」的版本。
-        let contentHeight = host.fittingSize.height
-        XCTAssertGreaterThan(
-            contentHeight, 1700,
-            "目标句是每张卡多出来的 4 行，列表总高必须体现出来（实测 \(contentHeight)）"
-        )
-        try dump(rep, name: "round33-scenario-picker-with-target-sentences.png")
+        if let name { try dump(rep, name: name) }
+        return Render(rep: rep, size: size)
     }
 }
 

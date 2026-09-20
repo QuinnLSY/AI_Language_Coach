@@ -1,3 +1,4 @@
+import AppCore
 import Foundation
 
 // MARK: - 每日任务推荐（PRD §7.1 Today's Focus / §7 今日学习状态）
@@ -136,6 +137,15 @@ public enum DailyPlanner {
     /// 技能分低于这个值才值得单独点名（0...1）。
     public static let weakSkillThreshold = 0.8
 
+    // MARK: 保底档（#225）
+
+    /// 保底档的对话轮次：两轮往来 ≈ 3 分钟，一口气能做完。
+    public static let baselineConversationTarget = 2
+    /// 保底档的跟读句数：一句就够 —— 保底档的存在意义是「别断」，不是「练透」。
+    public static let baselineShadowingTarget = 1
+    /// 保底档的复习上限：到期再多也只要求 3 个，两三分钟的事。
+    public static let baselineReviewCap = 3
+
     /// 排今天的计划。
     ///
     /// 只需要一份 `ProgressSnapshot` —— 「今天复习了几个词」也是快照里的一项事实
@@ -143,17 +153,20 @@ public enum DailyPlanner {
     ///
     /// - Parameters:
     ///   - snapshot: 进度快照（今日活动 / 目标 / 词汇 / 技能分布 / 最近错题都在里面）。
+    ///   - mode: 目标档位。保底档把三项任务都缩到 5 分钟内可完成的量；
+    ///     进阶档按 `snapshot.goalMinutes` 排（原有行为）。
     ///   - now: 判定「今天」的基准时间（测试注入）。
     public static func plan(
         snapshot: ProgressSnapshot,
+        mode: DailyGoalMode = .advanced,
         now: Date = Date(),
         calendar: Calendar = .current
     ) -> DailyPlan {
         let day = calendar.startOfDay(for: now)
         let tasks = [
-            conversationTask(snapshot),
-            shadowingTask(snapshot),
-            reviewTask(snapshot),
+            conversationTask(snapshot, mode: mode),
+            shadowingTask(snapshot, mode: mode),
+            reviewTask(snapshot, mode: mode),
         ].compactMap { $0 }
 
         return DailyPlan(day: day, tasks: tasks, focus: focus(snapshot))
@@ -161,13 +174,21 @@ public enum DailyPlanner {
 
     // MARK: 三项任务
 
-    private static func conversationTask(_ snapshot: ProgressSnapshot) -> DailyTask? {
-        let target = exchangeTarget(goalMinutes: snapshot.goalMinutes)
+    private static func conversationTask(
+        _ snapshot: ProgressSnapshot, mode: DailyGoalMode
+    ) -> DailyTask? {
+        let target = mode == .baseline
+            ? baselineConversationTarget
+            : exchangeTarget(goalMinutes: snapshot.goalMinutes)
         let today = snapshot.today
         // 今天已经聊够了就别再挂一项催他（完成了的任务留着，✅ 也是有价值的反馈）。
-        let reason = today.messages == 0
-            ? "每日目标 \(snapshot.goalMinutes) 分钟，今天还没开口"
-            : "每日目标 \(snapshot.goalMinutes) 分钟 · 今天已聊 \(today.messages) 轮"
+        let reason: String
+        switch (mode, today.messages == 0) {
+        case (.baseline, true): reason = "保底目标 \(DailyGoalMode.baselineMinutes) 分钟，今天还没开口"
+        case (.baseline, false): reason = "保底目标 · 今天已聊 \(today.messages) 轮"
+        case (_, true): reason = "每日目标 \(snapshot.goalMinutes) 分钟，今天还没开口"
+        case (_, false): reason = "每日目标 \(snapshot.goalMinutes) 分钟 · 今天已聊 \(today.messages) 轮"
+        }
         return DailyTask(
             kind: .conversation,
             title: "和老师聊 \(target) 轮",
@@ -184,29 +205,35 @@ public enum DailyPlanner {
         return min(max(raw, conversationFloor), conversationCeiling)
     }
 
-    private static func shadowingTask(_ snapshot: ProgressSnapshot) -> DailyTask? {
+    private static func shadowingTask(
+        _ snapshot: ProgressSnapshot, mode: DailyGoalMode
+    ) -> DailyTask? {
         let attempts = snapshot.today.shadowingAttempts
         var reason = attempts == 0 ? "今天还没跟读" : "今天已跟读 \(attempts) 次"
         if let average = snapshot.shadowing.averagePronunciation {
             reason += " · 发音均分 \(Int(average.rounded()))"
         }
+        let target = mode == .baseline ? baselineShadowingTarget : shadowingTarget
         return DailyTask(
             kind: .shadowing,
-            title: "跟读 \(shadowingTarget) 句，逐音素纠音",
+            title: target == 1 ? "跟读 1 句，逐音素纠音" : "跟读 \(target) 句，逐音素纠音",
             reason: reason,
-            target: shadowingTarget,
+            target: target,
             progress: attempts,
             unit: "次"
         )
     }
 
-    private static func reviewTask(_ snapshot: ProgressSnapshot) -> DailyTask? {
+    private static func reviewTask(
+        _ snapshot: ProgressSnapshot, mode: DailyGoalMode
+    ) -> DailyTask? {
         let due = snapshot.vocabulary.due
         // 没有到期的词就不排这一项，别挂个永远做不完的空任务。
         guard due > 0 else { return nil }
-        let target = min(due, reviewCap)
+        let cap = mode == .baseline ? baselineReviewCap : reviewCap
+        let target = min(due, cap)
         let done = snapshot.vocabularyReviewedToday
-        let reason = due > reviewCap
+        let reason = due > cap
             ? "有 \(due) 个词到期，先做前 \(target) 个"
             : "有 \(due) 个词到期"
         return DailyTask(

@@ -60,6 +60,16 @@ public enum LevelState: String, Codable, Sendable, CaseIterable {
     case unlocked
     case inProgress
     case completed
+
+    /// 母语展示名（情景卡片与大树立联动时用，避免 UI 各写一套映射）。
+    public var displayName: String {
+        switch self {
+        case .locked: "未解锁"
+        case .unlocked: "可以开始"
+        case .inProgress: "正在学"
+        case .completed: "已过关"
+        }
+    }
 }
 
 /// 树上的一个关卡节点。UI 只渲染，不内置业务数据。
@@ -114,6 +124,15 @@ public struct LearnerProgress: Codable, Sendable, Equatable {
         self.climbFraction = climbFraction
         self.levels = levels
     }
+
+    /// 学员**正在学**的那一关（树上高亮它、宿主据此定位视口）。
+    ///
+    /// 没有「正在学」的关卡时退回第一关：全新学员还没开张，起点就是树根营地。
+    /// 放在领域层而不是视图里 —— 树上高亮、滚动定位两处都要用同一个判据，
+    /// 各写一份迟早出现「圈在这格、视口停在那格」。
+    public var currentLevelID: String {
+        (levels.first { $0.state == .inProgress } ?? levels.first)?.id ?? ""
+    }
 }
 
 // MARK: - 关卡种子目录（首次启动写入数据库，此后以数据库为准）
@@ -121,17 +140,22 @@ public struct LearnerProgress: Codable, Sendable, Equatable {
 public extension LearnerProgress {
 
     static func seed() -> LearnerProgress {
+        // ⚠️ **全新起点**：所有关卡 0 星、只有第一关开放（`unlocked`），其余锁定。
+        //
+        // 需求 1「清零闯关进度、从零开始学习」的落点之一：种子必须是零进度，
+        // 否则老用户删掉库以后又会拿到一份「已经过完三关」的假进度。
+        // 存量库的旧进度由 `LearningDatabase` 的 v8 → v9 迁移清空（见那边注释）。
         let levels: [TreeLevel] = [
             TreeLevel(id: "l1", title: "树根营地", subtitle: "打招呼", heightFraction: 0.06, branch: .left,
-                      state: .completed, requiredStars: 3, earnedStars: 3),
+                      state: .unlocked, requiredStars: 3, earnedStars: 0),
             TreeLevel(id: "l2", title: "苔藓石阶", subtitle: "自我介绍", heightFraction: 0.18, branch: .right,
-                      state: .completed, requiredStars: 3, earnedStars: 3),
+                      state: .locked, requiredStars: 3, earnedStars: 0),
             TreeLevel(id: "l3", title: "松鼠枝桠", subtitle: "点咖啡", heightFraction: 0.30, branch: .left,
-                      state: .completed, requiredStars: 4, earnedStars: 4),
+                      state: .locked, requiredStars: 4, earnedStars: 0),
             TreeLevel(id: "l4", title: "蜂鸟花丛", subtitle: "过去时", heightFraction: 0.42, branch: .right,
-                      state: .inProgress, requiredStars: 4, earnedStars: 2),
+                      state: .locked, requiredStars: 4, earnedStars: 0),
             TreeLevel(id: "l5", title: "溪流平台", subtitle: "问路", heightFraction: 0.54, branch: .left,
-                      state: .unlocked, requiredStars: 5, earnedStars: 0),
+                      state: .locked, requiredStars: 5, earnedStars: 0),
             TreeLevel(id: "l6", title: "云雀高枝", subtitle: "观点表达", heightFraction: 0.66, branch: .right,
                       state: .locked, requiredStars: 5, earnedStars: 0),
             TreeLevel(id: "l7", title: "星语树冠", subtitle: "辩论", heightFraction: 0.78, branch: .left,
@@ -139,8 +163,21 @@ public extension LearnerProgress {
             TreeLevel(id: "l8", title: "日出观景台", subtitle: "自由演讲", heightFraction: 0.92, branch: .right,
                       state: .locked, requiredStars: 6, earnedStars: 0),
         ]
-        let stars = levels.reduce(0) { $0 + $1.earnedStars }
-        return LearnerProgress(totalStars: stars, climbFraction: 0.42, levels: levels)
+        return LearnerProgress(totalStars: 0, climbFraction: 0, levels: levels)
+    }
+
+    /// 零进度：所有关卡 0 星，第 `unlockedIndex` 关开放，其余锁定。
+    ///
+    /// 保留各关的既有元数据（标题 / 需求星数），只把状态与星数归零 ——
+    /// 「重置闯关进度」不该顺手改掉关卡本身的设计。
+    func zeroed(unlocking index: Int = 0) -> LearnerProgress {
+        var copy = self
+        for position in copy.levels.indices {
+            copy.levels[position].earnedStars = 0
+            copy.levels[position].state = position == index ? .unlocked : .locked
+        }
+        copy.recalculateSummary()
+        return copy
     }
 
     /// 星星数变化后重算汇总字段。

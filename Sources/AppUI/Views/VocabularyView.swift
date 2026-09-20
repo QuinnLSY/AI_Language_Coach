@@ -7,7 +7,9 @@ import SwiftUI
 ///
 /// 数据流：复盘 new_words / 手动添加 → `VocabularyService` → SQLite；
 /// 复习调度与判分在 `AIDomain.ReviewScheduler`（纯函数），这里只做「展示 + 触发」。
-/// 顶部还有「每日推荐」板块：每次启动随机 12 个雅思词/词组（不落库、不自动进复习）。
+/// 顶部还有「每日推荐」板块：**同一天恒定**的 12 个雅思词/词组
+/// （种子由「日期 + 学习语言」派生，见 `DailySeed`；不落库、不自动进复习。
+///  只有点「换一批」才真随机重抽。）
 ///
 /// 排版约定（词汇本复习卡与每日推荐卡**共用**同一套）：
 /// 中文义项一行（多义全列出）→ 中文解释另起一行 → 例句 + 例句翻译 → 近/反义词 →
@@ -33,8 +35,10 @@ public struct VocabularyView: View {
                             reviewCard
                         } else {
                             reviewEntryCard
-                            // 添加框常驻：词表空了也要能随手加词。
-                            addRow
+                            // 加词入口已经搬到词典页（查词结果页右上角「添加复习」）。
+                            // 这里只留一句「去哪儿加」，不再放输入框 —— 两个入口各写一套联想逻辑，
+                            // 匹配规则迟早会分叉，用户则会问「为什么这边搜不到那个词」。
+                            addHint
                             if state.vocabularyEntries.isEmpty {
                                 emptyHint
                             } else {
@@ -561,38 +565,17 @@ public struct VocabularyView: View {
 
     /// 黄色小喇叭：朗读卡片里的英文（单词 + 例句）。朗读中再点即停。
     /// 复用老师朗读链路（`AppState.speak` → VoiceService 分句流水线 + 相位回调）。
-    ///
-    /// 朗读中是**声波逐层点亮的动效**（不再用静音图标 —— 那看着像「已经静音」）。
-    /// 首句还在合成（preparing）时转圈，告诉用户「点了，正在准备」。
+    /// 样式与行为都在 `SpeakButton`（词汇本 / 每日推荐 / 词典三处共用）。
     private func speakButton(_ text: String) -> some View {
         let isActive = state.speakingText == text && state.speechPhase != .idle
         let isPreparing = isActive && state.speechPhase == .preparing
-        return Button {
+        return SpeakButton(isActive: isActive, isPreparing: isPreparing) {
             if isActive {
                 Task { await state.stopSpeaking() }
             } else {
                 Task { await state.speak(text) }
             }
-        } label: {
-            ZStack {
-                if isPreparing {
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                        .controlSize(.mini)
-                        .scaleEffect(0.6)
-                        .frame(width: 14, height: 14)
-                } else {
-                    Image(systemName: isActive ? "speaker.wave.3.fill" : "speaker.wave.2.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color.yellow)
-                        .symbolEffect(.variableColor.iterative, isActive: isActive)
-                }
-            }
-            .frame(width: 16, height: 16)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .help(isActive ? "停止朗读" : "朗读")
     }
 
     // MARK: - 每日推荐按钮
@@ -672,7 +655,7 @@ public struct VocabularyView: View {
     private func difficultyTag(_ difficulty: Int) -> some View {
         let color: Color = switch difficulty {
         case 1: .green
-        case 2: .orange
+        case 2: theme.warning
         case 3: .red
         default: Color(hex: 0x8A7BF0)
         }
@@ -722,11 +705,13 @@ public struct VocabularyView: View {
                         Text("开始复习")
                     }
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(theme.onAccentFill)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 7)
                     .background(
-                        Capsule().fill(due > 0 ? theme.accent : theme.secondaryText.opacity(0.35))
+                        // 黄底上的字色跟着 `accentFill` 走（白档深墨、夜档白字）：
+                        // 白档的黄已经提亮成金黄，再写死白字就整块读不出。
+                        Capsule().fill(due > 0 ? theme.accentFill : theme.secondaryText.opacity(0.35))
                     )
                     .contentShape(Capsule())
                 }
@@ -778,114 +763,54 @@ public struct VocabularyView: View {
         }
     }
 
-    // MARK: - 添加
+    // MARK: - 加词入口（已搬到词典页）
 
-    private var addRow: some View {
-        // 输入框 + 「添加」按钮融成同一个圆角矩形（等高、共一条边框）。
-        HStack(spacing: 0) {
-            TextField("想记的单词或表达，如：How come…", text: Bindable(state).vocabularyDraft)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .padding(.horizontal, 10)
-                .onSubmit { submitVocabularyDraft() }
-                .onChange(of: state.vocabularyDraft) { _, _ in
-                    state.vocabularyDraftChanged()
-                }
-
-            Rectangle()
-                .fill(theme.divider)
-                .frame(width: 1, height: 18)
-
-            Button {
-                submitVocabularyDraft()
-            } label: {
-                Text("添加")
+    /// 加词指引条：词汇本的输入框已删除，加词统一从词典页走。
+    ///
+    /// 为什么删掉输入框而不是两个入口并存：词典页的搜索框要「模糊匹配 + 音标 + 翻译」，
+    /// 与这里原来的联想是同一件事。两个入口各维护一套，匹配规则迟早分叉，
+    /// 用户则会问「为什么词典里搜得到、这里搜不到」。
+    private var addHint: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "character.book.closed.fill")
+                .font(.system(size: 14))
+                .foregroundStyle(theme.accent)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("加词去词典里查")
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(canSubmitVocabularyDraft ? theme.accent : theme.secondaryText.opacity(0.45))
-                    .padding(.horizontal, 14)
-                    .frame(maxHeight: .infinity)
-                    .contentShape(Rectangle())
+                    .foregroundStyle(theme.primaryText)
+                Text("在词典页搜一个词，结果页右上角点「添加复习」，它就会出现在这里。")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Button {
+                Task { await state.openDictionary() }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "magnifyingglass")
+                    Text("去查词")
+                }
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(theme.accent)
+                .padding(.horizontal, 10)
+                .frame(height: 24)
+                .background(Capsule().fill(theme.accent.opacity(0.12)))
+                .overlay(Capsule().strokeBorder(theme.accent.opacity(0.3), lineWidth: 1))
+                .contentShape(Capsule())
             }
             .buttonStyle(.plain)
-            .disabled(!canSubmitVocabularyDraft)
-            .help("加入词表")
+            .help("打开词典页查词")
         }
-        .frame(height: 32)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(theme.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(theme.divider, lineWidth: 1)
-        )
-        // 联想浮层用 overlay：**不占布局高度**，因此不会把下方内容挤下去。
-        .overlay(alignment: .topLeading) {
-            if !state.vocabularyMatches.isEmpty {
-                suggestionPopover
-                    .offset(y: 36)
-            }
-        }
-        // 抬高绘制层级，浮层才能盖在下面的词条卡片之上。
-        .zIndex(10)
-    }
-
-    private var canSubmitVocabularyDraft: Bool {
-        !state.vocabularyDraft.trimmingCharacters(in: .whitespaces).isEmpty
-    }
-
-    /// 点「添加」（或回车）才真正入库；选中联想词只替换输入框内容。
-    private func submitVocabularyDraft() {
-        guard canSubmitVocabularyDraft else { return }
-        state.dismissVocabularySuggestions()
-        Task { await state.addVocabularyWord() }
-    }
-
-    /// 输入框下方的模糊匹配浮层：最多 10 条，不足按实际高度。
-    /// 每条显示「英文（词性）中文翻译」；词库词还没有中文时退回难度档标签。
-    private var suggestionPopover: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(state.vocabularyMatches) { suggestion in
-                Button {
-                    state.applyVocabularySuggestion(suggestion)
-                } label: {
-                    HStack(spacing: 8) {
-                        Text(suggestion.word)
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
-                            .foregroundStyle(theme.primaryText)
-                        if !suggestion.detailText.isEmpty {
-                            Text(suggestion.detailText)
-                                .font(.system(size: 11, design: .rounded))
-                                .foregroundStyle(theme.secondaryText)
-                                .lineLimit(1)
-                        }
-                        Spacer(minLength: 0)
-                        if suggestion.isInVocabulary {
-                            Text("已在词表")
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(theme.secondaryText)
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                if suggestion.id != state.vocabularyMatches.last?.id {
-                    Divider().overlay(theme.divider)
-                }
-            }
-        }
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(theme.surface)
+            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.surfaceAlt)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(theme.accent.opacity(0.3), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(theme.divider, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.14), radius: 8, y: 3)
     }
 
     // MARK: - 词条卡片
@@ -905,10 +830,10 @@ public struct VocabularyView: View {
                 if ReviewScheduler.isDue(entry) {
                     Text("待复习")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.onAccentFill)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
-                        .background(Capsule().fill(theme.accent))
+                        .background(Capsule().fill(theme.accentFill))
                 }
                 if entry.isMastered {
                     Text("已掌握")
@@ -996,7 +921,7 @@ public struct VocabularyView: View {
                 .disabled(state.isDefiningVocabulary.contains(entry.id))
                 if ReviewScheduler.isDue(entry) {
                     gradeButton(entry.id, remembered: true, title: "认识", systemImage: "checkmark.circle.fill", color: .green)
-                    gradeButton(entry.id, remembered: false, title: "忘了", systemImage: "xmark.circle.fill", color: .orange)
+                    gradeButton(entry.id, remembered: false, title: "忘了", systemImage: "xmark.circle.fill", color: theme.warning)
                 }
             }
         }
@@ -1045,6 +970,7 @@ public struct VocabularyView: View {
         case .review: "复盘"
         case .scenario: "情景"
         case .manual: "手动"
+        case .material: "材料"
         }
     }
 
@@ -1056,7 +982,7 @@ public struct VocabularyView: View {
             Text("词表还是空的")
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
                 .foregroundStyle(theme.primaryText)
-            Text("每次练习结束后，复盘里标记的生词会自动收进这里；也可以在上方手动添加，或把每日推荐的词「加入复习」。")
+            Text("每次练习结束后，复盘里标记的生词会自动收进这里；也可以在词典页查词，从结果页右上角「添加复习」加进来。")
                 .font(.system(size: 11, design: .rounded))
                 .foregroundStyle(theme.secondaryText)
                 .multilineTextAlignment(.center)

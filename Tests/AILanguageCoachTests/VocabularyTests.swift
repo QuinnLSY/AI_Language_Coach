@@ -429,41 +429,6 @@ final class VocabularyTests: XCTestCase {
         XCTAssertEqual(patched.keywords, "", "纯中文的重点单词在补全落库时被清掉")
     }
 
-    // MARK: - 添加框联想
-
-    func testSuggesterRanksPrefixThenSubstringThenChinese() {
-        let candidates = [
-            VocabularySuggestion(word: "improve", difficulty: 1),
-            VocabularySuggestion(word: "importance", pos: "n.", translation: "重要性", difficulty: 2),
-            VocabularySuggestion(word: "significant", pos: "adj.", translation: "重要的", difficulty: 2),
-            VocabularySuggestion(word: "important", difficulty: 1),
-        ]
-        // 前缀命中优先，同分按词长。
-        XCTAssertEqual(
-            VocabularySuggester.match("imp", in: candidates).map(\.word),
-            ["improve", "important", "importance"]
-        )
-        // 中文命中排在英文命中之后。
-        XCTAssertEqual(VocabularySuggester.match("重要", in: candidates).map(\.word), ["importance", "significant"])
-        // 空查询不收（浮层隐藏）。
-        XCTAssertTrue(VocabularySuggester.match("   ", in: candidates).isEmpty)
-        // 大小写不敏感。
-        XCTAssertEqual(VocabularySuggester.match("IMP", in: candidates).first?.word, "improve")
-        // 上限 10 条，去重。
-        let many = (0..<30).map { VocabularySuggestion(word: "word\($0)") } + [VocabularySuggestion(word: "word1")]
-        XCTAssertEqual(VocabularySuggester.match("word", in: many).count, 10)
-        XCTAssertEqual(Set(VocabularySuggester.match("word", in: many).map(\.word)).count, 10)
-    }
-
-    func testSuggestionDetailFallsBackToDifficultyLabel() {
-        XCTAssertEqual(VocabularySuggestion(word: "apple", pos: "n.", translation: "苹果").detailText, "n. 苹果")
-        XCTAssertEqual(VocabularySuggestion(word: "evaporate", difficulty: 3).detailText, "困难")
-        XCTAssertEqual(VocabularySuggestion(word: "improve", difficulty: 1).detailText, "简单")
-        XCTAssertEqual(VocabularySuggestion(word: "what").detailText, "")
-        XCTAssertTrue(VocabularySuggestion(word: "apple", translation: "苹果").hasDefinition)
-        XCTAssertFalse(VocabularySuggestion(word: "apple").hasDefinition)
-    }
-
     // MARK: - 每日推荐（Daily Recommendation）
 
     /// 固定种子随机源：让选词测试可复现。
@@ -575,25 +540,6 @@ final class VocabularyTests: XCTestCase {
         XCTAssertTrue(DailyWordPager.rows([], perRow: 2).isEmpty)
         // 每页正好 4 张 → 2 行，行数与页容量一致。
         XCTAssertEqual(DailyWordPager.rows(DailyWordPager.page(words, index: 0)).count, 2)
-    }
-
-    func testWordBankEntriesCarryPartOfSpeechAndChinese() throws {
-        // 词库每条都要带词性与中文（添加框联想浮层显示「英文（词性）中文」）。
-        let entries = VocabularyWordBank.entries()
-        XCTAssertGreaterThanOrEqual(entries.count, 100)
-        XCTAssertEqual(entries.count, VocabularyWordBank.load().count, "两份视图来自同一份数据")
-        let incomplete = entries.filter { $0.pos.isEmpty || $0.translation.isEmpty }
-        XCTAssertTrue(incomplete.isEmpty, "缺词性/中文的词：\(incomplete.map(\.word))")
-        XCTAssertEqual(entries.first { $0.difficulty == 4 }?.pos, "phr.")
-        XCTAssertEqual(entries.first { $0.word == "significant" }?.pos, "adj.")
-        XCTAssertEqual(entries.first { $0.word == "significant" }?.translation, "重要的；显著的")
-
-        // 老数据没有 pos / zh 也要宽容（空串，不影响选词）。
-        let legacy = "[{\"word\": \"improve\", \"difficulty\": 1}]"
-        let parsed = VocabularyWordBank.parseEntries(Data(legacy.utf8))
-        XCTAssertEqual(parsed?.first?.pos, "")
-        XCTAssertEqual(parsed?.first?.translation, "")
-        XCTAssertNil(VocabularyWordBank.parseEntries(Data("not json".utf8)))
     }
 
     func testWordBankParseFiltersInvalidAndDuplicates() throws {

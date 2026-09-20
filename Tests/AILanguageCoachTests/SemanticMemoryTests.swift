@@ -149,6 +149,39 @@ final class SemanticMemoryTests: XCTestCase {
         XCTAssertEqual(dimensions, 3)
     }
 
+    // MARK: - 默认配置真的把语义索引接上了
+
+    /// 这条是 #233 的**守门测试**：管道（Adapter / Manager / Retriever）早就写好了，
+    /// 但默认配置里只有 `mock.embedding` —— 于是 `supportsSemanticRanking` 永远是 false，
+    /// 语义检索从没真正跑过。断言的是「默认配置解析出来的那条不是 mock」。
+    func testDefaultConfigResolvesARealEmbeddingProvider() throws {
+        let configuration = try DefaultConfiguration.load()
+        let resolved = try XCTUnwrap(
+            configuration.resolvedProvider(for: .embedding),
+            "默认配置必须解析出一条 embedding Provider"
+        )
+        XCTAssertNotEqual(
+            resolved.runtime, .mock,
+            "默认配置不能只留 mock —— 那样语义检索永远不会启用（#233 的历史状态）"
+        )
+        XCTAssertFalse(try XCTUnwrap(resolved.endpoint).isEmpty)
+        XCTAssertFalse(try XCTUnwrap(resolved.model).isEmpty, "嵌入模型必须显式指定，不能靠 candidateModels 猜")
+        XCTAssertTrue(resolved.isUsable)
+    }
+
+    /// mock 必须**还在**兜底位：真实 Provider 关掉后仍能解析出一条，
+    /// 语义检索是增强而不是依赖 —— 不允许因为接了真的就把退路拆了。
+    func testMockEmbeddingRemainsAsFallback() throws {
+        var configuration = try DefaultConfiguration.load()
+        for index in configuration.providers.indices where configuration.providers[index].kind == .embedding {
+            if configuration.providers[index].runtime != .mock {
+                configuration.providers[index].enabled = false
+            }
+        }
+        let resolved = try XCTUnwrap(configuration.resolvedProvider(for: .embedding))
+        XCTAssertEqual(resolved.runtime, .mock, "真实索引不可用时应退回 mock，走结构化路径")
+    }
+
     // MARK: - Adapter 配置校验
 
     func testOllamaEmbeddingAdapterRejectsMissingEndpoint() async {

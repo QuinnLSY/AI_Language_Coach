@@ -148,11 +148,11 @@ public struct CurriculumCoverage: Sendable, Equatable {
 /// 过关判定。
 public enum CurriculumVerdict: Sendable, Equatable {
 
-    /// 三项全达标。
+    /// 主线任务完成 **且** 教学重点达标（需求 3 的通关口径）。
     case passed
-    /// 只差一项。
+    /// 两件里只做到了一件。
     case close
-    /// 还差得远。
+    /// 两件都还没做到。
     case notYet
 
     public var didPass: Bool { self == .passed }
@@ -170,6 +170,10 @@ public enum CurriculumVerdict: Sendable, Equatable {
 public struct CurriculumAssessment: Sendable, Equatable {
     public var level: CEFRLevel
     public var coverage: CurriculumCoverage
+    /// 主线任务完成情况（需求 3：通关条件之一）。
+    public var quest: QuestProgress
+    /// 教学重点达成情况（需求 3：通关条件之二）。
+    public var focus: TeachingFocus
     public var verdict: CurriculumVerdict
     /// 逐条可核对的原因（达标说达标，没达标说差多少）。
     public var reasons: [String]
@@ -179,19 +183,35 @@ public struct CurriculumAssessment: Sendable, Equatable {
     public init(
         level: CEFRLevel,
         coverage: CurriculumCoverage,
+        quest: QuestProgress = .empty(),
+        focus: TeachingFocus = .empty,
         verdict: CurriculumVerdict,
         reasons: [String],
         nextSentence: String? = nil
     ) {
         self.level = level
         self.coverage = coverage
+        self.quest = quest
+        self.focus = focus
         self.verdict = verdict
         self.reasons = reasons
         self.nextSentence = nextSentence
     }
 
-    /// 「目标句 2/4 · 目标词 5/6 · 轮次 7/12」。
-    public var summary: String { coverage.summary }
+    /// 主线任务是否已完成（空主线视为「无需满足」，不阻塞通关）。
+    public var isQuestSatisfied: Bool { quest.total == 0 || quest.isComplete }
+
+    /// 教学重点是否达标（空重点视为「无需满足」）。
+    public var isFocusSatisfied: Bool { focus.isEmpty || focus.isSatisfied }
+
+    /// `主线任务 2/3 · 目标句 2/3 · 目标词 4/5`。
+    public var summary: String {
+        var parts: [String] = []
+        if quest.total > 0 { parts.append(quest.summary) }
+        if !focus.isEmpty { parts.append(focus.summary) }
+        if parts.isEmpty { parts.append(coverage.summary) }
+        return parts.joined(separator: " · ")
+    }
 }
 
 // MARK: - 计分（纯函数）
@@ -239,38 +259,102 @@ public enum CurriculumScorer {
         )
     }
 
+    /// 教学重点的**达标门槛**：档位要求与素材实际数量取小。
+    ///
+    /// ⚠️ 要求数不能超过素材实际有的数量：素材只写了 1 句目标句，却按 B1 要求「3 句」，
+    /// 这一关就永远过不去。
+    ///
+    /// 单独开这个口子，是为了让**「开练之前」的界面**（情景卡片的「教学重点」标题）
+    /// 也能报出与判定完全一致的门槛数。写在两处各算一遍，迟早算出两个数 ——
+    /// 学员就会看到「卡片说 4 句、练起来说 0/2」这种自相矛盾的场面。
+    public static func focusThreshold(for scenario: Scenario) -> (sentences: Int, words: Int) {
+        let criteria = scenario.primaryLevel.passCriteria
+        return (
+            sentences: min(criteria.minimumTargetSentences, scenario.targetSentences.count),
+            words: min(criteria.minimumTargetWords, scenario.targetVocabulary.count)
+        )
+    }
+
+    /// 教学重点的达成情况（目标句 + 目标词；语法点只做提示、不参与判定）。
+    public static func focus(scenario: Scenario, coverage: CurriculumCoverage) -> TeachingFocus {
+        let sentenceItems = scenario.targetSentences.map { sentence in
+            TeachingFocusItem(
+                id: "s:\(sentence)", kind: .sentence, text: sentence,
+                isHit: coverage.matchedSentences.contains(sentence)
+            )
+        }
+        let wordItems = scenario.targetVocabulary.map { word in
+            TeachingFocusItem(
+                id: "w:\(word)", kind: .word, text: word,
+                isHit: coverage.matchedWords.contains(word)
+            )
+        }
+        let items = sentenceItems + wordItems
+        guard !items.isEmpty else { return .empty }
+
+        let threshold = focusThreshold(for: scenario)
+        return TeachingFocus(
+            items: items,
+            matchedSentences: coverage.matchedSentences.count,
+            requiredSentences: threshold.sentences,
+            matchedWords: coverage.matchedWords.count,
+            requiredWords: threshold.words
+        )
+    }
+
     /// 判定是否过关。
-    public static func assess(scenario: Scenario, utterances: [String]) -> CurriculumAssessment {
+    ///
+    /// **通关口径（需求 3）：主线任务完成 + 教学重点达标**，两者缺一不可。
+    /// 轮次从「门槛」降为「开口量」——只进星星与提示语，不再单独决定胜负：
+    /// 说满轮次却没说在点子上，本来就不该算过关。
+    ///
+    /// - Parameter questDone: 库里已记下的「已完成步骤」id（上一局推到的进度，只增不减）。
+    public static func assess(
+        scenario: Scenario,
+        utterances: [String],
+        questDone: Set<String> = []
+    ) -> CurriculumAssessment {
         let covered = coverage(scenario: scenario, utterances: utterances)
         let level = scenario.primaryLevel
         let criteria = level.passCriteria
         let requiredTurns = criteria.requiredTurns(maxTurns: covered.maxTurns)
+        let plan = scenario.questPlan
+        let quest = ScenarioQuestRule.progress(plan: plan, utterances: utterances, alreadyDone: questDone)
+        let teachingFocus = focus(scenario: scenario, coverage: covered)
 
         let turnsOK = covered.turnsUsed >= requiredTurns
-        let sentencesOK = covered.matchedSentences.count >= criteria.minimumTargetSentences
-        let wordsOK = covered.matchedWords.count >= criteria.minimumTargetWords
+        // 没有主线 / 没有重点的极简素材：不拿空条件卡人，退回「说满轮次即过关」。
+        let questOK = quest.total > 0 ? quest.isComplete : turnsOK
+        let focusOK = teachingFocus.isEmpty ? turnsOK : teachingFocus.isSatisfied
 
-        var reasons = [
-            turnsOK
-                ? "轮次 \(covered.turnsUsed)/\(covered.maxTurns)，达到了这一档要求的 \(requiredTurns) 轮"
-                : "轮次 \(covered.turnsUsed)/\(covered.maxTurns)，这一档要求说满 \(requiredTurns) 轮",
-            sentencesOK
-                ? "目标句说到 \(covered.matchedSentences.count) 句（要求 \(criteria.minimumTargetSentences) 句）"
-                : "目标句只说到 \(covered.matchedSentences.count) 句，还差 \(criteria.minimumTargetSentences - covered.matchedSentences.count) 句",
-            wordsOK
-                ? "目标词用到 \(covered.matchedWords.count) 个（要求 \(criteria.minimumTargetWords) 个）"
-                : "目标词只用到 \(covered.matchedWords.count) 个，还差 \(criteria.minimumTargetWords - covered.matchedWords.count) 个",
-        ]
+        var reasons: [String] = []
+        if quest.total > 0 {
+            reasons.append(quest.isComplete
+                ? "主线任务全部完成（\(quest.doneCount)/\(quest.total)）"
+                : "主线任务还差 \(quest.total - quest.doneCount) 步，下一步：\(quest.currentText)")
+        } else {
+            reasons.append("轮次 \(covered.turnsUsed)/\(covered.maxTurns)，这一档要求说满 \(requiredTurns) 轮")
+        }
+        if !teachingFocus.isEmpty {
+            reasons.append(teachingFocus.isSatisfied
+                ? "教学重点达标（\(teachingFocus.summary)）"
+                : "教学重点还没达标（\(teachingFocus.summary)）")
+        }
         if !covered.missingSentences.isEmpty {
             reasons.append("还没说到的句子：「\(covered.missingSentences[0])」")
         }
+        if !turnsOK {
+            reasons.append("只说了 \(covered.turnsUsed) 轮，建议说满 \(requiredTurns) 轮再来一次")
+        }
 
-        let missCount = [turnsOK, sentencesOK, wordsOK].filter { !$0 }.count
+        let missCount = [questOK, focusOK].filter { !$0 }.count
         let verdict: CurriculumVerdict = missCount == 0 ? .passed : (missCount == 1 ? .close : .notYet)
 
         return CurriculumAssessment(
             level: level,
             coverage: covered,
+            quest: quest,
+            focus: teachingFocus,
             verdict: verdict,
             reasons: reasons,
             nextSentence: covered.missingSentences.first

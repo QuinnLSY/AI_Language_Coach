@@ -123,25 +123,35 @@ final class RemoteVoiceRulesTests: XCTestCase {
         XCTAssertTrue(provider.isBillable, "默认视为计费")
     }
 
-    /// 内置默认配置里的 kina 预设：字段齐全、免密钥、免费、19 个音色。
-    func testBundledKinaPreset() throws {
+    /// 内置默认配置里的语音预设：契约齐全、免密钥、免费、19 个音色。
+    ///
+    /// ⚠️ 它现在指向**本机 Edge-TTS 代理**（`~/AI_Models/services/edge_tts_proxy.py`），
+    /// 不再是当年那个第三方网关 `tts.kina.ink`（该服务已永久离线）。provider id 保留是为了
+    /// 不动用户已有的配置与激活状态，但那不是「还是那家云端服务」的意思。
+    func testBundledSpeechPreset() throws {
         let configuration = try DefaultConfiguration.load()
-        let kina = try XCTUnwrap(
+        let preset = try XCTUnwrap(
             configuration.providers.first { $0.id == "remote.kina-tts" },
-            "内置默认配置必须包含 remote.kina-tts 预设"
+            "内置默认配置必须包含该语音预设"
         )
-        XCTAssertEqual(kina.kind, .tts)
-        XCTAssertFalse(kina.enabled, "预设默认关闭，用户在设置里点接入才启用")
-        XCTAssertFalse(kina.requiresAPIKey)
-        XCTAssertTrue(kina.isUsable)
-        XCTAssertFalse(kina.isBillable)
-        XCTAssertEqual(kina.resolvedSpeechPath, "tts")
-        XCTAssertEqual(kina.resolvedSpeechRequestStyle, .textJSON)
-        XCTAssertEqual(kina.voiceListPath, "voices")
-        XCTAssertEqual(kina.healthPath, "health")
-        XCTAssertEqual(kina.voices?.count, 19, "音色清单应与 /voices 探测结果一致")
-        XCTAssertTrue(kina.voices?.contains("en-US-AriaNeural") ?? false)
-        XCTAssertTrue(kina.voices?.contains("zh-CN-XiaoxiaoNeural") ?? false)
-        XCTAssertEqual(kina.requestTimeout, 60, "服务端建议超时 60 秒")
+        XCTAssertEqual(preset.kind, .tts)
+        XCTAssertFalse(preset.enabled, "预设默认关闭，用户在设置里点接入才启用")
+        XCTAssertFalse(preset.requiresAPIKey)
+        XCTAssertTrue(preset.isUsable)
+        XCTAssertFalse(preset.isBillable)
+        XCTAssertEqual(preset.endpoint, "http://127.0.0.1:8856", "指向本机代理，不是已下线的公网网关")
+        XCTAssertEqual(preset.resolvedSpeechPath, "tts")
+        XCTAssertEqual(preset.resolvedSpeechRequestStyle, .textJSON)
+        XCTAssertEqual(preset.voiceListPath, "voices")
+        // ⚠️ **必须不配 `health_path`**：一旦配了，`RemoteCommon.health` 就只探那个路径，
+        // 代理没有该接口时整个供应商会永远 `runtimeUnavailable`（这正是「一直连不上」的元凶）。
+        // 不配 → 回退到拉 `/voices` 探活。
+        XCTAssertNil(preset.healthPath, "配了 health_path 会让探活只能走那一条路径，别再踩回去")
+        XCTAssertEqual(preset.voices?.count, 19, "音色清单应与 /voices 探测结果一致")
+        XCTAssertTrue(preset.voices?.contains("en-GB-SoniaNeural") ?? false)
+        XCTAssertTrue(preset.voices?.contains("zh-CN-XiaoxiaoNeural") ?? false)
+        XCTAssertEqual(preset.requestTimeout, 60, "服务端建议超时 60 秒")
+        XCTAssertNotNil(preset.serviceStartCommand, "本地代理要有启停命令，设置页开关才能管它")
+        XCTAssertNotNil(preset.serviceStopCommand)
     }
 }
