@@ -578,7 +578,7 @@ public final class AppState {
     /// 正在补释义的词（按钮 loading）。
     public internal(set) var isDefiningVocabulary: Set<UUID> = []
     /// 词汇本提示（可关闭；nil = 正常）。
-    public internal(set) var vocabularyNotice: String?
+    public internal(set) var vocabularyNotice: AppNotice?
     /// 释义被手动收起的词条（「查释义」按钮与收起开关是同一个按钮；
     /// 已有释义默认展开，收起后点「看释义」再展开，不重新请求模型）。
     public internal(set) var collapsedVocabularyDefinitions: Set<UUID> = []
@@ -696,8 +696,8 @@ public final class AppState {
     var dictionaryLookupTask: Task<DictionaryDetail, Error>?
     /// 查词请求的轮次号：晚到的旧请求不许把新请求的状态清掉。
     var dictionaryLookupGeneration = 0
-    /// 词典页提示（可关闭；nil = 正常）。
-    public internal(set) var dictionaryNotice: String?
+    /// 词典页提示（可关闭；nil = 正常）。失败那几条自带「重试」，见 `AppNotice`。
+    public internal(set) var dictionaryNotice: AppNotice?
     /// 正在从磁盘导入词典。
     public internal(set) var isImportingDictionary = false
     /// 词典库里处在「确认删除」状态的书（点删除第一次只是变红，再点才真删）。
@@ -719,8 +719,8 @@ public final class AppState {
     public internal(set) var isVocabularyReviewRecording = false
     /// 朗读评测进行中（录音已结束，正在跑 ASR / 音素）。
     public internal(set) var isVocabularyReviewBusy = false
-    /// 复习模式里的一次性提示（读失败 / 没听清等）。
-    public internal(set) var vocabularyReviewNotice: String?
+    /// 复习模式里的一次性提示（读失败 / 没听清等）。读失败那几条自带「重试」。
+    public internal(set) var vocabularyReviewNotice: AppNotice?
     /// 上次重置每日推荐学习进度的时间（没重置过为 nil）。
     public internal(set) var dailyProgressResetAt: Date?
     /// 重置那一刻已学完（累计认识满 3 次）的词数。

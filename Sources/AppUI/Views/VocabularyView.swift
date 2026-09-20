@@ -997,28 +997,8 @@ public struct VocabularyView: View {
         .padding(.vertical, 60)
     }
 
-    private func noticeBanner(_ text: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "info.circle")
-                .foregroundStyle(theme.accent)
-            Text(text)
-                .font(.system(size: 11, design: .rounded))
-                .foregroundStyle(theme.primaryText.opacity(0.85))
-            Spacer(minLength: 0)
-            Button {
-                state.dismissVocabularyNotice()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(theme.secondaryText)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(theme.accent.opacity(0.08))
-        )
+    /// 提示条（释义失败那条自带「重试」—— 见 `NoticeBanner`）。
+    private func noticeBanner(_ notice: AppNotice) -> some View {
+        NoticeBanner(notice: notice) { state.dismissVocabularyNotice() }
     }
 }

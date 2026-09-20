@@ -25,7 +25,8 @@ struct VocabularyReviewCard: View {
     var report: PronunciationReport? = nil
     /// 本次朗读系统听成了什么。
     var recognized: String? = nil
-    var notice: String? = nil
+    /// 一次性提示（`AppNotice`：文案 + 可选的「重试」）。
+    var notice: AppNotice? = nil
     var isRecording: Bool = false
     var isBusy: Bool = false
     /// 正在朗读这个词（含「还在合成」的那一段）。
@@ -620,28 +621,12 @@ struct VocabularyReviewCard: View {
         .accessibilityLabel("去词典查这个词")
     }
 
-    private func noticeBanner(_ text: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "info.circle")
-                .foregroundStyle(theme.accent)
-            Text(text)
-                .font(.system(size: 11, design: .rounded))
-                .foregroundStyle(theme.primaryText.opacity(0.85))
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-            Button(action: onDismissNotice) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(theme.secondaryText)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(theme.accent.opacity(0.08))
-        )
+    /// 提示条：读失败 / 没听清这几条自带「重试」（`AppNotice` 里带进来的）。
+    ///
+    /// 与词典页、词汇本页共用同一个 `NoticeBanner`：三处各写一份时，
+    /// 「重试」这个按钮迟早会在其中一处漏挂。
+    private func noticeBanner(_ notice: AppNotice) -> some View {
+        NoticeBanner(notice: notice, onDismiss: onDismissNotice)
     }
 
     /// 词组 / 短句不显示音标（与词表卡片同一判据）。

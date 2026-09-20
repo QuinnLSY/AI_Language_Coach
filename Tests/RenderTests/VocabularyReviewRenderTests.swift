@@ -647,7 +647,7 @@ final class VocabularyReviewRenderTests: XCTestCase {
         await state.defineVocabularyReviewWord()
 
         let meaning = state.vocabularyReview?.current?.meaning ?? ""
-        let notice = state.vocabularyReviewNotice
+        let notice = state.vocabularyReviewNotice?.text
         if meaning.isEmpty {
             XCTAssertNotNil(notice, "没查到就必须说一声，不能静默（否则用户以为按钮坏了）")
         } else {

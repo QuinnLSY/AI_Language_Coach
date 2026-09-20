@@ -17,7 +17,7 @@ extension AppState {
         applySection(.vocabulary)
         let imported = await services.importVocabularyFromReviews()
         if imported > 0 {
-            vocabularyNotice = "从最近复盘导入了 \(imported) 个新词，点「查释义」配上中文解释。"
+            vocabularyNotice = AppNotice(text: "从最近复盘导入了 \(imported) 个新词，点「查释义」配上中文解释。")
         }
         await reloadVocabulary()
         await loadVocabularyBankIfNeeded()
@@ -58,9 +58,18 @@ extension AppState {
 
     /// 给一个词补「详细中文释义 + 例句 + 重点单词」（按需 LLM）。失败原因走页面提示条。
     public func defineVocabulary(id: UUID) async {
-        if let message = await requestVocabularyDefinition(id: id).message {
-            vocabularyNotice = message
-        }
+        guard let message = await requestVocabularyDefinition(id: id).message else { return }
+        let retryID = id
+        // 「这个词已经不在词表里了」这类没有可重试的动作 —— 词都没了，再点一次还是同一句话。
+        vocabularyNotice = AppNotice(
+            text: message,
+            action: vocabularyEntries.contains(where: { $0.id == retryID })
+                ? .retry { [weak self] in
+                    guard let self else { return }
+                    Task { await self.defineVocabulary(id: retryID) }
+                }
+                : nil
+        )
     }
 
     /// 复习途中**就地**查释义：与词表里的「查释义」是同一条链路（同一次模型调用、
@@ -71,13 +80,29 @@ extension AppState {
     public func defineVocabularyReviewWord() async {
         guard let entry = vocabularyReview?.current else { return }
         vocabularyReviewNotice = nil
+        // 重试用 `retryDefinition`：那句话里已经说了「可以再点一次试试」，
+        // 就该真有一个按钮 —— 只给文案不给出口，等于让用户自己去找原来那个按钮。
         if let message = await requestVocabularyDefinition(id: entry.id).message {
-            vocabularyReviewNotice = message
+            vocabularyReviewNotice = AppNotice(
+                text: message,
+                action: vocabularyReview?.current != nil
+                    ? .retry { [weak self] in
+                        guard let self else { return }
+                        Task { await self.defineVocabularyReviewWord() }
+                    }
+                    : nil
+            )
             return
         }
         // 模型偶尔回一段空的：如实说一句，而不是留用户对着「还没有释义」发呆。
         if vocabularyReview?.current?.meaning.isEmpty ?? true {
-            vocabularyReviewNotice = "模型这次没给出「\(entry.word)」的解释，可以再点一次试试。"
+            vocabularyReviewNotice = AppNotice(
+                text: "模型这次没给出「\(entry.word)」的解释，可以再点一次试试。",
+                action: .retry { [weak self] in
+                    guard let self else { return }
+                    Task { await self.defineVocabularyReviewWord() }
+                }
+            )
         }
     }
 
@@ -175,7 +200,7 @@ extension AppState {
     public func startVocabularyReview() async {
         let session = VocabularyReviewSession(entries: vocabularyEntries)
         guard !session.queue.isEmpty else {
-            vocabularyNotice = "今天没有到期的词。过几天再来，或者去每日推荐里挑几个加进复习列表。"
+            vocabularyNotice = AppNotice(text: "今天没有到期的词。过几天再来，或者去每日推荐里挑几个加进复习列表。")
             return
         }
         await stopSpeaking()
@@ -246,7 +271,15 @@ extension AppState {
         _ = (try? await services.resumeIfSuspended(.asr)) ?? false
         await syncModelRunStates()
         guard await services.isModelRunning(.asr) else {
-            vocabularyReviewNotice = "\(await services.modelLabel(for: .asr)) 已关闭，请在设置里点绿色的「启动」后再读。"
+            // 「重试」在这里是**有用的**：它会再问一次真源（而不是界面快照），
+            // 用户在设置里点完「启动」回来按一下就行 —— 不用退出复习重进。
+            vocabularyReviewNotice = AppNotice(
+                text: "\(await services.modelLabel(for: .asr)) 已关闭，请在设置里点绿色的「启动」后再读。",
+                action: .retry { [weak self] in
+                    guard let self else { return }
+                    Task { await self.startVocabularyReviewRecording() }
+                }
+            )
             return
         }
         vocabularyReviewNotice = nil
@@ -258,7 +291,14 @@ extension AppState {
         await services.shadowing.startRecording(language: ShadowingService.practiceLanguage)
         isVocabularyReviewRecording = await services.voice.isRecording
         if !isVocabularyReviewRecording {
-            vocabularyReviewNotice = await services.shadowing.lastError() ?? "麦克风没能打开，检查一下系统权限。"
+            // 重试 = 再开一次麦克风：权限刚给完、麦克风刚插上，往往就是「再点一次」的事。
+            vocabularyReviewNotice = AppNotice(
+                text: await services.shadowing.lastError() ?? "麦克风没能打开，检查一下系统权限。",
+                action: .retry { [weak self] in
+                    guard let self else { return }
+                    Task { await self.startVocabularyReviewRecording() }
+                }
+            )
         }
     }
 
@@ -271,14 +311,26 @@ extension AppState {
         voiceTranscript = nil
         guard let recognized, !recognized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             isVocabularyReviewBusy = false
-            vocabularyReviewNotice = await services.shadowing.lastError() ?? "没有听清，凑近麦克风再说一次。"
+            vocabularyReviewNotice = AppNotice(
+                text: await services.shadowing.lastError() ?? "没有听清，凑近麦克风再说一次。",
+                action: .retry { [weak self] in
+                    guard let self else { return }
+                    Task { await self.startVocabularyReviewRecording() }
+                }
+            )
             return
         }
         vocabularyReviewRecognized = recognized
         vocabularyReviewReport = await services.shadowing.evaluateSpeech(reference: entry.word, recognized: recognized)
         if vocabularyReviewReport == nil {
             // 没拿到音频就不给分数：宁可少一项，也不拿 0 分冒充「读得很差」。
-            vocabularyReviewNotice = "这次没拿到录音，所以没算分（发音是通过录音量出来的，识别文本替代不了）。"
+            vocabularyReviewNotice = AppNotice(
+                text: "这次没拿到录音，所以没算分（发音是通过录音量出来的，识别文本替代不了）。",
+                action: .retry { [weak self] in
+                    guard let self else { return }
+                    Task { await self.startVocabularyReviewRecording() }
+                }
+            )
         }
         isVocabularyReviewBusy = false
     }
@@ -292,7 +344,7 @@ extension AppState {
     /// 听我的：回放刚才读的那遍。
     public func replayVocabularyReviewRecording() async {
         guard await services.shadowing.hasRecording else {
-            vocabularyReviewNotice = "还没有录音，先点「读一遍」。"
+            vocabularyReviewNotice = AppNotice(text: "还没有录音，先点「读一遍」。")
             return
         }
         vocabularyReviewNotice = nil
@@ -300,7 +352,13 @@ extension AppState {
         do {
             try await services.shadowing.replayRecording(rate: Float(product.speechRate))
         } catch {
-            vocabularyReviewNotice = "回放失败：\(error.localizedDescription)"
+            vocabularyReviewNotice = AppNotice(
+                text: "回放失败：\(error.localizedDescription)",
+                action: .retry { [weak self] in
+                    guard let self else { return }
+                    Task { await self.replayVocabularyReviewRecording() }
+                }
+            )
         }
         isVocabularyReviewBusy = false
     }
@@ -382,7 +440,7 @@ extension AppState {
         expandedDailyWords = []
         dailyDefinitions = [:]
         dailyWords = await services.dailyWordRecommendation(excluding: retiredDailyWords, seed: dailyWordsSeed)
-        vocabularyNotice = "每日推荐学习进度已重置：认识记录清零，词库重新从简单档开始推荐。"
+        vocabularyNotice = AppNotice(text: "每日推荐学习进度已重置：认识记录清零，词库重新从简单档开始推荐。")
     }
 
     /// 抽 12 个推荐词（3 简单 / 5 中等 / 2 困难 / 2 词组，雅思标准）。
@@ -430,7 +488,14 @@ extension AppState {
             do {
                 dailyDefinitions[word] = try await services.defineDailyWord(word)
             } catch {
-                vocabularyNotice = "「\(word)」释义失败：\(error.localizedDescription)"
+                let retryWord = word
+                vocabularyNotice = AppNotice(
+                    text: "「\(word)」释义失败：\(error.localizedDescription)",
+                    action: .retry { [weak self] in
+                        guard let self else { return }
+                        Task { await self.toggleDailyDefinition(word: retryWord) }
+                    }
+                )
                 return
             }
         }
@@ -453,21 +518,21 @@ extension AppState {
         saveDailyRecognitions()
         if (dailyRecognitions[key] ?? 0) >= Self.dailyRecognitionRetireCount {
             dailyWords.removeAll { $0.word.caseInsensitiveCompare(word) == .orderedSame }
-            vocabularyNotice = "「\(word)」累计认识 3 次，已从每日推荐中毕业 🎉"
+            vocabularyNotice = AppNotice(text: "「\(word)」累计认识 3 次，已从每日推荐中毕业 🎉")
         }
     }
 
     /// 把推荐词加入复习列表（用户手动；已在词表时只提示）。
     public func addDailyToReview(word: String) async {
         if vocabularyEntries.contains(where: { $0.word.caseInsensitiveCompare(word) == .orderedSame }) {
-            vocabularyNotice = "「\(word)」已经在词表里了。"
+            vocabularyNotice = AppNotice(text: "「\(word)」已经在词表里了。")
             return
         }
         guard await services.vocabulary.add(word: word) != nil else {
-            vocabularyNotice = "「\(word)」没能加入词表（为空或没有学习数据库）。"
+            vocabularyNotice = AppNotice(text: "「\(word)」没能加入词表（为空或没有学习数据库）。")
             return
         }
-        vocabularyNotice = "「\(word)」已加入复习列表。"
+        vocabularyNotice = AppNotice(text: "「\(word)」已加入复习列表。")
         await reloadVocabulary()
     }
 

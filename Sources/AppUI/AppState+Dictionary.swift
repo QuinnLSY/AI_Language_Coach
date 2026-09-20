@@ -246,7 +246,16 @@ extension AppState {
             // 用户自己取消的（清空输入 / 换了查询词）：静默收场 ——
             // 不留错误提示，也不把结果顶上屏。
         } catch {
-            dictionaryNotice = Self.dictionaryFailureMessage(error, word: clean)
+            // 「重试」必须是**忽略缓存**的那一次：缓存里没有（否则不会走到这里），
+            // 但本地词库那份结果可能是刚才那次失败前留下的空壳，不忽略就原地打转。
+            let word = clean
+            dictionaryNotice = AppNotice(
+                text: Self.dictionaryFailureMessage(error, word: word),
+                action: .retry { [weak self] in
+                    guard let self else { return }
+                    Task { await self.lookUpDictionaryWord(word, pushing: false, ignoringCache: true) }
+                }
+            )
         }
     }
 
@@ -302,7 +311,14 @@ extension AppState {
             let detail = try await services.dictionaryLookUp(word)
             dictionaryLookup.cache(detail)
         } catch {
-            dictionaryNotice = Self.dictionaryFailureMessage(error, word: word)
+            let retryWord = word
+            dictionaryNotice = AppNotice(
+                text: Self.dictionaryFailureMessage(error, word: retryWord),
+                action: .retry { [weak self] in
+                    guard let self else { return }
+                    Task { await self.lookUpDictionaryWord(retryWord, pushing: false, ignoringCache: true) }
+                }
+            )
         }
     }
 
@@ -310,11 +326,11 @@ extension AppState {
     public func addDictionaryWordToReview() async {
         guard let word = dictionaryLookup.currentWord else { return }
         if vocabularyEntries.contains(where: { $0.word.caseInsensitiveCompare(word) == .orderedSame }) {
-            dictionaryNotice = "「\(word)」已经在词汇本里了。"
+            dictionaryNotice = AppNotice(text: "「\(word)」已经在词汇本里了。")
             return
         }
         guard await services.vocabulary.add(word: word) != nil else {
-            dictionaryNotice = "「\(word)」没能加入复习列表（为空或没有学习数据库）。"
+            dictionaryNotice = AppNotice(text: "「\(word)」没能加入复习列表（为空或没有学习数据库）。")
             return
         }
         await reloadVocabulary()
@@ -345,12 +361,12 @@ extension AppState {
             await reloadDictionaryLibrary()
             await refreshDailyWordsAfterDictionaryChange()
             if let removed {
-                dictionaryNotice = removed.isBuiltIn
+                dictionaryNotice = AppNotice(text: removed.isBuiltIn
                     ? "已把「\(removed.name)」从书架取下。内置词典不会丢，随时能在下面点回来。"
-                    : "已删除导入的词典「\(removed.name)」，文件也一并删掉了。"
+                    : "已删除导入的词典「\(removed.name)」，文件也一并删掉了。")
             }
         } catch {
-            dictionaryNotice = error.localizedDescription
+            dictionaryNotice = AppNotice(text: error.localizedDescription)
         }
     }
 
@@ -360,9 +376,9 @@ extension AppState {
             try await services.restoreDictionaryBook(id: id)
             await reloadDictionaryLibrary()
             await refreshDailyWordsAfterDictionaryChange()
-            dictionaryNotice = "「\(dictionaryBooks.first { $0.id == id }?.name ?? "词典")」已放回书架。"
+            dictionaryNotice = AppNotice(text: "「\(dictionaryBooks.first { $0.id == id }?.name ?? "词典")」已放回书架。")
         } catch {
-            dictionaryNotice = error.localizedDescription
+            dictionaryNotice = AppNotice(text: error.localizedDescription)
         }
     }
 
@@ -372,9 +388,9 @@ extension AppState {
             try await services.restoreBuiltInDictionaries()
             await reloadDictionaryLibrary()
             await refreshDailyWordsAfterDictionaryChange()
-            dictionaryNotice = "内置词典已全部放回书架。"
+            dictionaryNotice = AppNotice(text: "内置词典已全部放回书架。")
         } catch {
-            dictionaryNotice = error.localizedDescription
+            dictionaryNotice = AppNotice(text: error.localizedDescription)
         }
     }
 
@@ -386,12 +402,12 @@ extension AppState {
             await refreshDailyWordsAfterDictionaryChange()
             guard let book = dictionaryBooks.first(where: { $0.id == id }) else { return }
             if on, let rank = await services.dictionaryRank(of: id) {
-                dictionaryNotice = "「\(book.name)」现在是每日推荐的词源，优先级 \(rank)。"
+                dictionaryNotice = AppNotice(text: "「\(book.name)」现在是每日推荐的词源，优先级 \(rank)。")
             } else {
-                dictionaryNotice = "「\(book.name)」不再作为每日推荐的词源。一本都没选时，全部词典都参与推荐。"
+                dictionaryNotice = AppNotice(text: "「\(book.name)」不再作为每日推荐的词源。一本都没选时，全部词典都参与推荐。")
             }
         } catch {
-            dictionaryNotice = error.localizedDescription
+            dictionaryNotice = AppNotice(text: error.localizedDescription)
         }
     }
 
@@ -403,9 +419,9 @@ extension AppState {
             let book = try await services.importDictionary(from: url)
             await reloadDictionaryLibrary()
             await refreshDailyWordsAfterDictionaryChange()
-            dictionaryNotice = "已导入「\(book.name)」，共 \(book.entryCount) 词。"
+            dictionaryNotice = AppNotice(text: "已导入「\(book.name)」，共 \(book.entryCount) 词。")
         } catch {
-            dictionaryNotice = "导入失败：\(error.localizedDescription)"
+            dictionaryNotice = AppNotice(text: "导入失败：\(error.localizedDescription)")
         }
     }
 
