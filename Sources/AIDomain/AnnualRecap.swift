@@ -302,7 +302,7 @@ public enum AnnualRecapBuilder {
 
         return AnnualRecap(
             weeks: weeks,
-            months: monthMarkers(monthStarts, firstColumnMonth: calendar.component(.month, from: first), calendar: calendar),
+            months: monthMarkers(monthStarts, firstColumnMonth: calendar.component(.month, from: first)),
             rowLabels: rowLabels(calendar: calendar),
             practicedDays: practicedDays,
             dayCount: allCells.count,
@@ -397,8 +397,7 @@ public enum AnnualRecapBuilder {
     /// 那是绘制层的事（见 `AnnualRecapCard`），领域层只回答「哪一列是新月份」。
     static func monthMarkers(
         _ monthStarts: [(month: Int, column: Int)],
-        firstColumnMonth: Int,
-        calendar: Calendar
+        firstColumnMonth: Int
     ) -> [AnnualRecap.MonthMarker] {
         var markers = [AnnualRecap.MonthMarker(title: monthTitle(firstColumnMonth), column: 0)]
         markers.append(contentsOf: monthStarts.map {

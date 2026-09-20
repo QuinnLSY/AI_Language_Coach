@@ -535,7 +535,6 @@ public struct MainView: View {
                     theme: state.theme,
                     progress: state.progress,
                     studentAnimal: state.studentAnimalKind,
-                    bubblesAllowed: state.animalBubblesEnabled,
                     levelNotes: state.treeLevelNotes
                 ) { level in
                     Task { await open(level) }

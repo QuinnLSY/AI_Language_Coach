@@ -1,6 +1,5 @@
 import AIDomain
 @testable import AIInfrastructure
-import AIInterfaces
 import AppCore
 import XCTest
 

@@ -1,7 +1,6 @@
 import AIDomain
 import AIInterfaces
 import AIInfrastructure
-import AppCore
 import Foundation
 
 /// 拼写纠正的采纳规则（**纯函数，可单测**）。

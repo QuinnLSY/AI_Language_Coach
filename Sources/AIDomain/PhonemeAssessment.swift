@@ -1,4 +1,3 @@
-import AppCore
 import Foundation
 
 // MARK: - 音素级发音评测（推断通道，纯函数）

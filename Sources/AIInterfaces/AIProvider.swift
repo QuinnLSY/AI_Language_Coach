@@ -158,6 +158,9 @@ public struct DiscoveredModel: Sendable, Equatable, Identifiable {
 
 /// Adapter 的共享状态盒（内部可变状态一律走 actor，避免手工加锁）。
 public actor ProviderStateBox {
+    // periphery:ignore —— 规范 v2.0 §27 要求维护这条状态机（Created→…→Unloaded），
+    // 各适配器在 initialize/load/unload 里如实写入。**目前只写不读**（读侧候选：设置页健康面），
+    // 故显式保留，别让扫描当死代码清掉。
     private(set) var lifecycle: ProviderLifecycle = .created
     private(set) var config: ProviderConfig?
 

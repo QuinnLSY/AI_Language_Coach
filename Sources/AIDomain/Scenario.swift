@@ -1,4 +1,3 @@
-import AppCore
 import Foundation
 
 // MARK: - 情景对话（Role Play / Scenario System）

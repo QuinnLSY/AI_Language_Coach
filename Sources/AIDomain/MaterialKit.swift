@@ -1,4 +1,3 @@
-import AppCore
 import Foundation
 
 // MARK: - 上传材料自动出题（材料 → 情景 + 跟读句 + 生词表）

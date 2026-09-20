@@ -1,7 +1,6 @@
 import AIDomain
 import AIInfrastructure
 import AIInterfaces
-import AppCore
 import Foundation
 
 /// 跟读（Shadowing）编排服务（第 22 步）。

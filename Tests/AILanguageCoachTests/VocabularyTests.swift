@@ -1,7 +1,6 @@
 import AIDomain
 import AIInfrastructure
 import AIServices
-import AppCore
 import XCTest
 
 /// 词汇本（第 24 步）：调度纯函数 / 输出解析 / 生词清洗 / 落库与去重。

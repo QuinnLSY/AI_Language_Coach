@@ -1,5 +1,4 @@
 import AIDomain
-import AppCore
 import Foundation
 
 /// 考试模式的 Prompt 组装（雅思口语 / 面试问答）。

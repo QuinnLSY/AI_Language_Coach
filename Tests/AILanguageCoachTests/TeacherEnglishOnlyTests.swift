@@ -3,7 +3,6 @@ import AIInterfaces
 import AIServices
 import AIInfrastructure
 import AppCore
-import AppUI
 import XCTest
 
 /// 「学员可以中文问，老师只能用英文答」这条硬要求的**接线**回归。

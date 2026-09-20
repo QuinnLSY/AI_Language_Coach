@@ -302,7 +302,6 @@ public enum SpeechAnalyzer {
         // 降采样到 ~8kHz 再算自相关：精度对基频足够，耗时降到 1/4。
         let factor = max(Int((sampleRate / 8_000).rounded()), 1)
         let pitchFrame = max(frameLength / factor, 8)
-        let pitchHop = max(hop / factor, 1)
         var track: [Double] = []
         var frameIndex = 0
         // 每 2 帧取一次：基频变化比 10ms 慢得多，省一半时间。
@@ -322,7 +321,7 @@ public enum SpeechAnalyzer {
                     }
                     if let hz = fundamentalFrequency(
                         decimated, sampleRate: sampleRate / Double(factor),
-                        frameLength: pitchFrame, hop: pitchHop
+                        frameLength: pitchFrame
                     ) {
                         track.append(hz)
                     }
@@ -346,7 +345,7 @@ public enum SpeechAnalyzer {
 
     /// 单帧基频：归一化自相关峰值对应的滞后。峰值太低 = 没有稳定基频。
     static func fundamentalFrequency(
-        _ frame: [Float], sampleRate: Double, frameLength: Int, hop: Int
+        _ frame: [Float], sampleRate: Double, frameLength: Int
     ) -> Double? {
         guard frame.count >= 16, sampleRate > 0 else { return nil }
         let count = min(frameLength, frame.count)

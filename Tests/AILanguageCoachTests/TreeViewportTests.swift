@@ -1,4 +1,3 @@
-import AIDomain
 @testable import AppUI
 import XCTest
 

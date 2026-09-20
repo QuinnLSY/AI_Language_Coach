@@ -1,7 +1,5 @@
 import AIDomain
-import AIServices
 import AppKit
-import AppCore
 import SwiftUI
 
 /// 写作练习页（#230）。

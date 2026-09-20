@@ -153,10 +153,4 @@ final class CursorGuard {
             CursorPolicy.apply(in: window, atWindowPoint: point, force: true)
         }
     }
-
-    /// 拆监视器（测试用）。
-    func uninstall() {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
-    }
 }

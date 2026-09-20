@@ -1,6 +1,5 @@
 import AIDomain
 import AIServices
-import AppCore
 import SwiftUI
 
 /// 词汇本页（Vocabulary，第 24 步）。

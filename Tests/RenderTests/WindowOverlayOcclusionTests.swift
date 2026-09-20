@@ -1,4 +1,3 @@
-import AIDomain
 import AppKit
 @testable import AppUI
 import SwiftUI

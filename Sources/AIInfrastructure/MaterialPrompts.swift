@@ -1,5 +1,4 @@
 import AIDomain
-import AppCore
 import Foundation
 
 /// 上传材料自动出题的 Prompt 组装（材料 → 情景 + 跟读句 + 生词表）。

@@ -1,5 +1,4 @@
 import AIDomain
-import AppCore
 import Foundation
 
 /// 今日跟读句子的落盘缓存（`.workbuddy/app-config/shadowing-daily.json`）。

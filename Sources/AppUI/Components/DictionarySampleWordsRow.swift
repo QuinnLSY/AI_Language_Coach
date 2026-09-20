@@ -91,8 +91,6 @@ struct JustifiedRow: Layout {
 /// ③ 换的时候要**看得出来在换** —— 直接改文字会显得「页面自己在抖」，所以做成一排错落的翻牌。
 struct DictionarySampleWordsRow: View {
 
-    @Environment(\.forestTheme) private var theme
-
     /// 轮换词池（随机、去重由上游保证）。
     let words: [String]
     let onPick: (String) -> Void

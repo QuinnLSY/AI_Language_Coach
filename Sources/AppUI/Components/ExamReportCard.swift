@@ -1,5 +1,4 @@
 import AIDomain
-import AppCore
 import SwiftUI
 
 /// 考后结算卡：各维度参考分 + 原始指标 + 示范答案。

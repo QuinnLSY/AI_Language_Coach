@@ -17,10 +17,7 @@ enum BlackboardPalette {
     /// 粉笔（还没做的空心圈）。
     static let chalkPending = Color.white.opacity(0.45)
     /// 粉笔（还差一点）。
-    static let chalkWarn = Color(hex: 0xF0B95E)
-    /// 板上的分隔线。
-    static let chalkLine = Color.white.opacity(0.14)
-}
+    static let chalkWarn = Color(hex: 0xF0B95E)}
 
 /// 展开后的大黑板：**今天要交的作业**。
 ///

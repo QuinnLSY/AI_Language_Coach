@@ -6,8 +6,6 @@ import SwiftUI
 /// - 游走位移由父级持有并应用到 `.offset`，动物走到哪就停在哪。
 public struct LivelyAnimal: View {
 
-    @Environment(\.forestTheme) private var theme
-
     public let kind: AnimalKind
     public let isSleeping: Bool
     public let size: CGFloat

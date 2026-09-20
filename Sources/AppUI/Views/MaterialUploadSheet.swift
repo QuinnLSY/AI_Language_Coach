@@ -1,5 +1,4 @@
 import AIDomain
-import AppCore
 import SwiftUI
 
 /// 「上传材料」浮层：粘贴 / 导入一篇文字 → 一次请求拆成 情景 + 跟读句 + 生词表（#208）。

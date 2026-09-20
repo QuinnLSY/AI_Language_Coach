@@ -31,8 +31,6 @@ final class DictionarySampleRowRenderTests: XCTestCase {
         let rep: NSBitmapImageRep
         /// 每一列有没有墨。
         let columns: [Bool]
-        /// 每一列上「明显比胶囊底色深」的像素数（描边与文字都算）。
-        let darkByColumn: [Int]
         /// 每一行上「明显比胶囊底色深」的像素数。
         let darkByRow: [Int]
 
@@ -87,7 +85,6 @@ final class DictionarySampleRowRenderTests: XCTestCase {
         }
 
         var columns = [Bool](repeating: false, count: width)
-        var darkByColumn = [Int](repeating: 0, count: width)
         var darkByRow = [Int](repeating: 0, count: height)
         for x in 0..<width {
             var dyed = 0
@@ -95,12 +92,11 @@ final class DictionarySampleRowRenderTests: XCTestCase {
                 if isInk(x: x, y: y) { dyed += 1 }
                 if isDark(x: x, y: y) {
                     darkByRow[y] += 1
-                    darkByColumn[x] += 1
                 }
             }
             columns[x] = dyed > 2
         }
-        return Ink(rep: rep, columns: columns, darkByColumn: darkByColumn, darkByRow: darkByRow)
+        return Ink(rep: rep, columns: columns, darkByRow: darkByRow)
     }
 
     private func capture(_ content: AnyView, width: CGFloat, height: CGFloat) throws -> Ink {

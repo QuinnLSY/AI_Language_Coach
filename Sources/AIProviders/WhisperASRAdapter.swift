@@ -186,11 +186,6 @@ public final class WhisperASRAdapter: ASRProvider, @unchecked Sendable {
         AudioPCM.wav16(samples: samples, sampleRate: sampleRate)
     }
 
-    private static func littleEndian<T: FixedWidthInteger>(_ value: T) -> [UInt8] {
-        var v = value.littleEndian
-        return withUnsafeBytes(of: &v) { Array($0) }
-    }
-
     // MARK: multipart
 
     private static func multipartField(name: String, value: String, boundary: String) -> Data {

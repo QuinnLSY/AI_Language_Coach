@@ -1,5 +1,4 @@
 import AIDomain
-import AppCore
 import XCTest
 
 /// 第 6 步（Conversation Engine）：对话状态机与上下文。

@@ -21,9 +21,6 @@ final class BlackboardRenderTests: XCTestCase {
 
     private var window: NSWindow?
     private let seatWidth: CGFloat = 196
-    /// 容器高度：展开的板往上长（板底在座位底之上 158pt），容器要装得下它。
-    private let stageHeight: CGFloat = 520
-
     // MARK: - 造计划
 
     private func plan(doneCount: Int, taskCount: Int = 3) -> DailyPlan {
@@ -49,20 +46,17 @@ final class BlackboardRenderTests: XCTestCase {
 
     private struct Render {
         var rep: NSBitmapImageRep
-        var size: CGSize
     }
 
     /// 老师座位（带 `@State` 的展开开关，能同时测收起 / 展开两态）。
     private struct SeatPreview: View {
         let plan: DailyPlan
         let tokens: Int
-        let expanded: Bool
         @State private var isExpanded: Bool
 
         init(plan: DailyPlan, tokens: Int, expanded: Bool) {
             self.plan = plan
             self.tokens = tokens
-            self.expanded = expanded
             self._isExpanded = State(initialValue: expanded)
         }
 
@@ -139,7 +133,7 @@ final class BlackboardRenderTests: XCTestCase {
 
         let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: rep)
-        return Render(rep: rep, size: host.frame.size)
+        return Render(rep: rep)
     }
 
     // MARK: - 像素度量

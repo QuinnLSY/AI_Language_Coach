@@ -1,6 +1,4 @@
 import AIInfrastructure
-import AIServices
-import AppCore
 import XCTest
 
 /// 朗读文本处理的集成用例（纯函数，不依赖外部服务，可稳定在 CI 跑）。

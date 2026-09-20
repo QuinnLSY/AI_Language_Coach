@@ -1,6 +1,5 @@
 import AIDomain
 import AIServices
-import AppCore
 import XCTest
 
 /// 第 8 步 Grammar Agent：错误分类 / 定级 / 判重。

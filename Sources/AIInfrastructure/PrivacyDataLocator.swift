@@ -1,4 +1,3 @@
-import AppCore
 import Foundation
 
 /// 本地数据到底存在哪——**文档化**（Phase 29 要求 "Local storage locations documented"）。

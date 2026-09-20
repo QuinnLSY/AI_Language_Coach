@@ -1,4 +1,3 @@
-import AppCore
 import Foundation
 
 // MARK: - 跟读（Shadowing，第 22 步）

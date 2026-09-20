@@ -7,8 +7,6 @@ import SwiftUI
 /// 停止点击 3 秒后气泡自动消失。`facing` 控制左右朝向，`phrases` 为空则纯展示不可交互。
 public struct TalkingAnimal: View {
 
-    @Environment(\.forestTheme) private var theme
-
     public let kind: AnimalKind
     public let isSleeping: Bool
     public let size: CGFloat

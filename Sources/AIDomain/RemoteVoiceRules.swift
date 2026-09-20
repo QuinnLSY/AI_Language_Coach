@@ -1,4 +1,3 @@
-import AppCore
 import Foundation
 
 /// 云端音色目录的解析（纯函数，脱机可测）。

@@ -35,8 +35,6 @@ public struct TreeCanvas: View {
     let progress: LearnerProgress
     /// 小学员形象（沿树攀爬的学员，戴红领巾；可点击说话）。
     let studentAnimal: AnimalKind
-    /// 小学员点击冒泡开关（设置可关）。
-    var bubblesAllowed: Bool = true
     /// 关卡 → 它在树上要额外显示的一行（对应情景 + 主线任务进度）。
     ///
     /// 需求 2：**情景与大树要一眼看出关系** —— 光有一个小对话标，
@@ -64,13 +62,11 @@ public struct TreeCanvas: View {
     public static let learnerAnchorID = "tree-learner-anchor"
 
     public init(theme: ForestTheme, progress: LearnerProgress, studentAnimal: AnimalKind = .bear,
-                bubblesAllowed: Bool = true,
                 levelNotes: [String: TreeLevelNote] = [:],
                 onSelectLevel: @escaping (TreeLevel) -> Void = { _ in }) {
         self.theme = theme
         self.progress = progress
         self.studentAnimal = studentAnimal
-        self.bubblesAllowed = bubblesAllowed
         self.levelNotes = levelNotes
         self.onSelectLevel = onSelectLevel
     }
@@ -561,7 +557,7 @@ struct ForestGroundBand: View {
                 }
 
                 // 树干底部的两根枝桠栖木（鸟类专用；画在树干透出区域的中心两侧）
-                perchStubs(width: width, height: height)
+                perchStubs(width: width)
 
                 // 林间居民：各物种独立个体，朝向/大小/站位/动与静各不相同
                 ForEach(0..<Self.maxResidents, id: \.self) { i in
@@ -598,8 +594,8 @@ struct ForestGroundBand: View {
             // 档位切换时让位置/大小平滑过渡，而不是瞬移
             .animation(.easeOut(duration: 0.18), value: qw)
             // 初始化物种/朝向状态（轮换的基础）
-            .onAppear { ensureResidents(count: count, order: order) }
-            .onChange(of: count) { _, newCount in ensureResidents(count: newCount, order: order) }
+            .onAppear { ensureResidents(order: order) }
+            .onChange(of: count) { _, _ in ensureResidents(order: order) }
             // 活动编排（宽度或活动开关/频率变化时重启循环，取最新几何与开关值）
             .task(id: "\(qw)-\(activityAllowed)-\(activityFrequency)-\(theme.isNight)") {
                 async let life: () = orchestrateLife(count: count, span: span, inset: inset,
@@ -742,7 +738,7 @@ struct ForestGroundBand: View {
 
     /// 树干底部的枝桠栖木（视觉上接住飞上来的鸟）。
     @ViewBuilder
-    private func perchStubs(width: CGFloat, height: CGFloat) -> some View {
+    private func perchStubs(width: CGFloat) -> some View {
         ForEach(0..<2, id: \.self) { k in
             let point = perchPoint(k, width: width)
             Capsule()
@@ -936,7 +932,7 @@ struct ForestGroundBand: View {
     // MARK: 物种轮换（随机离开 → 新邻居进入）
 
     /// 初始化/对齐各槽位的物种与朝向状态（数量或首次出现时调用）。
-    private func ensureResidents(count: Int, order: [AnimalKind]) {
+    private func ensureResidents(order: [AnimalKind]) {
         guard kinds.count != Self.maxResidents || facings.count != Self.maxResidents else { return }
         if kinds.isEmpty {
             kinds = (0..<Self.maxResidents).map { order[$0 % order.count] }

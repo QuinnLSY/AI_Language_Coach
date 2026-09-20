@@ -1,5 +1,3 @@
-import AIDomain
-import AppCore
 import SwiftUI
 
 /// 考场条的数据快照。

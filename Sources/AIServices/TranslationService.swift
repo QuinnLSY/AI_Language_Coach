@@ -1,6 +1,5 @@
 import AIInfrastructure
 import AIInterfaces
-import AppCore
 import Foundation
 
 /// 模型输出译文的清理规则（纯函数，便于单测）。

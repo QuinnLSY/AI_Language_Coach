@@ -1,5 +1,4 @@
 import AIDomain
-import AppCore
 import SwiftUI
 
 /// 「我的材料」单张卡（情景选择面板内）。

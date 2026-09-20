@@ -1,5 +1,4 @@
 import AIInfrastructure
-import AppCore
 import Foundation
 
 /// 发布就绪检查命令行：`swift run alc-release-check`。

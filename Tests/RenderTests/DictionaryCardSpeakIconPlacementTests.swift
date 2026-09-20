@@ -66,7 +66,6 @@ final class DictionaryCardSpeakIconPlacementTests: XCTestCase {
 
     private struct Shot {
         let rep: NSBitmapImageRep
-        let size: CGSize
         let textViews: [NSTextView]
     }
 
@@ -100,7 +99,7 @@ final class DictionaryCardSpeakIconPlacementTests: XCTestCase {
         if let png = rep.representation(using: .png, properties: [:]) {
             try png.write(to: directory.appendingPathComponent(name))
         }
-        return Shot(rep: rep, size: size, textViews: Self.allTextViews(in: host))
+        return Shot(rep: rep, textViews: Self.allTextViews(in: host))
     }
 
     // MARK: - ① 朗读图标必须紧贴句末

@@ -1,4 +1,3 @@
-import AppCore
 import AppKit
 import XCTest
 import SwiftUI

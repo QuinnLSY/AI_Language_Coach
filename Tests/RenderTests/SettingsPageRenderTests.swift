@@ -1,4 +1,3 @@
-import AIDomain
 import AIInfrastructure
 import AIServices
 import AppCore
@@ -60,12 +59,6 @@ final class SettingsPageRenderTests: XCTestCase {
                 if gap > 10, gap < 60 { return (a, b) }
             }
         }
-        return nil
-    }
-
-    private func firstScrollView(in view: NSView) -> NSScrollView? {
-        if let scroll = view as? NSScrollView { return scroll }
-        for sub in view.subviews { if let found = firstScrollView(in: sub) { return found } }
         return nil
     }
 

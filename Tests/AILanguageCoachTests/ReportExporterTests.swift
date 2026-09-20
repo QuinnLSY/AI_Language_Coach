@@ -1,5 +1,4 @@
 import AIDomain
-import AIInfrastructure
 import AppCore
 import AppKit
 @testable import AppUI

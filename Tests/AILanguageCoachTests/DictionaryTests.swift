@@ -1,8 +1,6 @@
 @testable import AIDomain
 import AIInfrastructure
-import AIInterfaces
 import AIServices
-import AppCore
 import XCTest
 
 /// 词典（新功能）领域层与数据层的单元测试。

@@ -51,10 +51,6 @@ final class SemanticMemoryTests: XCTestCase {
         }
     }
 
-    private func record(_ original: String, _ corrected: String, at date: Date) -> CorrectionRecord {
-        CorrectionRecord(correction: GrammarCorrection(original: original, corrected: corrected, explanation: ""), createdAt: date)
-    }
-
     // MARK: - 余弦相似度
 
     func testCosineSimilarityIdenticalAndOrthogonal() {

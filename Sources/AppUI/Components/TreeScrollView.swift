@@ -12,7 +12,6 @@ struct TreeScrollView: View {
     let theme: ForestTheme
     let progress: LearnerProgress
     var studentAnimal: AnimalKind = .bear
-    var bubblesAllowed: Bool = true
     var levelNotes: [String: TreeLevelNote] = [:]
     var onSelectLevel: (TreeLevel) -> Void = { _ in }
 
@@ -30,7 +29,6 @@ struct TreeScrollView: View {
                         theme: theme,
                         progress: progress,
                         studentAnimal: studentAnimal,
-                        bubblesAllowed: bubblesAllowed,
                         levelNotes: levelNotes
                     ) { level in
                         onSelectLevel(level)

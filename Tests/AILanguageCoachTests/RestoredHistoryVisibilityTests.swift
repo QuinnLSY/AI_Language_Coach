@@ -3,7 +3,6 @@ import AIInterfaces
 import AIServices
 import AIInfrastructure
 import AppCore
-import AppUI
 import XCTest
 
 /// 启动恢复的历史**默认不上屏**这条语义。

@@ -1128,7 +1128,7 @@ public actor LearningDatabase {
 
     static func decodeJSON<T: Decodable>(_ text: String?, as type: T.Type = T.self) -> T? {
         guard let text, let data = text.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(T.self, from: data)
+        return try? JSONDecoder().decode(type, from: data)
     }
 
     private static func decodeList(_ text: String?) -> [String] {

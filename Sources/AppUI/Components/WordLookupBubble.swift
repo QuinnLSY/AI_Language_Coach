@@ -81,10 +81,6 @@ public struct WordLookupBubble: View {
         titleRowContentWidth(word: word, iconCount: iconCount) + 22
     }
 
-    private var titleRowContentWidth: CGFloat {
-        Self.titleRowContentWidth(word: card.text, iconCount: isLookupFailed ? 3 : 2)
-    }
-
     private var minCardWidth: CGFloat {
         Self.minCardWidth(word: card.text, iconCount: isLookupFailed ? 3 : 2)
     }

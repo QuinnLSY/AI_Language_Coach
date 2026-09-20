@@ -1,6 +1,4 @@
 import AIDomain
-import AIServices
-import AppCore
 import SwiftUI
 
 /// 跟读页（Shadowing，第 22 步）。

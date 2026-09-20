@@ -1,6 +1,5 @@
 import AIDomain
 import AIInfrastructure
-import AppCore
 import Foundation
 
 /// 学习进度（Dashboard，第 25 步）：把学习数据库里的原始记录汇成一份 `ProgressSnapshot`。

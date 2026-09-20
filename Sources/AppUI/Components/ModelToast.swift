@@ -23,8 +23,6 @@ public struct ModelToast: Sendable, Equatable, Identifiable {
 /// 必须能一眼分清成功还是失败，所以用实色绿 / 红而不是主题中性色。
 struct ModelToastView: View {
 
-    @Environment(\.forestTheme) private var theme
-
     let toast: ModelToast
     var onClose: (() -> Void)? = nil
 

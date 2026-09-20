@@ -1,5 +1,4 @@
 import AIDomain
-import AppCore
 import SwiftUI
 
 /// 情景对话选择面板（Implementation Plan §21）。
