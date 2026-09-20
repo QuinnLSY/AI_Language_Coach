@@ -128,6 +128,25 @@ extension AppState {
         await lookUpDictionaryWord(match.word, pushing: false)
     }
 
+    /// 从别处（复习卡 / 划词卡）跳到词典页并**直接查这个词**。
+    ///
+    /// ⚠️ 刻意不走 `openDictionary()`：那个还要 `reloadDictionaryLibrary()`（重读整份
+    /// 词典库，只有导入 / 删库 / 改优先级才需要）。跳转场景走它等于让用户白等一次重载。
+    ///
+    /// ⚠️ 顺序要紧：**先切页、后查询**。词典页的联想/展示挂在页面的 `onChange` 上，
+    /// 页面还没挂载就发查询，那一次会被丢掉（表现是「跳过去了但停在空态」）。
+    public func openDictionaryLookingUp(_ word: String) async {
+        let clean = word.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else {
+            await openDictionary()
+            return
+        }
+        applySection(.dictionary)
+        // 落在「查单词」而不是「词典库」：跳过来的意图就是查这**一个**词。
+        dictionaryMode = .search
+        await lookUpDictionaryWord(clean, pushing: false)
+    }
+
     /// 点详情里可跳转的词（派生词 / 近义词 / 反义词）→ 压栈查它。
     public func openDictionaryRelated(_ word: String) async {
         await lookUpDictionaryWord(word, pushing: true)

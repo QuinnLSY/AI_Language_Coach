@@ -757,6 +757,12 @@ public struct VocabularyView: View {
                 onSpeak: { Task { await state.speakVocabularyReviewWord() } },
                 onFinish: { Task { await state.finishVocabularyReview() } },
                 onDefine: { Task { await state.defineVocabularyReviewWord() } },
+                onLookupInDictionary: {
+                    // 查的是**卡片当前这个词**；复习会话留在 AppState 里不动 ——
+                    // 用户从词典回来，这一轮还在原处接着过。
+                    guard let word = session.current?.word else { return }
+                    Task { await state.openDictionaryLookingUp(word) }
+                },
                 onDismissNotice: { state.dismissVocabularyReviewNotice() }
             )
         }

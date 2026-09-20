@@ -45,6 +45,8 @@ struct VocabularyReviewCard: View {
     var onFinish: () -> Void = {}
     /// 就地查释义（查完直接显示在这张卡上，词表同步）。
     var onDefine: () -> Void = {}
+    /// 跳去词典页查这个词（复习进度保留，回来接着过卡）。
+    var onLookupInDictionary: () -> Void = {}
     var onDismissNotice: () -> Void = {}
 
     var body: some View {
@@ -149,6 +151,9 @@ struct VocabularyReviewCard: View {
                 }
                 speakButton()
                 Spacer(minLength: 0)
+                // 词条行右端：去词典查这个词。放在 `Spacer` 之后 = 贴卡片右缘，
+                // 与顶部的「退出复习」各占一行，不会互相挤。
+                lookupButton()
             }
             if revealed {
                 revealHint(entry)
@@ -545,6 +550,29 @@ struct VocabularyReviewCard: View {
         }
         .buttonStyle(.plain)
         .help(isSpeaking ? "停止朗读" : "听这个词怎么读")
+    }
+
+    /// 「去词典查这个词」：复习卡右侧的快捷出口。
+    ///
+    /// 为什么单独给一个按钮，而不是让用户退出复习再自己搜一遍：查一个词的意思
+    /// 往往正是**复习到一半突然想确认**的事，退出去就断了这一轮的节奏
+    /// （与下面 `revealHint` 里那个「就地查释义」是同一个诉求，只是那个查的是
+    /// 当前词的释义写进卡里，这个去的是完整词典页）。
+    ///
+    /// ⚠️ 用 `accentCool`（冷紫）而不是喇叭那个 `accent`（橘）：同一行两个按钮
+    /// 抢同一个颜色，用户分不出哪个是「读」哪个是「查」。冷紫正是主题里
+    /// 留给「跳去别处」这类次要动作的那一支。
+    private func lookupButton() -> some View {
+        Button(action: onLookupInDictionary) {
+            Image(systemName: "character.book.closed")
+                .font(.system(size: 12))
+                .foregroundStyle(theme.accentCool)
+                .frame(width: 16, height: 16)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("去词典查这个词（复习进度保留，回来接着过）")
+        .accessibilityLabel("去词典查这个词")
     }
 
     private func noticeBanner(_ text: String) -> some View {
