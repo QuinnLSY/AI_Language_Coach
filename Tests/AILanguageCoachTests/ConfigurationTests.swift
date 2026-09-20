@@ -280,4 +280,67 @@ final class ConfigurationTests: XCTestCase {
         let data = try JSONEncoder().encode(config)
         XCTAssertFalse(try JSONDecoder().decode(ProductConfig.self, from: data).autoSpeak)
     }
+
+    // MARK: - 解码 / 编码 / 属性三处漂移的兜底
+
+    /// `ProductConfig` 三处手写（属性、`init(from:)`、`encode(to:)`）任一处漏改都会红。
+    ///
+    /// 做法：把**每一个**字段都设成与默认值不同的值，编码再解码，要求完全相等。
+    /// - 只加属性、没加进 `CodingKeys`：键根本没写出去 → 解回来是默认值 → 不等；
+    /// - 加进 `CodingKeys` 却漏了 `encode`：同上；
+    /// - 漏了 `init(from:)`：解回来取兜底值 → 不等。
+    ///
+    /// ⚠️ 取值必须落在字段自己的合法区间（时长 5...180、时刻 0...23）且语速取真实档位，
+    /// 否则会被夹取 / 取最近档，测出来的不相等是测试自己的锅。
+    func testProductConfigRoundTripCoversEveryField() throws {
+        let original = ProductConfig(
+            learningLanguage: "ja-JP",
+            nativeLanguage: "en-US",
+            teacherVoice: "Ryan",
+            practiceMode: .shadowing,
+            themeMode: .night,
+            selectedModels: ["llm": "some-model"],
+            teacherAnimal: "tiger",
+            teacherPersona: "strict",
+            studentAnimal: "penguin",
+            activeProviders: ["tts": "local.tts"],
+            teacherBubbles: false,
+            animalBubbles: false,
+            animalActivity: false,
+            animalActivityFrequency: 0.25,
+            voicePreview: false,
+            autoSpeak: false,
+            speechRate: SpeechRate.x1_5.rawValue,
+            dailyGoalMinutes: 45,
+            dailyGoalMode: .baseline,
+            practiceReminderEnabled: true,
+            practiceReminderHour: 7,
+            practiceReminderMinute: 30,
+            activeVoiceProfileID: "my-voice"
+        )
+        // 前提：这套取值确实全部偏离默认（否则测不出「漏改」）。
+        XCTAssertNotEqual(original, ProductConfig(), "用例自身要保证每个字段都不是默认值")
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(ProductConfig.self, from: data)
+        XCTAssertEqual(decoded, original, "ProductConfig 往返丢字段：检查 CodingKeys / init(from:) / encode(to:) 是否漏改")
+
+        // 每个键都真的写出去了（空值字段除外，那条走 encodeIfPresent）。
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let expectedKeys = [
+            "learningLanguage", "nativeLanguage", "teacherVoice", "practiceMode", "themeMode",
+            "selectedModels", "teacherAnimal", "teacherPersona", "studentAnimal", "activeProviders",
+            "teacherBubbles", "animalBubbles", "animalActivity", "animalActivityFrequency",
+            "voicePreview", "autoSpeak", "speechRate", "dailyGoalMinutes", "dailyGoalMode",
+            "practiceReminderEnabled", "practiceReminderHour", "practiceReminderMinute",
+            "activeVoiceProfileID",
+        ]
+        XCTAssertEqual(Set(json.keys), Set(expectedKeys), "写出的键与字段清单对不上")
+    }
+
+    /// 缺省值表就是默认 init：老配置缺字段时应当**恰好**拿到 `ProductConfig()` 的同名值。
+    func testLegacyDecodeFallsBackToDefaultInit() throws {
+        let decoded = try JSONDecoder().decode(ProductConfig.self, from: Data("{}".utf8))
+        XCTAssertEqual(decoded, ProductConfig(), "空配置应等价于默认 init（兜底值只此一份）")
+    }
 }

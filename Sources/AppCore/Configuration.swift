@@ -498,38 +498,54 @@ extension ProductConfig: Codable {
         case activeVoiceProfileID
     }
 
+    /// 向后兼容解码：**缺省值表就是 `ProductConfig()` 本身**。
+    ///
+    /// 早先这里把每个默认值在解码器里手抄了一遍（`?? "en-US"`、`?? 15`、`?? true`…），
+    /// 于是「结构体默认 init」与「解码兜底」成了两份可以各自漂移的真相：
+    /// 改了默认值、忘了改解码，老配置升级后拿到的还是旧口径，**而且没有任何编译错误**。
+    /// 现在兜底一律取自 `fallback`（= 默认 init），只此一份。
+    ///
+    /// ⚠️ 需要**取值变换**的字段（语速取最近档、时长/时刻夹取）仍单独写，并把「为什么」
+    /// 留在注释里 —— 那些是有意与默认值不同的行为，不是抄漏。
+    ///
+    /// 解码 / 编码 / 属性三处漂移由 `ConfigurationTests.testProductConfigRoundTripCoversEveryField`
+    /// 兜底：它把每个字段都设成非默认值再往返一次，漏改任何一侧都会红。
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        learningLanguage = try container.decodeIfPresent(String.self, forKey: .learningLanguage) ?? "en-US"
-        nativeLanguage = try container.decodeIfPresent(String.self, forKey: .nativeLanguage) ?? "zh-CN"
-        teacherVoice = try container.decodeIfPresent(String.self, forKey: .teacherVoice) ?? "Serena"
-        practiceMode = try container.decodeIfPresent(PracticeMode.self, forKey: .practiceMode) ?? .conversation
-        themeMode = try container.decodeIfPresent(ThemeMode.self, forKey: .themeMode) ?? .day
-        selectedModels = try container.decodeIfPresent([String: String].self, forKey: .selectedModels) ?? [:]
-        teacherAnimal = try container.decodeIfPresent(String.self, forKey: .teacherAnimal) ?? "panda"
+        let fallback = ProductConfig()
+        func value<T: Decodable>(_ key: CodingKeys, _ fallbackValue: T) throws -> T {
+            try container.decodeIfPresent(T.self, forKey: key) ?? fallbackValue
+        }
+        learningLanguage = try value(.learningLanguage, fallback.learningLanguage)
+        nativeLanguage = try value(.nativeLanguage, fallback.nativeLanguage)
+        teacherVoice = try value(.teacherVoice, fallback.teacherVoice)
+        practiceMode = try value(.practiceMode, fallback.practiceMode)
+        themeMode = try value(.themeMode, fallback.themeMode)
+        selectedModels = try value(.selectedModels, fallback.selectedModels)
+        teacherAnimal = try value(.teacherAnimal, fallback.teacherAnimal)
         // ⚠️ 缺字段的老配置一律落回 `standard` —— 那正是加档位之前的行为，
         // 不能因为升级就把老用户的教学口径改掉。
-        teacherPersona = try container.decodeIfPresent(String.self, forKey: .teacherPersona) ?? "standard"
-        studentAnimal = try container.decodeIfPresent(String.self, forKey: .studentAnimal) ?? "bear"
-        activeProviders = try container.decodeIfPresent([String: String].self, forKey: .activeProviders) ?? [:]
-        teacherBubbles = try container.decodeIfPresent(Bool.self, forKey: .teacherBubbles) ?? true
-        animalBubbles = try container.decodeIfPresent(Bool.self, forKey: .animalBubbles) ?? true
-        animalActivity = try container.decodeIfPresent(Bool.self, forKey: .animalActivity) ?? true
-        animalActivityFrequency = try container.decodeIfPresent(Double.self, forKey: .animalActivityFrequency) ?? 0.5
-        voicePreview = try container.decodeIfPresent(Bool.self, forKey: .voicePreview) ?? true
-        autoSpeak = try container.decodeIfPresent(Bool.self, forKey: .autoSpeak) ?? true
-        speechRate = SpeechRate.nearest(
-            to: try container.decodeIfPresent(Double.self, forKey: .speechRate) ?? SpeechRate.x1.rawValue
-        ).rawValue
-        dailyGoalMinutes = min(max(try container.decodeIfPresent(Int.self, forKey: .dailyGoalMinutes) ?? 15, 5), 180)
+        teacherPersona = try value(.teacherPersona, fallback.teacherPersona)
+        studentAnimal = try value(.studentAnimal, fallback.studentAnimal)
+        activeProviders = try value(.activeProviders, fallback.activeProviders)
+        teacherBubbles = try value(.teacherBubbles, fallback.teacherBubbles)
+        animalBubbles = try value(.animalBubbles, fallback.animalBubbles)
+        animalActivity = try value(.animalActivity, fallback.animalActivity)
+        animalActivityFrequency = try value(.animalActivityFrequency, fallback.animalActivityFrequency)
+        voicePreview = try value(.voicePreview, fallback.voicePreview)
+        autoSpeak = try value(.autoSpeak, fallback.autoSpeak)
+        speechRate = SpeechRate.nearest(to: try value(.speechRate, fallback.speechRate)).rawValue
+        dailyGoalMinutes = min(max(try value(.dailyGoalMinutes, fallback.dailyGoalMinutes), 5), 180)
         // ⚠️ 老配置一律落回 advanced —— 那是保底档引入前的唯一行为，升级不改口径。
-        dailyGoalMode = try container.decodeIfPresent(DailyGoalMode.self, forKey: .dailyGoalMode) ?? .advanced
-        practiceReminderEnabled = try container.decodeIfPresent(Bool.self, forKey: .practiceReminderEnabled) ?? false
-        practiceReminderHour = min(max(try container.decodeIfPresent(Int.self, forKey: .practiceReminderHour) ?? 20, 0), 23)
-        practiceReminderMinute = min(max(try container.decodeIfPresent(Int.self, forKey: .practiceReminderMinute) ?? 0, 0), 59)
+        dailyGoalMode = try value(.dailyGoalMode, fallback.dailyGoalMode)
+        practiceReminderEnabled = try value(.practiceReminderEnabled, fallback.practiceReminderEnabled)
+        practiceReminderHour = min(max(try value(.practiceReminderHour, fallback.practiceReminderHour), 0), 23)
+        practiceReminderMinute = min(max(try value(.practiceReminderMinute, fallback.practiceReminderMinute), 0), 59)
         activeVoiceProfileID = try container.decodeIfPresent(String.self, forKey: .activeVoiceProfileID)
     }
 
+    /// 写入侧仍是显式列举：`activeVoiceProfileID` 要 `encodeIfPresent`（缺省不写空值），
+    /// 而**新增字段必须在这里补一行**，否则往返测试会红。
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(learningLanguage, forKey: .learningLanguage)
