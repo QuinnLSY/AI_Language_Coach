@@ -1,0 +1,42 @@
+{
+  "id": "exam.ielts.speaking",
+  "format": "ieltsSpeaking",
+  "title": "雅思口语模拟",
+  "summary": "按 Part 1 / 2 / 3 的考官流程走一遍，考完给四项维度参考分。",
+  "stages": [
+    {
+      "id": "part1",
+      "title": "Part 1 · 简介问答",
+      "instructions": "三个日常问题，每个答 2–3 句（25 词以上），别只回一个词。",
+      "prompts": [
+        "Let's talk about where you live. Do you live in a house or an apartment?",
+        "What do you like most about the area you live in?",
+        "How do you usually spend your weekends?"
+      ],
+      "timeLimitSeconds": 40,
+      "minimumWords": 25
+    },
+    {
+      "id": "part2",
+      "title": "Part 2 · 个人陈述",
+      "instructions": "给你一张题卡，连续说 1–2 分钟（80 词以上），中间不要停。",
+      "prompts": [
+        "Describe a skill you learned that turned out to be useful. Say what it is, how you learned it, and why it has been useful to you."
+      ],
+      "timeLimitSeconds": 120,
+      "minimumWords": 80
+    },
+    {
+      "id": "part3",
+      "title": "Part 3 · 深入讨论",
+      "instructions": "和考官讨论抽象问题，每问 40 词以上，尽量用 because / although 展开。",
+      "prompts": [
+        "Why do you think some people find it hard to keep learning new skills as adults?",
+        "Should schools teach practical skills instead of academic subjects?",
+        "How might the way people learn change in the next twenty years?"
+      ],
+      "timeLimitSeconds": 60,
+      "minimumWords": 40
+    }
+  ]
+}

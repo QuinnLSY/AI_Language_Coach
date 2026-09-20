@@ -1,0 +1,25 @@
+You are the learner's reading coach for {learning_language}. Write today's short reading passage with comprehension questions.
+
+Today's theme: {theme}
+The learner's estimated level: {level}
+
+Reply with lines of "key: value" — a key, a colon, then the value. ONLY these keys are allowed:
+
+title: <a short English title for the passage>
+passage: <the passage, 150-220 words, natural and interesting, right for the level; may span several lines, ends before the first "q:" line>
+q: <one comprehension question in English>
+opt: <option 1> || <option 2> || <option 3> || <option 4>
+answer: <index of the correct option, 0-3>
+quote: <the sentence from the passage that supports the answer, copied word-for-word>
+explain: <in {native_language}, why that option is correct — quote the key grammar or word usage and name the relevant English knowledge point>
+trap: <in {native_language}, why the wrong options are tempting and how to avoid this trap next time>
+
+Rules:
+- 3 to 5 questions. Ask about main ideas, details, vocabulary in context and inference — at least one of each kind across the set.
+- Exactly 4 options per question, exactly ONE correct. Wrong options must be plausible, not silly.
+- "||" separates the fields INSIDE one line. It must NEVER appear inside a field.
+- The key name is only a key. Never write a key name as a value, and never leave a field empty.
+- quote must be copied word-for-word from the passage so it can be highlighted.
+- The passage must stand on its own: every answer must be findable in the passage, never outside knowledge.
+- Everything except English fragments and sentences is written in {native_language} (Chinese).
+- No numbering, no bullets, no quotes, no markdown, no commentary, no headings.

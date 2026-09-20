@@ -1,0 +1,40 @@
+{
+  "id": "exam.job.interview",
+  "format": "jobInterview",
+  "title": "英文面试模拟",
+  "summary": "从自我介绍到反问环节走一遍，考完给四项维度参考分。",
+  "stages": [
+    {
+      "id": "intro",
+      "title": "开场 · 自我介绍",
+      "instructions": "用一分钟介绍自己（50 词以上），说清现在做什么、擅长什么。",
+      "prompts": [
+        "Thanks for coming in. Could you start by telling me a bit about yourself and what you do now?"
+      ],
+      "timeLimitSeconds": 75,
+      "minimumWords": 50
+    },
+    {
+      "id": "experience",
+      "title": "经历 · STAR 式回答",
+      "instructions": "每问 40 词以上，按「情境 → 做法 → 结果」讲，别只讲职责。",
+      "prompts": [
+        "Tell me about a project you are proud of. What was your role?",
+        "Describe a time you disagreed with a teammate. How did you handle it?",
+        "What is the hardest problem you have solved so far, and how?"
+      ],
+      "timeLimitSeconds": 60,
+      "minimumWords": 40
+    },
+    {
+      "id": "closing",
+      "title": "收尾 · 反问环节",
+      "instructions": "问一个你真正关心的关于团队或成长的问题（20 词以上）。",
+      "prompts": [
+        "That's all from me. What would you like to ask us?"
+      ],
+      "timeLimitSeconds": 45,
+      "minimumWords": 20
+    }
+  ]
+}
