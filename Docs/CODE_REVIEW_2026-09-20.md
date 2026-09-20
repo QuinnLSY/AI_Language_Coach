@@ -325,13 +325,32 @@
 
 结论：**单架构 + `-Osize` 是性价比最高的一档**（-13% 体积，代价是峰值性能略降）；通用二进制只在要分发给 Intel 机器时才值得（+108%）。两者都只是打包开关，默认行为未变。
 
-### 本轮遗留（待确认后动手）
+### periphery 清理轮（85 → 0，`c0eb54a`）
+
+| 类别 | 处理 |
+|---|---|
+| 60 条未用 import（53 文件） | 纯机械删除，全为第一方模块的历次重构遗留 |
+| 5 处未用参数 | 删（`monthMarkers -calendar`、`fundamentalFrequency -hop`、`perchStubs -height`、`ensureResidents -count`）；`LearningDatabase.decodeJSON` 的 `as type:` **改实现真用它**（API 形状，删了调用方推不出类型） |
+| 5 处未用函数 | 删（`littleEndian`、`CursorGuard.uninstall`、`registryCheckRow`、两个测试助手） |
+| 9 处未用属性 | 删（4 个组件的 `@Environment theme`、`chalkLine`、`titleRowContentWidth`、`stageHeight` 等） |
+| 6 处赋值即弃 | 删（`TreeCanvas`/`TreeScrollView` 的 `bubblesAllowed` 死传递链——真消费方是 `ForestGroundBand`，MainView 直连；测试结构体里只塞不读的 `size`/`expanded`/`darkByColumn`） |
+| `ProviderStateBox.lifecycle` | **保留** + `periphery:ignore` + 说明：规范 v2.0 §27 要求维护这条状态机，目前只写不读 |
+
+**验证**：全量 touch 重编 0 警告；`swift test` 1357 / 1 skip / 0 失败；复扫 85 → 0。
+
+### 清理轮发现的两个真接线缺口（不是死代码，待拍板）
+
+| 缺口 | 现状 |
+|---|---|
+| ① 录音无法取消 | `ChatView.cancelVoiceButton`（`.help`/无障碍齐全，闭包已接 `state.cancelVoiceInput()`）**从未被放进任何 body** |
+| ② 配置体检 UI 没挂上 | `SettingsView.runtimeCard` 整张「运行环境」卡（版本 / 配置位置 / 配置体检 / 重载）从未被渲染；`AppState.registryCheckRows` 有数据无消费 —— #258 补的 UI 实际没接上 |
+
+### 本轮仍未动
 
 | 条目 | 说明 |
 |---|---|
 | AppState 拆分（5-1） | 用户已拍板单独排期，未动 |
 | `dist/` 本地清理（6-10） | 未动，动手前先列清单 |
-| periphery 25 条真候选 | 9 未用属性 + 6 赋值即弃属性 + 5 未用参数 + 5 未用函数（`AIProvider.lifecycle`、`TreeCanvas.bubblesAllowed`、`CursorGuard.uninstall()` 等）——涉及意图判断，逐条核完再清 |
-| periphery 60 条未用 import | 53 个文件，清一色第一方模块；纯机械零风险，但面广，等确认一并清 |
+| 上面两个接线缺口 | 属功能/UI，等确认后单独做 |
 
 
