@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "lineLength": 120,
+  "indentation": {
+    "spaces": 4
+  },
+  "tabWidth": 4,
+  "maximumBlankLines": 1,
+  "respectsExistingLineBreaks": true,
+  "lineBreakBeforeControlFlowKeywords": false,
+  "lineBreakBeforeEachArgument": false,
+  "lineBreakBeforeEachGenericRequirement": false,
+  "prioritizeKeepingFunctionOutputTogether": true,
+  "indentConditionalCompilationBlocks": false,
+  "multiElementCollectionTrailingCommas": true,
+  "noAssignmentInExpressions": {
+    "allowedFunctions": [
+      "XCTAssertNoThrow",
+      "XCTAssertEqual",
+      "XCTUnwrap"
+    ]
+  },
+  "rules": {
+    "AlwaysUseLowerCamelCase": false,
+    "UseEarlyExits": false,
+    "AllPublicDeclarationsHaveDocumentation": false,
+    "BeginDocumentationCommentWithOneLineSummary": false,
+    "UseTripleSlashForDocumentationComments": true,
+    "NoLeadingUnderscores": false,
+    "NeverForceUnwrap": false,
+    "NeverUseForceTry": false,
+    "NeverUseImplicitlyUnwrappedOptionals": false,
+    "UseSingleLinePropertyGetter": true,
+    "FullyIndirectEnum": false,
+    "OneCasePerLine": false,
+    "ReturnVoidInsteadOfEmptyTuple": false,
+    "UseShorthandTypeNames": false,
+    "FileScopedDeclarationPrivacy": true
+  }
+}

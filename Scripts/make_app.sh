@@ -14,6 +14,18 @@ BUNDLE_ID="com.ailanguagecoach.app"
 DIST="$ROOT/dist"
 APP="$DIST/$APP_NAME.app"
 BUNDLE_RES_NAME="AILanguageCoach_AIInfrastructure.bundle"
+# 版本号唯一来源：Scripts/version.env（脚本不硬编码版本，避免与「关于」显示漂移）
+VERSION_ENV="$ROOT/Scripts/version.env"
+if [[ -f "$VERSION_ENV" ]]; then
+  source "$VERSION_ENV"
+else
+  echo "✗ 缺少 $VERSION_ENV"; exit 1
+fi
+: "${MARKETING_VERSION:?version.env 缺少 MARKETING_VERSION}"
+: "${BUILD_VERSION:?version.env 缺少 BUILD_VERSION}"
+# AppUI 自带的品牌位图资源包（AppLogo 用）。同一个坑：必须放 Contents/Resources，
+# 放 .app 根目录会让 codesign 报 "unsealed contents present in the bundle root"。
+UI_RES_BUNDLE=".build/release/AILanguageCoach_AppUI.bundle"
 
 cd "$ROOT"
 
@@ -42,6 +54,10 @@ chmod +x "$APP/Contents/MacOS/$EXEC_NAME"
 #    代码侧由 AIInfrastructure/AppResourceBundle 负责查找（标准位置优先）。
 cp -R "$RES_BUNDLE" "$APP/Contents/Resources/$BUNDLE_RES_NAME"
 
+# 2b) 界面品牌位图资源包（AppUI target 的 Resources/）
+[[ -d "$UI_RES_BUNDLE" ]] || { echo "✗ 缺少 $UI_RES_BUNDLE（AppUI target 需要 resources: [.copy(\"Resources\")]）"; exit 1; }
+cp -R "$UI_RES_BUNDLE" "$APP/Contents/Resources/AILanguageCoach_AppUI.bundle"
+
 # 3) Info.plist（一次写完整）
 INFO="$APP/Contents/Info.plist"
 cat > "$INFO" <<PLIST
@@ -52,8 +68,8 @@ cat > "$INFO" <<PLIST
     <key>CFBundleName</key><string>AI Language Coach</string>
     <key>CFBundleDisplayName</key><string>语林 AI Language Coach</string>
     <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
-    <key>CFBundleVersion</key><string>0.4.0</string>
-    <key>CFBundleShortVersionString</key><string>0.4.0</string>
+    <key>CFBundleVersion</key><string>$BUILD_VERSION</string>
+    <key>CFBundleShortVersionString</key><string>$MARKETING_VERSION</string>
     <key>CFBundleExecutable</key><string>$EXEC_NAME</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
@@ -93,5 +109,5 @@ fi
 codesign -v "$APP" || { echo "✗ 签名校验未通过"; exit 1; }
 
 SIZE=$(du -sh "$APP" | cut -f1)
-echo "✓ 打包完成: $APP ($SIZE)"
+echo "✓ 打包完成: $APP ($SIZE)  v$MARKETING_VERSION (build $BUILD_VERSION)"
 echo "  双击运行，或: open '$APP'"

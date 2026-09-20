@@ -1,0 +1,97 @@
+name: CI
+
+# 门禁就一条主线：**能不能全量编译、全量测试过不过**。
+#
+# 这个仓库此前没有任何 CI，于是「我本地能跑」是唯一的正确性证据 ——
+# 而本项目已经踩过至少两次「增量构建看起来干净、全量重编冒出几十条警告」的坑
+# （见 .workbuddy/memory/MEMORY.md 的构建段）。CI 每次都是干净构建，
+# 正是这条经验最需要的那个环境。
+#
+# 触发：push 到 main / 任意 PR / 手动。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: 构建与测试
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 工具链版本
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: 解析依赖
+        run: swift package resolve
+
+      # ⚠️ --disable-sandbox：SwiftPM 的清单沙箱在部分环境下会拦下资源拷贝，
+      # 本地开发一直用它（见 MEMORY 构建段），CI 保持一致才不会出现「本地能过 CI 不能过」。
+      - name: 全量编译（含测试目标）
+        run: |
+          set -o pipefail
+          swift build --disable-sandbox --build-tests 2>&1 | tee /tmp/build.log
+          echo "--- 构建结束 ---"
+
+      # 「零警告」是本项目的既定纪律：全量重编不接受新警告。
+      # 统计口径 = 干净构建（CI 天然满足），不用增量结果骗自己。
+      - name: 警告零容忍
+        if: always()
+        run: |
+          if [ ! -f /tmp/build.log ]; then echo "没有构建日志，跳过"; exit 0; fi
+          count=$(grep -c "warning:" /tmp/build.log || true)
+          echo "警告数：$count"
+          if [ "$count" -gt 0 ]; then
+            echo "::error::全量构建出现 $count 条警告（本项目要求 0）"
+            grep "warning:" /tmp/build.log | head -40
+            exit 1
+          fi
+
+      # BenchmarkTests 里的真机基准自带 ALC_BENCH_REAL 守卫，缺环境变量时 skip，
+      # 所以这里整跑即可，不需要额外 filter。
+      - name: 全量测试
+        run: swift test --disable-sandbox
+
+      - name: 打包 .app 并校验签名
+        run: |
+          Scripts/make_app.sh
+          codesign --verify --deep --strict dist/AI_Language_Coach.app
+          du -sh dist/AI_Language_Coach.app
+
+      - name: 上传 .app（仅手动触发时，便于取回本地产物）
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI_Language_Coach.app
+          path: dist/AI_Language_Coach.app
+          retention-days: 7
+
+  # 格式巡检：**建议项，不阻断**。
+  #
+  # 为什么不设成门禁：这个代码库从第一天起就是手写排版的（大量对齐的注释块、
+  # 刻意折行的长表达式），用 swift-format 的默认规则一处不落会报出五万多条，
+  # 按项目风格收紧后仍有三千多条 —— 一次性 reformat 会产生一个改不动、
+  # 也 review 不了的巨型 diff，收益却只是空格。
+  #
+  # 所以这里只做「让问题可见」：`.swift-format` 是给编辑器和将来的新文件用的参照，
+  # 结果贴进日志，谁想收拾谁收拾。
+  format-check:
+    name: 格式巡检（建议项）
+    runs-on: macos-15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift-format lint
+        run: |
+          xcrun swift-format lint --configuration .swift-format --recursive Sources Tests \
+            | tee /tmp/format.log | tail -50
+          echo "违规条数：$(grep -c 'warning:' /tmp/format.log || true)"

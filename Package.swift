@@ -26,7 +26,8 @@ let package = Package(
         ),
         .target(
             name: "AppUI",
-            dependencies: ["AppCore", "AIDomain", "AIInterfaces", "AIServices"]
+            dependencies: ["AppCore", "AIDomain", "AIInterfaces", "AIServices"],
+            resources: [.copy("Resources")]
         ),
         .executableTarget(
             name: "AppMain",
