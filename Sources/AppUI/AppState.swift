@@ -660,6 +660,12 @@ public final class AppState {
     /// 与 `dictionarySampleWords` 分开：那个是「一页之内不许自己变」的固定样例，
     /// 这个专门给「每 10 秒换一批」用 —— 换的时候从内存里取，不再查库。
     public internal(set) var dictionarySamplePool: [String] = []
+    /// 「最近查过」的词（最新的在最前，最多 `recentDictionaryWordsLimit` 个）。
+    ///
+    /// ⚠️ 刻意不给默认值（与 `dailyRecognitions` / `shortcutBindings` 同一条纪律）：
+    /// 这是跨启动恢复的持久化状态，由手写 `init(services:)` 从 UserDefaults 加载。
+    /// 给了 `= []` 就等于允许「哪天加载那行被删掉、最近查过一个都不剩」这种静默退化。
+    public internal(set) var recentDictionaryWords: [String]
     /// 搜索输入框内容。**搜索后不清空**（用户口径：搜索时输入框中内容不清除）。
     public var dictionaryQuery = ""
     /// 模糊匹配结果（最多 10 条，每项带单词 / 音标 / 翻译）。
@@ -832,6 +838,8 @@ public final class AppState {
         self.dailyProgressResetLearned = UserDefaults.standard.integer(forKey: Self.dailyResetLearnedKey)
         // 快捷键绑定表（同样手写加载；缺的动作由 `decode` 用出厂键补齐）。
         self.shortcutBindings = Self.loadShortcutBindings()
+        // 词典「最近查过」（同样手写加载）。
+        self.recentDictionaryWords = Self.loadRecentDictionaryWords()
         // 学员每说完一句 → 实时保存主线任务进度（需求 5：练习内容先实时保存）。
         // ⚠️ 用捕获列表避免循环引用：`chat` 被 `self` 持有，闭包再强持有 `self` 就是环。
         chat.onLearnerTurn = { [weak self] in

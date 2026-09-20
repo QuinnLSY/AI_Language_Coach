@@ -23,6 +23,8 @@ public struct DictionaryView: View {
     @State private var hoveringImport = false
     /// 搜索输入框是否持有焦点（用来「点回来就重新浮现联想」）。
     @FocusState private var queryFocused: Bool
+    /// 鼠标正停在「最近查过」的哪一颗上。
+    @State private var hoveredRecentWord: String?
 
     /// 中间栏内容的顶部锚点（换词 / 换模式之后把视口拉回开头）。
     private static let topAnchorID = "dictionary-scroll-top"
@@ -35,6 +37,11 @@ public struct DictionaryView: View {
                 searchBar
                     .padding(.horizontal, 18)
                     .padding(.vertical, 10)
+                if !state.recentDictionaryWords.isEmpty {
+                    recentWordsRow
+                        .padding(.horizontal, 18)
+                        .padding(.bottom, 10)
+                }
                 Divider().overlay(theme.divider)
             }
             ScrollViewReader { proxy in
@@ -209,6 +216,49 @@ public struct DictionaryView: View {
             }
         }
         .zIndex(10)
+    }
+
+    /// 「最近查过」一排（#282）。
+    ///
+    /// 为什么放在搜索栏**下面**而不是只在空态页里：查完一个词之后最常见的下一步
+    /// 是「刚才那个相关的词再看看 / 回到上一个词」，那时候空态页已经不在了。
+    /// 点一下即回查 —— 与样例词共用同一颗胶囊，落点也同为 `lookUpDictionaryWord`。
+    private var recentWordsRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.secondaryText)
+                Text("最近查过")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                Spacer(minLength: 0)
+                Button {
+                    state.clearRecentDictionaryWords()
+                } label: {
+                    Text("清空")
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .help("清掉这一排（只是这一排，词典与词汇本不受影响）")
+            }
+            JustifiedRow(spacing: 8) {
+                ForEach(state.recentDictionaryWords, id: \.self) { word in
+                    SampleWordChip(word: word, hovered: hoveredRecentWord == word) {
+                        Task { await state.lookUpRecentDictionaryWord(word) }
+                    }
+                    .onHover { inside in
+                        if inside {
+                            hoveredRecentWord = word
+                        } else if hoveredRecentWord == word {
+                            hoveredRecentWord = nil
+                        }
+                    }
+                    .help("再查一次「\(word)」")
+                }
+            }
+        }
     }
 
     private var canSubmit: Bool {

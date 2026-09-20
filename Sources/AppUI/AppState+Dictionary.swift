@@ -41,6 +41,46 @@ extension AppState {
         }
     }
 
+    // MARK: 最近查过（#282）
+
+    /// 落盘键与上限。
+    ///
+    /// 上限不是「怕占空间」：一排胶囊铺满一行也就七八个，攒到几十个以后
+    /// 这一行就变成了「找词」，而不是「回查」—— 它本该是最近 **几个** 的快捷入口。
+    static let recentDictionaryWordsKey = "app.dictionary.recent.v1"
+    static let recentDictionaryWordsLimit = 12
+
+    static func loadRecentDictionaryWords() -> [String] {
+        guard let raw = UserDefaults.standard.array(forKey: recentDictionaryWordsKey) else { return [] }
+        return Array(raw.compactMap { $0 as? String }.prefix(recentDictionaryWordsLimit))
+    }
+
+    func persistRecentDictionaryWords() {
+        UserDefaults.standard.set(recentDictionaryWords, forKey: Self.recentDictionaryWordsKey)
+    }
+
+    /// 记一笔「查过」。
+    ///
+    /// ⚠️ 只在**真的查到了**之后记（调用点都在拿到详情的那一步）：把查失败的词也记进来，
+    /// 就等于在列表里放一个点进去必定再失败的按钮 —— 那比没有这个列表更糟。
+    /// 同名词只留最新位置（大小写不同也算同一个词）。
+    func recordRecentDictionaryWord(_ word: String) {
+        var words = recentDictionaryWords.filter { $0.caseInsensitiveCompare(word) != .orderedSame }
+        words.insert(word, at: 0)
+        recentDictionaryWords = Array(words.prefix(Self.recentDictionaryWordsLimit))
+        persistRecentDictionaryWords()
+    }
+
+    public func clearRecentDictionaryWords() {
+        recentDictionaryWords = []
+        persistRecentDictionaryWords()
+    }
+
+    /// 从「最近查过」回查一个词（**不压栈**：它是「重新查」，不是「从这里点进去」）。
+    public func lookUpRecentDictionaryWord(_ word: String) async {
+        await lookUpDictionaryWord(word, pushing: false)
+    }
+
     // MARK: 查单词
 
     /// 输入变化 → 刷新模糊匹配（空输入 = 收起浮层）。
@@ -175,9 +215,13 @@ extension AppState {
         if !ignoringCache {
             if let cached = await services.dictionaryCached(clean) {
                 dictionaryLookup.cache(cached)
+                recordRecentDictionaryWord(clean)
                 return
             }
-            if dictionaryLookup.detail(for: clean) != nil { return }
+            if dictionaryLookup.detail(for: clean) != nil {
+                recordRecentDictionaryWord(clean)
+                return
+            }
         }
 
         dictionaryLoadingWord = clean
@@ -197,6 +241,7 @@ extension AppState {
         do {
             let detail = try await task.value
             dictionaryLookup.cache(detail)
+            recordRecentDictionaryWord(clean)
         } catch is CancellationError {
             // 用户自己取消的（清空输入 / 换了查询词）：静默收场 ——
             // 不留错误提示，也不把结果顶上屏。
