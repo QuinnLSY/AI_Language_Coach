@@ -87,6 +87,7 @@ public struct SettingsView: View {
                     vocabularyCard
                     privacyCard
                     cacheCard
+                    runtimeCard
                     advancedCard
                     logsCard
                 }
@@ -108,6 +109,9 @@ public struct SettingsView: View {
             await state.refreshPrivacy()
             await state.refreshBackups()
             await state.refreshRuntimeLocations()
+            // 「运行环境」卡的体检区（#275 接通）：打开设置页时刷一次；此后
+            // 「重新载入配置」按钮会自带重刷（见 reloadConfigurationFromDisk）。
+            await state.refreshRegistryCheck()
             await state.refreshRegistryCheck()
             await state.loadVocabularyBankIfNeeded()
         }

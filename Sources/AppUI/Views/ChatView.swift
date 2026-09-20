@@ -1529,6 +1529,9 @@ public struct ChatView: View {
             HStack(spacing: 8) {
                 attachButton
                 Spacer(minLength: 8)
+                // 录音期间的「取消」：紧跟麦克风左侧 —— 语义相邻（都是「这段语音」的操作），
+                // 且不与左侧「+」抢位置；只在录音中出现，识别/定稿阶段无从取消。
+                if isRecording { cancelVoiceButton }
                 micButton
                 sendButton
             }
