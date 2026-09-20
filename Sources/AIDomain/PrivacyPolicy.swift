@@ -111,12 +111,19 @@ public enum PrivacyPolicy {
     /// 只看「已启用」是不够的：用户可能给某家供应商填过 Key 但当前仍用本地模型，
     /// 把那些也算成外发会制造恐慌。因此这里按**各能力当前生效的 Provider**判定
     /// （与设置页小绿点的口径一致）。
+    ///
+    /// - Note: 端点在**本机回环**上的 Provider 不算外发，见下。判定外发的标准是
+    ///   「数据会不会离开这台机器」，不是「它自称哪种 runtime」。
     public static func disclosure(for configuration: AppConfiguration) -> Disclosure {
         let kinds: [AIProviderKind] = [.llm, .asr, .tts]
         var flows: [OutboundFlow] = []
         for kind in kinds {
             guard let provider = configuration.resolvedProvider(for: kind),
                   provider.runtime == .remoteAPI else { continue }
+            // 回环端点上的服务跑在用户自己机器里（如 Edge-TTS 代理 127.0.0.1:8856）：
+            // 数据交给它不等于离开本机，因此既不该出现在披露里，也不该触发
+            // 「默认配置不得外发」的发布闸门。这类 Provider 只是「用 HTTP 说话的本机服务」。
+            if PrivacyRedactor.isLoopbackEndpoint(provider.endpoint) { continue }
             flows.append(OutboundFlow(
                 kind: kind,
                 providerID: provider.id,
@@ -167,6 +174,37 @@ public enum PrivacyRedactor {
             return "未知主机"
         }
         return host
+    }
+
+    /// 主机名是否指向**本机回环**——数据压根没离开这台机器。
+    ///
+    /// 有些「云端」Provider 的端点其实开在用户自己的机器上（例如 Edge-TTS 代理
+    /// `http://127.0.0.1:8856`）。判外发的尺子是「数据会不会出机器」，不是「它挂哪个
+    /// runtime 标签」：回环上的服务与本地进程无异，不该被算成外发、也不该去吓用户。
+    ///
+    /// 只认真正的回环：`localhost`（含 `*.localhost`）、`::1` 及其展开写法、
+    /// `0.0.0.0`（连它就等于连本机）、以及整个 `127.0.0.0/8`。
+    /// **局域网名（`*.local`）与内网 IP 不算**——那些数据确实离开了本机。
+    public static func isLoopback(host: String) -> Bool {
+        let value = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !value.isEmpty else { return false }
+        if value == "localhost" || value.hasSuffix(".localhost") { return true }
+        if value == "::1" || value == "0:0:0:0:0:0:0:1" { return true }
+        if value == "0.0.0.0" { return true }
+        let octets = value.split(separator: ".", omittingEmptySubsequences: false)
+        guard octets.count == 4, octets[0] == "127" else { return false }
+        return octets.allSatisfy { Int($0).map { (0...255).contains($0) } ?? false }
+    }
+
+    /// 端点 → 是否指向本机回环。
+    ///
+    /// 解析不出来（nil / 不是 URL / 没有主机）时返回 `false`：**未知一律当成「可能外发」**，
+    /// 宁可多披露一条，也不替用户假设它安全。
+    public static func isLoopbackEndpoint(_ endpoint: String?) -> Bool {
+        guard let endpoint, let url = URL(string: endpoint), let host = url.host, !host.isEmpty else {
+            return false
+        }
+        return isLoopback(host: host)
     }
 
     /// 密钥 → 只说有没有、多长。绝不出字符（前几位+后几位的「掩码」依然是可被社工利用的信息）。

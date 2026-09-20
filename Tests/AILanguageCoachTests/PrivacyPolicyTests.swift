@@ -72,6 +72,54 @@ final class PrivacyPolicyTests: XCTestCase {
         XCTAssertFalse(PrivacyPolicy.disclosure(for: configuration).isLocalOnly)
     }
 
+    /// 开在本机回环上的「云端」Provider 不算外发——数据没离开这台机器。
+    ///
+    /// 这条守的是出厂默认：Edge-TTS 代理（`http://127.0.0.1:8856`）默认启用，
+    /// 若按 runtime 标签一刀切成外发，默认配置就会「自带一条云端披露」，
+    /// 既吓用户，也会把发布闸门 `privacy.noUnintendedNetwork` 判红。
+    func testLoopbackProxyProviderIsNotDisclosedAsOutbound() throws {
+        var configuration = try DefaultConfiguration.load()
+        guard let index = configuration.providers.firstIndex(where: {
+            $0.kind == .tts && $0.runtime == .remoteAPI
+                && PrivacyRedactor.isLoopbackEndpoint($0.endpoint)
+        }) else {
+            throw XCTSkip("默认配置里没有开在回环上的云端 TTS")
+        }
+        configuration.providers[index].enabled = true
+        configuration.providers[index].apiKeyRequired = false
+        configuration.product.activateProvider(configuration.providers[index].id, for: .tts)
+        // 先确认选的确实是那一条（否则这条断言测的是本地回退，等于没测）。
+        XCTAssertEqual(configuration.resolvedProvider(for: .tts)?.id, configuration.providers[index].id)
+
+        let disclosure = PrivacyPolicy.disclosure(for: configuration)
+        XCTAssertTrue(disclosure.isLocalOnly, "回环端点上的本机代理不该被算成云端外发")
+        XCTAssertFalse(disclosure.flows.contains { $0.kind == .tts })
+    }
+
+    /// 反证：同一家 Provider 若把端点换到公网主机，**必须**被披露。
+    ///
+    /// 没有这一条，上面那条「回环不外发」的测试撤掉修复也不会变红——
+    /// 分不清「判对了」和「压根没判」。
+    func testSameProviderOnPublicHostIsStillDisclosed() throws {
+        var configuration = try DefaultConfiguration.load()
+        guard let index = configuration.providers.firstIndex(where: {
+            $0.kind == .tts && $0.runtime == .remoteAPI
+                && PrivacyRedactor.isLoopbackEndpoint($0.endpoint)
+        }) else {
+            throw XCTSkip("默认配置里没有开在回环上的云端 TTS")
+        }
+        configuration.providers[index].enabled = true
+        configuration.providers[index].apiKeyRequired = false
+        configuration.providers[index].endpoint = "https://tts.example.com"
+        configuration.product.activateProvider(configuration.providers[index].id, for: .tts)
+
+        let disclosure = PrivacyPolicy.disclosure(for: configuration)
+        XCTAssertFalse(disclosure.isLocalOnly, "换到公网端点后必须披露")
+        let flow = try XCTUnwrap(disclosure.flows.first { $0.kind == .tts })
+        XCTAssertEqual(flow.host, "tts.example.com")
+        XCTAssertEqual(flow.categories, [.speechText])
+    }
+
     func testOutboundCategoriesPerKind() {
         XCTAssertTrue(PrivacyPolicy.outboundCategories(for: .asr).contains(.audio))
         XCTAssertEqual(PrivacyPolicy.outboundCategories(for: .tts), [.speechText])
@@ -109,6 +157,27 @@ final class PrivacyPolicyTests: XCTestCase {
         XCTAssertFalse(secret.contains("abcdef"))
         XCTAssertEqual(PrivacyRedactor.secret(nil), "未设置")
         XCTAssertEqual(PrivacyRedactor.secret(""), "未设置")
+    }
+
+    /// 回环识别：尺子是「数据出不出机器」，划错一边就会误报或漏报。
+    func testLoopbackHostRecognition() {
+        for host in ["127.0.0.1", "127.1.2.3", "127.255.255.254",
+                     "localhost", "LocalHost", "api.localhost",
+                     "::1", "0:0:0:0:0:0:0:1", "0.0.0.0"] {
+            XCTAssertTrue(PrivacyRedactor.isLoopback(host: host), "\(host) 应判为本机回环")
+        }
+        // 内网 / 局域网名**不算**本机：那些数据确实离开了这台机器。
+        for host in ["api.example.com", "192.168.1.10", "10.0.0.5", "172.16.0.9",
+                     "example.local", "127", "127.0.0", "127.0.0.300", "1270.0.0.1", ""] {
+            XCTAssertFalse(PrivacyRedactor.isLoopback(host: host), "\(host) 不该判为本机回环")
+        }
+
+        XCTAssertTrue(PrivacyRedactor.isLoopbackEndpoint("http://127.0.0.1:8856"))
+        XCTAssertTrue(PrivacyRedactor.isLoopbackEndpoint("http://[::1]:11434"))
+        XCTAssertFalse(PrivacyRedactor.isLoopbackEndpoint("https://api.deepseek.com"))
+        // 解析不出来时按「可能外发」处理——未知不替用户打包票。
+        XCTAssertFalse(PrivacyRedactor.isLoopbackEndpoint(nil))
+        XCTAssertFalse(PrivacyRedactor.isLoopbackEndpoint("not a url"))
     }
 
     // MARK: - 数据位置
