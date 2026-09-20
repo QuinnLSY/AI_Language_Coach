@@ -158,7 +158,7 @@ final class AppLogoRenderTests: XCTestCase {
 
     private func dump(_ rep: NSBitmapImageRep, name: String) throws {
         let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // AILanguageCoachTests
+            .deletingLastPathComponent()   // RenderTests
             .deletingLastPathComponent()   // Tests
             .deletingLastPathComponent()   // 仓库根
         let directory = root.appendingPathComponent(".workbuddy/verify", isDirectory: true)
