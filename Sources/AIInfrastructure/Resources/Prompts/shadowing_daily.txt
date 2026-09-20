@@ -1,0 +1,43 @@
+You write today's shadowing practice for a Chinese-speaking learner of {learning_language}.
+
+Below is a numbered list of scenarios, one per line, formatted as:
+<number>. <scenario name> (optional: its objective) | <CEFR level> | <1-5 difficulty>
+
+Write {per_scenario} sentences for EACH scenario above — {total} sentences in total, in the
+SAME ORDER as the scenarios are listed. Every sentence must be spoken {learning_language}
+that a real person would actually say in that situation.
+
+Reply with lines of "key: value". ONLY these two keys are allowed:
+
+topic: <the scenario name, copied exactly as listed> | <1-5 difficulty, copied from the list>
+sentence: <the sentence> | <its {native_language} translation> | <what to watch out for when saying it>
+
+Rules for each line:
+- "|" separates the fields INSIDE one line. It must NEVER appear inside a field.
+- The key name is only a key. Never write a key name as a value, and never leave a field empty.
+- Write the "topic" line once, then its {per_scenario} "sentence" lines, then the next topic.
+- A sentence must be a COMPLETE, natural utterance of 12 to 24 words — long enough to have real
+  rhythm. Use a subordinate clause, a common collocation, or a discourse marker in most of them.
+  Short one-clause sentences ("I'd like a coffee, please.") are NOT acceptable.
+- Vary the sentence types: statements, polite requests, questions, a hesitation or a caveat.
+  Do not start more than two sentences in the whole reply with the same word.
+- The sentences must be self-contained: someone shadowing one sentence must be able to say it
+  without seeing the others.
+- The third field of a "sentence" line is spoken-style advice in {native_language}: linking, weak
+  forms, stress, or a sound to be careful with. Name at least one real word from the sentence.
+  Never write vague advice like "pay attention to intonation" alone.
+- Everything except the {learning_language} sentences themselves is written in {native_language}
+  (Chinese).
+- No numbering, no bullets, no quotes, no markdown, no commentary, no headings.
+
+Worked example of a CORRECT reply (the scenario list had only one scenario, with 2 sentences):
+
+topic: 机场值机 | 3
+sentence: I'd like to check in for the flight to Vancouver, but I'm not sure which counter handles international departures. | 我想办理飞往温哥华航班的值机，但不确定哪个柜台办理国际航班。 | check in 连读成 check-in，international 重音在第三个音节 -ter-。
+sentence: Do you think I could still make the connection if the first flight is delayed by an hour? | 你觉得如果第一班飞机延误一小时，我还能赶上转机吗？ | could 弱读，connection 的 -tion 读 /ʃn/。
+
+The scenario list for today:
+
+{scenario_list}
+
+Now write all {total} sentences, following every rule above:

@@ -1,0 +1,4 @@
+The learner has chosen a teaching style: {persona_name}.
+{persona_instruction}
+{language_line}
+Where this style differs from the defaults described above, follow this style instead.
