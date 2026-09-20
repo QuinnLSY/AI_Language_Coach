@@ -1,0 +1,30 @@
+# periphery 死代码扫描配置。
+#
+# CI 里是**建议项**（见 .github/workflows/ci.yml 的 dead-code-scan job，continue-on-error），
+# 因为这类工具的假阳性需要人来判，不适合直接当门禁。
+
+# 本项目跨模块 API 一律 public，而 public 声明在编译单元之外无法可靠判定使用与否 ——
+# 不做这个 retain 会淹在一片假阳性里。开启后，扫描聚焦「自己写了、却谁也没用」的
+# internal / private 声明，正是人工审计（Docs/CODE_REVIEW_2026-09-20.md 表 1）那 30 多处的形态。
+retain_public: true
+
+# 配置类都是 Codable / Equatable：属性只在合成实现里被读写，
+# 不 retain 会被整片误报成「未使用」（ProductConfig 那种就全红了）。
+retain_codable_properties: true
+retain_equatable_properties: true
+
+# AppKit 代码里的 @objc / selector 目标由运行时查找，静态扫不出来。
+retain_objc_accessible: true
+
+retain_swift_ui_previews: true
+# 协议实现里「签名要、实现不用」的参数是既定做法（见 MEMORY 的警告段），不是缺陷。
+retain_unused_protocol_func_params: true
+
+# 离屏渲染用例里的 `private var window: NSWindow?` 只赋值不读值是**故意的**：
+# 它负责把窗口留住，否则渲染途中就被回收。这类「赋值即持有」不是死代码。
+retain_assign_only_property_types:
+  - NSWindow
+
+# 复用已有 index store（等价于 --skip-build），不重复构建；
+# CI 里先跑一次 `swift build --build-tests` 再扫。
+index_store_path: .build/debug/index/store

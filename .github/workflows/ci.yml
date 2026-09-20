@@ -75,6 +75,47 @@ jobs:
           path: dist/AI_Language_Coach.app
           retention-days: 7
 
+  # 死代码巡检：**建议项，不阻断**。
+  #
+  # 为什么不做门禁：这类工具的假阳性必须由人判（我们这个库里就有两类整片误报 ——
+  # Codable / Equatable 合成属性、离屏渲染里「赋值即持有」的 NSWindow）。
+  # 配置 .periphery.yml 里已经把这两类 retain 掉，但基线仍有历史遗留，
+  # 一次性拉红没有收益，先让问题**可见**。
+  #
+  # 本地跑法（与 CI 同口径）：
+  #   brew install periphery
+  #   swift build --disable-sandbox --build-tests   # 先产出 index store
+  #   periphery scan --format xcode
+  dead-code-scan:
+    name: 死代码巡检（建议项）
+    runs-on: macos-15
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 periphery
+        run: brew install periphery
+
+      # index store 是扫描唯一的输入：periphery 从构建产物读符号图，不自己解析源码。
+      - name: 构建（产出 index store）
+        run: swift build --disable-sandbox --build-tests
+
+      - name: periphery scan
+        run: |
+          periphery scan --format xcode | tee /tmp/periphery.log | tail -60
+          total=$(grep -c 'warning:' /tmp/periphery.log || true)
+          echo "死代码候选：$total 条"
+          {
+            echo "### 死代码巡检（建议项）"
+            echo ""
+            echo "候选条数：$total（判据与取舍见 .periphery.yml）"
+            echo ""
+            echo '```'
+            grep 'warning:' /tmp/periphery.log | head -80
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # 格式巡检：**建议项，不阻断**。
   #
   # 为什么不设成门禁：这个代码库从第一天起就是手写排版的（大量对齐的注释块、
