@@ -633,6 +633,48 @@ final class DictionaryRenderTests: XCTestCase {
         )
     }
 
+    // MARK: - ⑩ 「最近查过」一排（#282）
+
+    /// 有空词时那一排必须真的画出来，且**整页跟着变高** ——
+    /// 只改状态、界面没跟着变，用户就永远看不到「刚才那个词还能再点回去」。
+    ///
+    /// ⚠️ 直接改 `recentDictionaryWords` 而**不走 `clear` / 记录**那两个方法：
+    /// 它们会写 `UserDefaults.standard`，跑一次测试就把开发机上真实的「最近查过」抹了。
+    /// 这里只动内存，测完原样放回去。
+    func testRecentWordsRowShowsUpWhenThereAreWords() async throws {
+        let state = makeAppState()
+        await state.openDictionary()
+        let original = state.recentDictionaryWords
+        defer { state.recentDictionaryWords = original }
+
+        state.recentDictionaryWords = []
+        let empty = try render(AnyView(DictionaryView(state: state)), day: true, width: 780)
+
+        state.recentDictionaryWords = ["nominal", "sustainable", "coffee", "gentle"]
+        let filled = try render(AnyView(DictionaryView(state: state)), day: true, width: 780)
+        let filledNight = try render(AnyView(DictionaryView(state: state)), day: false, width: 780)
+
+        XCTAssertGreaterThan(
+            filled.size.height, empty.size.height + 16,
+            "「最近查过」要真的占一块高度（差 \(filled.size.height - empty.size.height)pt）"
+        )
+        XCTAssertGreaterThan(
+            diff(filled.rep, empty.rep).count, 300,
+            "那一排不能只是「占了位置」—— 得真有胶囊被画出来"
+        )
+
+        try dump(filled.rep, name: "round53-dictionary-recent-words-day.png")
+        try dump(filledNight.rep, name: "round53-dictionary-recent-words-night.png")
+
+        // 清空之后必须回到原样（不是「留一条空壳标题」）。
+        state.recentDictionaryWords = []
+        let cleared = try render(AnyView(DictionaryView(state: state)), day: true, width: 780)
+        XCTAssertEqual(
+            cleared.size.height, empty.size.height, accuracy: 1,
+            "清空之后那一排（连标题带「清空」按钮）都该跟着消失"
+        )
+    }
+
     // MARK: - ⑨ 输入框与展示页同步
 
     /// 用户口径（09-16 第二次）：「任何情况下，当展示页有具体单词展示时，

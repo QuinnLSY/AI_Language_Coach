@@ -3,29 +3,32 @@ import AppUI
 import SwiftUI
 import XCTest
 
-/// 「黄这一族怎么定档」的**离屏留档**。
+/// 「强调色这一族怎么定档」的**离屏留档**。
 ///
-/// 并排摆出**三个阶段**的同一组控件，直接出图 —— 让人一眼看出差在哪，而不是听描述：
+/// 并排摆出**四个阶段**的同一组控件，直接出图 —— 让人一眼看出差在哪，而不是听描述：
 ///
 /// 1. `original`：最初那支高亮黄（`0xFFB703` / `0xFFD98A`）。用户原话是
 ///    「白天看不清、夜晚太刺眼」。
 /// 2. `dimmed`：09-16 上午为修上面那句而压暗的一版（`0xB07C12` 承白字）。
 ///    用户随即反馈「白天的颜色已经变成棕色了」。
-/// 3. `current`：现在这版（白档亮金底 `0xEAC541` 承深墨字；夜档保持不变）。
-///    金底后来按用户口径「再亮半档」从 `0xE0B833` 提到 `0xEAC541`（同一档，不另开一列）。
+/// 3. `gold`：接着调的那版（白档亮金底 `0xEAC541`；夜档保持不变），
+///    金底按用户口径「再亮半档」从 `0xE0B833` 提到 `0xEAC541`。
+/// 4. `orange`：09-21 这版（用户：「把所有棕色改为橘色」）。压暗在黄身上必然发褐，
+///    真正的修法是**把色相往橘红挪**而不是继续压亮度：`accent` 白档 `0xBE4E04`。
 ///
-/// ⚠️ 前两档的色号**刻意写死**：它们记录的是「过去的样子」，不跟着主题令牌走
-/// —— 令牌以后再变，这两列也不该跟着变，否则对照就失效了。
+/// ⚠️ 前几档的色号**刻意写死**：它们记录的是「过去的样子」，不跟着主题令牌走
+/// —— 令牌以后再变，这几列也不该跟着变，否则对照就失效了。
 @MainActor
 final class ThemeSwatchRenderTests: XCTestCase {
 
     private var window: NSWindow?
 
-    /// 对照的三个阶段。前两档是历史快照，第三档读当前令牌。
+    /// 对照的四个阶段。前三档是历史快照，最后一档读当前令牌。
     private enum Stage: CaseIterable {
         case original
         case dimmed
-        case current
+        case gold
+        case orange
     }
 
     private enum Snapshot {
@@ -39,6 +42,11 @@ final class ThemeSwatchRenderTests: XCTestCase {
         static let dimNight = Color(hex: 0xD2A34C)
         static let dimFillDay = Color(hex: 0xB07C12)
         static let dimFillNight = Color(hex: 0xA87B26)
+        /// 09-16 之后那版「金」：白档亮金底，夜档与压暗版相同（当时没动夜档）。
+        static let goldDay = Color(hex: 0x937008)
+        static let goldNight = Color(hex: 0xD2A34C)
+        static let goldFillDay = Color(hex: 0xEAC541)
+        static let goldFillNight = Color(hex: 0xA87B26)
     }
 
     // MARK: - 对照板
@@ -53,7 +61,8 @@ final class ThemeSwatchRenderTests: XCTestCase {
             switch stage {
             case .original: theme.isNight ? Snapshot.brightNight : Snapshot.brightDay
             case .dimmed: theme.isNight ? Snapshot.dimNight : Snapshot.dimDay
-            case .current: theme.accent
+            case .gold: theme.isNight ? Snapshot.goldNight : Snapshot.goldDay
+            case .orange: theme.accent
             }
         }
 
@@ -62,15 +71,16 @@ final class ThemeSwatchRenderTests: XCTestCase {
             switch stage {
             case .original: theme.isNight ? Snapshot.brightNight : Snapshot.brightDay
             case .dimmed: theme.isNight ? Snapshot.dimFillNight : Snapshot.dimFillDay
-            case .current: theme.accentFill
+            case .gold: theme.isNight ? Snapshot.goldFillNight : Snapshot.goldFillDay
+            case .orange: theme.accentFill
             }
         }
 
-        /// 压在填充色上的字色。历史两档都写死白字（那正是当时的样子 / 当时的问题）。
+        /// 压在填充色上的字色。历史各档都写死白字（那正是当时的样子 / 当时的问题）。
         private var ink: Color {
             switch stage {
-            case .original, .dimmed: .white
-            case .current: theme.onAccentFill
+            case .original, .dimmed, .gold: .white
+            case .orange: theme.onAccentFill
             }
         }
 
@@ -82,7 +92,8 @@ final class ThemeSwatchRenderTests: XCTestCase {
             switch stage {
             case .original: "① 最初（亮黄）"
             case .dimmed: "② 上午那版（棕）"
-            case .current: "③ 现在（金）"
+            case .gold: "③ 上一版（金）"
+            case .orange: "④ 现在（橘）"
             }
         }
 
@@ -90,7 +101,8 @@ final class ThemeSwatchRenderTests: XCTestCase {
             switch stage {
             case .original: "白天看不清 / 夜晚刺眼"
             case .dimmed: "对比度够了，但发褐"
-            case .current: theme.isNight ? "夜档保持不动" : "亮金底 + 深墨字"
+            case .gold: "压暗在黄身上必然发褐"
+            case .orange: theme.isNight ? "夜档同步转橘红" : "橘红底 + 暖白字"
             }
         }
 
@@ -196,8 +208,10 @@ final class ThemeSwatchRenderTests: XCTestCase {
     private func render(_ view: AnyView, day: Bool) throws -> (NSBitmapImageRep, CGSize) {
         let theme = ForestThemeResolver.resolve(mode: day ? .day : .night, systemIsDark: !day)
         let backdrop: Color = day ? Color(hex: 0xE9EFE4) : Color(hex: 0x101B2E)
+        // 四列 × 250pt + 列距 + 内边距 ≈ 1080，宿主必须比这宽，否则第四列被裁掉。
+        let boardWidth: CGFloat = 1140
         let host = NSHostingView(rootView: AnyView(view.forestTheme(theme).background(backdrop)))
-        host.frame = NSRect(x: 0, y: 0, width: 860, height: 460)
+        host.frame = NSRect(x: 0, y: 0, width: boardWidth, height: 460)
         let window = NSWindow(
             contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false
         )
@@ -206,7 +220,7 @@ final class ThemeSwatchRenderTests: XCTestCase {
         host.layoutSubtreeIfNeeded()
         window.layoutIfNeeded()
 
-        let size = CGSize(width: 860, height: max(120, ceil(host.fittingSize.height)))
+        let size = CGSize(width: boardWidth, height: max(120, ceil(host.fittingSize.height)))
         host.frame = NSRect(origin: .zero, size: size)
         window.setContentSize(size)
         host.layoutSubtreeIfNeeded()
@@ -228,12 +242,14 @@ final class ThemeSwatchRenderTests: XCTestCase {
         try png.write(to: directory.appendingPathComponent(name))
     }
 
-    func testDumpsThreeStageBoardForBothThemes() throws {
+    func testDumpsFourStageBoardForBothThemes() throws {
         let day = try render(AnyView(Board()), day: true)
         let night = try render(AnyView(Board()), day: false)
-        try dump(day.0, name: "round40-yellow-tokens-day.png")
-        try dump(night.0, name: "round40-yellow-tokens-night.png")
+        try dump(day.0, name: "round53-accent-tokens-day.png")
+        try dump(night.0, name: "round53-accent-tokens-night.png")
         XCTAssertGreaterThan(day.1.height, 200)
         XCTAssertGreaterThan(night.1.height, 200)
+        // 四列并排：宿主比单列宽得多，说明没有把最后一列裁掉。
+        XCTAssertGreaterThan(day.1.width, 1_000, "四列对照板必须真的摆得下（当前宽度 \(day.1.width)）")
     }
 }
