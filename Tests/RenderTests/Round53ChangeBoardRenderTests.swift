@@ -222,6 +222,89 @@ final class Round53ChangeBoardRenderTests: XCTestCase {
         try dump(card.rep, name: "round53-shortcuts-three-per-row-day.png")
     }
 
+    // MARK: - ⑤ 快捷键中心：三列之间的竖线（#293）
+
+    /// 每个分组各自一条，长度只跟「右边那一列有几行格子」走。
+    ///
+    /// 这一版的事实：复习卡组 4 个动作（第二行只有 1 个格子）、页面跳转组 9 个（排满 3 行）。
+    /// 所以前者的两条线**都只有一行高** —— 第二行左边没有相邻的列，画线就是凭空的一截。
+    ///
+    /// 撤掉 `itemCount > column` 那个保护（悬空线照画）时这条会红。
+    func testColumnRulesSpanOnlyRowsThatExist() {
+        XCTAssertEqual(ShortcutColumnRules.rows(itemCount: 4, columnCount: 3), [1, 1], "4 项：两行里第二行只有一个格子")
+        XCTAssertEqual(ShortcutColumnRules.rows(itemCount: 5, columnCount: 3), [2, 1], "5 项：中间列两行、右列一行")
+        XCTAssertEqual(ShortcutColumnRules.rows(itemCount: 9, columnCount: 3), [3, 3], "9 项：排满，两条都到底")
+        XCTAssertEqual(ShortcutColumnRules.rows(itemCount: 2, columnCount: 3), [1, 0], "2 项：不该画第二条（右边没有格子）")
+        XCTAssertEqual(ShortcutColumnRules.rows(itemCount: 1, columnCount: 3), [0, 0], "1 项：一条都不该画")
+        XCTAssertEqual(ShortcutColumnRules.rows(itemCount: 0, columnCount: 3), [0, 0])
+    }
+
+    /// x 落在**列间距正中间**，高度按实际行高换算 —— 两者都错的话，线不是在格子正中
+    /// 就是在某一行上凭空多出一截。
+    func testColumnRulesGeometry() {
+        let rules = ShortcutColumnRules(
+            itemCount: 9, columnCount: 3, spacing: 12, rowSpacing: 8, color: .clear
+        )
+        // 宽 324 → 列宽 (324 - 24) / 3 = 100；行高：grid 高 88 = 3 行 × 24 + 2 × 8。
+        let items = rules.rules(in: CGSize(width: 324, height: 88))
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items.map(\.x), [106, 218], "列间距正中：100+6 / 200+12+6")
+        XCTAssertEqual(items.map(\.height), [88, 88], "9 项排满时两条线都与网格等高")
+    }
+
+    /// 竖线**不许贯穿整卡** —— 用户 2026-09-21 特意点出的就是这一条：
+    /// 连成一条会让人把两个分组的动作看成一整套。
+    ///
+    /// 量法：取两条竖线各自的列，数「明显深于卡底」的像素占整条列高的比例。
+    /// 实测 0.43（= 两组各 1 行 + 3 行网格 / 224pt 高的卡）；若一路贯穿，比例会到 ≈ 1.0。
+    /// 阈值 0.7 两边都留了余量，下限 0.15 挡住「线其实没画出来」这种假绿。
+    ///
+    /// ⚠️ **底色必须从另一列取样**（这里取最右边缘那条），不能拿「本列最大值」当底色 ——
+    /// 整列都是线时本列最大值就是线本身，判据会自指、把「一路贯穿」判成 0（踩过这个坑）。
+    func testColumnRulesDoNotRunThroughWholeCard() throws {
+        let state = makeState()
+        let card = try render(AnyView(ShortcutCenterCard(state: state)), day: true)
+        let columnWidth = (card.size.width - 24) / 3
+        let scale = Double(card.rep.pixelsWide) / Double(card.size.width)
+
+        func luminance(_ x: Int) -> [Double] {
+            (0..<card.rep.pixelsHigh).compactMap { y in
+                guard let pixel = card.rep.colorAt(x: x, y: y) else { return nil }
+                return 0.299 * pixel.redComponent + 0.587 * pixel.greenComponent
+                    + 0.114 * pixel.blueComponent
+            }
+        }
+
+        let baseline = luminance(card.rep.pixelsWide - 3).max() ?? 1
+        for index in 0..<2 {
+            let x = columnWidth * Double(index + 1) + 12 * Double(index) + 6
+            let values = luminance(Int((x * scale).rounded()))
+            let ratio = Double(values.filter { $0 < baseline - 0.10 }.count) / Double(values.count)
+            XCTAssertGreaterThan(ratio, 0.15, "第 \(index + 1) 条竖线几乎没画出来（占列高 \(ratio)）")
+            XCTAssertLessThan(
+                ratio, 0.7,
+                "第 \(index + 1) 条竖线贯穿了整卡（占列高 \(ratio)）—— 两个分组会被看成一整套"
+            )
+        }
+    }
+
+    /// 出图：白天 / 夜晚各一张。**线够不够看得见、有没有画歪，只能人眼看** ——
+    /// 离屏过色彩空间换算，绝对色值断言不了，能断言的只有它不该顶开布局。
+    func testDumpsShortcutColumnRules() throws {
+        let state = makeState()
+        let lowerBound = try oneColumnLowerBoundHeight()
+        let day = try render(AnyView(ShortcutCenterCard(state: state)), day: true)
+        let night = try render(AnyView(ShortcutCenterCard(state: state)), day: false)
+
+        // 竖线挂在 `.background` 上、不参与布局：加了它卡片不许长高。
+        XCTAssertLessThan(
+            day.size.height, lowerBound * 0.8,
+            "加了两列分隔线之后卡片反倒变高（\(day.size.height)pt）—— 线不该参与布局"
+        )
+        try dump(day.rep, name: "round53-shortcuts-column-rules-day.png")
+        try dump(night.rep, name: "round53-shortcuts-column-rules-night.png")
+    }
+
     /// 「13 个动作一行一个」的**下界**高度：只堆标题与行距，别的什么都不加。
     ///
     /// 真·旧版式的每一行还有键面胶囊与复位箭头，所以旧版式只会比它更高 ——

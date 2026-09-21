@@ -199,6 +199,16 @@ public struct ForestTheme: Sendable, Equatable {
     public var bubbleCoach: Color { isNight ? Color(hex: 0x24405A) : Color(hex: 0xFFFFFF) }
     public var divider: Color { isNight ? Color(hex: 0x2A3A57) : Color(hex: 0xDCE7D6) }
 
+    /// **短行程**分隔线：多列排布里两列之间那一条（快捷键中心的三列）。
+    ///
+    /// 为什么不能直接用 `divider`：它是给「横跨整张卡的长横线」用的（Section 之间），
+    /// 那种线长、量大，做淡一点才不抢内容；而两列之间这条只有一格高，再用那个色
+    /// 就淡得看不见了（白卡上 1.2:1）。这条取到 1.8:1 —— 够分出「这是两列」，
+    /// 又不至于像描边那样把界面切成方格。
+    ///
+    /// ⚠️ 只给**短**分隔线用。整条横贯的关注 `divider`。
+    public var columnDivider: Color { isNight ? Color(hex: 0x3A5075) : Color(hex: 0xB4C2AE) }
+
     /// 浮层遮罩 / 浮层面板。**任何浮层都必须用这两个语义色**，否则日夜切换会漏。
     public var scrim: Color { isNight ? Color.black.opacity(0.5) : Color(hex: 0x16301B).opacity(0.22) }
     public var panel: Color { isNight ? Color(hex: 0x1A2A45, opacity: 0.98) : Color(hex: 0xF7FBF3, opacity: 0.98) }
