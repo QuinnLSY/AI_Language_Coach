@@ -34,9 +34,11 @@ struct BlackboardPanel: View {
     let theme: ForestTheme
     let plan: DailyPlan
     let streakDays: Int
-    /// 此刻到期的词数。
-    let due: Int
-    /// 今天已复习的词数。
+    /// **今天起初**（0 点）到期的词数 —— 复习任务的固定指标（不是「此刻到期」）。
+    let dueAtDayStart: Int
+    /// 上面那批词里今天已经复习过的个数。
+    let reviewedOfDue: Int
+    /// 今天复习过的**不同**词数（含今天新加的词，只在今天起初没有到期词时兜个话）。
     let reviewedToday: Int
     let todayTokens: Int
     /// 今日全部完成 → 盖个章 + 放一次烟花。
@@ -249,15 +251,22 @@ struct BlackboardPanel: View {
 
     private var dueRow: some View {
         HStack(spacing: 6) {
-            Image(systemName: due > 0 ? "text.book.closed.fill" : "checkmark.circle")
+            Image(systemName: hasReviewWork ? "text.book.closed.fill" : "checkmark.circle")
                 .font(.system(size: 9))
-                .foregroundStyle(due > 0 ? BlackboardPalette.chalk : BlackboardPalette.chalkDone)
-            Text(TodayPanel.dueLine(due: due, reviewedToday: reviewedToday))
+                .foregroundStyle(hasReviewWork ? BlackboardPalette.chalk : BlackboardPalette.chalkDone)
+            Text(TodayPanel.dueLine(
+                dueAtDayStart: dueAtDayStart,
+                reviewedOfDue: reviewedOfDue,
+                reviewedToday: reviewedToday
+            ))
                 .font(.system(size: 9, weight: .medium, design: .rounded))
                 .foregroundStyle(BlackboardPalette.chalkSoft)
             Spacer(minLength: 0)
         }
     }
+
+    /// 今天起初到底有没有复习任务（图标左右都要用它，别再各写一遍条件）。
+    private var hasReviewWork: Bool { dueAtDayStart > 0 }
 
     private func remainingRow(_ text: String) -> some View {
         HStack(spacing: 6) {

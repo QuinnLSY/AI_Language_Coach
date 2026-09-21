@@ -50,7 +50,8 @@ final class BlackboardHeaderAffordanceTests: XCTestCase {
             theme: theme,
             plan: plan(),
             streakDays: 5,
-            due: 6,
+            dueAtDayStart: 6,
+            reviewedOfDue: 2,
             reviewedToday: 2,
             todayTokens: 12_345
         )

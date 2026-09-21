@@ -39,14 +39,20 @@ public enum TodayPanel {
 
     /// 到期词那一行（**到期为 0 也要说清楚**，不显示空白）。
     ///
-    /// `due` 是「此刻到期的词数」，`reviewedToday` 是「今天复习过的不同词数」——
-    /// 两者都由真实记录算出来，不靠用户打勾。
-    public static func dueLine(due: Int, reviewedToday: Int) -> String {
-        guard due > 0 else {
+    /// ⚠️ 分母是 `dueAtDayStart`（**今天起初** 0 点到期的词数）、分子是 `reviewedOfDue`
+    /// （**那同一批词**里今天已经复习过的个数）—— 两个取自同一批固定词，
+    /// 所以这一行是真正的进度条：复习答对不会把分母改小，做完就是「8 个到期词都复习完了」。
+    /// 反面：拿「此刻到期」当分母会随复习缩水（8 个变 5 个），
+    /// 拿全局的 `reviewedToday` 当分子会让今天新加的词把进度算满。
+    ///
+    /// `reviewedToday` 只在**今天起初没有到期词**时才用得上：那时没什么可做的，
+    /// 但用户可能自己复习了几个，说一句免得看着像没记。
+    public static func dueLine(dueAtDayStart: Int, reviewedOfDue: Int, reviewedToday: Int) -> String {
+        guard dueAtDayStart > 0 else {
             return reviewedToday > 0 ? "今天已复习 \(reviewedToday) 个词" : "今天没有到期词"
         }
-        if reviewedToday >= due { return "\(due) 个到期词都复习完了" }
-        return "\(due) 个词到期 · 今天已复习 \(reviewedToday) 个"
+        if reviewedOfDue >= dueAtDayStart { return "\(dueAtDayStart) 个到期词都复习完了" }
+        return "\(dueAtDayStart) 个词到期 · 今天已复习 \(reviewedOfDue) 个"
     }
 
     /// 今日全部完成时要不要放一次庆祝（**一天只放一次**）。

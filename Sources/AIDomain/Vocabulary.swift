@@ -95,6 +95,16 @@ public enum ReviewScheduler {
         entries.filter { isDue($0, now: now) }
     }
 
+    /// 这个词在**那一天**复习过没有（`lastReviewedAt` 落在同一天）。
+    public static func isReviewed(
+        _ entry: VocabularyEntry,
+        on day: Date = Date(),
+        calendar: Calendar = .current
+    ) -> Bool {
+        guard let last = entry.lastReviewedAt else { return false }
+        return calendar.startOfDay(for: last) == calendar.startOfDay(for: day)
+    }
+
     /// 指定那**一天**复习过几个词（`lastReviewedAt` 落在同一天）。
     ///
     /// 用来回答「今天复习完了没有」—— 判分时落的是 `lastReviewedAt`，
@@ -104,11 +114,39 @@ public enum ReviewScheduler {
         on day: Date = Date(),
         calendar: Calendar = .current
     ) -> Int {
-        let target = calendar.startOfDay(for: day)
+        entries.filter { isReviewed($0, on: day, calendar: calendar) }.count
+    }
+
+    // MARK: 当天起初的到期盘子（每日任务的固定指标）
+
+    /// 指定那天**开始时**（0 点）到期的词。**每日任务那一项的指标只认它。**
+    ///
+    /// ⚠️ 为什么不能拿「此刻到期」（`dueEntries`）当每日任务的指标：
+    /// 复习答对会把间隔拉长（`intervalDays`），于是「此刻到期」**随复习进行不断变小** ——
+    /// 今天从「8 个」缩到 5 个、做完还整项消失。每日任务的指标是**当天定住**的量：
+    /// 完成后显示 8/8，多复习的词不再计入口径，也不许回头改指标。
+    ///
+    /// 逐词判定「那一刻它到底在不在盘子里」：
+    /// - **今天才入本的词不计**。今天 0 点时它还不在词汇本里，算进来只会让指标
+    ///   随着「今天加了多少词」往上涨 —— 那是新增，不是今天的复习任务。
+    /// - 今天之前就在本里、且**今天复习过**的词 → 计入。复习队列**只取到期词**
+    ///   （`VocabularyReview.queue(from:)` 走的就是 `dueEntries`），
+    ///   所以「今天碰过它」本身就证明它今天开始时到期 —— `lastReviewedAt`
+    ///   被这次复习覆盖了，光看它反而会漏算。
+    /// - 今天之前就在本里、今天没碰过的 → 用**今天 0 点**这个时刻判 `isDue`，
+    ///   而不是用此刻：用此刻会让「今天刚满间隔的词」提前算进来、
+    ///   也会让「昨天就该复习但拖到今天」的词时算时不算。
+    public static func dueAtStartOfDayEntries(
+        _ entries: [VocabularyEntry],
+        day: Date = Date(),
+        calendar: Calendar = .current
+    ) -> [VocabularyEntry] {
+        let midnight = calendar.startOfDay(for: day)
         return entries.filter { entry in
-            guard let last = entry.lastReviewedAt else { return false }
-            return calendar.startOfDay(for: last) == target
-        }.count
+            guard entry.createdAt < midnight else { return false }
+            if isReviewed(entry, on: day, calendar: calendar) { return true }
+            return isDue(entry, now: midnight)
+        }
     }
 
     /// 一次复习的结果。
@@ -709,26 +747,65 @@ public enum DailyWordPager {
 /// 词汇统计（页面头部 / 学习记录）。
 public struct VocabularyStats: Sendable, Equatable {
     public var total: Int
+    /// **此刻**到期的词数（词汇页头部那个「待复习 N」就是这个）。
+    ///
+    /// ⚠️ 每日任务那一项**不许**用它：复习答对会把间隔拉长，它会随复习变小。
     public var due: Int
     public var mastered: Int
     /// 有中文释义的词数（释义是按需补的，这里让用户知道还剩多少没配）。
     public var defined: Int
 
-    public init(total: Int, due: Int, mastered: Int, defined: Int) {
+    /// **今天起初**（0 点）到期的词数 —— 每日任务那一项用的**固定指标**。
+    ///
+    /// 与 `due`（此刻到期）是两回事：后者会随复习变小，拿它当每日任务的指标
+    /// 就会出现「今天原本 8 个，做完变成 5/5，全做完整项消失」。
+    /// 口径见 `ReviewScheduler.dueAtStartOfDayEntries(_:day:calendar:)`。
+    public var dueAtDayStart: Int
+    /// `dueAtDayStart` 那批词里**今天已经复习过**的个数 —— 今日任务的完成度。
+    ///
+    /// 单独算，而不是直接用全局的「今天复习了几个不同词」（`vocabularyReviewedToday`）：
+    /// 今天新加的词被复习了也**不算**这个指标的进度。
+    /// 用户口径原话：「完成了表示今天已经达标，多完成的不应该再计入」。
+    public var dueAtDayStartReviewed: Int
+
+    public init(
+        total: Int,
+        due: Int,
+        mastered: Int,
+        defined: Int,
+        dueAtDayStart: Int,
+        dueAtDayStartReviewed: Int
+    ) {
         self.total = total
         self.due = due
         self.mastered = mastered
         self.defined = defined
+        self.dueAtDayStart = dueAtDayStart
+        self.dueAtDayStartReviewed = dueAtDayStartReviewed
     }
 
-    public static let empty = VocabularyStats(total: 0, due: 0, mastered: 0, defined: 0)
+    public static let empty = VocabularyStats(
+        total: 0, due: 0, mastered: 0, defined: 0,
+        dueAtDayStart: 0, dueAtDayStartReviewed: 0
+    )
 
-    public static func from(_ entries: [VocabularyEntry], now: Date = Date()) -> VocabularyStats {
-        VocabularyStats(
+    public static func from(
+        _ entries: [VocabularyEntry],
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> VocabularyStats {
+        // 今日指标那一批先取出来：完成度要在**同一批词**里数，
+        // 不能拿全局的「今天复习了几个」顶替（那会把今天新加的词也算进来）。
+        let dayStartDue = ReviewScheduler.dueAtStartOfDayEntries(entries, day: now, calendar: calendar)
+        return VocabularyStats(
             total: entries.count,
             due: ReviewScheduler.dueEntries(entries, now: now).count,
             mastered: entries.filter(\.isMastered).count,
-            defined: entries.filter { !$0.meaning.isEmpty }.count
+            defined: entries.filter { !$0.meaning.isEmpty }.count,
+            dueAtDayStart: dayStartDue.count,
+            dueAtDayStartReviewed: dayStartDue.filter {
+                ReviewScheduler.isReviewed($0, on: now, calendar: calendar)
+            }.count
         )
     }
 }

@@ -53,10 +53,27 @@ final class TodayPanelTests: XCTestCase {
     // MARK: - 到期词那一行（为 0 也要说清楚）
 
     func testDueLineNeverGoesBlank() {
-        XCTAssertEqual(TodayPanel.dueLine(due: 0, reviewedToday: 0), "今天没有到期词")
-        XCTAssertEqual(TodayPanel.dueLine(due: 0, reviewedToday: 5), "今天已复习 5 个词")
-        XCTAssertEqual(TodayPanel.dueLine(due: 8, reviewedToday: 3), "8 个词到期 · 今天已复习 3 个")
-        XCTAssertEqual(TodayPanel.dueLine(due: 8, reviewedToday: 8), "8 个到期词都复习完了")
+        XCTAssertEqual(
+            TodayPanel.dueLine(dueAtDayStart: 0, reviewedOfDue: 0, reviewedToday: 0), "今天没有到期词")
+        XCTAssertEqual(
+            TodayPanel.dueLine(dueAtDayStart: 0, reviewedOfDue: 0, reviewedToday: 5), "今天已复习 5 个词")
+        XCTAssertEqual(
+            TodayPanel.dueLine(dueAtDayStart: 8, reviewedOfDue: 3, reviewedToday: 3),
+            "8 个词到期 · 今天已复习 3 个")
+        XCTAssertEqual(
+            TodayPanel.dueLine(dueAtDayStart: 8, reviewedOfDue: 8, reviewedToday: 8),
+            "8 个到期词都复习完了")
+    }
+
+    /// ⚠️ 分母是**今天起初**那批词（不随复习缩水），分子也只数**同一批**里的完成数 ——
+    /// 今天新加的词复习得再多，也不许把 3/8 说成 8/8。
+    /// 这条钉的正是用户报的现象（「多完成的不应该再计入」）。
+    func testDueLineKeepsTheDayStartDenominator() {
+        XCTAssertEqual(
+            TodayPanel.dueLine(dueAtDayStart: 8, reviewedOfDue: 3, reviewedToday: 12),
+            "8 个词到期 · 今天已复习 3 个",
+            "今天另复习了 9 个新加的 / 不到期的词，不改这一行的口径"
+        )
     }
 
     // MARK: - 庆祝（一天只放一次）

@@ -149,7 +149,8 @@ public enum DailyPlanner {
     /// 排今天的计划。
     ///
     /// 只需要一份 `ProgressSnapshot` —— 「今天复习了几个词」也是快照里的一项事实
-    /// （`vocabularyReviewedToday`），所以计划是快照的**纯函数**，不额外读数据库。
+    /// （`vocabulary.dueAtDayStart` / `dueAtDayStartReviewed`），
+    /// 所以计划是快照的**纯函数**，不额外读数据库。
     ///
     /// - Parameters:
     ///   - snapshot: 进度快照（今日活动 / 目标 / 词汇 / 技能分布 / 最近错题都在里面）。
@@ -227,15 +228,21 @@ public enum DailyPlanner {
     private static func reviewTask(
         _ snapshot: ProgressSnapshot, mode: DailyGoalMode
     ) -> DailyTask? {
-        let due = snapshot.vocabulary.due
-        // 没有到期的词就不排这一项，别挂个永远做不完的空任务。
+        // ⚠️ 指标取「**今天起初**到期」（`dueAtDayStart`），**不是**「此刻到期」（`due`）。
+        // 复习答对会把间隔拉长，此刻到期数随复习一路变小 —— 拿它当指标的话，
+        // 今天原本 8 个词，复习完 3 个就变成「复习 5 个 / 5 个」，全做完那一项还会整个消失。
+        // 每日任务的指标是**当天定住**的量：完成后显示 8/8，多复习的词不回头改指标。
+        let due = snapshot.vocabulary.dueAtDayStart
+        // 今天起初就没有到期的词 → 不排这一项，别挂个永远做不完的空任务。
         guard due > 0 else { return nil }
         let cap = mode == .baseline ? baselineReviewCap : reviewCap
         let target = min(due, cap)
-        let done = snapshot.vocabularyReviewedToday
+        // 完成度也只在**今天起初那批词**里数：今天新加的词被复习了不算数
+        // （用户口径：「完成了表示今天已经达标，多完成的不应该再计入」）。
+        let done = snapshot.vocabulary.dueAtDayStartReviewed
         let reason = due > cap
-            ? "有 \(due) 个词到期，先做前 \(target) 个"
-            : "有 \(due) 个词到期"
+            ? "今天有 \(due) 个词要复习，先做前 \(target) 个"
+            : "今天有 \(due) 个词要复习"
         return DailyTask(
             kind: .review,
             title: "复习 \(target) 个到期单词",

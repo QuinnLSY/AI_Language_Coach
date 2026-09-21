@@ -72,7 +72,108 @@ final class VocabularyTests: XCTestCase {
         XCTAssertEqual(stats.mastered, 1)
         XCTAssertEqual(stats.due, 1)
         XCTAssertEqual(stats.defined, 1)
+        // 这三个词都是「此刻」建的 → 今天 0 点时它们还不存在，不进今天的复习指标。
+        XCTAssertEqual(stats.dueAtDayStart, 0)
         XCTAssertEqual(VocabularyStats.from([]), .empty)
+    }
+
+    // MARK: - 当天起初的到期盘子（每日任务的固定指标）
+
+    /// 三种词各自归谁：
+    /// - 昨天入本、今天之前就到期且没碰过 → **算**（今天 0 点的存量）；
+    /// - 昨天入本、今天复习过 → **也算**（`lastReviewedAt` 已被这次复习覆盖，光看它反而漏算；
+    ///   而复习队列只取到期词，「今天碰过」本身就说明它今天开始时到期）；
+    /// - 今天才入本 → **不算**（今天 0 点时它还不在词汇本里）。
+    func testDueAtStartOfDayCountsTheMorningBacklog() {
+        let calendar = Calendar.current
+        let now = Date()
+        let midnight = calendar.startOfDay(for: now)
+        let yesterday = midnight.addingTimeInterval(-3_600)
+        let twoDaysAgo = midnight.addingTimeInterval(-2 * 86_400)
+
+        let aged = VocabularyEntry(
+            word: "aged", mastery: 1, reviewCount: 1,
+            lastReviewedAt: twoDaysAgo, createdAt: twoDaysAgo)
+        let reviewedToday = VocabularyEntry(
+            word: "today", mastery: 2, reviewCount: 1,
+            lastReviewedAt: now, createdAt: yesterday)
+        let mastered = VocabularyEntry(
+            word: "done", mastery: 5, reviewCount: 9,
+            lastReviewedAt: twoDaysAgo, createdAt: twoDaysAgo)
+        let addedToday = VocabularyEntry(word: "fresh", mastery: 0, createdAt: now)
+
+        let due = ReviewScheduler.dueAtStartOfDayEntries(
+            [aged, reviewedToday, mastered, addedToday], day: now, calendar: calendar
+        )
+        XCTAssertEqual(due.map(\.word).sorted(), ["aged", "today"])
+    }
+
+    /// **核心回归**：今天起初 8 个到期词，复习掉 3 个之后指标**仍然是 8**。
+    ///
+    /// 撤掉修复（指标改回「此刻到期」）时这条会红：那会算成 5。
+    /// 用户原话：「今日原本的复习任务是 8 个单词，完成之后应该还是显示 8/8 已完成」
+    /// —— 指标是**当天定住**的量，不随复习缩水。
+    func testDayStartIndicatorDoesNotShrinkAsYouReview() {
+        let calendar = Calendar.current
+        let now = Date()
+        let midnight = calendar.startOfDay(for: now)
+        let yesterday = midnight.addingTimeInterval(-86_400)
+
+        // 8 个昨天入本、掌握度 0 的词：间隔 0 天 → 今天 0 点一定到期。
+        func entry(_ index: Int, reviewedAt: Date?) -> VocabularyEntry {
+            VocabularyEntry(
+                word: "w\(index)",
+                mastery: reviewedAt == nil ? 0 : 1,
+                reviewCount: reviewedAt == nil ? 0 : 1,
+                lastReviewedAt: reviewedAt,
+                createdAt: yesterday
+            )
+        }
+
+        var entries = (1...8).map { entry($0, reviewedAt: nil) }
+        XCTAssertEqual(
+            VocabularyStats.from(entries, now: now, calendar: calendar).dueAtDayStart, 8,
+            "前提：今天起初 8 个词到期")
+
+        // 复习掉 3 个（答对 → 掌握度 1 → 间隔 1 天 → 今天不再到期）。
+        for index in 1...3 { entries[index - 1] = entry(index, reviewedAt: now) }
+        let midway = VocabularyStats.from(entries, now: now, calendar: calendar)
+        XCTAssertEqual(midway.due, 5, "「此刻到期」确实少了 3 个 —— 那个口径本身没错，只是不能当指标")
+        XCTAssertEqual(midway.dueAtDayStart, 8, "今日指标必须还是 8，不许缩成 5")
+        XCTAssertEqual(midway.dueAtDayStartReviewed, 3)
+
+        // 剩下 5 个也复习完 → 指标还是 8，完成度 8：任务该显示 8/8，而不是整项消失。
+        for index in 4...8 { entries[index - 1] = entry(index, reviewedAt: now) }
+        let done = VocabularyStats.from(entries, now: now, calendar: calendar)
+        XCTAssertEqual(done.due, 0)
+        XCTAssertEqual(done.dueAtDayStart, 8)
+        XCTAssertEqual(done.dueAtDayStartReviewed, 8)
+    }
+
+    /// 「多完成的不应该再计入」：今天新加的词被复习了也不算进今日指标的分子/分母。
+    func testWordsAddedTodayNeverEnterTheDayStartIndicator() {
+        let calendar = Calendar.current
+        let now = Date()
+        let midnight = calendar.startOfDay(for: now)
+        let yesterday = midnight.addingTimeInterval(-86_400)
+
+        let backlog = [
+            VocabularyEntry(
+                word: "old1", mastery: 1, reviewCount: 1,
+                lastReviewedAt: now, createdAt: yesterday),     // 今天复习过 → 算，且算完成
+            VocabularyEntry(word: "old2", mastery: 0, createdAt: yesterday),  // 今天还没碰 → 算
+        ]
+        // 今天加了 5 个词、顺手复习了 —— 这是「多做」，不进今天的指标。
+        let fresh = (1...5).map {
+            VocabularyEntry(
+                word: "new\($0)", mastery: 1, reviewCount: 1,
+                lastReviewedAt: now, createdAt: now)
+        }
+
+        let stats = VocabularyStats.from(backlog + fresh, now: now, calendar: calendar)
+        XCTAssertEqual(stats.dueAtDayStart, 2, "今天新加的词不算今天的复习任务")
+        XCTAssertEqual(stats.dueAtDayStartReviewed, 1, "分子也只数今天起初那批里复习过的")
+        XCTAssertEqual(stats.due, 1, "此刻到期只剩 old2（其余都已答对、间隔被拉长）")
     }
 
     // MARK: - 释义解析（键值行；词汇本与每日推荐共用同一套）

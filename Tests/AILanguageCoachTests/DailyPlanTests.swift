@@ -54,7 +54,10 @@ final class DailyPlanTests: XCTestCase {
         let plan = DailyPlanner.plan(
             snapshot: snapshot(
                 today: DailyActivity(day: calendar.startOfDay(for: now), seconds: 120, messages: 2, shadowingAttempts: 1),
-                vocabulary: VocabularyStats(total: 9, due: 3, mastered: 1, defined: 9),
+                vocabulary: VocabularyStats(
+                    total: 9, due: 3, mastered: 1, defined: 9,
+                    dueAtDayStart: 3, dueAtDayStartReviewed: 1
+                ),
                 reviewedToday: 1,
                 shadowing: ShadowingStats(
                     attempts: 12, bestAccuracy: 0.9, averageAccuracy: 0.82, lastAccuracy: 0.85,
@@ -87,7 +90,10 @@ final class DailyPlanTests: XCTestCase {
         let plan = DailyPlanner.plan(
             snapshot: snapshot(
                 today: DailyActivity(day: calendar.startOfDay(for: now)),
-                vocabulary: VocabularyStats(total: 4, due: 0, mastered: 4, defined: 4)
+                vocabulary: VocabularyStats(
+                    total: 4, due: 0, mastered: 4, defined: 4,
+                    dueAtDayStart: 0, dueAtDayStartReviewed: 0
+                )
             ),
             now: now, calendar: calendar
         )
@@ -101,13 +107,53 @@ final class DailyPlanTests: XCTestCase {
         let plan = DailyPlanner.plan(
             snapshot: snapshot(
                 today: DailyActivity(day: calendar.startOfDay(for: now)),
-                vocabulary: VocabularyStats(total: 20, due: 20, mastered: 0, defined: 20)
+                vocabulary: VocabularyStats(
+                    total: 20, due: 20, mastered: 0, defined: 20,
+                    dueAtDayStart: 20, dueAtDayStartReviewed: 0
+                )
             ),
             now: now, calendar: calendar
         )
         let review = try XCTUnwrap(plan.tasks.first { $0.kind == .review })
         XCTAssertEqual(review.target, DailyPlanner.reviewCap)
-        XCTAssertEqual(review.reason, "有 20 个词到期，先做前 8 个")
+        XCTAssertEqual(review.reason, "今天有 20 个词要复习，先做前 8 个")
+    }
+
+    /// **核心回归**：今天起初 8 个到期词，复习掉 3 个之后任务仍是「复习 8 个」、进度 3/8；
+    /// 全部复习完是 8/8 且任务**留在板上**。
+    ///
+    /// 撤掉修复（指标改回「此刻到期」）时这条会红成 5/5，最后那一档还会整项消失 ——
+    /// 用户报的正是这个：「多完成的不应该再计入，也不应该改动任务中的指标」。
+    func testReviewTargetStaysFixedWhileProgressGrows() throws {
+        let now = day(2026, 9, 15, 20, 0)
+
+        /// `reviewed` = 今天起初那批词里已经复习掉的个数；「此刻到期」随之减少。
+        func reviewTask(reviewed: Int) -> DailyTask? {
+            DailyPlanner.plan(
+                snapshot: snapshot(
+                    today: DailyActivity(day: calendar.startOfDay(for: now)),
+                    vocabulary: VocabularyStats(
+                        total: 8, due: 8 - reviewed, mastered: 0, defined: 8,
+                        dueAtDayStart: 8, dueAtDayStartReviewed: reviewed
+                    )
+                ),
+                now: now, calendar: calendar
+            ).tasks.first { $0.kind == .review }
+        }
+
+        let start = try XCTUnwrap(reviewTask(reviewed: 0))
+        XCTAssertEqual(start.progressText, "0 / 8 个词")
+
+        let midway = try XCTUnwrap(reviewTask(reviewed: 3))
+        XCTAssertEqual(midway.target, 8, "复习掉 3 个，指标仍是 8 —— 此刻到期只剩 5 也不算数")
+        XCTAssertEqual(midway.progressText, "3 / 8 个词")
+        XCTAssertFalse(midway.isDone)
+
+        let done = try XCTUnwrap(reviewTask(reviewed: 8))
+        XCTAssertEqual(done.target, 8)
+        XCTAssertEqual(done.progressText, "8 / 8 个词")
+        XCTAssertEqual(done.reason, "今天有 8 个词要复习")
+        XCTAssertTrue(done.isDone, "全部复习完 → 任务留着显示已完成，而不是整项消失")
     }
 
     // MARK: - 保底档（#225）
@@ -118,7 +164,10 @@ final class DailyPlanTests: XCTestCase {
         let plan = DailyPlanner.plan(
             snapshot: snapshot(
                 today: DailyActivity(day: calendar.startOfDay(for: now)),
-                vocabulary: VocabularyStats(total: 30, due: 30, mastered: 0, defined: 30)
+                vocabulary: VocabularyStats(
+                    total: 30, due: 30, mastered: 0, defined: 30,
+                    dueAtDayStart: 30, dueAtDayStartReviewed: 0
+                )
             ),
             mode: .baseline,
             now: now, calendar: calendar
@@ -143,7 +192,10 @@ final class DailyPlanTests: XCTestCase {
                 today: DailyActivity(
                     day: calendar.startOfDay(for: now), seconds: 300, messages: 4, shadowingAttempts: 2
                 ),
-                vocabulary: VocabularyStats(total: 10, due: 2, mastered: 0, defined: 10),
+                vocabulary: VocabularyStats(
+                    total: 10, due: 2, mastered: 0, defined: 10,
+                    dueAtDayStart: 2, dueAtDayStartReviewed: 2
+                ),
                 reviewedToday: 2
             ),
             mode: .baseline,
@@ -158,7 +210,10 @@ final class DailyPlanTests: XCTestCase {
         let now = day(2026, 9, 15, 20, 0)
         let snap = snapshot(
             today: DailyActivity(day: calendar.startOfDay(for: now)),
-            vocabulary: VocabularyStats(total: 20, due: 20, mastered: 0, defined: 20)
+            vocabulary: VocabularyStats(
+                total: 20, due: 20, mastered: 0, defined: 20,
+                dueAtDayStart: 20, dueAtDayStartReviewed: 0
+            )
         )
         let advanced = DailyPlanner.plan(snapshot: snap, mode: .advanced, now: now, calendar: calendar)
         let baseline = DailyPlanner.plan(snapshot: snap, mode: .baseline, now: now, calendar: calendar)
@@ -216,6 +271,44 @@ final class DailyPlanTests: XCTestCase {
         )
         XCTAssertEqual(snapshot.vocabulary.total, 3)
         XCTAssertEqual(snapshot.vocabularyReviewedToday, 1)
+    }
+
+    /// **端到端**：真实词条 → 聚合器 → 快照 → 每日计划 → 任务文案。
+    /// 中间任何一环漏填「今天起初的到期盘子」，这条都会红。
+    ///
+    /// 场景就是用户报的那个：今天起初 8 个到期词，复习掉 3 个（答对 → 不再到期），
+    /// 任务必须仍是「复习 8 个到期单词 · 3 / 8 个词」。
+    func testReviewTaskKeepsDayStartTargetEndToEnd() throws {
+        let now = day(2026, 9, 15, 20, 0)
+        let yesterday = day(2026, 9, 14, 20, 0)
+
+        // 8 个昨天入本、掌握度 0 的词（间隔 0 天 → 今天 0 点必然到期）；
+        // 前 3 个今天已复习过（答对 → 掌握度 1 → 今天不再到期）。
+        let entries = (1...8).map { index -> VocabularyEntry in
+            let reviewed = index <= 3
+            return VocabularyEntry(
+                word: "w\(index)",
+                mastery: reviewed ? 1 : 0,
+                reviewCount: reviewed ? 1 : 0,
+                lastReviewedAt: reviewed ? now : nil,
+                createdAt: yesterday
+            )
+        }
+        let snapshot = ProgressAggregator.snapshot(
+            days: 14, now: now, calendar: calendar,
+            sessions: [], messages: [], corrections: [], shadowing: [],
+            vocabulary: entries,
+            totalStars: 0, goalMinutes: 15
+        )
+        XCTAssertEqual(snapshot.vocabulary.due, 5, "「此刻到期」只剩 5 个")
+        XCTAssertEqual(snapshot.vocabulary.dueAtDayStart, 8, "今天起初是 8 个")
+        XCTAssertEqual(snapshot.vocabulary.dueAtDayStartReviewed, 3)
+
+        let plan = DailyPlanner.plan(snapshot: snapshot, now: now, calendar: calendar)
+        let review = try XCTUnwrap(plan.tasks.first { $0.kind == .review })
+        XCTAssertEqual(review.title, "复习 8 个到期单词")
+        XCTAssertEqual(review.progressText, "3 / 8 个词")
+        XCTAssertFalse(review.isDone)
     }
 
     // MARK: - 完成度

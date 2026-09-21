@@ -74,7 +74,8 @@ final class BlackboardContainmentTests: XCTestCase {
                     todayTokens: 12_345,
                     plan: plan,
                     streakDays: 5,
-                    due: 6,
+                    dueAtDayStart: 6,
+                    reviewedOfDue: 2,
                     reviewedToday: 2,
                     bubblesAllowed: false,
                     isExpanded: $isExpanded

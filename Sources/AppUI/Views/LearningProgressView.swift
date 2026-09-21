@@ -601,7 +601,10 @@ public struct LearningProgressView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 12) {
                     tile(icon: "textformat.abc", value: "\(snapshot.vocabulary.total)", label: "词汇总量")
-                    tile(icon: "clock.badge.exclamationmark", value: "\(snapshot.vocabulary.due)", label: "今日待复习")
+                    // ⚠️ 标签是「待复习单词」而不是「今日待复习」：这里是**此刻**还剩多少词到期，
+                    // 会随着复习变小。「今天要复习多少」是**当天定住**的另一个数（每日任务那一项，
+                    // `vocabulary.dueAtDayStart`）—— 两者口径不同，别把它们说成一回事。
+                    tile(icon: "clock.badge.exclamationmark", value: "\(snapshot.vocabulary.due)", label: "待复习单词")
                     tile(icon: "checkmark.circle.fill", value: "\(snapshot.vocabulary.mastered)", label: "已掌握")
                 }
                 if snapshot.vocabulary.total == 0 {

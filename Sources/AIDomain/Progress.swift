@@ -487,7 +487,7 @@ public enum ProgressAggregator {
             totalMessages: sessions.reduce(0) { $0 + $1.messageCount },
             totalStars: totalStars,
             totalCorrections: corrections.count,
-            vocabulary: VocabularyStats.from(vocabulary),
+            vocabulary: VocabularyStats.from(vocabulary, now: now, calendar: calendar),
             vocabularyReviewedToday: todayActivity.vocabularyReviewed,
             shadowing: ShadowingStats.from(shadowing),
             recentMistakes: corrections

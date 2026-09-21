@@ -52,11 +52,21 @@ final class BlackboardRenderTests: XCTestCase {
     private struct SeatPreview: View {
         let plan: DailyPlan
         let tokens: Int
+        let dueAtDayStart: Int
+        let reviewedOfDue: Int
         @State private var isExpanded: Bool
 
-        init(plan: DailyPlan, tokens: Int, expanded: Bool) {
+        init(
+            plan: DailyPlan,
+            tokens: Int,
+            expanded: Bool,
+            dueAtDayStart: Int = 6,
+            reviewedOfDue: Int = 2
+        ) {
             self.plan = plan
             self.tokens = tokens
+            self.dueAtDayStart = dueAtDayStart
+            self.reviewedOfDue = reviewedOfDue
             self._isExpanded = State(initialValue: expanded)
         }
 
@@ -70,7 +80,8 @@ final class BlackboardRenderTests: XCTestCase {
                     todayTokens: tokens,
                     plan: plan,
                     streakDays: 5,
-                    due: 6,
+                    dueAtDayStart: dueAtDayStart,
+                    reviewedOfDue: reviewedOfDue,
                     reviewedToday: 2,
                     bubblesAllowed: false,
                     isExpanded: $isExpanded
@@ -79,11 +90,21 @@ final class BlackboardRenderTests: XCTestCase {
         }
     }
 
-    private func renderSeat(_ plan: DailyPlan, day: Bool, expanded: Bool, stageHeight: CGFloat = 520) throws -> Render {
+    private func renderSeat(
+        _ plan: DailyPlan,
+        day: Bool,
+        expanded: Bool,
+        stageHeight: CGFloat = 520,
+        dueAtDayStart: Int = 6,
+        reviewedOfDue: Int = 2
+    ) throws -> Render {
         let theme = ForestThemeResolver.resolve(mode: day ? .day : .night, systemIsDark: !day)
         let backdrop: Color = day ? Color(hex: 0xE9EFE4) : Color(hex: 0x101B2E)
         let host = NSHostingView(rootView: AnyView(
-            SeatPreview(plan: plan, tokens: 12_345, expanded: expanded)
+            SeatPreview(
+                plan: plan, tokens: 12_345, expanded: expanded,
+                dueAtDayStart: dueAtDayStart, reviewedOfDue: reviewedOfDue
+            )
                 .forestTheme(theme)
                 .frame(width: seatWidth, height: stageHeight)
                 .background(backdrop)
@@ -364,6 +385,46 @@ final class BlackboardRenderTests: XCTestCase {
         try dump(nightSeat.rep, name: "round48-blackboard-collapsed-night.png")
     }
 
+    // MARK: - ⑤b 复习指标的固定口径（出图给人眼核对）
+
+    /// 今天起初 8 个到期词、复习掉 3 个的黑板 —— 出图供人眼复核那几行字：
+    /// 应当读到「复习 8 个到期单词 · 3 / 8 个词」和「8 个词到期 · 今天已复习 3 个」。
+    ///
+    /// ⚠️ 之所以**不是**「复习 5 个 / 5 个」：此刻到期确实只剩 5 个，但每日任务的指标是
+    /// 当天定住的量（`dueAtDayStart`）。撤掉修复时这条出图会退回 5/5，
+    /// 而断言侧由 `DailyPlanTests.testReviewTargetStaysFixedWhileProgressGrows` 钉住。
+    ///
+    /// 这条**故意不**渲染「此刻到期 8 个、进度 0」那种平凡态：要的就是「复习之后」。
+    func testDumpsDayStartDueIndicator() throws {
+        let now = Date()
+        let yesterday = now.addingTimeInterval(-86_400)
+        let entries = (1...8).map { index -> VocabularyEntry in
+            let reviewed = index <= 3
+            return VocabularyEntry(
+                word: "w\(index)",
+                mastery: reviewed ? 1 : 0,
+                reviewCount: reviewed ? 1 : 0,
+                lastReviewedAt: reviewed ? now : nil,
+                createdAt: yesterday
+            )
+        }
+        let snapshot = ProgressAggregator.snapshot(
+            days: 14, now: now, calendar: .current,
+            sessions: [], messages: [], corrections: [], shadowing: [],
+            vocabulary: entries, totalStars: 0, goalMinutes: 15
+        )
+        let plan = DailyPlanner.plan(snapshot: snapshot, now: now, calendar: .current)
+        let review = try XCTUnwrap(plan.tasks.first { $0.kind == .review })
+        XCTAssertEqual(review.progressText, "3 / 8 个词", "指标必须是今天起初那 8 个")
+
+        let render = try renderSeat(
+            plan, day: true, expanded: true,
+            dueAtDayStart: snapshot.vocabulary.dueAtDayStart,
+            reviewedOfDue: snapshot.vocabulary.dueAtDayStartReviewed
+        )
+        try dump(render.rep, name: "round-due-indicator-after-review-day.png")
+    }
+
     // MARK: - ⑥ 空隙：板底紧贴老师头顶、老师紧贴名字、板底不留空板
 
     /// 老师本体（狐狸老师）的橙色毛：返回墨迹带的 (上沿, 下沿) 像素行号。
@@ -488,7 +549,8 @@ final class BlackboardRenderTests: XCTestCase {
             theme: theme,
             plan: plan(doneCount: 1),
             streakDays: 5,
-            due: 6,
+            dueAtDayStart: 6,
+            reviewedOfDue: 2,
             reviewedToday: 2,
             todayTokens: 12_345
         )
