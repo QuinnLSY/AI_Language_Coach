@@ -567,6 +567,21 @@ public final class AppState {
     /// 页头据此如实说明来源 —— 用户有权知道自己在练的是哪种素材。
     public internal(set) var shadowingIsDailyGenerated = false
 
+    // MARK: 顽固音素专项（进阶 ③）
+
+    /// 跨次聚合出来的「老发错的音」（按该练的先后排好；空 = 数据还不够下判断）。
+    ///
+    /// ⚠️ 空有两种含义（样本不足 / 一个都没错），UI 只在**非空**时显示这一块 ——
+    /// 没数据时挂一张空卡，等于凭空多一个让人困惑的区块。
+    public internal(set) var phonemeWeaknesses: [PhonemeWeakness] = []
+    /// 当前这批跟读素材是不是**音素专项**（true = 替换掉了今日 / 内置素材）。
+    ///
+    /// 与 `shadowingIsDailyGenerated` 是两件事：专项素材既不是今天的、也不是内置的，
+    /// 所以页头的来源说明必须另说一句，否则用户会以为「今天的句子怎么变了」。
+    public internal(set) var isPhonemeDrill = false
+    /// 专项在练哪个音（nil = 不在专项里）。
+    public internal(set) var phonemeDrillFocus: String?
+
     // MARK: 段落级跟读（#232）
 
     /// 跟读粒度：一句一练 / 整段跟读。

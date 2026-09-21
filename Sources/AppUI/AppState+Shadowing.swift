@@ -67,7 +67,10 @@ extension AppState {
     /// 并如实说明「今天的没生成出来」—— 而不是让页面变空。
     public func loadShadowing() async {
         if shadowingDrills.isEmpty { await loadTodayShadowingDrills() }
-        await refreshShadowingStats()
+        // 汇总与顽固音素是两件各读各的取数，**并行**做 —— 串起来会让进页面等两遍查询。
+        async let stats: Void = refreshShadowingStats()
+        async let weaknesses: Void = refreshPhonemeWeaknesses()
+        _ = await (stats, weaknesses)
     }
 
     /// 取今日跟读素材。`regenerate == true` 时忽略当天缓存重新生成（页面上有按钮）。

@@ -19,6 +19,19 @@ public struct ShadowingView: View {
             Divider().overlay(theme.divider)
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    // 顽固音素要放在**最上面**：它是「这一轮该练什么」的建议，
+                    // 埋在结果卡下面等于练完了才告诉你刚才该练什么。
+                    if !state.phonemeWeaknesses.isEmpty {
+                        PhonemeWeaknessCard(
+                            weaknesses: state.phonemeWeaknesses,
+                            isDrillActive: state.isPhonemeDrill,
+                            activePhoneme: state.phonemeDrillFocus
+                        ) { weakness in
+                            state.startPhonemeDrill(for: weakness)
+                        } onExit: {
+                            Task { await state.exitPhonemeDrill() }
+                        }
+                    }
                     if state.hasShadowingMaterial {
                         modeSwitch
                         progressRow
@@ -75,6 +88,16 @@ public struct ShadowingView: View {
                                 .font(.system(size: 10, design: .rounded))
                         }
                         .foregroundStyle(theme.secondaryText)
+                    } else if state.isPhonemeDrill {
+                        // ⚠️ 专项素材既不是今日的、也不是内置的，必须另说一句：
+                        // 走 else 会显示「内置素材」，用户会以为今天的句子被换掉了。
+                        Text("音素专项 · \(state.phonemeDrillFocusDisplay.map { "/\($0)/" } ?? "")")
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .foregroundStyle(theme.accentCool)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(theme.accentCool.opacity(0.14)))
+                            .help("针对你老发错的那个音，只练只差这一个音的词对")
                     } else if state.shadowingIsDailyGenerated {
                         Text("今日 · \(state.shadowingDrills.count) 句")
                             .font(.system(size: 10, weight: .semibold, design: .rounded))
