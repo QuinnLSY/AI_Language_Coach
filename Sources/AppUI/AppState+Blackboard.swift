@@ -7,6 +7,17 @@ import SwiftUI
 // MARK: - AppState · 今日作业（老师黑板）
 // #267 自 AppState.swift 拆出（2026-09-20）：单文件 5136 行超载，按域切为扩展。
 // 同模块 extension，语义与拆分前完全一致；成员访问级别已放宽到 internal。
+/// 学习进度页上「点一下就滚过去」的那几张卡（一次性意图的目标）。
+///
+/// 收成枚举而不是再加一个 `xxxFocusTick` 布尔量：跳转意图的机制（tick + pending + 消费）
+/// 只该有一套，多一个目标就多一处「忘了复位」的机会。
+public enum ProgressFocusTarget: Sendable {
+    /// 今日任务卡（黑板上的小图标点进来）。
+    case dailyTasks
+    /// 年度学习记录卡（侧栏火苗徽章点进来）。
+    case annualRecap
+}
+
 extension AppState {
     // MARK: - 今日作业（老师黑板）
 
@@ -27,19 +38,38 @@ extension AppState {
     /// **一次性的意图标记**：页面是从别的页切过来的新实例，`onChange` 只对「变化」生效，
     /// 而 tick 在它出现之前就已经加过了 —— 光靠 tick 会「指令收到了，页面不动」。
     public func openTodayTasksInProgress() {
+        focusProgress(on: .dailyTasks)
+    }
+
+    /// 侧栏火苗徽章 → 切到「学习进度」页并滚到**年度学习记录卡**。
+    ///
+    /// 「连续 N 天」这个数字的全部上下文都在那张卡上（整年的练习热力图 + 达成天数），
+    /// 点它就该直接看到那一年，而不是落在页面顶上再让人自己滚。
+    ///
+    /// ⚠️ 年度汇总是**开屏故意不跑**的那一个（`refreshTodayPanel` 只查窗口内 —
+    /// 全年 53×7 的热力图不该挂在启动关键路径上）。所以这里要顺手把那年补齐，
+    /// 否则用户点过去只会看到一张**空网格** —— 那比不跳还糟。
+    /// 补齐走 `ensureAnnualRecapLoaded`（年度自己的在途锁），**不是** `reloadProgress`：
+    /// 后者那道重入保护的锁是「窗口快照正在跑」，而开屏那一轮恰好只查窗口，
+    /// 火苗点得早就会被它直接弹回、年度永远不加载（详见那个方法的注释）。
+    public func openAnnualRecapInProgress() async {
+        focusProgress(on: .annualRecap)
+        await ensureAnnualRecapLoaded()
+    }
+
+    private func focusProgress(on target: ProgressFocusTarget) {
         applySection(.progress)
-        progressFocusPending = true
+        progressFocusPending = target
         progressFocusTick += 1
     }
 
-    /// 消费一次「滚到今日任务卡」的意图。
+    /// 消费一次「滚到某张卡」的意图（返回要滚去哪；没有意图 → nil）。
     ///
     /// 与 `recordsFocus` 同一套道理：跳转是**这一次点击**的意图，不是这一页的默认行为 ——
     /// 页面读一次就该清掉，下次从侧栏正常进来不许自动跳。
-    public func consumeProgressFocus() -> Bool {
-        guard progressFocusPending else { return false }
-        progressFocusPending = false
-        return true
+    public func consumeProgressFocus() -> ProgressFocusTarget? {
+        defer { progressFocusPending = nil }
+        return progressFocusPending
     }
 
     /// 汇总今日作业需要的进度，并判定「今日全部完成」的庆祝。

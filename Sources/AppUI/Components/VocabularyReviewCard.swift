@@ -605,20 +605,18 @@ struct VocabularyReviewCard: View {
     /// （与下面 `revealHint` 里那个「就地查释义」是同一个诉求，只是那个查的是
     /// 当前词的释义写进卡里，这个去的是完整词典页）。
     ///
-    /// ⚠️ 用 `accentCool`（冷紫）而不是喇叭那个 `accent`（橘）：同一行两个按钮
-    /// 抢同一个颜色，用户分不出哪个是「读」哪个是「查」。冷紫正是主题里
-    /// 留给「跳去别处」这类次要动作的那一支。
+    /// ⚠️ 走的必须是 `LookupDictionaryButton` —— 它同时是**划词气泡卡右上角那颗**的实现。
+    /// 这是同一个动作（去词典查这个词），两处各写一遍就迟早会长得不一样：
+    /// 早先这里用的是 `character.book.closed`，用户得靠位置去猜。
+    /// 现在图标口径只写在那一个文件里，「保持一致」由构造保证。
+    /// 这里只给**命中区边长**：16×16 是词条行的行内按钮口径（气泡那边是 22×22）。
     private func lookupButton() -> some View {
-        Button(action: onLookupInDictionary) {
-            Image(systemName: "character.book.closed")
-                .font(.system(size: 12))
-                .foregroundStyle(theme.accentCool)
-                .frame(width: 16, height: 16)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("去词典查这个词（复习进度保留，回来接着过）")
-        .accessibilityLabel("去词典查这个词")
+        LookupDictionaryButton(
+            side: 16,
+            help: "去词典查这个词（复习进度保留，回来接着过）",
+            accessibilityLabel: "去词典查这个词",
+            action: onLookupInDictionary
+        )
     }
 
     /// 提示条：读失败 / 没听清这几条自带「重试」（`AppNotice` 里带进来的）。

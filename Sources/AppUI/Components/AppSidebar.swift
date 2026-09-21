@@ -85,11 +85,14 @@ public struct AppSidebar: View {
                     Spacer(minLength: 0)
                     // 打卡徽章（连续天数提到台前）：连续 ≥1 天才出现；
                     // 今天还没练时亮警示色 —— 悬停是断签保护那句「练一会儿保住 N 天」。
+                    // 点一下跳去「学习进度」的**年度学习记录卡**：这个数字的上下文全在那儿。
                     if let streak = TodayPanel.streakBadge(
                         streakDays: state.progressSnapshot.streakDays,
                         hasPracticeToday: state.progressSnapshot.today.hasPractice
                     ) {
-                        StreakBadgeView(badge: streak)
+                        StreakBadgeView(badge: streak) {
+                            Task { await state.openAnnualRecapInProgress() }
+                        }
                     }
                 }
                 .padding(.horizontal, 6)

@@ -174,6 +174,16 @@ final class WordLookupTextView: NSTextView, NSTextViewDelegate {
     static let selectionDwellSeconds: Double = 0.28
 
     private var dwellTask: Task<Void, Never>?
+    /// 当前那个计时器是**为什么**起的。
+    ///
+    /// ⚠️ 悬停与拖选共用一条计时链，但两者的取消理由完全不同：
+    /// 鼠标一动、鼠标移出视图 —— 只该掐掉**悬停**那一个；
+    /// 「拖选落定后取内容」与鼠标在不在视图里毫无关系（拖选本来就可以拖到视图外松手）。
+    /// 早先不分种类地一律 `cancelDwell()`，踩到的正是「页面刚挂上时的
+    /// `updateTrackingAreas` 抖出一次 `mouseExited` → 把刚起的拖选计时掐掉 →
+    /// 划词探测永远不上报」——症状就是「第一次划词没反应，再划一次才有」。
+    private enum DwellKind { case hover, selection }
+    private var dwellKind: DwellKind?
     private var trackingArea_: NSTrackingArea?
     /// 上一次上报的悬停词（同一个词不重复上报 / 不重复请求）。
     private var lastHoverWord = ""
@@ -247,13 +257,13 @@ final class WordLookupTextView: NSTextView, NSTextViewDelegate {
         let word = word(at: point)
         guard word != lastHoverWord else { return }
         lastHoverWord = word
-        cancelDwell()
+        cancelDwell(.hover)
         guard !word.isEmpty else {
             onProbe?(nil)
             return
         }
         let anchor = rectForWord(at: point) ?? .zero
-        scheduleDwell(Self.hoverDwellSeconds) { [weak self] in
+        scheduleDwell(Self.hoverDwellSeconds, kind: .hover) { [weak self] in
             guard let self else { return }
             self.onProbe?(
                 WordLookupProbe(
@@ -268,7 +278,20 @@ final class WordLookupTextView: NSTextView, NSTextViewDelegate {
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
-        cancelDwell()
+        endHoverTracking()
+    }
+
+    /// 「指针已经不在视图里了」要做的收尾。
+    ///
+    /// ⚠️ 从 `mouseExited(with:)` 里**单独抽出来是为了能被测**：那个方法只有由 AppKit
+    /// 用**真实** tracking-area 事件驱动时才是合法调用 —— 拿合成 `NSEvent` 去调，
+    /// AppKit 会抛 `Invalid message sent to event`（实测把整个测试进程 abort 掉，
+    /// 连 `NSEvent.mouseEvent(with: .mouseExited…)` 都在掩码校验那一步就抛）。
+    /// 这条纪律（谁该掐谁的计时器）只能从这个接缝测；`super` 那一句本来也没有逻辑。
+    func endHoverTracking() {
+        // ⚠️ 只掐**悬停**那一个计时器：拖选的计时与鼠标在不在视图里无关
+        // （拖选本来就可以拖到视图外松手），一律取消会让那次划词永远不上报。
+        cancelDwell(.hover)
         lastHoverWord = ""
         // 悬停关闭时不抢收气泡：收起只由选区变化（重新划 / 点空白）驱动。
         guard isHoverLookupEnabled else { return }
@@ -293,7 +316,7 @@ final class WordLookupTextView: NSTextView, NSTextViewDelegate {
             return
         }
         let space = visibleSpace()
-        scheduleDwell(Self.selectionDwellSeconds) { [weak self] in
+        scheduleDwell(Self.selectionDwellSeconds, kind: .selection) { [weak self] in
             guard let self else { return }
             self.onProbe?(
                 WordLookupProbe(text: text, rect: anchor, space: space, isSelection: true)
@@ -414,8 +437,12 @@ final class WordLookupTextView: NSTextView, NSTextViewDelegate {
 
     /// 延时执行（可取消）。用 `Task` 而不是 `Timer`：拖动选区时 runloop 在
     /// eventTracking 模式，定时器要等拖动结束才响，而这里需要「停下 0.28 秒」就取数。
-    private func scheduleDwell(_ seconds: Double, _ work: @escaping @MainActor () -> Void) {
-        dwellTask?.cancel()
+    private func scheduleDwell(
+        _ seconds: Double, kind: DwellKind, _ work: @escaping @MainActor () -> Void
+    ) {
+        // 起新计时器一律先把**所有**旧计时器收掉：同一时刻只应有一个在跑。
+        cancelDwell()
+        dwellKind = kind
         dwellTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             guard !Task.isCancelled else { return }
@@ -423,9 +450,14 @@ final class WordLookupTextView: NSTextView, NSTextViewDelegate {
         }
     }
 
-    private func cancelDwell() {
+    /// 取消计时器。
+    ///
+    /// - Parameter kind: 只取消**这一种**；传 nil = 全取消（切换语义时用，如「有了选区就不看悬停」）。
+    private func cancelDwell(_ kind: DwellKind? = nil) {
+        if let kind, dwellKind != kind { return }
         dwellTask?.cancel()
         dwellTask = nil
+        dwellKind = nil
     }
 }
 

@@ -764,9 +764,21 @@ public final class AppState {
     public internal(set) var isCelebratingToday = false
     /// 点黑板上的小图标 → 切到「学习进度」并滚到今日任务卡（每次 +1 触发一次滚动）。
     public internal(set) var progressFocusTick = 0
-    /// 「切过去之后还要滚到今日任务卡」这个意图**还没被学习进度页消费**。
+    /// 「切过去之后还要滚到某张卡」这个意图**还没被学习进度页消费**（nil = 没有意图）。
     /// 与 tick 并行存在：tick 管「已经在这一页时再点一次」，它管「页面是刚被切出来的」。
-    var progressFocusPending = false
+    var progressFocusPending: ProgressFocusTarget?
+    /// 年度汇总跑过没有。
+    ///
+    /// 开屏那一下**故意不跑**全年（`refreshTodayPanel`：53×7 的热力图不该挂在启动关键路径上），
+    /// 所以「进度快照是新的」并**不**意味着年度卡有内容。火苗徽章跳过去时要按它判断，
+    /// 否则会把人送到一张空网格上。
+    var hasAnnualRecap = false
+    /// 年度汇总**正在跑**（它有自己的在途锁，不搭 `isLoadingProgress` 那班车）。
+    ///
+    /// ⚠️ 两件取数必须各管各的在途：`isLoadingProgress` 锁的是「窗口快照正在跑」，
+    /// 而开屏那一轮恰好**只查窗口**。火苗徽章点得早就撞上它，被那道重入保护直接弹回，
+    /// 年度汇总永远不跑、也没有任何东西会再来补 —— 用户停在空网格上。
+    var isLoadingAnnualRecap = false
 
     static let todayCelebratedDayKey = "today.celebratedDayKey"
     static let todayBoardAutoExpandedDayKey = "today.boardAutoExpandedDayKey"

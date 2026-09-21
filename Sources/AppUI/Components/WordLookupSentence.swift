@@ -171,7 +171,18 @@ public struct WordLookupSentence: View {
     }
 
     public var body: some View {
-        WordLookupText(
+        // ⚠️ **这一句必须留在 body 里**（2026-09-21 阅读页划词报障的根因）。
+        //
+        // `anchorPreference` 的 transform 要到**布局期**才跑，而布局期不登记观察依赖 ——
+        // 卡是异步取回来的（问本地词库 / 模型都要等），探测那一刻 `presenter.request`
+        // 还是 nil，于是那次算出来的锚点是 nil；等卡真的到了，**没有任何东西会让这一句
+        // 重算锚点**，浮层手上只有一个陈旧的 nil，气泡拿不到位置就永远不出现。
+        // 实测症状：第一句划词「探测上报了、卡也回来了，锚点历史里却只有 nil」；
+        // 用户看到的是「划第一个词不翻译，划第二个词才翻译」。
+        //
+        // 在 body 里读一次、再把值**捕获进** transform：body 一重算，锚点必然跟着重算。
+        let bubbleOwner = presenter?.request?.sentenceID
+        return WordLookupText(
             attributed: resolved(),
             onProbe: { newProbe in
                 handle(newProbe)
@@ -190,8 +201,7 @@ public struct WordLookupSentence: View {
             // 位置已经没了 → 浮层无从摆位 → **气泡再也不出现**，用户必须先移出句子重划
             // （实测报障：悬停一词后再移到相邻词上不浮现）。改成按需判断之后，
             // 别的句子留着旧位置也无害（浮层的 reduce 取最后一个非 nil，非主人一律不抛）。
-            guard let presenter, presenter.request?.sentenceID == sentenceID, let lastProbe
-            else { return nil }
+            guard bubbleOwner == sentenceID, let lastProbe else { return nil }
             return WordLookupAnchor(
                 sentenceID: sentenceID, bounds: anchor,
                 wordRect: lastProbe.rect, space: lastProbe.space

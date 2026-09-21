@@ -34,6 +34,8 @@ public struct LearningProgressView: View {
 
     /// 「今日任务」卡的滚动锚点（黑板上的小图标点进来就定位到它）。
     private static let dailyTasksAnchorID = "progress.dailyTasks"
+    /// 「年度学习记录」卡的滚动锚点（侧栏火苗徽章点进来就定位到它）。
+    private static let annualRecapAnchorID = "progress.annualRecap"
 
     public init(state: AppState) { self.state = state }
 
@@ -54,6 +56,9 @@ public struct LearningProgressView: View {
                             .id(Self.dailyTasksAnchorID)
                         weeklyCard
                         annualRecapCard
+                            // 侧栏火苗徽章点进来就滚到这里（见 `AppState.openAnnualRecapInProgress`）。
+                            // 与今日任务卡同理：锚点就是卡片本身，别套 `.position`。
+                            .id(Self.annualRecapAnchorID)
                         curriculumCard
                         placementCard
                         rhythmCard
@@ -71,9 +76,9 @@ public struct LearningProgressView: View {
                 // ⚠️ 两条路都要：`onChange` 管「已经在这一页时再点一次」；
                 // `.task` 管「页面是刚被切出来的」—— 那种情况下 tick 在本视图出现**之前**
                 // 就已经加过了，`onChange` 永远不补首帧（用户实测：跳转指令收到了、页面不滚）。
-                .task { await jumpToTodayTasks(proxy) }
+                .task { await jumpToFocus(proxy) }
                 .onChange(of: state.progressFocusTick) { _, _ in
-                    Task { await jumpToTodayTasks(proxy) }
+                    Task { await jumpToFocus(proxy) }
                 }
             }
         }
@@ -104,17 +109,20 @@ public struct LearningProgressView: View {
         DailyTasksCard(plan: state.dailyPlan, onOpen: open)
     }
 
-    /// 消费一次「滚到今日任务卡」的意图：滚过去 + 把意图收掉。
+    /// 消费一次「滚到某张卡」的意图：滚过去 + 把意图收掉。
     ///
     /// ⚠️ **先消费再看要不要滚**：没有跳转意图（从侧栏正常进来）就直接返回 ——
     /// 不然每次打开这一页都会莫名其妙地滚一屏。
     /// 消费后等一小会儿再滚：页面是刚切出来的，`ScrollView` 的内容这一帧还没落位，
     /// 立刻 `scrollTo` 会滚到旧的内容高度上（学习记录页那条跳转也是这么处理的）。
-    private func jumpToTodayTasks(_ proxy: ScrollViewProxy) async {
-        guard state.consumeProgressFocus() else { return }
+    private func jumpToFocus(_ proxy: ScrollViewProxy) async {
+        guard let target = state.consumeProgressFocus() else { return }
         try? await Task.sleep(nanoseconds: 200_000_000)
         withAnimation(.easeOut(duration: 0.32)) {
-            proxy.scrollTo(Self.dailyTasksAnchorID, anchor: .top)
+            proxy.scrollTo(
+                target == .dailyTasks ? Self.dailyTasksAnchorID : Self.annualRecapAnchorID,
+                anchor: .top
+            )
         }
     }
 

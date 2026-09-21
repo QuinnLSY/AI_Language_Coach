@@ -12,15 +12,25 @@ import SwiftUI
 /// 1. **撞键当场拒绝**并说清被谁占了 —— 两个动作绑同一个键时只有一个会赢，
 ///    另一个看着配好了却按不动，那是最难自查的一类 bug；
 /// 2. **录什么都有提示**：录制中键面变成「按下新的键…」，Esc 取消；
-/// 3. **每行都能单独恢复出厂**，不用「全清一遍再重配」。
+/// 3. **每格都能单独恢复出厂**，不用「全清一遍再重配」。
+///
+/// 版式（2026-09-21 用户口径）：**一行三个、文字左对齐**。
+/// 13 个动作一行一个要把设置页拖出两屏多，而这里本来就是「查 / 改配置」的地方，
+/// 不是正文；三列一铺，卡片高度掉到原来的三分之一。
 struct ShortcutCenterCard: View {
 
     @Environment(\.forestTheme) private var theme
 
     let state: AppState
 
+    /// 三列等宽。间距给 12：格子里是「名字 + 键面 + 复位」三样东西拼起来的，
+    /// 挨太近会看成同一组的两个动作。
+    private static let columns = Array(
+        repeating: GridItem(.flexible(), spacing: 12, alignment: .leading), count: 3
+    )
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("点一个键位，再按下你想要的新组合，改完立刻生效。Esc 取消。")
                 .font(.system(size: 11, design: .rounded))
                 .foregroundStyle(theme.secondaryText)
@@ -36,8 +46,10 @@ struct ShortcutCenterCard: View {
                             .font(.system(size: 10, design: .rounded))
                             .foregroundStyle(theme.secondaryText)
                     }
-                    ForEach(Self.actions(in: group)) { action in
-                        row(action)
+                    LazyVGrid(columns: Self.columns, alignment: .leading, spacing: 8) {
+                        ForEach(Self.actions(in: group)) { action in
+                            cell(action)
+                        }
                     }
                 }
             }
@@ -75,18 +87,25 @@ struct ShortcutCenterCard: View {
         ShortcutAction.allCases.filter { $0.group == group }
     }
 
-    private func row(_ action: ShortcutAction) -> some View {
+    /// 一格 = 一个动作：名字左对齐，右边紧跟着键面与「恢复出厂」。
+    ///
+    /// ⚠️ 名字**必须留在格里**（不能像有些表那样把名字挪到键面上方另起一行）：
+    /// 那样每格会高回去，一行三个省下的高度又没了。窄格里长名字靠 `.help` 兜底 ——
+    /// 截断看得见，悬停能读全。
+    private func cell(_ action: ShortcutAction) -> some View {
         let binding = state.shortcutBinding(for: action)
         let isCapturing = state.capturingShortcutAction == action
         let conflicts = state.shortcutConflicts(for: action)
-        return HStack(spacing: 8) {
+        return HStack(spacing: 5) {
             Text(action.title)
                 .font(.system(size: 11, design: .rounded))
                 .foregroundStyle(theme.primaryText)
                 .lineLimit(1)
-            Spacer(minLength: 0)
+                .truncationMode(.tail)
+                .help(action.title)
+            Spacer(minLength: 2)
             if !conflicts.isEmpty {
-                // 撞键：不标出来，这一行的键看着好端端的，按下去却没反应。
+                // 撞键：不标出来，这一格的键看着好端端的，按下去却没反应。
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 10))
                     .foregroundStyle(theme.warning)
@@ -102,8 +121,9 @@ struct ShortcutCenterCard: View {
                 Text(isCapturing ? "按下新的键…" : binding.displayString)
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(isCapturing ? theme.onAccentFill : theme.primaryText)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
+                    .lineLimit(1)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
                     .background(Capsule().fill(isCapturing ? theme.accentFill : theme.surfaceAlt))
                     .contentShape(Capsule())
             }
@@ -116,12 +136,13 @@ struct ShortcutCenterCard: View {
                 Image(systemName: "arrow.counterclockwise")
                     .font(.system(size: 10))
                     .foregroundStyle(theme.secondaryText)
-                    .frame(width: 18, height: 18)
+                    .frame(width: 16, height: 16)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("恢复出厂键（\(action.defaultBinding.displayString)）")
             .accessibilityLabel("把「\(action.title)」恢复成出厂键 \(action.defaultBinding.displayString)")
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

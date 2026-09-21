@@ -196,4 +196,50 @@ final class Round53ChangeBoardRenderTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - ④ 快捷键中心：一行三个的紧凑版式（#286）
+
+    /// 版式由「一行一个」改为「一行三个」之后，卡片高度必须真的**掉下来**。
+    ///
+    /// 断言方式刻意**不写死阈值**：先量出「同样的 13 个动作一行一个」的**下界**高度
+    /// （只算标题行与行距，连键面、复位箭头、分组标题都不算），再要求卡片真身比这个下界还矮 ——
+    /// 那等价于「肯定不再是 13 行」。写死阈值的版本会随字号漂移，下界不会。
+    ///
+    /// 撤掉改动（`LazyVGrid` 改回 `ForEach { row(...) }`）时这条会红。
+    func testShortcutRowsArePackagedThreePerLine() throws {
+        let state = makeState()
+        let card = try render(AnyView(ShortcutCenterCard(state: state)), width: 560)
+        let oneColumnLowerBound = try oneColumnLowerBoundHeight()
+
+        XCTAssertGreaterThan(card.size.height, 120, "前提：卡片真的画出了东西")
+        // 实测：三列 224pt，下界 326pt（比值 0.69）。留到 0.8 仍然钉得住 ——
+        // 退成**两列**时高度会涨到 ~284pt（0.87）也会被这条挡下来。
+        XCTAssertLessThan(
+            card.size.height, oneColumnLowerBound * 0.8,
+            "卡片（\(card.size.height)pt）必须明显矮于「13 个动作一行一个」的下界"
+            + "（\(oneColumnLowerBound)pt），否则说明没按三列铺"
+        )
+        try dump(card.rep, name: "round53-shortcuts-three-per-row-day.png")
+    }
+
+    /// 「13 个动作一行一个」的**下界**高度：只堆标题与行距，别的什么都不加。
+    ///
+    /// 真·旧版式的每一行还有键面胶囊与复位箭头，所以旧版式只会比它更高 ——
+    /// 拿它当下界是安全的（不会出现「旧版式反而比下界矮」这种误判）。
+    private func oneColumnLowerBoundHeight() throws -> CGFloat {
+        let theme = ForestThemeResolver.resolve(mode: .day, systemIsDark: false)
+        let host = NSHostingView(rootView: AnyView(
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(ShortcutAction.allCases) { action in
+                    Text(action.title).font(.system(size: 11, design: .rounded))
+                }
+            }
+            .forestTheme(theme)
+        ))
+        host.frame = NSRect(x: 0, y: 0, width: 560, height: 100)
+        host.layoutSubtreeIfNeeded()
+        let height = ceil(host.fittingSize.height)
+        XCTAssertGreaterThan(height, 200, "前提：这个下界本身要足够高，否则这条断言没有意义")
+        return height
+    }
 }

@@ -204,8 +204,11 @@ public struct WordLookupBubble: View {
                     action: onRetryLookup
                 )
             }
-            iconButton(
-                systemImage: "magnifyingglass.circle",
+            // ⚠️ 这一颗与**复习卡词条行那颗**共用同一个组件：同一个动作
+            // （把这个词送去词典查）在两处必须长得一样，各写一遍就迟早会长歪。
+            // 图标口径写在 `LookupDictionaryButton` 里，这里只给命中区边长。
+            LookupDictionaryButton(
+                side: Self.iconSide,
                 help: "在词典里查「\(card.text)」",
                 action: onOpenDictionary
             )

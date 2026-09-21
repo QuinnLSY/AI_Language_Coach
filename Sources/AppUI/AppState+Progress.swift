@@ -54,13 +54,15 @@ extension AppState {
         async let insight = services.weeklyInsight()
         let snapshot: ProgressSnapshot
         if includeAnnual {
-            async let recap = services.annualRecap(goalMinutes: effectiveGoalMinutes)
-            snapshot = await services.progressSnapshot(
+            async let snapshotTask = services.progressSnapshot(
                 days: progressWindowDays,
                 totalStars: progress.totalStars,
                 goalMinutes: effectiveGoalMinutes
             )
-            annualRecap = await recap
+            // 年度那一侧先起（`async let` 已经把窗口查询挂到并行的子任务上了），
+            // 它自带在途保护与「已经加载过」短路 —— 见 `ensureAnnualRecapLoaded`。
+            await ensureAnnualRecapLoaded()
+            snapshot = await snapshotTask
         } else {
             snapshot = await services.progressSnapshot(
                 days: progressWindowDays,
@@ -70,6 +72,23 @@ extension AppState {
         }
         progressSnapshot = snapshot
         weeklyInsight = await insight
+    }
+
+    /// 把年度学习记录取回来（**单独的加载口**，不复用 `reloadProgress` 的重入保护）。
+    ///
+    /// ⚠️ 为什么不直接 `await reloadProgress(includeAnnual: true)`：那道锁管的是
+    /// 「窗口快照正在跑」，而开屏那一轮恰好**只查窗口**。火苗徽章点得早就撞上它，
+    /// 被重入保护直接弹回 → 年度汇总永远不跑，用户停在空网格上。
+    /// 年度取数自己再加一道在途锁，两件事才不会互相饿死。
+    ///
+    /// 已经加载过就直接返回：`annualRecap` 是**只读缓存**，同一会话里没有必要重查
+    /// （换窗口 / 手动刷新都会走一遍 `reloadProgress`，那里才是该刷新的地方）。
+    func ensureAnnualRecapLoaded() async {
+        guard !hasAnnualRecap, !isLoadingAnnualRecap else { return }
+        isLoadingAnnualRecap = true
+        defer { isLoadingAnnualRecap = false }
+        annualRecap = await services.annualRecap(goalMinutes: effectiveGoalMinutes)
+        hasAnnualRecap = true
     }
 
     /// 能力定位（#229）：由进度快照 + 词汇量折出来的**估计值**，与课程进度无关。
