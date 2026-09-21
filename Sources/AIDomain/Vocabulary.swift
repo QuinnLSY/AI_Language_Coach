@@ -22,6 +22,15 @@ public struct VocabularyEntry: Sendable, Equatable, Identifiable, Codable {
     public var reviewCount: Int
     /// 最近一次复习时间（没复习过为 nil）。
     public var lastReviewedAt: Date?
+    /// 这个词的**个人难度系数**（乘在复习间隔上）。
+    ///
+    /// 同一个掌握度档位里，有的词你三遍就记住、有的词隔天就忘 —— 只用 `mastery`
+    /// 决定间隔，等于让这两个词下次见面的时间一样。这个系数就是**这个词自己的**
+    /// 历史表现：连对往上加、答错往下减（口径见 `ReviewScheduler`）。
+    ///
+    /// ⚠️ 默认 `= ReviewScheduler.defaultEase`（2.5），此时系数恰好为 1 ——
+    /// 老数据与「还没复习过的词」的间隔与改造前**完全一致**，不会一升级就把复习节奏打乱。
+    public var ease: Double
     /// 来源。
     public enum Source: String, Codable, Sendable {
         /// 会话复盘提取（第 20 步 new_words）。
@@ -46,6 +55,7 @@ public struct VocabularyEntry: Sendable, Equatable, Identifiable, Codable {
         mastery: Int = 0,
         reviewCount: Int = 0,
         lastReviewedAt: Date? = nil,
+        ease: Double = ReviewScheduler.defaultEase,
         source: Source = .manual,
         createdAt: Date = Date()
     ) {
@@ -57,6 +67,8 @@ public struct VocabularyEntry: Sendable, Equatable, Identifiable, Codable {
         self.mastery = min(max(mastery, 0), 5)
         self.reviewCount = max(reviewCount, 0)
         self.lastReviewedAt = lastReviewedAt
+        // 夹到上下限内：从库里读出来的旧值 / 手改的值不该把间隔算成负数或荒唐地大。
+        self.ease = min(max(ease, ReviewScheduler.minEase), ReviewScheduler.maxEase)
         self.source = source
         self.createdAt = createdAt
     }
@@ -72,7 +84,9 @@ public struct VocabularyEntry: Sendable, Equatable, Identifiable, Codable {
 /// 规则（刻意简单，先可用再谈科学）：
 /// - 掌握度 0–5，对应复习间隔 `[当天, 1, 2, 4, 7, 14]` 天；
 /// - 复习答对 → 掌握度 +1（封顶 5）；答错 → −1（保底 0），且**当天重新到期**；
-/// - 没复习过的新词永远当天到期（不加间隔就见不到第二面）。
+/// - 没复习过的新词永远当天到期（不加间隔就见不到第二面）；
+/// - **间隔再乘一个每词自己的难度系数**（`ease`）：连对加、答错减，
+///   所以「总忘的词」会比同档位的其它词更早被叫回来（见 `reviewIntervalDays(for:)`）。
 public enum ReviewScheduler {
     /// 掌握度上限。
     public static let maxMastery = 5
@@ -82,12 +96,43 @@ public enum ReviewScheduler {
     /// 各掌握度对应的复习间隔（天）。
     public static let intervalDays: [Int] = [0, 1, 2, 4, 7, 14]
 
+    // MARK: 个人难度系数（每词一份，不再一档一价）
+
+    /// 系数的初值 / 中性值。
+    ///
+    /// ⚠️ 取它做「中性」是**刻意的**：间隔按 `系数 ÷ defaultEase` 折算，
+    /// 新词与老数据都是这个值 → 折算结果 = 1，即**与没有这个系数时完全一致**。
+    /// 老用户升级上来不会突然发现复习节奏变了。
+    public static let defaultEase: Double = 2.5
+
+    /// 系数下限：再怎么忘，间隔也不该短到一天来三遍（会把复习变成折磨）。
+    public static let minEase: Double = 1.3
+
+    /// 系数上限：再怎么顺，也不该把已掌握的词拖到一个月后才见一面。
+    public static let maxEase: Double = 2.8
+
+    /// 答对一次加多少。
+    public static let easeStepUp: Double = 0.1
+
+    /// 答错一次减多少（**比加的多一倍**：忘一次的代价本就该大于记住一次的收益）。
+    public static let easeStepDown: Double = 0.2
+
+    /// 这个词**当前**的复习间隔（天）= 掌握度档位 × 个人难度系数。
+    ///
+    /// 只按 mastery 取档位是不够的：同一档里的词「好不好记」差别很大，
+    /// 用同一份间隔等于默认它们一样难。系数来自这个词自己的历史表现
+    /// （连对往上、答错往下），所以**总忘的词自然会更早被叫回来**。
+    public static func reviewIntervalDays(for entry: VocabularyEntry) -> Double {
+        let base = Double(intervalDays[min(entry.mastery, intervalDays.count - 1)])
+        return base * entry.ease / defaultEase
+    }
+
     /// 该词是否到期应复习。
     public static func isDue(_ entry: VocabularyEntry, now: Date = Date()) -> Bool {
         guard entry.mastery < masteredMastery else { return false }
         guard let last = entry.lastReviewedAt else { return true }
-        let days = intervalDays[min(entry.mastery, intervalDays.count - 1)]
-        return now.timeIntervalSince(last) >= Double(days) * 86_400
+        let days = reviewIntervalDays(for: entry)
+        return now.timeIntervalSince(last) >= days * 86_400
     }
 
     /// 待复习的词（保持传入顺序）。
@@ -156,13 +201,19 @@ public enum ReviewScheduler {
     }
 
     /// 判分后的新状态（不改传入值）。
+    ///
+    /// 除了掌握度 ±1，这里还要动 `ease`：掌握度只能表达「现在在第几档」，
+    /// 表达不了「这个词是不是比同档的其它词更难」。同一个词连着答对，下次可以晚点见；
+    /// 同一个词反复答错，就得比档位规定的更早叫回来 —— 这正是 `ease` 唯一的作用。
     public static func graded(_ entry: VocabularyEntry, _ grade: Grade, now: Date = Date()) -> VocabularyEntry {
         var next = entry
         switch grade {
         case .remembered:
             next.mastery = min(entry.mastery + 1, maxMastery)
+            next.ease = min(entry.ease + easeStepUp, maxEase)
         case .forgotten:
             next.mastery = max(entry.mastery - 1, 0)
+            next.ease = max(entry.ease - easeStepDown, minEase)
         }
         next.reviewCount = entry.reviewCount + 1
         next.lastReviewedAt = now

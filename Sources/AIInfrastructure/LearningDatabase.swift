@@ -20,7 +20,7 @@ public actor LearningDatabase {
     ///     + **一次性清零闯关进度**（需求 1：从零开始学习）。
     /// v10：新增 writing_entries（写作批改记录）/ reading_passages（当天短文与作答进度，
     ///      #233：阅读当天多篇固定展示、写作与阅读进学习记录）。
-    public static let schemaVersion = 10
+    public static let schemaVersion = 11
 
     /// 测试用内存库。
     public static func inMemory() throws -> LearningDatabase {
@@ -217,6 +217,18 @@ public actor LearningDatabase {
         )
         """)
         try db.run("CREATE INDEX IF NOT EXISTS idx_reading_day ON reading_passages(day_key, created_at ASC)")
+
+        // v10 → v11：词汇本补「个人难度系数」列（复习间隔按词自适应）。
+        //
+        // 加列而不是重建表：老库里的掌握度 / 复习次数是学员攒下来的学习资产，
+        // 重建等于清零。
+        //
+        // ⚠️ DEFAULT 直接写进 DDL 而不是等读出时再兜 nil：老行在**加列的那一刻**
+        // 就被填上中性值，库里根本不存在 NULL 行 —— 少一条「读出时才发现是旧数据」
+        // 的分支，也就少一处会漏测的兜底。常量走插值而非写死 2.5，避免两处漂移。
+        try? db.run(
+            "ALTER TABLE vocabulary_items ADD COLUMN ease REAL DEFAULT \(ReviewScheduler.defaultEase)"
+        )
 
         try db.setSchemaVersion(Self.schemaVersion)
     }
@@ -1000,8 +1012,8 @@ public actor LearningDatabase {
             """
             INSERT INTO vocabulary_items
                 (id, word, meaning, example, difficulty, mastery, review_count,
-                 last_reviewed_at, source, created_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                 last_reviewed_at, ease, source, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
             """,
             [
                 .text(entry.id.uuidString),
@@ -1012,6 +1024,7 @@ public actor LearningDatabase {
                 .int(entry.mastery),
                 .int(entry.reviewCount),
                 entry.lastReviewedAt.map { .real($0.timeIntervalSince1970) } ?? .null,
+                .real(entry.ease),
                 .text(entry.source.rawValue),
                 .real(entry.createdAt.timeIntervalSince1970),
             ]
@@ -1024,7 +1037,7 @@ public actor LearningDatabase {
         try db.query(
             """
             SELECT id, word, meaning, example, difficulty, mastery, review_count,
-                   last_reviewed_at, source, created_at
+                   last_reviewed_at, source, created_at, ease
             FROM vocabulary_items ORDER BY created_at DESC
             """
         ) { row -> VocabularyEntry? in
@@ -1042,6 +1055,10 @@ public actor LearningDatabase {
                 mastery: row.int(5) ?? 0,
                 reviewCount: row.int(6) ?? 0,
                 lastReviewedAt: row.double(7).map { Date(timeIntervalSince1970: $0) },
+                // NULL = v11 之前的老行 → 中性值：折算后间隔与升级前完全一致。
+                // ⚠️ 这一读**没有编译器兜底**（`ease` 在 init 里有默认值，漏读照样编过），
+                // 靠 `testEaseSurvivesDatabaseRoundTrip` 锁住。
+                ease: row.double(10) ?? ReviewScheduler.defaultEase,
                 source: source,
                 createdAt: Date(timeIntervalSince1970: created)
             )
@@ -1084,13 +1101,14 @@ public actor LearningDatabase {
         try db.run(
             """
             UPDATE vocabulary_items
-            SET mastery = ?1, review_count = ?2, last_reviewed_at = ?3
-            WHERE id = ?4
+            SET mastery = ?1, review_count = ?2, last_reviewed_at = ?3, ease = ?4
+            WHERE id = ?5
             """,
             [
                 .int(graded.mastery),
                 .int(graded.reviewCount),
                 .real(graded.lastReviewedAt?.timeIntervalSince1970 ?? Date().timeIntervalSince1970),
+                .real(graded.ease),
                 .text(graded.id.uuidString),
             ]
         )

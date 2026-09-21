@@ -13,9 +13,13 @@ final class VocabularyTests: XCTestCase {
         meaning: String = "",
         mastery: Int = 0,
         reviewCount: Int = 0,
-        lastReviewedAt: Date? = nil
+        lastReviewedAt: Date? = nil,
+        ease: Double = ReviewScheduler.defaultEase
     ) -> VocabularyEntry {
-        VocabularyEntry(word: word, meaning: meaning, mastery: mastery, reviewCount: reviewCount, lastReviewedAt: lastReviewedAt)
+        VocabularyEntry(
+            word: word, meaning: meaning, mastery: mastery,
+            reviewCount: reviewCount, lastReviewedAt: lastReviewedAt, ease: ease
+        )
     }
 
     func testNewWordIsAlwaysDue() {
@@ -58,6 +62,64 @@ final class VocabularyTests: XCTestCase {
         XCTAssertEqual(down.reviewCount, 1)
         let floored = ReviewScheduler.graded(makeEntry(mastery: 0), .forgotten)
         XCTAssertEqual(floored.mastery, 0, "保底 0，不为负")
+    }
+
+    // MARK: - 每词难度系数（复习间隔按词自适应）
+
+    /// 中性系数下间隔必须**与没有这个系数时完全一样** ——
+    /// 老用户升级上来不该发现复习节奏变了。
+    func testDefaultEaseLeavesTheLadderUntouched() {
+        for mastery in 0..<ReviewScheduler.intervalDays.count {
+            let base = Double(ReviewScheduler.intervalDays[mastery])
+            XCTAssertEqual(
+                ReviewScheduler.reviewIntervalDays(for: makeEntry(mastery: mastery)),
+                base, accuracy: 1e-9,
+                "掌握度 \(mastery) 在中性系数下间隔应仍是 \(base) 天"
+            )
+        }
+    }
+
+    /// 「总忘的词」要比同档位的其它词更早被叫回来 —— 这条就是这次改造的全部目的。
+    func testForgottenWordsComeBackSoonerThanSameMasteryPeers() {
+        let reviewedAt = Date()
+        let threeDaysLater = Date(timeIntervalSinceNow: 3 * 86_400)
+        let stubborn = makeEntry(mastery: 3, lastReviewedAt: reviewedAt, ease: ReviewScheduler.minEase)
+        let easy = makeEntry(mastery: 3, lastReviewedAt: reviewedAt, ease: ReviewScheduler.maxEase)
+        // 同为间隔 4 天的档位，第 3 天：系数触底的已到期（4×0.52≈2.1 天），封顶的还没到（≈4.5 天）。
+        XCTAssertTrue(ReviewScheduler.isDue(stubborn, now: threeDaysLater))
+        XCTAssertFalse(ReviewScheduler.isDue(easy, now: threeDaysLater))
+    }
+
+    /// 系数跟着判分走，且不越界。
+    func testEaseMovesWithGradesAndStaysWithinBounds() {
+        var forgotten = makeEntry(mastery: 3)
+        for _ in 0..<6 { forgotten = ReviewScheduler.graded(forgotten, .forgotten) }
+        XCTAssertEqual(forgotten.ease, ReviewScheduler.minEase, accuracy: 1e-9, "连错到底要触底")
+
+        var remembered = makeEntry(mastery: 0)
+        for _ in 0..<5 { remembered = ReviewScheduler.graded(remembered, .remembered) }
+        XCTAssertEqual(remembered.ease, ReviewScheduler.maxEase, accuracy: 1e-9, "连对到底要封顶")
+
+        // 答错减得比答对加得多：忘一次的代价本就该大于记住一次的收益。
+        XCTAssertGreaterThan(ReviewScheduler.easeStepDown, ReviewScheduler.easeStepUp)
+    }
+
+    /// 系数必须能落库取回。
+    ///
+    /// ⚠️ 这条专治「静默失效」：`ease` 在 init 里**有默认值**，读库时漏掉这一列
+    /// 编译器一声不响 —— 表现是「自适应做了但好像没生效」，极难查。
+    func testEaseSurvivesDatabaseRoundTrip() async throws {
+        // ⚠️ `inMemory()` 是**同步** throwing 工厂（actor 的 static 方法默认 nonisolated），
+        // 写 `try await` 会吃一条 "no 'async' operations occur within 'await'" 警告。
+        let db = try LearningDatabase.inMemory()
+        var entry = makeEntry(word: "stubborn", mastery: 2)
+        entry.ease = ReviewScheduler.minEase
+        // ⚠️ 别把 `await` 写进 XCTAssert 的 autoclosure —— 它不支持并发，编译不过。
+        let inserted = try await db.upsertVocabulary(entry)
+        XCTAssertTrue(inserted, "前提：这个词确实新插入了")
+        let all = try await db.allVocabulary()
+        let restored = try XCTUnwrap(all.first)
+        XCTAssertEqual(restored.ease, ReviewScheduler.minEase, accuracy: 1e-9)
     }
 
     func testStatsCounts() {
