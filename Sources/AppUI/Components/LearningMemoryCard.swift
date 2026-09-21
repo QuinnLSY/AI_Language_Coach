@@ -16,15 +16,23 @@ public struct LearningMemoryCard: View {
     private let memory: LearningMemory
     private let notice: String?
     private let onClear: () async -> Void
+    /// 就这些错练一遍（nil = 不显示入口，比如正在练的时候）。
+    private let onStartDrill: (() -> Void)?
 
     /// 二次确认：第一次点只是把按钮变成「确认清除」。
     ///
     /// 清除不可逆，一次点击就删掉几个月攒下的纠错记录，是最典型的误操作。
     @State private var confirmingClear = false
 
-    public init(memory: LearningMemory, notice: String? = nil, onClear: @escaping () async -> Void) {
+    public init(
+        memory: LearningMemory,
+        notice: String? = nil,
+        onStartDrill: (() -> Void)? = nil,
+        onClear: @escaping () async -> Void
+    ) {
         self.memory = memory
         self.notice = notice
+        self.onStartDrill = onStartDrill
         self.onClear = onClear
     }
 
@@ -96,6 +104,8 @@ public struct LearningMemoryCard: View {
         VStack(alignment: .leading, spacing: 10) {
             if !memory.recurringErrors.isEmpty {
                 section("反复犯的错", systemImage: "arrow.triangle.2.circlepath") {
+                    if let onStartDrill { drillButton(onStartDrill) }
+                } content: {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(memory.recurringErrors) { error in
                             recurringErrorRow(error)
@@ -261,8 +271,10 @@ public struct LearningMemoryCard: View {
 
     // MARK: - 小件
 
-    private func section<Content: View>(
-        _ title: String, systemImage: String, @ViewBuilder content: () -> Content
+    private func section<Content: View, Trailing: View>(
+        _ title: String, systemImage: String,
+        @ViewBuilder trailing: () -> Trailing = { EmptyView() },
+        @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 5) {
@@ -272,9 +284,32 @@ public struct LearningMemoryCard: View {
                 Text(title)
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
+                Spacer(minLength: 4)
+                trailing()
             }
             content()
         }
+    }
+
+    /// 就这些错练一遍。
+    ///
+    /// 为什么放在**这一节**的标题行而不是卡片头部：它练的就是这一节列出的这几处，
+    /// 挂在离它们最近的地方，才看得出「练一遍」练的是什么。
+    private func drillButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: "pencil.and.scribble")
+                    .font(.system(size: 10))
+                Text("练一遍")
+            }
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .foregroundStyle(theme.accent)
+            .padding(.horizontal, 8)
+            .frame(height: 20)
+            .background(Capsule().fill(theme.accent.opacity(0.12)))
+        }
+        .buttonStyle(.plain)
+        .help("把这几次反复犯的错拿出来改一遍（不消耗模型请求）")
     }
 
     private func chips(_ items: [String], tint: Color) -> some View {

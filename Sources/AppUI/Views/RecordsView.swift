@@ -22,6 +22,47 @@ public struct RecordsView: View {
 
     /// 被别的页面点名跳过来时，短暂圈一下目标卡片 ——
     /// 滚过去但没有标记，人只会看到一屏陌生的内容，不知道落在哪。
+    /// 一轮改错练习的结算。
+    private func drillSummary(_ summary: ErrorDrillSession.Summary) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.seal")
+                    .foregroundStyle(theme.success)
+                Text("改错练习")
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                Spacer(minLength: 8)
+                Button {
+                    state.dismissErrorDrillSummary()
+                } label: {
+                    Text("知道了")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.secondaryText)
+                        .padding(.horizontal, 10)
+                        .frame(height: 24)
+                        .background(Capsule().fill(theme.surfaceAlt))
+                }
+                .buttonStyle(.plain)
+            }
+            Text(summary.headline)
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(theme.primaryText)
+            if !summary.detail.isEmpty {
+                Text(summary.detail)
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(theme.surface)
+                .shadow(color: theme.shadow, radius: 8, x: 0, y: 3)
+        )
+    }
+
     @State private var highlighted: RecordsFocus?
     /// 展开的练习记录（需求 5：点卡片向下展开复盘详情，再点收起）。
     @State private var expandedSessionID: UUID?
@@ -37,9 +78,23 @@ public struct RecordsView: View {
                     VStack(alignment: .leading, spacing: 18) {
                         statsRow
                         reviewCard
+                        // 改错练习：练的时候顶掉记忆卡的入口位置，走完换成结算 ——
+                        // 三块内容是同一件事的三个阶段，同时挂出来只会让人不知道看哪个。
+                        if let drill = state.errorDrill {
+                            ErrorDrillCard(
+                                session: drill,
+                                lastOutcome: state.errorDrillLastOutcome,
+                                onSubmit: { state.submitErrorDrill(answer: $0) },
+                                onAdvance: { state.advanceErrorDrill() },
+                                onCancel: { state.finishErrorDrill() }
+                            )
+                        } else if let summary = state.errorDrillSummary {
+                            drillSummary(summary)
+                        }
                         LearningMemoryCard(
                             memory: state.learningMemory,
-                            notice: state.learningMemoryNotice
+                            notice: state.learningMemoryNotice,
+                            onStartDrill: state.errorDrill == nil ? { Task { await state.startErrorDrill() } } : nil
                         ) {
                             await state.clearLearningMemory()
                         }

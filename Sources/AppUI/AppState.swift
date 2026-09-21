@@ -373,6 +373,23 @@ public final class AppState {
     public internal(set) var learningMemory: LearningMemory = .empty
     /// 清除记忆后的结果/失败提示（清除不可逆，做完必须给回执）。
     public var learningMemoryNotice: String?
+    /// 改错练习：当前这一轮（nil = 没在练）。
+    ///
+    /// 队列 / 判定 / 结算全在 `AIDomain.ErrorDrillSession`（纯函数），这里只持有它 ——
+    /// 与 `vocabularyReview` 同一套路。
+    public internal(set) var errorDrill: ErrorDrillSession?
+    /// 刚判的那一处（非 nil = 正停在「改对了 / 正确答案是……」这句回执上，
+    /// 要用户点「下一处」才清空）。**判分与推进分成两步**是刻意的：
+    /// 交完答案立刻跳到下一题，等于没告诉他错在哪。
+    public internal(set) var errorDrillLastOutcome: ErrorDrillSession.Outcome?
+    /// 这一轮走完后的结算（走完才挂上）。
+    public internal(set) var errorDrillSummary: ErrorDrillSession.Summary?
+    /// 每处错的**连对次数**（跨轮账本：这轮对一次、下轮再对一次才算攻克）。
+    ///
+    /// ⚠️ 刻意不给默认值（与 `dailyRecognitions` 同一条纪律）：这是跨启动恢复的
+    /// 持久化状态，由手写 `init(services:)` 从 UserDefaults 加载。给了 `= [:]`
+    /// 就等于允许「哪天加载那行被删掉、练过的记录全没了」这种静默退化。
+    var errorDrillStreaks: [String: Int]
     /// 是否正在生成复盘（按钮 loading）。
     public internal(set) var isGeneratingReview = false
     /// 数据目录缓存快照（设置页「缓存管理」卡片）。
@@ -852,6 +869,8 @@ public final class AppState {
         self.shortcutBindings = Self.loadShortcutBindings()
         // 词典「最近查过」（同样手写加载）。
         self.recentDictionaryWords = Self.loadRecentDictionaryWords()
+        // 改错练习的连对账本（同样手写加载）。
+        self.errorDrillStreaks = Self.loadErrorDrillStreaks()
         // 学员每说完一句 → 实时保存主线任务进度（需求 5：练习内容先实时保存）。
         // ⚠️ 用捕获列表避免循环引用：`chat` 被 `self` 持有，闭包再强持有 `self` 就是环。
         chat.onLearnerTurn = { [weak self] in

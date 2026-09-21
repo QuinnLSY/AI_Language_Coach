@@ -90,9 +90,15 @@ public enum PromptBuilder {
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {
+            // ⚠️ 兜底必须与 `learning_memory.txt` 口径一致（尤其「(x2) 以上要主动给机会」
+            // 那条）：模板文件万一取不到，老师拿到的指令不能因此少一条，
+            // 否则同一份记忆在不同机器上教出两种强度。
             template = """
             Learner memory from earlier sessions — use it lightly, never recite it:
             {memory_items}
+            - Mistakes marked (x2) or more: when the conversation naturally allows it, steer toward \
+            a question the learner would have to answer using that form, and let them try before \
+            you correct. At most once per reply, and never announce it.
             - Reply in {learning_language} only, even if the learner writes in {native_language}.
             """
         }
