@@ -582,6 +582,45 @@ public final class AppState {
     /// 专项在练哪个音（nil = 不在专项里）。
     public internal(set) var phonemeDrillFocus: String?
 
+    // MARK: 无文本听力（进阶 ④）
+
+    /// 是否正处在听写会话里（true = 精听接管了跟读页的正文区）。
+    ///
+    /// 会话就**长在跟读页上**而不是另开一页：素材是同一批（今天的句子）、
+    /// 声音是同一把、链路是同一套，另开一页只会让侧栏多一个入口、
+    /// 让数字快捷键整体挪位，而用户要做的其实只是「这批句子先别给我看字」。
+    public internal(set) var isListeningDrill = false
+    /// 这一轮要听写的句子（开轮时定下，中途不随素材变动）。
+    ///
+    /// 与「每次现算」的 `shadowingPassages` 相反：这里刻意存下来 ——
+    /// 听写是逐句累进的，练到第 5 句时素材被换掉（点「换一批」/ 进音素专项），
+    /// 存着的这一轮还能善终，现算的话第 5 句会突然变成另一句。
+    public internal(set) var listeningRound: [ShadowingDrill] = []
+    /// 轮到第几句。
+    public internal(set) var listeningIndex = 0
+    /// 学员正在写的那句（提交后清空）。
+    public var listeningDraft = ""
+    /// 刚提交的对照结果（nil = 还没交；非 nil = 停在这一句的回执上）。
+    public internal(set) var listeningResult: ListeningAttempt?
+    /// 这一轮已交的听写。
+    public internal(set) var listeningAttempts: [ListeningAttempt] = []
+    /// 这一句已经听了几遍（提交后归零）。
+    public internal(set) var listeningPlayCount = 0
+    /// 慢速播放开关（下一次播放生效）。
+    public internal(set) var listeningSlowPlayback = false
+    /// 正在放声音。
+    public internal(set) var listeningIsPlaying = false
+    /// 这一轮的结算（走完才挂上）。
+    public internal(set) var listeningSummary: ListeningSummary?
+    /// 精听的提示（可关闭）。
+    public internal(set) var listeningNotice: String?
+    /// 当天账本（句 id → 最佳准确率）。
+    ///
+    /// ⚠️ 刻意不给默认值（与 `errorDrillStreaks` 同一条纪律）：这是跨启动恢复的
+    /// 持久化状态，由手写 `init(services:)` 从 UserDefaults 加载。给了 `= .empty`
+    /// 就等于允许「哪天加载那行被删掉、今天写对的句子全没了」这种静默退化。
+    var listeningLog: ListeningLog
+
     // MARK: 段落级跟读（#232）
 
     /// 跟读粒度：一句一练 / 整段跟读。
@@ -886,6 +925,8 @@ public final class AppState {
         self.recentDictionaryWords = Self.loadRecentDictionaryWords()
         // 改错练习的连对账本（同样手写加载）。
         self.errorDrillStreaks = Self.loadErrorDrillStreaks()
+        // 精听当天账本（同样手写加载；读进来的还会过一道跨天归零）。
+        self.listeningLog = Self.loadListeningLog()
         // 学员每说完一句 → 实时保存主线任务进度（需求 5：练习内容先实时保存）。
         // ⚠️ 用捕获列表避免循环引用：`chat` 被 `self` 持有，闭包再强持有 `self` 就是环。
         chat.onLearnerTurn = { [weak self] in
