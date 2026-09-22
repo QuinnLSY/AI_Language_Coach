@@ -156,7 +156,8 @@ final class BubbleActionsRenderTests: XCTestCase {
         /// 于是「贴在气泡上、没把对话顶下去」这条永远判不出来（实测报 273pt）。
         var largest: Blob? { blobs.first }
         /// 只算**够大**的块：零星散点（页头偶发的那几个像素）不算数。
-        var significantPixels: Int { blobs.filter { $0.count >= 40 }.reduce(0) { $0 + $1.count } }
+        var significantBlobs: [Blob] { blobs.filter { $0.count >= 40 } }
+        var significantPixels: Int { significantBlobs.reduce(0) { $0 + $1.count } }
         var totalDescription: String { "共 \(count) 像素，\(blobs.count) 块" }
     }
 
@@ -174,6 +175,44 @@ final class BubbleActionsRenderTests: XCTestCase {
         NSGraphicsContext.restoreGraphicsState()
         let data = try XCTUnwrap(out.bitmapData)
         return (Array(UnsafeBufferPointer(start: data, count: width * height * 4)), width, height)
+    }
+
+    /// 字节级取样（RGBA8）。
+    private func sample(
+        _ image: (bytes: [UInt8], width: Int, height: Int), x: Int, y: Int
+    ) -> (r: Int, g: Int, b: Int) {
+        let offset = (y * image.width + x) * 4
+        return (Int(image.bytes[offset]), Int(image.bytes[offset + 1]), Int(image.bytes[offset + 2]))
+    }
+
+    private func differs(
+        _ pixel: (r: Int, g: Int, b: Int), from reference: (r: Int, g: Int, b: Int)
+    ) -> Bool {
+        abs(pixel.r - reference.r) > 8 || abs(pixel.g - reference.g) > 8
+            || abs(pixel.b - reference.b) > 8
+    }
+
+    /// 在给定的 x 区间里，**最后一个「有内容」的像素行**（内容 = 与页面底色不同）。
+    ///
+    /// 用来找气泡的下沿：学员气泡靠右，验的那几列取动作行的横向范围，
+    /// 那一带在 idle 图上只有气泡本身（图标此刻是全透明的）。
+    ///
+    /// ⚠️ 必须限定 `yRange`：底部那根**通栏输入框**也在这些列上，
+    /// 不设上界的话「最后一个有内容的行」永远是输入框（实测 1219），气泡下沿就永远找不着。
+    private func contentBottom(
+        in render: Render,
+        xRange: ClosedRange<Int>,
+        yRange: Range<Int>,
+        background: (r: Int, g: Int, b: Int)
+    ) throws -> Int {
+        let image = try rgba(render.rep)
+        var last = 0
+        for y in yRange.clamped(to: 0..<image.height) {
+            for x in xRange where differs(sample(image, x: x, y: y), from: background) {
+                last = y
+            }
+        }
+        return last
     }
 
     /// 两张图的差异像素 + 连通块。
@@ -245,9 +284,9 @@ final class BubbleActionsRenderTests: XCTestCase {
         try png.write(to: directory.appendingPathComponent(name))
     }
 
-    // MARK: - ① 学员气泡：悬停才出现，且只是「贴上去」
+    // MARK: - ① 学员气泡：悬停才出现，且整个落在气泡下方
 
-    func testLearnerActionsAppearOnHoverWithoutPushingTheLayout() async throws {
+    func testLearnerActionsAppearOnHoverBelowTheBubble() async throws {
         let chat = try await makeChat()
         let user = try XCTUnwrap(
             chat.visibleMessages.first { $0.role == .user }, "夹具里应当有一条学员消息"
@@ -257,6 +296,7 @@ final class BubbleActionsRenderTests: XCTestCase {
         let hovered = try render(chatView(chat, hovered: user.id), size: canvas)
         let diff = try compare(idle, hovered)
         let blob = try XCTUnwrap(diff.largest, "悬停时一个像素都没变 —— 三颗图标根本没出来")
+        let blocks = diff.significantBlobs
 
         XCTAssertGreaterThan(
             diff.significantPixels, 100,
@@ -264,13 +304,37 @@ final class BubbleActionsRenderTests: XCTestCase {
         )
         XCTAssertLessThan(
             blob.heightPt(scale: idle.scale), 26,
-            "动作行是**贴在气泡上**的：多出来的墨迹只该占 20pt 高的一带；"
-                + "实测 \(blob.heightPt(scale: idle.scale))pt —— 变高说明它变成「插了一行」，"
-                + "鼠标一进去整段对话就会跳"
+            "动作行只有 20pt 高的一行图标；实测 \(blob.heightPt(scale: idle.scale))pt"
+                + " —— 更高说明它把气泡撑起来了，鼠标一进去整段对话就会跳"
         )
         XCTAssertGreaterThan(
             blob.minXPt(scale: idle.scale), canvas.width * 0.5,
-            "学员的三颗在气泡**右下角**（实测左边界 \(blob.minXPt(scale: idle.scale))pt）"
+            "学员的动作行**右对齐**（实测左边界 \(blob.minXPt(scale: idle.scale))pt）"
+        )
+
+        // 「不盖字」：这一行整个落在气泡**下方**，悬停不得动到气泡及其以上的任何像素。
+        //
+        // ⚠️ 判据走**连通块**而不是「差异像素的最小 y」：这台机器上页头偶发会有一两个像素
+        // 跟着动（同一份输入连出两次不出现、隔几次冒一次），拿全页最小 y 去比会常年假警；
+        // 而零星散点凑不出 40 像素的一块。
+        let xRange = (blocks.map(\.minX).min() ?? 0)...(blocks.map(\.maxX).max() ?? 0)
+        let iconBottom = blocks.map(\.maxY).max() ?? 0
+        let midY = blocks.map { ($0.minY + $0.maxY) / 2 }.max() ?? 0
+        let background = sample(try rgba(idle.rep), x: 20, y: midY)
+        let bubbleBottom = try contentBottom(
+            in: idle, xRange: xRange, yRange: 0..<(iconBottom + 1), background: background
+        )
+
+        let covering = blocks.filter { $0.minY <= bubbleBottom }
+        XCTAssertTrue(
+            covering.isEmpty,
+            "动作行必须整个落在气泡下沿（y=\(bubbleBottom)）以下；实测有 \(covering.count) 块压在它上面"
+                + "（\(covering.map { "\($0.minX),\($0.minY)-\($0.maxX),\($0.maxY)" }.joined(separator: " / "))）"
+                + " —— 压在气泡上就是盖住了正文"
+        )
+        XCTAssertTrue(
+            blocks.contains { $0.minY > bubbleBottom },
+            "气泡下沿以下必须真的多出墨迹（三颗图标），实测一块都没有"
         )
 
         try dump(idle, name: "round307-bubble-idle.png")

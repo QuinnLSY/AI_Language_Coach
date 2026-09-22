@@ -955,40 +955,12 @@ public struct ChatView: View {
                                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                                     .strokeBorder(theme.divider, lineWidth: 1)
                             )
-                            // 学员气泡的三颗动作贴在气泡**右下角**（位置与参考图一致）。
-                            //
-                            // ⚠️ 用 `overlay` 而不是「在正文下面加一行」：加行会让气泡在鼠标
-                            // 进入的瞬间长高、整段对话跟着上下跳；而参考图里那三颗本来就与
-                            // 最后一行文字同高。正文占满整行时会被它们盖住尾巴，所以底下
-                            // 垫一道**同色渐隐** —— 被遮住的部分是渐隐掉，不是被切断。
-                            .overlay(alignment: .bottomTrailing) {
-                                if isUser, isHovered {
-                                    LearnerBubbleActionRow(
-                                        text: message.content,
-                                        isEnabled: canMutateMessages,
-                                        onDelete: { onDeleteMessage?(message.id) },
-                                        onEdit: { beginEditing(message) }
-                                    )
-                                    .padding(.leading, 26)
-                                    .padding(.trailing, 6)
-                                    .padding(.bottom, 4)
-                                    .background(
-                                        LinearGradient(
-                                            colors: [theme.bubbleUser.opacity(0), theme.bubbleUser],
-                                            startPoint: .leading,
-                                            endPoint: .trailing
-                                        )
-                                    )
-                                    .transition(.opacity)
-                                }
-                            }
                         if !isUser {
                             TranslateButton(isOn: translation != nil, isLoading: isTranslating) {
                                 Task { await onTranslate?(message.id) }
                             }
                         }
                     }
-                    .animation(.easeOut(duration: 0.12), value: isHovered)
                 }
                 if let translation {
                     translationCard(translation, isUser: isUser)
@@ -1019,6 +991,24 @@ public struct ChatView: View {
                         )
                         Spacer(minLength: 0)
                     }
+                }
+                // 学员气泡的动作行：贴在气泡**下方**、右对齐（与老师气泡同一排法）。
+                //
+                // ⚠️ 为什么不在气泡**里面**：叠在右下角时，短句的最后一行文字末尾会被
+                // 那三颗盖住（出图实测；用户看过图之后把位置定在了气泡外）。
+                // ⚠️ 为什么用「常驻占位 + 只改透明度」而不是 `if isHovered`：后者会让
+                // 气泡在鼠标进入的瞬间长高、整段对话跟着上下跳；占位高度恒定，跳就不可能发生。
+                // ⚠️ 藏起来时必须 `allowsHitTesting(false)` —— 否则那三颗看不见的按钮照样点得动。
+                if isUser {
+                    LearnerBubbleActionRow(
+                        text: message.content,
+                        isEnabled: canMutateMessages,
+                        onDelete: { onDeleteMessage?(message.id) },
+                        onEdit: { beginEditing(message) }
+                    )
+                    .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
+                    .animation(.easeOut(duration: 0.12), value: isHovered)
                 }
             }
             .onHover { inside in updateHover(inside, on: message) }
