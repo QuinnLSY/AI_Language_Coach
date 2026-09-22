@@ -475,7 +475,11 @@ public struct MainView: View {
                     onExamTimeout: { Task { await state.examQuestionTimedOut() } },
                     onExamSkip: { Task { await state.skipExamQuestion() } },
                     onExamFinish: { Task { await state.finishExam() } },
-                    onSend: { text in state.sendChat(text) }
+                    onSend: { text in state.sendChat(text) },
+                    onDeleteMessage: { id in state.deleteChatMessage(id) },
+                    onResendEditedMessage: { id, text in state.resendEditedChatMessage(id, text: text) },
+                    onRegenerateReply: { id in state.regenerateChatReply(to: id) },
+                    canMutateMessages: state.canMutateChatMessages
                 )
             }
             }

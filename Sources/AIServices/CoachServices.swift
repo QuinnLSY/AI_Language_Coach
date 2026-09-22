@@ -1640,6 +1640,22 @@ public actor CoachServices {
         try? await learning.appendMessage(message, sessionID: sessionID)
     }
 
+    /// 删掉若干条消息（气泡上的「删除」）。失败不清空界面 —— 上层据此决定要不要弹提示。
+    ///
+    /// - Returns: 真的删掉的行数；nil = 没有可用数据库。
+    @discardableResult
+    public func deleteMessages(ids: [UUID], sessionID: UUID) async -> Int? {
+        guard let learning else { return nil }
+        return (try? await learning.deleteMessages(ids: ids, sessionID: sessionID)) ?? nil
+    }
+
+    /// 改写一条消息的正文（气泡内编辑后重发）。
+    @discardableResult
+    public func updateMessageContent(id: UUID, content: String) async -> Bool {
+        guard let learning else { return false }
+        return (try? await learning.updateMessageContent(id: id, content: content)) != nil
+    }
+
     public func finishSession(_ sessionID: UUID) async {
         guard let learning else { return }
         try? await learning.finishSession(id: sessionID)
@@ -2082,6 +2098,14 @@ public actor CoachServices {
     }
 
     // MARK: - 今日跟读（每天按情景现生成 20 句）
+
+    /// 每句跟读的**最近一次**记录（`drill_id` → 最新一条）。
+    ///
+    /// 跟读页「每句的分析常驻」在重启后靠它把之前读过的几句摆回来。
+    public func latestShadowingAttempts(drillIDs: [String]) async -> [String: ShadowingAttempt] {
+        guard let learning, !drillIDs.isEmpty else { return [:] }
+        return (try? await learning.latestShadowingAttempts(drillIDs: drillIDs)) ?? [:]
+    }
 
     /// 今日缓存的跟读句子（日期或学习语言不匹配 → nil）。
     public func shadowingCachedDrills(day: String?) async -> [ShadowingDrill]? {

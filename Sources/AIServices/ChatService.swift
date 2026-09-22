@@ -203,6 +203,143 @@ public final class ChatService {
         attachmentRoot.appendingPathComponent(AttachmentStore.fileName(of: attachment.storedPath))
     }
 
+    // MARK: - 气泡上的动作（删除 / 编辑重发 / 重新生成）
+    //
+    // 三条动作共用一套「先改内存、再落库、最后重建引擎上下文」的顺序：
+    // 顺序反过来（先落库）在界面上的表现是「点了没反应，过一会儿才变」，
+    // 而且一旦落库失败，界面已经改了，两边就再也对不上。
+
+    /// 删掉一条学员消息，**连同它的老师回复**。
+    ///
+    /// 为什么成对删：老师气泡按产品口径只有「复制 / 重新生成」两个动作（没有删除），
+    /// 只删学员那条会留下一条**没有提问的回复**，而学员再也删不掉它。
+    /// 判据只看「紧邻的下一条是不是老师」—— 不跨越后面更多的轮次，
+    /// 删一轮就是删一轮，不会顺手把后面聊过的内容一起带走。
+    ///
+    /// 产物（纠错 / 复盘 / 生词）**不动**：它们是学习记录，不是这条消息的一部分。
+    public func deleteMessage(_ id: UUID) {
+        guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
+        // 生成中不许改流水：这一轮的老师回复马上要写进来，改动会与它打架。
+        guard !isGenerating else { return }
+        var end = index + 1
+        if messages[index].role == .user, end < messages.count, messages[end].role == .assistant {
+            end += 1
+        }
+        let removed = dropMessages(in: index..<end)
+        guard !removed.isEmpty else { return }
+        persistDeletion(of: removed)
+    }
+
+    /// 气泡内编辑后重发：**从此处重新开始对话**。
+    ///
+    /// 语义（与产品口径一致）：这条之后的消息全部作废，用改过的内容重新问老师。
+    /// 已有产物（纠错 / 复盘 / 生词）不删 —— 那些是学习记录。
+    public func resendEditedMessage(_ id: UUID, text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard !isGenerating else { return }
+        guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
+        // ① 这条之后的全部作废（内存 + 库里都要删，见 `dropMessages` 的说明）。
+        let removed = dropMessages(in: (index + 1)..<messages.count)
+        persistDeletion(of: removed)
+        // ② 改写这条本身（同一个 id）。
+        messages[index].content = trimmed
+        // 改过的话，挂在同一个 id 上的旧译文/旧纠错就是**指错对象**的缓存，必须清掉。
+        clearMessageCaches(for: [id])
+        syncEngineContext()
+        // ③ 落库：先记这句话，再让老师重答。
+        Task { [services] in
+            await services.updateMessageContent(id: id, content: trimmed)
+        }
+        // ④ 重新生成老师回复。⚠️ 这里不写 `engine.recordLearner` / `.learnerSpoke`：
+        // 学员发言已经由 `syncEngineContext()` 按幸存的消息重建过了，
+        // 再记一次会让这一句在上下文里出现两遍（老师会当学员说了两次）。
+        startTeacherTurn()
+    }
+
+    /// 重新生成某条老师回复（保留它前面那条学员消息，重跑这一轮）。
+    ///
+    /// 范围与「编辑重发」同一口径：**这条回复之后的消息一起作废**。
+    /// 只换掉中间那一条会让后面的对话建立在一段已经不存在的话上。
+    public func regenerateReply(to messageID: UUID) {
+        guard !isGenerating else { return }
+        guard let index = messages.firstIndex(where: { $0.id == messageID }),
+              messages[index].role == .assistant
+        else { return }
+        // 往前找这条回复对应的问题（没有就无从重跑）。
+        guard let questionIndex = messages[..<index].lastIndex(where: { $0.role == .user }) else { return }
+        let removed = dropMessages(in: (questionIndex + 1)..<messages.count)
+        persistDeletion(of: removed)
+        syncEngineContext()
+        startTeacherTurn()
+    }
+
+    /// 把删掉的消息从库里也删掉（fire-and-forget，与 `persist` 同一套节奏）。
+    ///
+    /// ⚠️ 调用的地方**每一处都不能漏**：只清内存的话，界面看着干净了，
+    /// 可这一段练习重新打开（或下次启动恢复）时，被「作废」的那些话会整批回来 ——
+    /// 这正是测试抓出来的第一版实现（编辑只改了内存）。
+    private func persistDeletion(of ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        let sessionID = self.sessionID
+        Task { [services] in
+            await services.deleteMessages(ids: ids, sessionID: sessionID)
+        }
+    }
+
+    /// 起一轮老师生成（不新增学员消息）。
+    private func startTeacherTurn() {
+        streamingText = ""
+        streamingReasoning = ""
+        errorMessage = nil
+        isGenerating = true
+        generationTask = Task { [weak self] in
+            await self?.generate()
+        }
+    }
+
+    /// 砍掉一段消息，返回被砍掉的 id。
+    ///
+    /// ⚠️ **四件事必须一起做**，漏一件都会留下幽灵数据（都实测过）：
+    /// ① 内存 `messages`；② 数据库行（由调用方发起，见各自注释）；
+    /// ③ 以消息 id 为键的缓存字典；④ 引擎上下文 `recentTurns`（它的 `id` 就是消息 id）。
+    /// 还有第 ⑤ 件是**情景的记账**：`scenarioStartIndex` 是消息下标，
+    /// 砍掉它前面的消息之后必须跟着往前挪，否则「这一局说了几轮」会数错。
+    @discardableResult
+    private func dropMessages(in range: Range<Int>) -> [UUID] {
+        let safe = range.clamped(to: 0..<messages.count)
+        guard !safe.isEmpty else { return [] }
+        let removed = safe.map { messages[$0].id }
+        let removedBeforeScenarioStart = safe.filter { $0 < scenarioStartIndex }.count
+        messages.removeSubrange(safe)
+        scenarioStartIndex = max(min(scenarioStartIndex - removedBeforeScenarioStart, messages.count), 0)
+        // 情景的轮次也跟着重算：砍掉的若是这一局里说过的话，「第 N/M 轮」不该还挂在旧数上。
+        if scenarioProgress != nil {
+            let start = min(max(scenarioStartIndex, 0), messages.count)
+            scenarioProgress?.turnsUsed = messages[start...].filter { $0.role == .user }.count
+        }
+        clearMessageCaches(for: removed)
+        syncEngineContext()
+        return removed
+    }
+
+    /// 清掉挂在若干条消息上的缓存。以消息 id 为键的字典**全项目只有三个**
+    /// （`correctionsByMessage` / `translationsByMessage` / `translatingMessageIDs`），
+    /// 新增任何一个都必须加到这里，否则那条被删掉的消息还会在界面上留一份影子。
+    private func clearMessageCaches(for ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        for id in ids {
+            correctionsByMessage[id] = nil
+            translationsByMessage[id] = nil
+            translatingMessageIDs.remove(id)
+        }
+    }
+
+    /// 按**幸存的消息**重建引擎上下文。
+    private func syncEngineContext() {
+        engine.replaceTurns(messages)
+    }
+
     // MARK: - 情景对话（Role Play，Implementation Plan §21）
 
     /// 进入一个情景：老师先以角色身份开场，之后每次回复都带着场景指令。
@@ -442,6 +579,9 @@ public final class ChatService {
         errorMessage = nil
         translationsByMessage.removeAll()
         translatingMessageIDs.removeAll()
+        // ⚠️ 纠错也要清。以前这里漏了它 —— `correctionCount` 是**所有值求和**，
+        // 于是「上一段的纠错条数」会被算进新一段的复盘里（而且不报错）。
+        correctionsByMessage.removeAll()
         translationError = nil
         lastTurnPlan = nil
         // 开一段全新的练习：状态复位、上下文里的对话轨迹清空。

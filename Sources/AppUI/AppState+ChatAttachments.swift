@@ -21,6 +21,44 @@ extension AppState {
     /// 关闭翻译失败提示。
     public func clearTranslationNotice() { chat.clearTranslationError() }
 
+    // MARK: - 气泡上的动作：删除 / 编辑重发 / 重新生成
+
+    /// 这条对话现在改不改得动。
+    ///
+    /// 考试模式下不改：考卷的题号、已作答记录都按消息顺序推，删掉中间一条
+    /// 会让「现在是第几题」与考卷对不上 —— 那种错在考试中途是不该出现的。
+    public var canMutateChatMessages: Bool { examRunner == nil }
+
+    /// 删掉一条学员消息（连同它的老师回复）。
+    public func deleteChatMessage(_ id: UUID) {
+        guard canMutateChatMessages else { return }
+        chat.deleteMessage(id)
+        refreshAfterMessageMutation()
+    }
+
+    /// 气泡内编辑后重发：从此处重新开始对话。
+    public func resendEditedChatMessage(_ id: UUID, text: String) {
+        guard canMutateChatMessages else { return }
+        chat.resendEditedMessage(id, text: text)
+        refreshAfterMessageMutation()
+    }
+
+    /// 重新生成某条老师回复。
+    public func regenerateChatReply(to id: UUID) {
+        guard canMutateChatMessages else { return }
+        chat.regenerateReply(to: id)
+        refreshAfterMessageMutation()
+    }
+
+    /// 消息被删改之后，把「今天的练习量」重新算一遍。
+    ///
+    /// 练习时长与条数都是从消息时间戳推出来的（`ProgressAggregator`），
+    /// 所以删掉几条消息之后，黑板上的分钟数必须跟着回落 ——
+    /// 不刷新的表现是「删了两句，今日练习还是 12 分钟」。
+    private func refreshAfterMessageMutation() {
+        Task { await refreshTodayPanel(force: true) }
+    }
+
     // MARK: - 聊天附件（第 3 项需求）
 
     /// 把用户选中的文件导入待发区。

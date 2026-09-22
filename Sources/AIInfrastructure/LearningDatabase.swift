@@ -418,6 +418,60 @@ public actor LearningDatabase {
         return rows.compactMap { $0 }
     }
 
+    // MARK: - 消息的删 / 改（气泡内的操作）
+
+    /// 删掉若干条消息。
+    ///
+    /// ⚠️ **删完必须把 `sessions.message_count` 重新对齐**（见 `syncMessageCount`）：
+    /// 这个列是**存储字段**（`appendMessage` 自增），不是实时 COUNT。
+    /// 光删行不校数，`message_count` 会越积越大，而 `hygiene()` 正是拿
+    /// `message_count = 0` 当「空会话」的判据 —— 删空了的会话将永远清不掉。
+    ///
+    /// - Returns: 真的删掉的行数（id 不存在的不算）。
+    @discardableResult
+    public func deleteMessages(ids: [UUID], sessionID: UUID) throws -> Int {
+        guard !ids.isEmpty else { return 0 }
+        return try db.runInTransaction {
+            let before = try messageCount(sessionID: sessionID)
+            let placeholders = ids.enumerated().map { "?\($0.offset + 1)" }.joined(separator: ", ")
+            try db.run(
+                "DELETE FROM messages WHERE session_id = ?\(ids.count + 1) AND id IN (\(placeholders))",
+                ids.map { .text($0.uuidString) } + [.text(sessionID.uuidString)]
+            )
+            let after = try messageCount(sessionID: sessionID)
+            try syncMessageCount(sessionID: sessionID)
+            return max(before - after, 0)
+        }
+    }
+
+    /// 改写一条消息的正文（气泡内编辑后重发）。
+    ///
+    /// 用**同一个 id** 覆盖而不是「删旧行 + 插新行」：这条消息的附件、时间戳、
+    /// 以及界面上的滚动锚点（`ScrollViewReader` 按 id 定位）都跟着它走，
+    /// 换成新 id 等于让「编辑」表现成「删一条又冒出一条」。
+    public func updateMessageContent(id: UUID, content: String) throws {
+        try db.run(
+            "UPDATE messages SET content = ?1 WHERE id = ?2",
+            [.text(content), .text(id.uuidString)]
+        )
+    }
+
+    /// 把 `sessions.message_count` 重算成 `messages` 表的实际条数。
+    ///
+    /// ⚠️ 这是这个列**唯一**的校正口：凡是绕过 `appendMessage` 的删除
+    /// （清理流水、删气泡）都必须调它一次。计数错比数据错更难查 ——
+    /// 数据错看得见，计数错只是让「最近练习」的条数说谎。
+    public func syncMessageCount(sessionID: UUID) throws {
+        try db.run(
+            """
+            UPDATE sessions
+            SET message_count = (SELECT COUNT(*) FROM messages WHERE messages.session_id = sessions.id)
+            WHERE id = ?1
+            """,
+            [.text(sessionID.uuidString)]
+        )
+    }
+
     /// 附件 JSON 解码：坏数据一律当「没有附件」，**绝不因为一条附件的字节坏掉就让整段历史读不出来**。
     static func decodeAttachments(_ json: String?) -> [ChatAttachment] {
         guard let json, let data = json.data(using: .utf8) else { return [] }
@@ -860,6 +914,9 @@ public actor LearningDatabase {
             guard actual > 0 else { return 0 }
             try db.run("DELETE FROM corrections WHERE session_id = ?1", [.text(sessionID.uuidString)])
             try db.run("DELETE FROM messages WHERE session_id = ?1", [.text(sessionID.uuidString)])
+            // ⚠️ 顺手把 `message_count` 归零：它以前在这里不回滚，于是「清空过流水的会话」
+            // 还留着一个虚高的计数（`hygiene()` 靠这个列判空，虚高就永远判不出来）。
+            try syncMessageCount(sessionID: sessionID)
             return actual
         }
     }
@@ -910,8 +967,43 @@ public actor LearningDatabase {
         }.compactMap { $0 }
     }
 
-    // MARK: - 写作与阅读记录（#233）
+    /// 每句跟读的**最近一次**记录（`drill_id` → 最新那一条）。
+    ///
+    /// 用途：跟读页「每句的分析常驻」在**重启之后**要能把之前读过的那几句摆回来，
+    /// 而内存缓存那时是空的。
+    ///
+    /// 排序取候选、再在 Swift 里每句留第一条（而不是 `GROUP BY` + 窗口函数）：
+    /// 一次最多几十句，SQL 好读比省那点遍历更值钱。
+    public func latestShadowingAttempts(drillIDs: [String]) throws -> [String: ShadowingAttempt] {
+        guard !drillIDs.isEmpty else { return [:] }
+        let placeholders = drillIDs.enumerated().map { "?\($0.offset + 1)" }.joined(separator: ", ")
+        let rows = try db.query(
+            """
+            SELECT id, drill_id, reference, recognized, accuracy, pronunciation, created_at
+            FROM shadowing_attempts
+            WHERE drill_id IN (\(placeholders))
+            ORDER BY created_at DESC
+            """,
+            drillIDs.map { .text($0) }
+        ) { row -> ShadowingAttempt? in
+            guard let idText = row.string(0), let id = UUID(uuidString: idText),
+                  let drillID = row.string(1), let reference = row.string(2),
+                  let recognized = row.string(3), let accuracy = row.double(4),
+                  let created = row.double(6)
+            else { return nil }
+            return ShadowingAttempt(
+                id: id, drillID: drillID, referenceText: reference,
+                recognizedText: recognized, accuracy: accuracy,
+                pronunciation: Self.decodeJSON(row.string(5)),
+                createdAt: Date(timeIntervalSince1970: created)
+            )
+        }.compactMap { $0 }
+        var latest: [String: ShadowingAttempt] = [:]
+        for row in rows where latest[row.drillID] == nil { latest[row.drillID] = row }
+        return latest
+    }
 
+    // MARK: - 写作与阅读记录（#233）
     /// 记一次写作批改（交卷成功后写入；一次写作 = 一行）。
     public func appendWritingEntry(
         id: UUID = UUID(),

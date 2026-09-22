@@ -128,6 +128,24 @@ public struct ChatView: View {
     var onClearAttachments: (() -> Void)? = nil
     /// 发送（带附件）：发送动作收在 AppState 里，视图不自己拼「取附件 + 清空」的顺序。
     var onSend: ((String) -> Void)? = nil
+    /// 删掉一条学员消息（连同它的老师回复）。
+    var onDeleteMessage: ((UUID) -> Void)? = nil
+    /// 气泡内编辑后重发：从此处重新开始对话。
+    var onResendEditedMessage: ((UUID, String) -> Void)? = nil
+    /// 重新生成某条老师回复。
+    var onRegenerateReply: ((UUID) -> Void)? = nil
+    /// 这条对话现在改不改得动（生成中 / 考试中不改，见 `AppState.canMutateChatMessages`）。
+    var canMutateMessages: Bool = true
+    /// **离屏渲染用的悬停注入**。
+    ///
+    /// 真机上的悬停由鼠标驱动，而离屏没有鼠标事件 —— 不给这个入口，
+    /// 「悬停时气泡到底长什么样」就永远没法回归（这与 `DictionaryBookCard`
+    /// 把 `isHovered` 交给外层的理由是同一件事）。
+    var forcedHoveredMessageID: UUID? = nil
+    /// **离屏渲染用的「正在编辑」注入**（理由同上：点「编辑」是鼠标动作，离屏点不了）。
+    var forcedEditingMessageID: UUID? = nil
+    /// 编辑框里的初始草稿（配合 `forcedEditingMessageID` 出图用）。
+    var forcedEditingDraft: String? = nil
 
     @State private var input: String = ""
     /// 输入框当前高度（由 `MultilineComposerField` 按真实排版量出并夹到 5 行以内）。
@@ -143,6 +161,15 @@ public struct ChatView: View {
     /// 聊天区是否处于「上翻」状态（距底部超过阈值）——
     /// 决定「回到底部」按钮与输入框上方的虚化是否出现。
     @State private var isScrolledUp = false
+    /// 鼠标停在**哪一条**消息上（学员气泡的三颗动作据此浮现）。
+    ///
+    /// ⚠️ 悬停态放在这里而不是气泡组件内部：组件自己 `onHover` 就没法在离屏渲染里
+    /// 验证「悬停时到底长什么样」，而那一行按钮正是这次新增的全部视觉。
+    @State private var hoveredMessageID: UUID?
+    /// 正在就地编辑的消息（nil = 没有）。
+    @State private var editingMessageID: UUID?
+    /// 编辑框里的草稿。与消息正文分开存：取消这次编辑时原文必须**一字不动**。
+    @State private var editingDraft: String = ""
 
     /// 每条预设提问停留的秒数。
     private let rotationInterval: Double = 3.4
@@ -199,7 +226,14 @@ public struct ChatView: View {
                 onExamTimeout: (() -> Void)? = nil,
                 onExamSkip: (() -> Void)? = nil,
                 onExamFinish: (() -> Void)? = nil,
-                onSend: ((String) -> Void)? = nil) {
+                onSend: ((String) -> Void)? = nil,
+                onDeleteMessage: ((UUID) -> Void)? = nil,
+                onResendEditedMessage: ((UUID, String) -> Void)? = nil,
+                onRegenerateReply: ((UUID) -> Void)? = nil,
+                canMutateMessages: Bool = true,
+                forcedHoveredMessageID: UUID? = nil,
+                forcedEditingMessageID: UUID? = nil,
+                forcedEditingDraft: String? = nil) {
         self.chat = chat
         self.modelName = modelName
         self.health = health
@@ -260,6 +294,13 @@ public struct ChatView: View {
         self.onExamSkip = onExamSkip
         self.onExamFinish = onExamFinish
         self.onSend = onSend
+        self.onDeleteMessage = onDeleteMessage
+        self.onResendEditedMessage = onResendEditedMessage
+        self.onRegenerateReply = onRegenerateReply
+        self.canMutateMessages = canMutateMessages
+        self.forcedHoveredMessageID = forcedHoveredMessageID
+        self.forcedEditingMessageID = forcedEditingMessageID
+        self.forcedEditingDraft = forcedEditingDraft
     }
 
     public var body: some View {
@@ -823,14 +864,54 @@ public struct ChatView: View {
 
     private func bubble(_ message: ChatMessage) -> some View {
         let isUser = message.role == .user
-        let corrections = isUser ? [] : (chat.correctionsByMessage[message.id] ?? [])
-        let translation = chat.translationsByMessage[message.id]
-        let isTranslating = chat.translatingMessageIDs.contains(message.id)
+        // 悬停态：鼠标在哪一条上（真机由 `onHover` 写，离屏由参数注入 —— 见 `forcedHoveredMessageID`）。
+        let isHovered = hoveredMessageID == message.id || forcedHoveredMessageID == message.id
+        // 「重新生成」得有一条可重跑的问题：这条回复之前必须有学员说过话。
+        // 老师主动开场那一条前面没有学员，按钮只能是死的（点不动的按钮比没有按钮更让人困惑，
+        // 所以这里把它的可用性算出来，交给按钮自己显示成禁用态）。
+        let canRegenerate: Bool = {
+            guard !isUser,
+                  let index = chat.visibleMessages.firstIndex(where: { $0.id == message.id })
+            else { return false }
+            return chat.visibleMessages[..<index].contains { $0.role == .user }
+        }()
         return HStack(alignment: .bottom, spacing: 8) {
             if isUser { Spacer(minLength: 36) }
             if !isUser {
                 CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
             }
+            bubbleColumn(message, isUser: isUser, isHovered: isHovered, canRegenerate: canRegenerate)
+            if isUser {
+                CuteAnimalView(kind: studentKind, isSleeping: false, size: 28, accessory: .student)
+            }
+            if !isUser { Spacer(minLength: 36) }
+        }
+        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
+    }
+
+    /// 气泡那一列（正文 + 译文 + 纠错 + 动作行），编辑态与正常态二选一。
+    ///
+    /// ⚠️ 悬停区钉在**这一列**上（不含外侧留白与头像）：挂到整行上的话，
+    /// 鼠标飘到气泡旁边的空白里按钮也会留着不走，「移到气泡上才出现、移出就消失」就不成立。
+    @ViewBuilder
+    private func bubbleColumn(
+        _ message: ChatMessage,
+        isUser: Bool,
+        isHovered: Bool,
+        canRegenerate: Bool
+    ) -> some View {
+        let corrections = isUser ? [] : (chat.correctionsByMessage[message.id] ?? [])
+        let translation = chat.translationsByMessage[message.id]
+        let isTranslating = chat.translatingMessageIDs.contains(message.id)
+        // 编辑态：气泡**整条换成一条独立输入框**（与产品给的参考图一致）。
+        // 这一条消息本身没有被改动 —— 取消就还是原来那句话，草稿存在 `editingDraft` 里。
+        if isUser, isEditing(message) {
+            MessageEditBox(
+                text: editBinding(for: message),
+                onCancel: { cancelEditing() },
+                onSend: { commitEditing(message) }
+            )
+        } else {
             // 学员气泡靠右 → 内容列 .trailing；老师靠左 → .leading。
             // ⚠️ 译文卡片**不挂任何宽度 frame**：裸 HStack[Text] 是「内容自然宽度、
             // 超宽自动换行」，与正文气泡完全同构；挂了 `frame(maxWidth: .infinity)`
@@ -874,12 +955,40 @@ public struct ChatView: View {
                                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                                     .strokeBorder(theme.divider, lineWidth: 1)
                             )
+                            // 学员气泡的三颗动作贴在气泡**右下角**（位置与参考图一致）。
+                            //
+                            // ⚠️ 用 `overlay` 而不是「在正文下面加一行」：加行会让气泡在鼠标
+                            // 进入的瞬间长高、整段对话跟着上下跳；而参考图里那三颗本来就与
+                            // 最后一行文字同高。正文占满整行时会被它们盖住尾巴，所以底下
+                            // 垫一道**同色渐隐** —— 被遮住的部分是渐隐掉，不是被切断。
+                            .overlay(alignment: .bottomTrailing) {
+                                if isUser, isHovered {
+                                    LearnerBubbleActionRow(
+                                        text: message.content,
+                                        isEnabled: canMutateMessages,
+                                        onDelete: { onDeleteMessage?(message.id) },
+                                        onEdit: { beginEditing(message) }
+                                    )
+                                    .padding(.leading, 26)
+                                    .padding(.trailing, 6)
+                                    .padding(.bottom, 4)
+                                    .background(
+                                        LinearGradient(
+                                            colors: [theme.bubbleUser.opacity(0), theme.bubbleUser],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                    )
+                                    .transition(.opacity)
+                                }
+                            }
                         if !isUser {
                             TranslateButton(isOn: translation != nil, isLoading: isTranslating) {
                                 Task { await onTranslate?(message.id) }
                             }
                         }
                     }
+                    .animation(.easeOut(duration: 0.12), value: isHovered)
                 }
                 if let translation {
                     translationCard(translation, isUser: isUser)
@@ -887,25 +996,81 @@ public struct ChatView: View {
                 ForEach(corrections) { correction in
                     correctionCard(correction)
                 }
-                if !isUser, let onSpeakTap {
+                // 老师气泡的底部动作行：朗读 / 语速 / 复制 / 重新生成。
+                //
+                // ⚠️ 顺序按产品要求：复制与重新生成**排在语速按钮右边**，且**始终显示**
+                // （与学员气泡「悬停才浮现」相反 —— 这两颗不改动对话内容，
+                //  而「老师这句没听懂 / 没答好」是最常发生的即时需求）。
+                if !isUser {
                     HStack(spacing: 6) {
-                        SpeakButton(text: message.content,
-                                    phase: speakingText == message.content ? speechPhase : .idle,
-                                    action: onSpeakTap,
-                                    onStop: onStopSpeak)
-                        if onSpeechRateChange != nil {
-                            SpeechRateMenu(rate: speechRate) { rate in onSpeechRateChange?(rate) }
+                        if let onSpeakTap {
+                            SpeakButton(text: message.content,
+                                        phase: speakingText == message.content ? speechPhase : .idle,
+                                        action: onSpeakTap,
+                                        onStop: onStopSpeak)
+                            if onSpeechRateChange != nil {
+                                SpeechRateMenu(rate: speechRate) { rate in onSpeechRateChange?(rate) }
+                            }
                         }
+                        CoachBubbleActionRow(
+                            text: message.content,
+                            isEnabled: canMutateMessages && canRegenerate,
+                            onRegenerate: { onRegenerateReply?(message.id) }
+                        )
                         Spacer(minLength: 0)
                     }
                 }
             }
-            if isUser {
-                CuteAnimalView(kind: studentKind, isSleeping: false, size: 28, accessory: .student)
-            }
-            if !isUser { Spacer(minLength: 36) }
+            .onHover { inside in updateHover(inside, on: message) }
         }
-        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
+    }
+
+    /// 这条消息此刻是不是在就地编辑（真机由 `editingMessageID` 写，离屏由参数注入）。
+    private func isEditing(_ message: ChatMessage) -> Bool {
+        editingMessageID == message.id || forcedEditingMessageID == message.id
+    }
+
+    /// 编辑框的草稿绑定。
+    ///
+    /// ⚠️ 离屏注入的那条走 `.constant`：出图只关心「长什么样」，
+    /// 而这个分支在真机上永远不会进（`forcedEditingMessageID` 默认 nil）。
+    private func editBinding(for message: ChatMessage) -> Binding<String> {
+        if forcedEditingMessageID == message.id, let forced = forcedEditingDraft {
+            return .constant(forced)
+        }
+        return $editingDraft
+    }
+
+    /// 悬停进 / 出。    ///
+    /// ⚠️ 移出时**只在「当前悬停的还是我」时才清**：从 A 滑到 B 时，A 的 `mouseExited`
+    /// 完全可能晚于 B 的 `mouseEntered`，无脑置 nil 会把 B 刚点亮的按钮又灭掉。
+    private func updateHover(_ inside: Bool, on message: ChatMessage) {
+        if inside {
+            hoveredMessageID = message.id
+        } else if hoveredMessageID == message.id {
+            hoveredMessageID = nil
+        }
+    }
+
+    /// 进入气泡就地编辑：草稿取**当前正文**，取消时原文一字不动。
+    private func beginEditing(_ message: ChatMessage) {
+        editingDraft = message.content
+        editingMessageID = message.id
+    }
+
+    private func cancelEditing() {
+        editingMessageID = nil
+        editingDraft = ""
+    }
+
+    /// 提交编辑：先收起输入框，再交给上层「截断其后 + 重发」。
+    ///
+    /// ⚠️ 顺序不能反。反过来的话，重发生成已经开始、而编辑框还挂在屏幕上，
+    /// 用户会以为没点上，然后再点一次 —— 那就是第二次截断与第二次生成。
+    private func commitEditing(_ message: ChatMessage) {
+        let text = editingDraft
+        cancelEditing()
+        onResendEditedMessage?(message.id, text)
     }
 
     /// 译文卡片：默认不显示，点翻译按钮才出现在气泡下方。
