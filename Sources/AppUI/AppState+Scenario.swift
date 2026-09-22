@@ -191,7 +191,8 @@ extension AppState {
             return
         }
         await concludeCurrentPractice()
-        chat.beginNewSession()
+        // 学员主动点卡片换情景：这一段是他要结束的，允许覆盖「本段已有内容」的守卫。
+        chat.beginNewSession(allowWhenSessionHasContent: true)
         await beginScenario(scenario)
     }
 
@@ -236,7 +237,8 @@ extension AppState {
         expandedScenarioID = nil
 
         let previous = await concludeCurrentPractice()
-        chat.beginNewSession()
+        // 学员主动开一段随口练：允许覆盖「本段已有内容」的守卫。
+        chat.beginNewSession(allowWhenSessionHasContent: true)
         if product.practiceMode != .freeTalk {
             product.practiceMode = .freeTalk
             await persistProduct()

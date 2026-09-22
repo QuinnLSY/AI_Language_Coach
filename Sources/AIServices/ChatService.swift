@@ -35,6 +35,8 @@ public final class ChatService {
     public var profile: LearnerProfile = LearnerProfile()
     /// 当前练习会话（持久化用）。
     public private(set) var sessionID: UUID
+    /// 本段练习这一轮运行里有没有写进过消息（换段守卫的判据；界面与测试也读它）。
+    public var hasWrittenInCurrentSession: Bool { didWriteMessageInCurrentSession }
     /// 进行中的情景对话（nil = 普通练习）。场景数据来自资源文件，UI 不内置。
     public private(set) var scenarioProgress: ScenarioProgress?
     /// 本局情景开始时的消息下标（开场白**之前**）。
@@ -47,6 +49,14 @@ public final class ChatService {
     public private(set) var briefing: ScenarioBriefing?
     /// 上次随口练的复盘（随口练开场与引导的依据；没有历史时为 nil）。
     public private(set) var freeTalkReview: SessionReview?
+    /// 上次练习的复盘（**开屏续聊**的依据）。
+    ///
+    /// ⚠️ 与 `freeTalkReview` 的分工：那个只服务「随口练」这条路径，语气是「你主导」。
+    /// 这个对**普通练习**同样成立 —— 学员上次只是随便聊了几句，开屏也该被接着聊，
+    /// 而不是每次都听到一句与昨天毫无关系的「欢迎回来」。
+    /// 真实数据里所有会话的 mode 都是 `conversation`，于是「带着复盘续聊」这条路
+    /// 从来没有被走到过：老师每天说的都是同一句泛泛招呼。
+    public private(set) var continuationReview: SessionReview?
     /// 本会话按消息记录的纠错（UI 在气泡下方展示「改一改」卡片）。
     public private(set) var correctionsByMessage: [UUID: [GrammarCorrection]] = [:]
     /// 已取回的译文（messageID → 译文）。**默认不展示**，点翻译按钮才出现。
@@ -103,6 +113,17 @@ public final class ChatService {
     /// 会话是否已落库。**启动时不建空会话**——否则「最近会话」永远是新会话，
     /// 上次的练习记录与情景就再也恢复不回来了；首条消息 / 首次进情景时才建行。
     private var didPersistSession = false
+    /// **本段练习这一轮运行里有没有写进过消息**（学员、老师、本地兜底句都算）。
+    ///
+    /// ⚠️ 这是「一段对话不许被劈成两段」的**唯一真源**。开屏流程会先恢复上一段、
+    /// 再（可能）换一个新会话 id；而换 id 之前夹着一次复盘（模型调用，几秒到几十秒）。
+    /// 学员在这段时间里说的任何一句话，落库时用的还是**上一段的 id** ——
+    /// 结果就是「学员的话在上一次练习里、老师的招呼在这一次练习里」，
+    /// 两段各只有半句对话。实测症状：每次练习永远只有 1 条对话、
+    /// 复盘永远凑不够最低条数（错题本 / 复盘自 2026-09-14 起再没更新过）。
+    ///
+    /// 所以换段这件事必须能**看见**「这一段已经开始了」并拒绝，而不是各调用方自觉。
+    private var didWriteMessageInCurrentSession = false
     /// 本次运行是否已经由老师打过招呼（每次打开应用只开一次场）。
     private var didGreetThisLaunch = false
     /// 本会话是随口练（开场与 Prompt 引导都走「学员主导」那一路）。
@@ -319,6 +340,9 @@ public final class ChatService {
         let services = services
         let needsSession = !didPersistSession
         didPersistSession = true
+        // ⚠️ 同步置位，**不能**放进下面那个 Task：消息已经在内存里了，
+        // 换段守卫若晚一步读，就会出现「话已经说出口、段却被换掉」的窗口。
+        didWriteMessageInCurrentSession = true
         let scenarioID = scenarioProgress?.scenario.id
         // ⚠️ 模式必须跟着走：`ChatSession.mode` 有默认值 `.conversation`，
         // 不显式传就等于「所有会话都是情景对话」。
@@ -350,6 +374,8 @@ public final class ChatService {
         guard let restored = await services.latestChatSession(), !restored.messages.isEmpty else { return }
         sessionID = restored.session.id
         didPersistSession = true
+        // 恢复出来的那段是「上一轮运行」写的，**这一轮**还没写过 —— 复位。
+        didWriteMessageInCurrentSession = false
         messages = restored.messages
         // ⚠️ 恢复出来的历史**先按住不显示**：这一刻还不知道它是要接着用、还是马上要被复盘掉。
         // 直接上屏就有几百毫秒的闪窗（恢复 → 续做决策之间还夹着好几段 await），
@@ -401,6 +427,7 @@ public final class ChatService {
         scenarioProgress = nil
         briefing = nil
         freeTalkReview = nil
+        continuationReview = nil
         isFreeTalkSession = false
         examContext = nil
         scenarioStartIndex = 0
@@ -497,6 +524,12 @@ public final class ChatService {
         )
         if !memoryBlock.isEmpty {
             systemPrompt += "\n\n" + memoryBlock
+        }
+        // 开屏续聊：**整段会话**里都知道上次留下了什么（不只是开场那一句）。
+        // ⚠️ 考试模式不注入：考场上没有「上次我们聊到」这回事。
+        if examContext == nil {
+            let carryOver = PromptBuilder.continuationBlock(continuationReview)
+            if !carryOver.isEmpty { systemPrompt += "\n\n" + carryOver }
         }
         // 情景对话：在老师人设之后再叠一层角色扮演指令（场景数据驱动，不写死在业务里）。
         if let progress = scenarioProgress {
@@ -828,6 +861,18 @@ public final class ChatService {
         isFreeTalkSession = true
     }
 
+    /// 开一段「接着上次」的练习：清空对话，带着上次的复盘开场。
+    ///
+    /// 与 `beginFreeTalk` 的区别只在**谁主导**：随口练是学员主导（`isFreeTalkSession`），
+    /// 续聊仍由老师带着走（人设与普通练习一致），只是开场与全程都知道上次留下了什么。
+    ///
+    /// - Parameter review: 上次练习的复盘。传 nil 等于没东西可续，
+    ///   调用方应当改走 `greetIfNeeded()`（本方法不做这个判断，免得悄悄退化成一句空招呼）。
+    public func beginContinuation(review: SessionReview?) {
+        clear()
+        continuationReview = review
+    }
+
     /// 开一段**全新的练习**：换一个新的会话 id。
     ///
     /// 每次练习 = 一个会话 = 一张记录卡片 + 一份复盘（需求 5 的「每次练习都要复盘」）。
@@ -835,10 +880,22 @@ public final class ChatService {
     ///
     /// ⚠️ **不建库行**：会话行仍然在第一条消息 / 首次进情景时才建，
     /// 否则「最近会话」会被空会话顶掉，上次的练习就恢复不回来了（老坑）。
-    public func beginNewSession() {
+    ///
+    /// ⚠️ 换段会把「这一段练习」封口。**开屏自动换段**（`allowWhenSessionHasContent == false`）
+    /// 时必须先确认这一段还没写过东西 —— 否则学员刚说的那句话会留在上一段的 id 里，
+    /// 老师接下来的话落在新 id 里，一段对话被劈成两段（见 `didWriteMessageInCurrentSession`）。
+    /// 学员**主动**开始新练习（点情景卡 / 进考试 / 开随口练）时传 `true`：
+    /// 那是他要的，上一段留在自己那一行，下次打开应用照常复盘。
+    ///
+    /// - Returns: 是否真的换了段。`false` = 这一段已经开始了，调用方应当按「接着聊」处理。
+    @discardableResult
+    public func beginNewSession(allowWhenSessionHasContent: Bool = false) -> Bool {
+        guard allowWhenSessionHasContent || !didWriteMessageInCurrentSession else { return false }
         clear()
         sessionID = UUID()
         didPersistSession = false
+        didWriteMessageInCurrentSession = false
+        return true
     }
 
     /// 让老师说第一句（情景任务的引导 / 随口练的引子）。
@@ -847,7 +904,7 @@ public final class ChatService {
     /// 这个带着**具体任务**开场（前情提要 + 现在该做什么）。两者都只由上层在合适时机触发一次。
     public func deliverOpener() {
         guard !isGenerating else { return }
-        guard briefing != nil || isFreeTalkSession || examContext != nil else { return }
+        guard briefing != nil || isFreeTalkSession || continuationReview != nil || examContext != nil else { return }
         didGreetThisLaunch = true
         isGreeting = true
         isGenerating = true
@@ -867,9 +924,10 @@ public final class ChatService {
         }
         let taskBriefing = briefing
         let review = freeTalkReview
+        let continuation = continuationReview
         let exam = examContext
         let fallback = Self.fallbackOpenerText(
-            briefing: taskBriefing, freeTalkReview: review, exam: exam
+            briefing: taskBriefing, freeTalkReview: review, continuationReview: continuation, exam: exam
         )
 
         guard let context = await resolveTeacherContext() else {
@@ -892,6 +950,9 @@ public final class ChatService {
             )
         } else if let taskBriefing {
             instruction = PromptBuilder.taskOpenerPrompt(briefing: taskBriefing)
+        } else if let continuation {
+            // 开屏续聊：这一句要接着上次说，而不是重新打个招呼。
+            instruction = PromptBuilder.continuationOpenerPrompt(review: continuation)
         } else {
             instruction = PromptBuilder.freeTalkOpenerPrompt(review: review)
         }
@@ -933,6 +994,7 @@ public final class ChatService {
     private static func fallbackOpenerText(
         briefing: ScenarioBriefing?,
         freeTalkReview: SessionReview?,
+        continuationReview: SessionReview? = nil,
         exam: ExamTurnContext? = nil
     ) -> String {
         // ⚠️ 考试模式排在最前：考场上最要紧的是**把题念出来**，
@@ -945,8 +1007,17 @@ public final class ChatService {
         if let briefing {
             return briefing.fallbackOpeningMessage(characterOpening: briefing.characterOpening)
         }
-        if let headline = freeTalkReview?.headline, !headline.isEmpty {
-            return "我们接着上次的随口练吧。上次复盘提到：\(headline) 想说点什么都可以。"
+        // 续聊 / 随口练共用同一段兜底：模型没起来时，老师也要把「上次练到哪」说出来 ——
+        // 这正是学员打开应用最想听到的一句，退化成泛泛问候等于这条需求没实现。
+        if let carried = continuationReview ?? freeTalkReview {
+            let headline = carried.headline.trimmingCharacters(in: .whitespacesAndNewlines)
+            let focus = carried.improvements.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !headline.isEmpty || !focus.isEmpty {
+                var line = "我们接着上次练。"
+                if !headline.isEmpty { line += "上次：\(headline)。" }
+                if !focus.isEmpty { line += "今天先把「\(focus)」用上一次。" }
+                return line
+            }
         }
         return "我们开始吧 —— 想聊点什么？"
     }

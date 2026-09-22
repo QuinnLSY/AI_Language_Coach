@@ -313,6 +313,17 @@ public actor LearningDatabase {
 
     // MARK: - 会话与消息
 
+    /// 会话「结束时刻」的唯一口径：**末条消息的时间**；一条消息都没有才退回开始时刻。
+    ///
+    /// ⚠️ 以前这里写的是 `COALESCE(ended_at, now)`。而 `ended_at` 实际上从来没有被写过
+    /// （会话不显式结束 —— `finishSession` 在正常使用路径上没人调），于是
+    /// 「结束时刻」永远等于「此刻」：每个会话的时长都变成「从开始到此刻」，
+    /// 昨天开的会话今天看是 1180 分钟，而且每刷新一次还在涨。
+    /// 三处会话查询共用这一个表达式，改口径只改这一行。
+    static let endedExpression = """
+    COALESCE(ended_at, (SELECT MAX(created_at) FROM messages WHERE messages.session_id = sessions.id), started_at)
+    """
+
     public func createSession(_ session: ChatSession) throws {
         try db.run(
             "INSERT OR REPLACE INTO sessions (id, started_at, ended_at, mode, message_count, scenario_id) VALUES (?1, ?2, NULL, ?3, 0, ?4)",
@@ -450,8 +461,11 @@ public actor LearningDatabase {
 
     public func recentSessions(limit: Int = 20) throws -> [SessionSummary] {
         let rows = try db.query(
-            "SELECT id, started_at, COALESCE(ended_at, ?2) AS ended, message_count, scenario_id FROM sessions ORDER BY started_at DESC LIMIT ?1",
-            [.int(limit), .real(Date().timeIntervalSince1970)]
+            """
+            SELECT id, started_at, \(Self.endedExpression) AS ended, message_count, scenario_id
+            FROM sessions ORDER BY started_at DESC LIMIT ?1
+            """,
+            [.int(limit)]
         ) { row -> SessionSummary? in
             guard let idText = row.string(0),
                   let id = UUID(uuidString: idText),
@@ -618,12 +632,12 @@ public actor LearningDatabase {
     public func sessions(since: Date, limit: Int = 500) throws -> [SessionSummary] {
         try db.query(
             """
-            SELECT id, started_at, COALESCE(ended_at, ?3) AS ended, message_count, scenario_id
+            SELECT id, started_at, \(Self.endedExpression) AS ended, message_count, scenario_id
             FROM sessions
             WHERE started_at >= ?1 AND id != 'archive'
             ORDER BY started_at DESC LIMIT ?2
             """,
-            [.real(since.timeIntervalSince1970), .int(limit), .real(Date().timeIntervalSince1970)]
+            [.real(since.timeIntervalSince1970), .int(limit)]
         ) { row -> SessionSummary? in
             guard let idText = row.string(0), let id = UUID(uuidString: idText),
                   let started = row.double(1), let ended = row.double(2)
@@ -643,8 +657,11 @@ public actor LearningDatabase {
     /// 会话总结：消息数 + 本会话纠错。
     public func sessionSummary(id: UUID) throws -> SessionSummary? {
         let rows = try db.query(
-            "SELECT id, started_at, COALESCE(ended_at, ?2), message_count, scenario_id FROM sessions WHERE id = ?1",
-            [.text(id.uuidString), .real(Date().timeIntervalSince1970)]
+            """
+            SELECT id, started_at, \(Self.endedExpression), message_count, scenario_id
+            FROM sessions WHERE id = ?1
+            """,
+            [.text(id.uuidString)]
         ) { row in
             (id: row.string(0), started: row.double(1), ended: row.double(2), count: row.int(3) ?? 0,
              scenario: row.string(4))
@@ -829,14 +846,22 @@ public actor LearningDatabase {
     /// ⚠️ 刻意保留 `sessions` 行与 `session_reviews`：
     /// 「上次练习卡片」要显示情景名、时长、复盘内容，删了会话行这些就全丢了。
     /// 复盘成功之后才允许调用（`PracticeReviewPolicy.canPurgeSource`）。
+    ///
+    /// ⚠️ `expectedCount` 是**同一个事务内**的比对基数。复盘是一次模型调用（几秒到几十秒），
+    /// 这期间学员完全可能又说了几句 —— 那些话不在复盘里，照删就是「我没说过的话被静默丢掉」。
+    /// 数量对不上就不删（宁可留着重叠，也不能丢内容）。
+    ///
+    /// - Returns: 删掉的消息条数；**-1 表示「消息数已变，本次不删」**。
     @discardableResult
-    public func purgeSessionMessages(sessionID: UUID) throws -> Int {
-        let before = try messageCount(sessionID: sessionID)
-        try db.runInTransaction([
-            ("DELETE FROM corrections WHERE session_id = ?1", [.text(sessionID.uuidString)]),
-            ("DELETE FROM messages WHERE session_id = ?1", [.text(sessionID.uuidString)]),
-        ])
-        return before
+    public func purgeSessionMessages(sessionID: UUID, expectedCount: Int? = nil) throws -> Int {
+        try db.runInTransaction {
+            let actual = try messageCount(sessionID: sessionID)
+            if let expectedCount, actual != expectedCount { return -1 }
+            guard actual > 0 else { return 0 }
+            try db.run("DELETE FROM corrections WHERE session_id = ?1", [.text(sessionID.uuidString)])
+            try db.run("DELETE FROM messages WHERE session_id = ?1", [.text(sessionID.uuidString)])
+            return actual
+        }
     }
 
     // MARK: - 跟读记录（第 22 步 Shadowing）

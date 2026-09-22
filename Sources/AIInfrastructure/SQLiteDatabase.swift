@@ -100,6 +100,23 @@ public final class SQLiteDatabase: @unchecked Sendable {
         return rows
     }
 
+    /// 在单个事务内执行一段操作（可读可写）。任一失败即回滚。
+    ///
+    /// 与下面的批处理版并存：只要「先读后写」的判据必须原子（例如
+    /// 「数量没变才删」），就得用这个 —— 批处理版读不了中间状态，
+    /// 把判据放在事务外面，两个操作之间就有窗口。
+    public func runInTransaction<T>(_ body: () throws -> T) throws -> T {
+        try run("BEGIN IMMEDIATE")
+        do {
+            let result = try body()
+            try run("COMMIT")
+            return result
+        } catch {
+            try? run("ROLLBACK")
+            throw error
+        }
+    }
+
     /// 在单个事务内顺序执行多条语句。任一失败即回滚。
     public func runInTransaction(_ statements: [(sql: String, params: [SQLiteValue])]) throws {
         try run("BEGIN IMMEDIATE")

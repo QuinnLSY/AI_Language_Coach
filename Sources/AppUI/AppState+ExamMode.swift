@@ -39,7 +39,8 @@ extension AppState {
             await persistProduct()
         }
         await concludeCurrentPractice()
-        chat.beginNewSession()
+        // 学员主动开始一场考试：允许覆盖「本段已有内容」的守卫。
+        chat.beginNewSession(allowWhenSessionHasContent: true)
 
         let runner = ExamRunner(blueprint: blueprint)
         guard let context = runner.turnContext else {
@@ -216,29 +217,40 @@ extension AppState {
         }
     }
 
-    /// 收尾当前这段练习：**先复盘，再删流水**（需求 5）。
+    /// 收尾一段练习：**先复盘，再删流水**（需求 5）。
     ///
     /// 顺序不可颠倒 —— 复盘没成功就把流水删了，这一局说过的话就再也找不回来了。
     /// 复盘失败时**绝不删**，只留一句提示，练习内容继续留着。
     ///
+    /// - Parameters:
+    ///   - session: 要复盘的是哪一段。nil = 当前这段。
+    ///     开屏流程必须显式传**恢复出来的那一段** —— 那时 `chat` 正要（或已经）换到新段，
+    ///     读 `chat.sessionID` 会复盘错对象（把新段的招呼当成一整段练习）。
+    ///   - messages: 那一段的消息快照。理由同上：换段后 `chat.messages` 已经被清空。
     /// - Returns: 这一步得到的复盘（没有可复盘的内容时为 nil）。
     @discardableResult
-    public func concludeCurrentPractice() async -> SessionReview? {
-        let sessionID = chat.sessionID
-        let messages = chat.messages
+    public func concludeCurrentPractice(
+        session sessionID: UUID? = nil,
+        messages snapshot: [ChatMessage]? = nil
+    ) async -> SessionReview? {
+        let target = sessionID ?? chat.sessionID
+        let messages = snapshot ?? chat.messages
         guard !messages.isEmpty else { return nil }
 
-        let reviewedCount = await services.reviewedMessageCount(sessionID: sessionID)
+        let reviewedCount = await services.reviewedMessageCount(sessionID: target)
         guard PracticeReviewPolicy.shouldAutoReview(
             messageCount: messages.count, lastReviewedMessageCount: reviewedCount
         ) else {
-            return await services.sessionReview(sessionID: sessionID)
+            return await services.sessionReview(sessionID: target)
         }
 
-        let duration = await services.sessionDuration(sessionID: sessionID)
-        let corrections = chat.correctionsByMessage.values.flatMap { $0 }
+        let duration = await services.sessionDuration(sessionID: target)
+        // 纠错：手上有刚发生的就用（最全）；否则回库里取那一段的 ——
+        // 恢复出来的会话在内存里没有纠错映射，只读内存会让「老师改过什么」永远是空的。
+        let inMemory = snapshot == nil ? chat.correctionsByMessage.values.flatMap { $0 } : []
+        let corrections = inMemory.isEmpty ? await services.corrections(sessionID: target) : inMemory
         let review = await services.makeSessionReview(
-            sessionID: sessionID, messages: messages, corrections: corrections, duration: duration
+            sessionID: target, messages: messages, corrections: corrections, duration: duration
         )
         // 复盘里提到的新词立刻进词汇本（需求 5：复盘完词汇本自动更新）。
         await services.importVocabularyFromReviews()
@@ -248,7 +260,11 @@ extension AppState {
             await loadReviews()
             return review
         }
-        let purged = await services.purgePracticeMessages(sessionID: sessionID)
+        // ⚠️ 带**条数**去删：复盘是一次模型调用（几秒到几十秒），这期间学员完全可能又说了几句，
+        // 那些话不在复盘里。条数对不上就不删（宁可留着重叠，也不能把人家的话静默丢掉）。
+        let purged = await services.purgePracticeMessages(
+            sessionID: target, expectedMessageCount: messages.count
+        )
         practiceNotice = purged > 0
             ? "上一段练习已自动复盘，内容已收进学习记录。"
             : nil
@@ -275,22 +291,42 @@ extension AppState {
             // 复盘要跑一次模型请求（实测好几秒），中间还夹着一次 `beginNewSession()` 的清空 ——
             // 不撤的话用户看到的就是「先闪一条学员问候，再变成老师的招呼」（实测报障）。
             //
-            // ⚠️ 再查一次「学员有没有开口」：这段现在是**后台**跑的（见 `openInBackground`），
-            // 从检查到这儿可能已经过去几十秒 —— 这期间学员说的每一句话都必须留下。
+            // ⚠️ 学员已经开口 → 这段会话归他：揭开、收工，一个字都不许动。
             guard !learnerEngagedThisLaunch else {
                 chat.revealRestoredHistory()
                 return
             }
+            // ⚠️ 先把「要复盘的那一段」**快照**下来，再用快照去复盘。
+            // 复盘是一次模型调用（几秒到几十秒），这段时间里 `chat` 的状态会被别人动
+            // （学员说话、或者我们下面的换段）。拿 `chat.messages` 当复盘对象，
+            // 等于对着一个还在变的靶子开枪。
+            let previousSession = chat.sessionID
+            let previousMessages = chat.messages
             chat.hideRestoredHistory()
-            await concludeCurrentPractice()
-            // ⚠️ **复盘之后再看一次**：那一次模型调用可能跑了几十秒，
-            // 这期间学员完全可能已经开口了 —— 这时 `beginNewSession()` 会把他的话一起清掉。
-            // 这里到 `beginNewSession()` 之间没有 await，检查与清空是原子的（都在 MainActor）。
+            let review = await concludeCurrentPractice(session: previousSession, messages: previousMessages)
+            // 复盘跑完再看一眼：这几秒到几十秒里学员完全可能已经开口了。
             guard !learnerEngagedThisLaunch else {
                 chat.revealRestoredHistory()
                 return
             }
-            chat.beginNewSession()
+            // ⚠️ 换段是**有守卫**的：这一段只要已经写过东西就拒绝换（见 `beginNewSession`）。
+            // 实测事故：换段发生在学员那句话落库之后、老师的招呼之前 ——
+            // 学员的话留在上一段的 id 里，招呼落在新段，一段对话被劈成两半，
+            // 每次练习永远只有 1 条对话，复盘永远凑不够最低条数。
+            guard chat.beginNewSession() else {
+                chat.revealRestoredHistory()
+                return
+            }
+            // 新段开好了：老师**带着刚出炉的复盘**开场（「每次打开应用接着上次聊」）。
+            // 刚生成的这份最贴近刚才那段；它没内容时（条数不够、复盘失败）退回最近一份。
+            let carryOver: SessionReview?
+            if PracticeReviewPolicy.hasContent(review) {
+                carryOver = review
+            } else {
+                carryOver = await latestReview()
+            }
+            await startCarryOverOpener(review: carryOver)
+            return
         }
         // ② 流水已清：靠会话行判断上次在练什么（sessions 行永远留着）。
         guard let latest = await services.latestChatSession()?.session else {
@@ -327,15 +363,36 @@ extension AppState {
                 product.practiceMode = .freeTalk
                 await persistProduct()
             }
-            chat.beginFreeTalk(review: await services.recentReviews(limit: 1).first)
+            chat.beginFreeTalk(review: await latestReview())
             chat.deliverOpener()
         case .idle:
-            chat.greetIfNeeded()
+            // ⚠️ **开屏续聊走的就是这一条路**（真实数据里所有会话 mode 都是 `conversation`）。
+            // 以前这里无条件 `greetIfNeeded()`：老师每次开屏都只说一句与昨天无关的
+            // 「欢迎回来」，「根据上次对话的复盘续聊」这条需求从来没有被实现过。
+            await startCarryOverOpener(review: await latestReview())
         }
         // 走到这里说明这段历史**还留在对话里**（续做情景 / 接着聊 / 只是打个招呼）——
         // 它就是学员要接着看的内容，揭开。要换新一段的那条路已经在上面 `clear()` 掉了，
         // 这里会自然跳过（`revealRestoredHistory` 见空流水直接返回）。
         chat.revealRestoredHistory()
+    }
+
+    /// 最近一次练习的复盘（开屏续聊的依据；没有返回 nil）。
+    private func latestReview() async -> SessionReview? {
+        await services.recentReviews(limit: 1).first
+    }
+
+    /// 让老师「接着上次」开口；确实没有可续的内容时才退化成一句一般招呼。
+    ///
+    /// ⚠️ 判据走 `PracticeReviewPolicy.hasContent`：标题 / 优点 / 待改进一条都没有的复盘
+    /// 拿去开场，只会让模型拿到一个空槽位 —— 那等于鼓励它编一段「上次」。
+    private func startCarryOverOpener(review: SessionReview?) async {
+        guard PracticeReviewPolicy.hasContent(review) else {
+            chat.greetIfNeeded()
+            return
+        }
+        chat.beginContinuation(review: review)
+        chat.deliverOpener()
     }
 
     /// 实时把主线任务进度落库（学员每说完一句就调用，见 `ChatService.onLearnerTurn`）。

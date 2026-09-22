@@ -764,6 +764,8 @@ public struct MainView: View {
             await state.startScenario(scenario)
             return
         }
-        state.chat.send("Let's practice: \(level.title)")
+        // ⚠️ 走 `sendChat` 而不是 `chat.send`：前者会置「学员开口了」的标志。
+        // 少了它，开屏流程可能在这句话落库之后才决定换段，把一段对话劈成两段。
+        state.sendChat("Let's practice: \(level.title)")
     }
 }

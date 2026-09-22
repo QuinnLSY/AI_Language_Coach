@@ -1676,10 +1676,24 @@ public actor CoachServices {
 
     // MARK: - 练习复盘（学习记忆）
 
-    /// 会话时长（秒）：会话首条消息 → 现在。流水为空时为 0。
+    /// 会话时长（秒）：**末条消息 − 开始**，再夹取到单次会话上限。
+    ///
+    /// ⚠️ 以前是 `Date() - startedAt`（向「此刻」敞口）。会话在正常使用里不会被显式结束，
+    /// 于是「昨天开的那一段」今天算出来是 1180 分钟，而且每刷新一次还在涨 ——
+    /// 最近练习里每一条时长都在说谎。
     public func sessionDuration(sessionID: UUID) async -> TimeInterval {
         guard let summary = await sessionSummary(id: sessionID) else { return 0 }
-        return max(Date().timeIntervalSince(summary.startedAt), 0)
+        let span = summary.endedAt.timeIntervalSince(summary.startedAt)
+        return min(max(span, 0), ProgressAggregator.sessionDurationCap)
+    }
+
+    /// 某一段练习里的纠错（复盘用）。
+    ///
+    /// ⚠️ 开屏复盘必须用这个，而不是内存里的 `correctionsByMessage`：
+    /// 恢复出来的会话在内存里没有纠错映射，「老师改过什么」会永远是空的。
+    public func corrections(sessionID: UUID) async -> [GrammarCorrection] {
+        guard let learning else { return [] }
+        return (try? await learning.corrections(sessionID: sessionID)) ?? []
     }
 
     /// 生成一次练习复盘并落库（模型不可用时自动退化为规则总结）。
@@ -1730,10 +1744,13 @@ public actor CoachServices {
     ///
     /// ⚠️ 调用方必须先拿到复盘并确认可用（`PracticeReviewPolicy.canPurgeSource`）：
     /// 复盘失败还把流水删了，这一局的对话就永远看不到了。
+    ///
+    /// - Parameter expectedMessageCount: 复盘时看到的条数。**同一个事务内**比对，
+    ///   对不上就不删（-1）—— 复盘期间学员新说的话不在复盘里，不能连它一起删。
     @discardableResult
-    public func purgePracticeMessages(sessionID: UUID) async -> Int {
+    public func purgePracticeMessages(sessionID: UUID, expectedMessageCount: Int? = nil) async -> Int {
         guard let learning else { return 0 }
-        return (try? await learning.purgeSessionMessages(sessionID: sessionID)) ?? 0
+        return (try? await learning.purgeSessionMessages(sessionID: sessionID, expectedCount: expectedMessageCount)) ?? 0
     }
 
     // MARK: - 情景主线任务进度（需求 3 / 5）

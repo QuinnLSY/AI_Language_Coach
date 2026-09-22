@@ -241,16 +241,24 @@ public enum PracticeReviewPolicy {
         messageCount >= minimumMessages && messageCount > lastReviewedMessageCount
     }
 
+    /// 复盘里有没有**拿得出来说**的内容（标题 / 优点 / 待改进至少有一条）。
+    ///
+    /// 两处用它：① 够不够格删掉练习流水（`canPurgeSource`）；
+    /// ② 开屏续聊有没有东西可续 —— 一条都没有就该退回一句一般招呼，
+    /// 而不是给模型一个空槽位（那等于鼓励它编一段「上次」）。
+    public static func hasContent(_ review: SessionReview?) -> Bool {
+        guard let review else { return false }
+        return !review.headline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !review.strengths.isEmpty
+            || !review.improvements.isEmpty
+    }
+
     /// 复盘产物可用吗（**只有拿到复盘才允许删练习流水**）。
     ///
     /// 规则兜底（`.heuristic`）也算可用：它至少把轮次 / 纠错数 / 错误原句留下来了，
     /// 比「什么都没留下就把流水删了」安全得多。
     public static func canPurgeSource(_ review: SessionReview?) -> Bool {
-        guard let review else { return false }
-        let hasContent = !review.headline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || !review.strengths.isEmpty
-            || !review.improvements.isEmpty
-        return hasContent
+        hasContent(review)
     }
 }
 

@@ -375,6 +375,86 @@ public enum PromptBuilder {
         return lines.joined(separator: "\n")
     }
 
+    // MARK: - 开屏续聊（每次打开应用，接着上次的复盘说话）
+
+    /// 上次练习的复盘事实块。
+    ///
+    /// ⚠️ 复盘为空 → 返回空串。**绝不用别的东西凑**：「上次我们聊到……」
+    /// 一旦是编的，学员立刻会知道老师在演，长期记忆的信任就毁了。
+    public static func continuationFacts(_ review: SessionReview?) -> String {
+        guard let review else { return "" }
+        var rows: [String] = []
+        let headline = review.headline.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !headline.isEmpty { rows.append("Last practice: \(headline)") }
+        let improvements = review.improvements
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !improvements.isEmpty {
+            rows.append("To work on: " + improvements.prefix(2).joined(separator: "; "))
+        }
+        if let strength = review.strengths.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !strength.isEmpty {
+            rows.append("Went well: \(strength)")
+        }
+        if !review.newWords.isEmpty {
+            rows.append("Words from last time: " + review.newWords.prefix(6).joined(separator: ", "))
+        }
+        let suggestion = review.suggestion.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !suggestion.isEmpty { rows.append("Suggested next step: \(suggestion)") }
+        guard !rows.isEmpty else { return "" }
+        if review.correctionCount > 0 {
+            rows.append("Corrections the teacher gave: \(review.correctionCount)")
+        }
+        return rows.map { "- \($0)" }.joined(separator: "\n")
+    }
+
+    /// 续聊开场指令：老师这一句要**接着上次**说，而不是重新打个招呼。
+    public static func continuationOpenerPrompt(review: SessionReview?) -> String {
+        let facts = continuationFacts(review)
+        let template: String
+        if let url = AppResourceBundle.module.url(forResource: "Prompts/continuation_opener", withExtension: "txt"),
+           let loaded = try? String(contentsOf: url, encoding: .utf8) {
+            template = loaded
+        } else {
+            template = """
+            The learner has just come back. Below is the review of their last practice.
+            {facts}
+            Write ONLY the single message you say right now: pick up where you left off in one
+            short sentence, then give exactly one concrete next step or question. Never invent
+            anything that is not in the review.
+            """
+        }
+        guard !facts.isEmpty else {
+            // 没有可用的复盘：不要给模型一个空槽位让它自由发挥（那等于鼓励它编「上次」）。
+            // 明说「这次没有上次的记录」，让它老老实实打个招呼。
+            return """
+            The learner has just come back, and there is no usable record of the last practice.
+            Write ONLY the single message you say right now: greet them in one short sentence and
+            invite them to say something. Do not mention any previous lesson.
+            """
+        }
+        return template.replacingOccurrences(of: "{facts}", with: facts)
+    }
+
+    /// 续聊会话块：整段会话里老师都知道上次留下了什么（不只是开场那一句）。
+    public static func continuationBlock(_ review: SessionReview?) -> String {
+        let facts = continuationFacts(review)
+        guard !facts.isEmpty else { return "" }
+        let template: String
+        if let url = AppResourceBundle.module.url(forResource: "Prompts/continuation", withExtension: "txt"),
+           let loaded = try? String(contentsOf: url, encoding: .utf8) {
+            template = loaded
+        } else {
+            template = """
+            Continuing from last practice — you remember what happened
+            {facts}
+            - Do not pretend this is a fresh start; follow up early on the thing above.
+            - Refer only to what is listed above.
+            """
+        }
+        return template.replacingOccurrences(of: "{facts}", with: facts)
+    }
+
     /// 「上次练完留下了什么」的一句提醒；没有历史时返回空串（空标题会诱导模型编内容）。
     private static func reviewNote(briefing: ScenarioBriefing) -> String {
         var rows: [String] = []
