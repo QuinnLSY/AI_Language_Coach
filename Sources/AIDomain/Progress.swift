@@ -381,8 +381,25 @@ public enum ProgressAggregator {
     /// 单次会话的时长上限（秒）。会话不一定会被显式结束，敞口会话按「最后一条消息」算，
     /// 但极端情况（挂机两天再说话）会把时长放大到荒唐值 —— 夹取掉，宁可少算不可虚报。
     public static let sessionDurationCap: TimeInterval = 4 * 3600
-    /// 同一天内消息跨度也算作练习时长，同样夹取。
+    /// 同一天累计时长的上限（秒）。逐条折算之后基本撞不到它，
+    /// 留着是为了「消息时间戳本身异常」（时区错乱、导入的历史数据）时有硬上限。
     public static let dailyDurationCap: TimeInterval = 6 * 3600
+
+    /// 相邻两条消息之间**算作练习**的最大间隔（秒）。超出的部分不算。
+    ///
+    /// ⚠️ 这是「练习时长」这条口径的命门。以前的做法是「当天首条 → 末条的消息跨度」：
+    /// 学员 00:00 打开应用说了一句、18:28 又来说一句，跨度 18.5 小时，
+    /// 夹取到 6 小时上限 → 每天都是「6 小时 0 分」，14 天里一排 360 分钟。
+    /// 真正该算的是「离开屏幕的时间不算练习」：间隔超过这条线就断档。
+    public static let idleGapCap: TimeInterval = 5 * 60
+
+    /// **第一句**的开口成本（秒）：读提示、想、打字、听老师第一句回复。
+    ///
+    /// ⚠️ 只给第一句加，不给每条消息各加一次。相邻两条之间的间隔**已经**是
+    /// 「学员在屏幕前待着」的那段时间（含打字与听 TTS），再按条数补一次就是重复计数：
+    /// 一场 10 分钟、20 条消息的密集对话会被算成 10 分钟 + 19×30 秒 ≈ 20 分钟。
+    /// 口径定成「挂钟跨度 − 离开屏幕的时间 + 首句开口」，只多算开头那半分钟。
+    public static let openingSeconds: TimeInterval = 30
 
     /// 跟读折算成练习时长的系数（秒 / 词）。
     public static let shadowingSecondsPerWord = 0.4
@@ -561,26 +578,32 @@ public enum ProgressAggregator {
         return activity
     }
 
-    /// 某一天的练习时长（秒）：同一句先按「首条 → 末条」的消息跨度算，再叠加跟读折算。
+    /// 某一天的练习时长（秒）：**相邻消息的间隔逐段截断**，再叠加跟读折算。
     ///
     /// **这是唯一的一把尺子**：「今天」卡片、年度记录的深浅、每日任务的达标判定，
     /// 全都必须经过它。相隔两次窗口汇总各算一遍，就会出现两个「今天的时长」。
+    ///
+    /// 口径（三条，缺一条就会说谎）：
+    /// 1. 空集合 = 0；有消息才加一次 `openingSeconds`（开口那半分钟）；
+    /// 2. 相邻两条之间的间隔**只算到 `idleGapCap`**：中间离开屏幕的时间不是练习时间；
+    /// 3. 全天累计夹取到 `dailyDurationCap`（防御异常时间戳）。
+    ///
+    /// ⚠️ 反例（旧口径）：`min(末条 − 首条, 6 小时)`。学员 00:00 与 18:28 各说一句 →
+    /// 恒等于 6 小时。真机上连续 8 天显示 360 分钟就是这么来的。
     public static func practiceSeconds(
         messageStamps: [Date],
         shadowingWordCounts: [Int]
     ) -> TimeInterval {
         let stamps = messageStamps.sorted()
-        var seconds: TimeInterval = 0
-        if let first = stamps.first, let last = stamps.last {
-            seconds = min(last.timeIntervalSince(first), dailyDurationCap)
+        var seconds: TimeInterval = stamps.isEmpty ? 0 : openingSeconds
+        for (previous, next) in zip(stamps, stamps.dropFirst()) {
+            seconds += min(next.timeIntervalSince(previous), idleGapCap)
         }
-        // 只有一条消息的会话：按「一条消息 ≈ 半分钟开口」估，不然全部显示 0 分钟。
-        if stamps.count == 1 { seconds = 30 }
         // 语音练习也应算作练习时长：跟读一次按「参考句词数 × 0.4 秒」估。
         for count in shadowingWordCounts {
             seconds += Double(max(count, 1)) * shadowingSecondsPerWord
         }
-        return seconds
+        return min(seconds, dailyDurationCap)
     }
 
     /// 每天复习了几个**不同**的词。

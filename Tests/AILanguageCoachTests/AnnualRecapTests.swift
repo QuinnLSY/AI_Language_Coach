@@ -341,10 +341,14 @@ final class AnnualRecapTests: XCTestCase {
             vocabulary: [], totalStars: 0, goalMinutes: 15
         )
         XCTAssertEqual(annual.first?.seconds, snapshot.today.seconds)
+        // 六条消息、三分钟一条 → 30 秒开口 + 5×180 秒 = 930 秒，再加 7 个词的跟读折算。
         XCTAssertEqual(
-            annual.first?.seconds ?? 0, 15 * 60 + 7 * ProgressAggregator.shadowingSecondsPerWord,
+            annual.first?.seconds ?? 0,
+            ProgressAggregator.openingSeconds
+                + 15 * 60
+                + 7 * ProgressAggregator.shadowingSecondsPerWord,
             accuracy: 0.001,
-            "15 分钟跨度 + 7 个词的跟读折算"
+            "开口半分钟 + 五段间隔（各 3 分钟，未触顶）+ 7 个词的跟读折算"
         )
     }
 

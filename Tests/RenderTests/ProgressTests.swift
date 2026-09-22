@@ -66,10 +66,43 @@ final class ProgressTests: XCTestCase {
 
         XCTAssertEqual(snapshot.activity.count, 3, "窗口 3 天就该有 3 个格子（没练的也要在）")
         XCTAssertEqual(snapshot.today.messages, 3)
-        XCTAssertEqual(snapshot.today.seconds, 8 * 60, accuracy: 0.5, "同一天首条→末条 = 练习时长")
+        // 口径：开口半分钟 + 相邻两条的间隔（间隔 > 5 分钟的部分不算）。
+        // 10:00 / 10:04 / 10:08 → 30 + 240 + 240 = 510 秒。
+        XCTAssertEqual(
+            snapshot.today.seconds,
+            ProgressAggregator.openingSeconds + 8 * 60,
+            accuracy: 0.5,
+            "开口半分钟 + 相邻间隔"
+        )
         XCTAssertEqual(snapshot.activity[1].messages, 0, "昨天没说话")
         XCTAssertEqual(snapshot.activity[0].messages, 1)
-        XCTAssertEqual(snapshot.activity[0].seconds, 30, accuracy: 0.5, "单条消息按半分钟估，不能显示 0")
+        XCTAssertEqual(
+            snapshot.activity[0].seconds, ProgressAggregator.openingSeconds, accuracy: 0.5,
+            "单条消息按半分钟估，不能显示 0"
+        )
+    }
+
+    /// **离开屏幕的时间不是练习时间**（真机事故的回归）：00:00 与 18:28 各说一句，
+    /// 旧口径（首条→末条）会算出 18.5 小时 → 夹取成 6 小时，
+    /// 于是「今天练习 6 小时 0 分」连着 8 天出现，练习节奏图上一排 360 分钟。
+    func testLongIdleGapIsNotCountedAsPracticeTime() {
+        let now = day(2026, 9, 22, 19, 0)
+        let snapshot = ProgressAggregator.snapshot(
+            days: 1, now: now, calendar: calendar,
+            sessions: [],
+            messages: [day(2026, 9, 22, 0, 0), day(2026, 9, 22, 8, 15), day(2026, 9, 22, 18, 28)],
+            corrections: [], shadowing: [], vocabulary: [],
+            totalStars: 0, goalMinutes: 15
+        )
+
+        // 30 秒开口 + 两段间隔各截到 5 分钟 = 30 + 300 + 300 = 630 秒（10.5 分钟 → 11）。
+        XCTAssertEqual(
+            snapshot.today.seconds,
+            ProgressAggregator.openingSeconds + 2 * ProgressAggregator.idleGapCap,
+            accuracy: 0.5
+        )
+        XCTAssertLessThan(snapshot.today.seconds, ProgressAggregator.dailyDurationCap, "不该再撞到日上限")
+        XCTAssertEqual(snapshot.today.minutes, 11, "四舍五入后是 11 分钟，不是 360 分钟")
     }
 
     func testWindowIsOrderedOldestToNewestAndKeepsEmptyDays() {
@@ -229,13 +262,15 @@ final class ProgressTests: XCTestCase {
         XCTAssertEqual(ProgressAggregator.durationText(3600 + 4 * 60), "1 小时 4 分")
 
         let now = day(2026, 9, 12, 20, 0)
+        // 六条消息、两分钟一条 → 30 秒开口 + 5×120 秒 = 630 秒 = 10.5 分钟（超过 10 分钟目标）。
+        let stamps = (0..<6).map { calendar.date(byAdding: .minute, value: $0 * 2, to: day(2026, 9, 12, 10, 0))! }
         let snapshot = ProgressAggregator.snapshot(
             days: 1, now: now, calendar: calendar,
-            sessions: [], messages: [day(2026, 9, 12, 10, 0), day(2026, 9, 12, 10, 20)],
+            sessions: [], messages: stamps,
             corrections: [], shadowing: [], vocabulary: [],
             totalStars: 0, goalMinutes: 10
         )
-        XCTAssertEqual(snapshot.today.minutes, 20)
+        XCTAssertEqual(snapshot.today.minutes, 11)
         XCTAssertEqual(snapshot.goalProgress, 1, accuracy: 0.001, "超出目标按满计")
         XCTAssertTrue(snapshot.goalReached)
     }
@@ -322,7 +357,12 @@ final class ProgressTests: XCTestCase {
         let snapshot = await service.snapshot(days: 7, now: now, calendar: calendar, totalStars: 9, goalMinutes: 10)
         XCTAssertEqual(snapshot.today.messages, 3)
         XCTAssertEqual(snapshot.today.corrections, 1)
-        XCTAssertEqual(snapshot.today.seconds, 600, accuracy: 1)
+        // 三条消息、间隔各 300 秒 → 30 秒开口 + 300 + 300 = 630 秒。
+        XCTAssertEqual(
+            snapshot.today.seconds,
+            ProgressAggregator.openingSeconds + 600,
+            accuracy: 1
+        )
         XCTAssertEqual(snapshot.totalStars, 9)
         XCTAssertEqual(snapshot.goalMinutes, 10)
         XCTAssertEqual(snapshot.activeDays, 1)
