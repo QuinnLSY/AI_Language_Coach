@@ -23,6 +23,8 @@ public actor CoachServices {
     private let translator: TranslationService
     /// 跟读（Shadowing，第 22 步）：示范 / 录音 / 回放 / 评测 / 落库。
     public let shadowing: ShadowingService
+    /// 入学定级（进阶 ⑤）：题库读入 + 出卷。判分与定级是纯函数，不在这里。
+    public let placement: PlacementService
     /// 今日跟读句子的落盘缓存（每天一份，按日期 + 学习语言作废）。
     private let shadowingDailyStore: ShadowingDailyStore
     /// 发音评测（Pronunciation，第 23 步）：从录音量语速 / 停顿 / 音高 / 音量起伏。
@@ -116,6 +118,8 @@ public actor CoachServices {
         self.pronunciation = PronunciationService()
         self.shadowing = ShadowingService(voice: self.voice, pronunciation: self.pronunciation, learning: database)
         self.shadowingDailyStore = shadowingDailyStore
+        // 入学定级（进阶 ⑤）：题库随包发布，出卷 / 判分全在本地（零请求）。
+        self.placement = PlacementService()
         self.materialStore = materialStore
         self.vocabulary = VocabularyService(llm: self.llm, learning: database)
         self.dictionary = DictionaryService(llm: self.llm, store: dictionaryStore)

@@ -78,6 +78,11 @@ public struct MainView: View {
                     materialUploadOverlay
                 }
 
+                // 入学定级浮层：从学习进度页进来，与上传材料同一层。
+                if state.isPlacementShowing {
+                    placementOverlay
+                }
+
                 // 考后结算卡：报告浮在最前面。**只有两个出口**（再来一次 / 完成），
                 // 点遮罩不关 —— 一场考试的报告随手点掉就找不回来了。
                 if let report = state.examReport {
@@ -683,8 +688,36 @@ public struct MainView: View {
         .zIndex(18)
     }
 
-    // MARK: - 上传材料浮层（#208，比情景面板高一层）
+    // MARK: - 入学定级浮层（进阶 ⑤）
 
+    /// 摸底浮层：点遮罩**不关**。
+    ///
+    /// 与上传材料不同，答题中途随手点一下遮罩就把这一轮丢掉太亏了（做到第 9 题了）；
+    /// 出口只有右上角那个 × 与结果页的按钮 —— 关掉也不会丢进度（`closePlacement` 只关浮层）。
+    private var placementOverlay: some View {
+        ZStack {
+            state.theme.scrim
+                .contentShape(Rectangle())
+
+            PlacementSheet(state: state) { state.closePlacement() }
+                .frame(width: 520)
+                .frame(maxHeight: 600)
+                .background(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(state.theme.panel)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .strokeBorder(state.theme.divider, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .shadow(color: state.theme.shadow, radius: 30, x: 0, y: 14)
+                .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
+        }
+        .zIndex(20)
+    }
+
+    // MARK: - 上传材料浮层（#208，比情景面板高一层）
     private var materialUploadOverlay: some View {
         ZStack {
             state.theme.scrim

@@ -60,6 +60,9 @@ public struct LearningProgressView: View {
                             // 与今日任务卡同理：锚点就是卡片本身，别套 `.position`。
                             .id(Self.annualRecapAnchorID)
                         curriculumCard
+                        // 定级卡放在「能力定位」**上面**：起点（自测）→ 现状（估）
+                        // 是同一个问题的两半，凑在一起看才成句。
+                        entrancePlacementCard
                         placementCard
                         rhythmCard
                         grammarCard
@@ -327,6 +330,17 @@ public struct LearningProgressView: View {
 
     private var curriculumCard: some View {
         CurriculumLadderCard(stages: state.curriculumStages, onOpen: openStage)
+    }
+
+    /// 入学定级（进阶 ⑤）：自测的起点档位 + 进入摸底的入口。
+    private var entrancePlacementCard: some View {
+        EntrancePlacementCard(
+            result: state.placementResult,
+            // 样本不够时那条估计是 nil（还在观察中）—— 对照那一行据此闭嘴。
+            estimateLevel: state.placementEstimate.isConfident ? state.placementEstimate.level : nil
+        ) {
+            Task { await state.openPlacement() }
+        }
     }
 
     // MARK: - 头部

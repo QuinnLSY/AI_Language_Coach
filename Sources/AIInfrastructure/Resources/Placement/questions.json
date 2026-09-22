@@ -1,0 +1,186 @@
+{
+  "version": 1,
+  "note": "入学定级的题库。一档 5 题（词汇 3 + 语法 2），出卷每档抽 3 题 —— 12 题一轮。改题只改这个文件，不动代码。",
+  "questions": [
+    {
+      "id": "a1_v_apple",
+      "level": "A1",
+      "kind": "vocabulary",
+      "prompt": "apple",
+      "options": ["香蕉", "苹果", "橙子", "葡萄"],
+      "answer": 1,
+      "explain": "apple = 苹果。水果类的基础词，A1 就该认识。"
+    },
+    {
+      "id": "a1_v_listen",
+      "level": "A1",
+      "kind": "vocabulary",
+      "prompt": "listen",
+      "options": ["说", "写", "听", "看"],
+      "answer": 2,
+      "explain": "listen = 听。注意与 hear（听见）的区别：listen 是主动去听。"
+    },
+    {
+      "id": "a1_v_expensive",
+      "level": "A1",
+      "kind": "vocabulary",
+      "prompt": "expensive",
+      "options": ["便宜的", "新鲜的", "安静的", "昂贵的"],
+      "answer": 3,
+      "explain": "expensive = 昂贵的；反义词是 cheap（便宜的）。"
+    },
+    {
+      "id": "a1_g_be",
+      "level": "A1",
+      "kind": "grammar",
+      "prompt": "She ___ a teacher.",
+      "options": ["are", "is", "am", "be"],
+      "answer": 1,
+      "explain": "主语是第三人称单数 she，be 动词用 is。"
+    },
+    {
+      "id": "a1_g_plural",
+      "level": "A1",
+      "kind": "grammar",
+      "prompt": "I have two ___.",
+      "options": ["book", "books", "bookes", "a book"],
+      "answer": 1,
+      "explain": "two 后面名词要用复数：books（book 直接加 -s）。"
+    },
+    {
+      "id": "a2_v_borrow",
+      "level": "A2",
+      "kind": "vocabulary",
+      "prompt": "borrow",
+      "options": ["借入", "归还", "购买", "出售"],
+      "answer": 0,
+      "explain": "borrow = 借入（从别人那里借来）；lend 才是借出。"
+    },
+    {
+      "id": "a2_v_appointment",
+      "level": "A2",
+      "kind": "vocabulary",
+      "prompt": "appointment",
+      "options": ["成就", "预约", "争论", "通知"],
+      "answer": 1,
+      "explain": "appointment = 预约、约定（看病、见客户都用它）。"
+    },
+    {
+      "id": "a2_v_tidy",
+      "level": "A2",
+      "kind": "vocabulary",
+      "prompt": "tidy",
+      "options": ["凌乱的", "油腻的", "整洁的", "拥挤的"],
+      "answer": 2,
+      "explain": "tidy = 整洁的；反义词是 messy（凌乱的）。"
+    },
+    {
+      "id": "a2_g_past",
+      "level": "A2",
+      "kind": "grammar",
+      "prompt": "I ___ to the cinema last night.",
+      "options": ["go", "going", "went", "am going"],
+      "answer": 2,
+      "explain": "last night 是明确的过去时间，动词用过去式 went。"
+    },
+    {
+      "id": "a2_g_comparative",
+      "level": "A2",
+      "kind": "grammar",
+      "prompt": "This book is ___ than that one.",
+      "options": ["interesting", "more interesting", "most interesting", "much interesting"],
+      "answer": 1,
+      "explain": "多音节形容词的比较级用 more + 原级，后面接 than。"
+    },
+    {
+      "id": "b1_v_reluctant",
+      "level": "B1",
+      "kind": "vocabulary",
+      "prompt": "reluctant",
+      "options": ["乐意的", "不情愿的", "急切的", "漠不关心的"],
+      "answer": 1,
+      "explain": "reluctant = 不情愿的，常搭配 be reluctant to do something。"
+    },
+    {
+      "id": "b1_v_postpone",
+      "level": "B1",
+      "kind": "vocabulary",
+      "prompt": "postpone",
+      "options": ["提前", "取消", "推迟", "安排"],
+      "answer": 2,
+      "explain": "postpone = 推迟到更晚；提前是 bring forward。"
+    },
+    {
+      "id": "b1_v_modest",
+      "level": "B1",
+      "kind": "vocabulary",
+      "prompt": "modest",
+      "options": ["傲慢的", "谦虚的", "奢侈的", "慷慨的"],
+      "answer": 1,
+      "explain": "modest = 谦虚的；也可以形容数额不大（a modest salary）。"
+    },
+    {
+      "id": "b1_g_present_perfect",
+      "level": "B1",
+      "kind": "grammar",
+      "prompt": "I ___ here since 2019.",
+      "options": ["live", "lived", "have lived", "am living"],
+      "answer": 2,
+      "explain": "since + 时间点，表示从那时持续到现在，用现在完成时。"
+    },
+    {
+      "id": "b1_g_conditional",
+      "level": "B1",
+      "kind": "grammar",
+      "prompt": "If I ___ more time, I would travel more.",
+      "options": ["have", "had", "will have", "would have"],
+      "answer": 1,
+      "explain": "与现在事实相反的假设：if 从句用过去式，主句用 would + 原形。"
+    },
+    {
+      "id": "b2_v_ambiguous",
+      "level": "B2",
+      "kind": "vocabulary",
+      "prompt": "ambiguous",
+      "options": ["显然的", "模棱两可的", "彻底的", "谨慎的"],
+      "answer": 1,
+      "explain": "ambiguous = 模棱两可的（可以有两种以上解释）。"
+    },
+    {
+      "id": "b2_v_mitigate",
+      "level": "B2",
+      "kind": "vocabulary",
+      "prompt": "mitigate",
+      "options": ["加剧", "减轻", "评估", "证明"],
+      "answer": 1,
+      "explain": "mitigate = 减轻、缓和（风险、影响）。"
+    },
+    {
+      "id": "b2_v_candid",
+      "level": "B2",
+      "kind": "vocabulary",
+      "prompt": "candid",
+      "options": ["坦率的", "委婉的", "轻率的", "敷衍的"],
+      "answer": 0,
+      "explain": "candid = 坦率的、直说的，比 honest 更强调不加修饰。"
+    },
+    {
+      "id": "b2_g_inversion",
+      "level": "B2",
+      "kind": "grammar",
+      "prompt": "Not only ___ the report, but he also presented it.",
+      "options": ["he finished", "did he finish", "he did finish", "finished he"],
+      "answer": 1,
+      "explain": "Not only 位于句首时主句要部分倒装：did he finish。"
+    },
+    {
+      "id": "b2_g_subjunctive",
+      "level": "B2",
+      "kind": "grammar",
+      "prompt": "It is essential that she ___ present at the meeting.",
+      "options": ["is", "was", "be", "will be"],
+      "answer": 2,
+      "explain": "It is essential that… 后面用虚拟语气：should be 省略 should，只留 be。"
+    }
+  ]
+}

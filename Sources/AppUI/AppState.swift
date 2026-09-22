@@ -621,6 +621,29 @@ public final class AppState {
     /// 就等于允许「哪天加载那行被删掉、今天写对的句子全没了」这种静默退化。
     var listeningLog: ListeningLog
 
+    // MARK: 入学定级（进阶 ⑤）
+
+    /// 摸底浮层是否打开。
+    public internal(set) var isPlacementShowing = false
+    /// 这一轮的卷子（空 = 还没出卷 / 已经收工）。
+    public internal(set) var placementPaper: PlacementPaper = .empty
+    /// 答到第几题（从 0 数；等于题数时表示答完）。
+    public internal(set) var placementIndex = 0
+    /// 学员选的答案（题 id → 选项下标）。
+    public internal(set) var placementAnswers: [String: Int] = [:]
+    /// 这一轮的结果（答完才有）。
+    public internal(set) var placementOutcome: PlacementResult?
+    /// 正在读题库 / 出卷。
+    public internal(set) var isPlacementLoading = false
+    /// 定级的提示（题库缺失这类，可关闭）。
+    public internal(set) var placementNotice: String?
+    /// 上一次定级的结果（跨启动保留）。
+    ///
+    /// ⚠️ 这是持久化状态，同样由手写 `init(services:)` 加载。它是 Optional，
+    /// 天然有 nil 兜底 —— 漏掉加载那行**编译器拦不住**，所以另配了一条测试钉死
+    /// 「存过的结果必须读得回来」。
+    var placementResult: PlacementResult?
+
     // MARK: 段落级跟读（#232）
 
     /// 跟读粒度：一句一练 / 整段跟读。
@@ -927,6 +950,8 @@ public final class AppState {
         self.errorDrillStreaks = Self.loadErrorDrillStreaks()
         // 精听当天账本（同样手写加载；读进来的还会过一道跨天归零）。
         self.listeningLog = Self.loadListeningLog()
+        // 上次的入学定级结果（同样手写加载）。
+        self.placementResult = Self.loadPlacementResult()
         // 学员每说完一句 → 实时保存主线任务进度（需求 5：练习内容先实时保存）。
         // ⚠️ 用捕获列表避免循环引用：`chat` 被 `self` 持有，闭包再强持有 `self` 就是环。
         chat.onLearnerTurn = { [weak self] in

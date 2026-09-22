@@ -77,13 +77,14 @@ extension AppState {
     }
 
     /// 出一篇短文：**一次阅读 = 一次模型请求**（首篇自动出；之后只由「换一篇」触发）。
-    /// 难度档位取自能力定位（#229）的估计值 —— 还在观察中就按 A2-B1 出。
+    /// 难度档位优先取有把握的实测估计，其次取入学摸底的自测档位（`effectivePlacementLevelText`）——
+    /// 两者都没有就交空串，由 Prompt 侧按「还在观察中」出 A2-B1。
     public func loadReading() async {
         guard !isReadingLoading else { return }
         isReadingLoading = true
         readingNotice = ""
         defer { isReadingLoading = false }
-        let level = placementEstimate.level?.rawValue.uppercased() ?? ""
+        let level = effectivePlacementLevelText
         guard let passage = await services.generateReading(level: level) else {
             readingNotice = "短文没取到：老师现在联系不上（模型没启动或请求失败）。把模型跑起来后再试一次。"
             return
