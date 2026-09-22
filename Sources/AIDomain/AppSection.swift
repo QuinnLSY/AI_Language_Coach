@@ -27,6 +27,8 @@ public enum AppSection: String, CaseIterable, Sendable, Identifiable, Hashable {
     case writing
     /// 阅读（#231：每日短文 + 阅读理解四选一）。
     case reading
+    /// 听力（#308 #309：精听默写 / 关键词捕捉 / 听句选义，素材与跟读同批）。
+    case listening
     /// 词典。
     case dictionary
     /// 词汇本。
@@ -47,6 +49,7 @@ public enum AppSection: String, CaseIterable, Sendable, Identifiable, Hashable {
         case .shadowing: return "跟读"
         case .writing: return "写作"
         case .reading: return "阅读"
+        case .listening: return "听力"
         case .dictionary: return "词典"
         case .vocabulary: return "词汇本"
         case .scenarios: return "情景对话"
@@ -62,6 +65,7 @@ public enum AppSection: String, CaseIterable, Sendable, Identifiable, Hashable {
         case .shadowing: return "waveform.badge.mic"
         case .writing: return "square.and.pencil"
         case .reading: return "book.fill"
+        case .listening: return "ear.badge.waveform"
         case .dictionary: return "character.book.closed.fill"
         case .vocabulary: return "text.book.closed.fill"
         case .scenarios: return "map.fill"

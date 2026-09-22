@@ -162,7 +162,7 @@ extension AppState {
             await gradeVocabularyReviewCard(remembered: false)
         case .reviewSpeak:
             await speakVocabularyReviewWord()
-        case .openPractice, .openShadowing, .openWriting, .openReading,
+        case .openPractice, .openShadowing, .openWriting, .openReading, .openListening,
              .openDictionary, .openVocabulary, .openScenarios, .openProgress, .openRecords:
             guard let section = action.section else { return }
             await go(to: section)

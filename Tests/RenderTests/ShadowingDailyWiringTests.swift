@@ -17,6 +17,22 @@ final class ShadowingDailyWiringTests: XCTestCase {
 
     private var window: NSWindow?
 
+    /// 快照真实的「练到第几句」并**清空**，返回还原闭包。
+    ///
+    /// ⚠️ `shadowing.progress` 是真 `UserDefaults` 里的键，而 `AppState` 在
+    /// 「今天的素材」这条路上会**落回**它（切页 / 重启接着上次那一句练）。
+    /// 不清的话，同一个测试进程里别人写进去的位置会漏到这里 ——
+    /// 本类断言「全新一天从第一句开始」就会变成「看谁先跑」的抽奖。
+    private func isolateShadowingProgress() -> () -> Void {
+        let key = AppState.shadowingProgressStorageKey
+        let saved = UserDefaults.standard.string(forKey: key)
+        UserDefaults.standard.removeObject(forKey: key)
+        return {
+            if let saved { UserDefaults.standard.set(saved, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+    }
+
     /// 一份「今天已经有句子」的 AppState：临时配置文件 + 临时缓存文件，绝不碰真实数据。
     private func makeState(seeded: Bool) async throws -> (AppState, ShadowingDailyStore) {
         let directory = FileManager.default.temporaryDirectory
@@ -56,8 +72,14 @@ final class ShadowingDailyWiringTests: XCTestCase {
     }
 
     /// 「同一天必须拿到同一批句子」：缓存里有今天的句子时，`AppState` 要**直接采用**，
-    /// 不重生成、不清进度、并把「这是今日生成的」标出来（页面据此显示「今日 · 20 句」）。
+    /// 不重生成、并把「这是今日生成的」标出来（页面据此显示「今日 · 20 句」）。
+    ///
+    /// 这里量的是**全新一天**（`shadowing.progress` 里没有今天的记录）——
+    /// 没有记录就不该凭空冒出位置来。至于「回来接着上次那一句」，那是**存了记录**的场景，
+    /// 由 `ShadowingSentenceStateTests.testSavedIndexIsRestoredOnTheSameDay` 钉住。
     func testTodayDrillsAreTakenFromCacheWithoutRegenerating() async throws {
+        let restoreProgress = isolateShadowingProgress()
+        defer { restoreProgress() }
         let (state, store) = try await makeState(seeded: true)
 
         await state.loadTodayShadowingDrills()
@@ -66,7 +88,7 @@ final class ShadowingDailyWiringTests: XCTestCase {
         XCTAssertEqual(state.shadowingDrills.first?.id, "seed-0", "拿到的必须是缓存内容，不是别的来源")
         XCTAssertTrue(state.shadowingIsDailyGenerated, "缓存命中同样要标成「今日生成」")
         XCTAssertNil(state.shadowingNotice, "缓存命中的正常路径不该给用户任何提示")
-        XCTAssertEqual(state.shadowingIndex, 0, "换了一批素材，练习进度要归零")
+        XCTAssertEqual(state.shadowingIndex, 0, "今天还没记住过位置，就该从第一句开始")
         XCTAssertFalse(state.isShadowingLoading, "缓存命中是瞬时的事，不该闪加载态")
 
         // 缓存本身也得还在（别在读取路径上误删）。

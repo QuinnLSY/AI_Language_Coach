@@ -261,6 +261,12 @@ final class ShadowingTests: XCTestCase {
 
     @MainActor
     func testOpenShadowingLoadsDrillsAndPreviewDoesNotPersist() async throws {
+        // ⚠️ `nextShadowingDrill()` 会把「练到第几句」写进**真实** `UserDefaults`
+        // （`shadowing.progress`）。本用例只想验证「换一句真的换了」，不该顺手
+        // 在测试进程的域里留下一个位置 —— 那会漏给后面所有跟读用例
+        // （实测：`ShadowingDailyWiringTests` 因此虚报「换了一批素材进度没归零」）。
+        let restoreProgress = isolateShadowingProgress()
+        defer { restoreProgress() }
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("alc-shadowing-state-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: fileURL) }
@@ -287,6 +293,18 @@ final class ShadowingTests: XCTestCase {
     }
 
     // MARK: - 工具
+
+    /// 快照真实的「练到第几句」并**清空**，返回还原闭包 —— 用完原样放回。
+    @MainActor
+    private func isolateShadowingProgress() -> () -> Void {
+        let key = AppState.shadowingProgressStorageKey
+        let saved = UserDefaults.standard.string(forKey: key)
+        UserDefaults.standard.removeObject(forKey: key)
+        return {
+            if let saved { UserDefaults.standard.set(saved, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+    }
 
     private func attempt(accuracy: Double, minutesAgo: Double = 0) -> ShadowingAttempt {
         ShadowingAttempt(

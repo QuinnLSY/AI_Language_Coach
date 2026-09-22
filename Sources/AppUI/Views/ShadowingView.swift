@@ -19,56 +19,49 @@ public struct ShadowingView: View {
             Divider().overlay(theme.divider)
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    // 听写会话**接管**正文区：这块的根本前提是「提交前一个字都不给」，
-                    // 与跟读卡（把句子摊在最显眼处）是互相打架的两套界面，
-                    // 并存的话总有人会把原文留在屏幕上（#297）。
-                    if state.isListeningDrill {
-                        listeningSection
-                    } else {
-                        // 顽固音素要放在**最上面**：它是「这一轮该练什么」的建议，
-                        // 埋在结果卡下面等于练完了才告诉你刚才该练什么。
-                        if !state.phonemeWeaknesses.isEmpty {
-                            PhonemeWeaknessCard(
-                                weaknesses: state.phonemeWeaknesses,
-                                isDrillActive: state.isPhonemeDrill,
-                                activePhoneme: state.phonemeDrillFocus
-                            ) { weakness in
-                                state.startPhonemeDrill(for: weakness)
-                            } onExit: {
-                                Task { await state.exitPhonemeDrill() }
-                            }
+                    // ⚠️ #308 起听力**搬出去单开一页**（阅读与词典之间）：
+                    // 「只听不看」与紧跟着的「句子摊在眼前让你念」是互相打架的两套界面，
+                    // 以前寄在这里，两种形式都只能各让一步。这里只留一个入口。
+                    listeningEntry
+                    // 顽固音素要放在**最上面**：它是「这一轮该练什么」的建议，
+                    // 埋在结果卡下面等于练完了才告诉你刚才该练什么。
+                    if !state.phonemeWeaknesses.isEmpty {
+                        PhonemeWeaknessCard(
+                            weaknesses: state.phonemeWeaknesses,
+                            isDrillActive: state.isPhonemeDrill,
+                            activePhoneme: state.phonemeDrillFocus
+                        ) { weakness in
+                            state.startPhonemeDrill(for: weakness)
+                        } onExit: {
+                            Task { await state.exitPhonemeDrill() }
                         }
-                        if state.hasShadowingMaterial {
-                            listeningEntry
-                            modeSwitch
-                            progressRow
-                            // 两种粒度各有自己的「参考文本」与「结果卡」，但不共用一份：
-                            // 段落要多渲染 N 行句子，混在一张卡里会让一句模式凭空长出空行。
-                            if state.shadowingMode == .passage {
-                                passageCard
-                                actionRow
-                                if let result = state.shadowingPassageResult {
-                                    passageResultCard(result)
-                                    if let pronunciation = state.shadowingPassagePronunciation {
-                                        pronunciationCard(pronunciation)
-                                    }
-                                }
-                            } else {
-                                drillCard
-                                actionRow
-                                if let comparison = state.shadowingComparison {
-                                    resultCard(comparison)
-                                    if let pronunciation = state.shadowingPronunciation {
-                                        pronunciationCard(pronunciation)
-                                    }
+                    }
+                    if state.hasShadowingMaterial {
+                        modeSwitch
+                        progressRow
+                        // 两种粒度各有自己的「参考文本」与「结果卡」，但不共用一份：
+                        // 段落要多渲染 N 行句子，混在一张卡里会让一句模式凭空长出空行。
+                        if state.shadowingMode == .passage {
+                            passageCard
+                            actionRow
+                            if let result = state.shadowingPassageResult {
+                                passageResultCard(result)
+                                if let pronunciation = state.shadowingPassagePronunciation {
+                                    pronunciationCard(pronunciation)
                                 }
                             }
                         } else {
-                            emptyHint
+                            drillCard
+                            actionRow
+                            if let comparison = state.shadowingComparison {
+                                resultCard(comparison)
+                                if let pronunciation = state.shadowingPronunciation {
+                                    pronunciationCard(pronunciation)
+                                }
+                            }
                         }
-                    }
-                    if let notice = state.listeningNotice {
-                        noticeBanner(notice)
+                    } else {
+                        emptyHint
                     }
                     if let notice = state.shadowingNotice {
                         noticeBanner(notice)
@@ -89,19 +82,10 @@ public struct ShadowingView: View {
             CuteAnimalView(kind: state.studentAnimalKind, isSleeping: theme.isNight, size: 40, accessory: .student)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(state.isListeningDrill ? "精听" : "跟读")
+                    Text("跟读")
                         .font(.system(size: 16, weight: .bold, design: .rounded))
                         .foregroundStyle(theme.primaryText)
-                    if state.isListeningDrill {
-                        Text("第 \(state.listeningIndex + 1) / \(state.listeningRound.count) 句")
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
-                            .foregroundStyle(theme.accentCool)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill(theme.accentCool.opacity(0.14)))
-                            .monospacedDigit()
-                            .help("只听不看：把听到的那句写下来，交了再对原文")
-                    } else if state.isShadowingLoading {
+                    if state.isShadowingLoading {
                         HStack(spacing: 4) {
                             ProgressView().controlSize(.small)
                             Text("正在生成今天的句子…")
@@ -136,20 +120,12 @@ public struct ShadowingView: View {
                             .help("今天现生成的句子没拿到，用的是安装包里的内置素材")
                     }
                 }
-                Text(state.isListeningDrill
-                     ? "只听不看：把听到的那句写下来，交了再对原文"
-                     : "跟着老师的节奏说一遍；句子里的词可以划过去单独看释义")
+                Text("跟着老师的节奏说一遍；句子里的词可以划过去单独看释义")
                     .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
             }
             Spacer(minLength: 0)
-            if state.isListeningDrill {
-                // 听写中途不给「换一批」：那一轮是按开轮时的句子定下的，
-                // 换素材或者刷新统计都会把这一轮的状态与屏幕上的句子搞错位。
-                Text("今天的成绩已记下")
-                    .font(.system(size: 10, design: .rounded))
-                    .foregroundStyle(theme.secondaryText)
-            } else if state.shadowingStats.attempts > 0 {
+            if state.shadowingStats.attempts > 0 {
                 HStack(spacing: 4) {
                     Text("练了 \(state.shadowingStats.attempts) 次 · 最佳 \(percent(state.shadowingStats.bestAccuracy))")
                     if let best = state.shadowingStats.bestPronunciation {
@@ -160,48 +136,47 @@ public struct ShadowingView: View {
                 .foregroundStyle(theme.secondaryText)
                 .monospacedDigit()
             }
-            if !state.isListeningDrill {
-                // 换一批：今天的句子练腻了 / 觉得不合适，可以重新生成（覆盖当天缓存）。
-                Button {
-                    Task { await state.loadTodayShadowingDrills(regenerate: true) }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "wand.and.stars")
-                        Text(state.isShadowingLoading ? "生成中…" : "换一批")
-                    }
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(theme.accentCool)
+            // 换一批：今天的句子练腻了 / 觉得不合适，可以重新生成（覆盖当天缓存）。
+            Button {
+                Task { await state.loadTodayShadowingDrills(regenerate: true) }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "wand.and.stars")
+                    Text(state.isShadowingLoading ? "生成中…" : "换一批")
                 }
-                .buttonStyle(.plain)
-                .disabled(state.isShadowingLoading)
-                .help("忽略今天的缓存，按情景重新生成 20 句")
-                Button {
-                    Task { await state.loadShadowing() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.plain)
-                .help("刷新统计")
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(theme.accentCool)
             }
+            .buttonStyle(.plain)
+            .disabled(state.isShadowingLoading)
+            .help("忽略今天的缓存，按情景重新生成 20 句")
+            Button {
+                Task { await state.loadShadowing() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.plain)
+            .help("刷新统计")
         }
         .padding(.horizontal, 18)
         .frame(height: 64)
     }
 
-    // MARK: - 无文本听力（进阶 ④）
+    // MARK: - 听力入口（听力已独立成板块，#310）
 
-    /// 入口条：把「只听不看」这条练习摆在最上面，但**只在想练的时候占地方**。
+    /// 入口条：跟读练的是「听 + 说」，听力练的是「只听 + 写」。
+    /// 同一批句子换个练法，所以入口放在这里最顺 —— 刚跟读完的句子马上能拿去做听力。
     private var listeningEntry: some View {
         HStack(alignment: .center, spacing: 10) {
-            Image(systemName: "ear.badge.waveform")
+            Image(systemName: AppSection.listening.systemImage)
                 .font(.system(size: 13))
                 .foregroundStyle(theme.accentCool)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("无文本听力")
+                Text("听力")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.primaryText)
-                Text("同一批句子，但屏幕上不给字：听到什么写什么，交了再对原文")
+                Text("同一批句子，但屏幕上不给字：默写 / 抓关键词 / 选释义，三种练法随便换")
                     .font(.system(size: 10, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
                     .lineLimit(1)
@@ -218,9 +193,9 @@ public struct ShadowingView: View {
             }
 
             Button {
-                Task { await state.startListeningDrill() }
+                Task { await state.go(to: .listening) }
             } label: {
-                Text("开始听写")
+                Text("去听力")
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.accentCool)
                     .padding(.horizontal, 10)
@@ -231,7 +206,8 @@ public struct ShadowingView: View {
                     )
             }
             .buttonStyle(.plain)
-            .help("\(ListeningRule.roundSize) 句一轮：先听写，再对照")
+            .help("听力与跟读共用今天的素材（⌘\(AppSection.listening.shortcutDigit)）")
+            .accessibilityLabel("去听力")
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -243,60 +219,8 @@ public struct ShadowingView: View {
 
     private var listeningTodayText: String {
         let done = state.listeningLog.resolvedCount
-        guard let average = state.listeningLog.averageAccuracy else { return "今天写了 \(done) 句" }
-        return "今天写了 \(done) 句 · 平均 \(Int((average * 100).rounded()))%"
-    }
-
-    /// 听写会话的正文（练习中 → 对照中 → 结算）。
-    @ViewBuilder
-    private var listeningSection: some View {
-        if let summary = state.listeningSummary {
-            ListeningSummaryCard(
-                summary: summary
-            ) {
-                Task { await state.collectListeningMissedWords() }
-            } onRestart: {
-                Task { await state.startListeningDrill() }
-            } onClose: {
-                state.exitListeningDrill()
-            }
-        } else if let drill = state.currentListeningDrill {
-            ListeningDrillCard(
-                index: state.listeningIndex,
-                total: state.listeningRound.count,
-                attempt: state.listeningResult,
-                playCount: state.listeningPlayCount,
-                isPlaying: state.listeningIsPlaying,
-                isSlow: state.listeningSlowPlayback,
-                isLast: state.listeningIndex + 1 >= state.listeningRound.count,
-                typed: Binding(
-                    get: { state.listeningDraft },
-                    set: { state.listeningDraft = $0 }
-                )
-            ) {
-                Task {
-                    if state.listeningIsPlaying {
-                        await state.stopListeningAudio()
-                    } else {
-                        await state.playListeningPrompt()
-                    }
-                }
-            } onToggleSlow: {
-                state.toggleListeningSlowPlayback()
-            } onSubmit: {
-                state.submitListeningDraft()
-            } onAdvance: {
-                state.advanceListening()
-            } onCancel: {
-                Task {
-                    await state.stopListeningAudio()
-                    state.exitListeningDrill()
-                }
-            }
-            // ⚠️ 卡里读不到 `drill.text` 的任何界面元素 —— 传进去的只有句数、遍数与状态，
-            // 原文由 `ListeningAttempt` 在提交后带出来（`ListeningDrillCard` 是唯一读它的地方）。
-            .id(drill.id)
-        }
+        guard let average = state.listeningLog.averageAccuracy else { return "今天练了 \(done) 句" }
+        return "今天练了 \(done) 句 · 平均 \(Int((average * 100).rounded()))%"
     }
 
     // MARK: - 粒度切换（一句一练 / 整段跟读）

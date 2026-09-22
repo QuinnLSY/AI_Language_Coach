@@ -104,14 +104,23 @@ public struct ListeningAttempt: Sendable, Equatable, Identifiable {
     }
 }
 
-/// 一轮听写的结算。
+/// 一轮听力的结算。
+///
+/// ⚠️ **三种形式共用这一个类型**（#309）：`mode` 决定 `headline` / `verdict` 怎么说。
+/// 拆成三个类型的话，结算卡要么写三份、要么退化成三个几乎一样的结构，
+/// 而三者的共同项（做了几句、平均多少、哪些词要收拾）本来就是同一件事。
 public struct ListeningSummary: Sendable, Equatable {
 
+    /// 这一轮练的是哪种形式。
+    public var mode: ListeningMode
     public var attempted: Int
+    /// 三种形式各自的「平均分」：精听 = 准确率，关键词 = 命中率，听句选义 = 正确率。
     public var averageAccuracy: Double
-    /// 一遍就听懂（不用重听）的句数 —— 这一项比平均分更能说明听力。
+    /// 一遍就听懂（不用重听）的句数 —— 这一项比平均分更能说明听力（精听模式用）。
     public var firstPassCount: Int
     public var averagePlays: Double
+    /// 听句选义答对的句数（其余两种模式恒为 0）。
+    public var correctCount: Int
     /// 跨句汇总的「没听出来的词」（按出现次数降序）。
     public var missedWords: [String]
 
@@ -120,15 +129,21 @@ public struct ListeningSummary: Sendable, Equatable {
         averageAccuracy: Double,
         firstPassCount: Int,
         averagePlays: Double,
-        missedWords: [String]
+        missedWords: [String],
+        mode: ListeningMode = .dictation,
+        correctCount: Int = 0
     ) {
+        self.mode = mode
         self.attempted = max(attempted, 0)
         self.averageAccuracy = min(max(averageAccuracy, 0), 1)
         self.firstPassCount = max(firstPassCount, 0)
         self.averagePlays = max(averagePlays, 0)
+        self.correctCount = max(correctCount, 0)
         self.missedWords = missedWords
     }
 
+    /// ⚠️ 空的**精听**结算（`mode` 写死 `.dictation`）。三种形式各自的空结算请走
+    /// `empty(mode:)`，别图省事用它 —— 标签会张冠李戴。
     public static let empty = ListeningSummary(
         attempted: 0, averageAccuracy: 0, firstPassCount: 0, averagePlays: 0, missedWords: []
     )
@@ -140,24 +155,42 @@ public struct ListeningSummary: Sendable, Equatable {
     /// 「8 句 · 平均 78% · 3 句一遍听懂」。
     public var headline: String {
         guard hasAttempts else { return "这一轮一句都没写" }
-        var parts = ["\(attempted) 句", "平均 \(accuracyPercent)%"]
-        parts.append("\(firstPassCount) 句一遍听懂")
-        return parts.joined(separator: " · ")
+        switch mode {
+        case .dictation:
+            return ["\(attempted) 句", "平均 \(accuracyPercent)%", "\(firstPassCount) 句一遍听懂"]
+                .joined(separator: " · ")
+        case .keyword:
+            return ["\(attempted) 句", "平均抓住 \(accuracyPercent)% 的关键词"].joined(separator: " · ")
+        case .meaning:
+            return ["\(attempted) 句", "答对 \(correctCount) 句（\(accuracyPercent)%）"].joined(separator: " · ")
+        }
     }
 
     /// 一句话总评（对着人说话）。
     public var verdict: String {
         guard hasAttempts else { return "下次试着写完一轮，我才能看出你的耳朵卡在哪。" }
-        let firstPassRatio = Double(firstPassCount) / Double(attempted)
-        if firstPassRatio >= 0.8 { return "耳朵已经很松了：绝大多数句子一遍就过。" }
-        if averageAccuracy >= 0.85 { return "听得很准，只是还需要多听一遍才敢下笔。" }
-        if averageAccuracy >= 0.6 { return "大意抓住了，丢的多是功能词和词尾 —— 这正是听力的第一个坎。" }
-        return "别灰心，这一轮先当摸底：把下面这些词认下来，下一轮会明显不一样。"
+        switch mode {
+        case .dictation:
+            let firstPassRatio = Double(firstPassCount) / Double(attempted)
+            if firstPassRatio >= 0.8 { return "耳朵已经很松了：绝大多数句子一遍就过。" }
+            if averageAccuracy >= 0.85 { return "听得很准，只是还需要多听一遍才敢下笔。" }
+            if averageAccuracy >= 0.6 { return "大意抓住了，丢的多是功能词和词尾 —— 这正是听力的第一个坎。" }
+            return "别灰心，这一轮先当摸底：把下面这些词认下来，下一轮会明显不一样。"
+        case .keyword:
+            if averageAccuracy >= 0.85 { return "主干抓得很稳 —— 换精听默写试试，把细节也抠下来。" }
+            if averageAccuracy >= 0.6 { return "方向对：漏掉的多是句尾那几个词，听的时候留一段注意力给结尾。" }
+            return "这一轮先别追细节：每一句只问自己「谁、做了什么」，抓住了再往下听。"
+        case .meaning:
+            let ratio = Double(correctCount) / Double(attempted)
+            if ratio >= 0.85 { return "意思听得明白。接下来该练的是「听清」而不只是「听懂」—— 换默写模式。" }
+            if ratio >= 0.6 { return "大意在，但选项之间容易混：多半是几个词没听清就顺着上下文猜了。" }
+            return "四个选项像是因为句子本身没听完整。先回关键词模式，把主干听稳再回来。"
+        }
     }
 
     /// 从一次听写记录汇总（约定为**新→旧**或任意顺序，口径与顺序无关）。
     public static func from(_ attempts: [ListeningAttempt]) -> ListeningSummary {
-        guard !attempts.isEmpty else { return .empty }
+        guard !attempts.isEmpty else { return empty(mode: .dictation) }
         let accuracies = attempts.map(\.accuracy)
         let plays = attempts.map { Double($0.playCount) }
         return ListeningSummary(
@@ -165,17 +198,63 @@ public struct ListeningSummary: Sendable, Equatable {
             averageAccuracy: accuracies.reduce(0, +) / Double(accuracies.count),
             firstPassCount: attempts.filter { $0.step == .firstPass }.count,
             averagePlays: plays.reduce(0, +) / Double(plays.count),
-            missedWords: rankMissedWords(attempts)
+            missedWords: rankMissedWords(attempts.map(\.missedWords)),
+            mode: .dictation
+        )
+    }
+
+    /// 空结算（这一轮一句都没交）。
+    ///
+    /// ⚠️ **必须带上模式**：结算卡的标签随模式变（「一遍听懂」/「整句全抓住」/「答对句数」）。
+    /// 一律返回那个写死 `mode: .dictation` 的 `.empty` 的话，「关键词模式一句没交」
+    /// 的结算卡会顶着默写的说法 —— 用户根本没在默写。
+    static func empty(mode: ListeningMode) -> ListeningSummary {
+        ListeningSummary(
+            attempted: 0, averageAccuracy: 0, firstPassCount: 0,
+            averagePlays: 0, missedWords: [], mode: mode
+        )
+    }
+
+    /// 关键词捕捉的结算（漏词 = 没抓住的关键词）。
+    public static func keyword(from captures: [KeywordCapture]) -> ListeningSummary {
+        guard !captures.isEmpty else { return empty(mode: .keyword) }
+        let ratios = captures.map(\.hitRatio)
+        return ListeningSummary(
+            attempted: captures.count,
+            averageAccuracy: ratios.reduce(0, +) / Double(ratios.count),
+            // 「一遍就听懂」在关键词模式下的对应物 = **整句全抓住**的句数。
+            // 同一条口径（一次做对，不用返工），只是换了个说法。
+            firstPassCount: captures.filter { $0.total > 0 && $0.caughtCount == $0.total }.count,
+            averagePlays: captures.map { Double($0.playCount) }.reduce(0, +) / Double(captures.count),
+            missedWords: rankMissedWords(captures.map(\.missed)),
+            mode: .keyword
+        )
+    }
+
+    /// 听句选义的结算（漏词 = 答错那些句子的关键词，交给词汇本收着）。
+    public static func meaning(correct: [Bool], missedWords: [String], averagePlays: Double) -> ListeningSummary {
+        guard !correct.isEmpty else { return empty(mode: .meaning) }
+        let right = correct.filter { $0 }.count
+        return ListeningSummary(
+            attempted: correct.count,
+            averageAccuracy: Double(right) / Double(correct.count),
+            // 复用 `firstPassCount` 放「答对句数」：结算卡那两个数字的位置是同一处，
+            // 只是标签随模式变（见 `ListeningSummaryCard`）。
+            firstPassCount: right,
+            averagePlays: averagePlays,
+            missedWords: rankMissedWords([missedWords]),
+            mode: .meaning,
+            correctCount: right
         )
     }
 
     /// 跨句汇总漏词：出现次数多的在前；同次数的**保持首次出现的顺序**
     /// （并列时先错的那个更可能是同一条规律，先练它）。
-    static func rankMissedWords(_ attempts: [ListeningAttempt]) -> [String] {
+    static func rankMissedWords(_ groups: [[String]]) -> [String] {
         var order: [String] = []
         var counts: [String: Int] = [:]
-        for attempt in attempts {
-            for word in attempt.missedWords {
+        for group in groups {
+            for word in group {
                 let key = word.lowercased()
                 if counts[key] == nil { order.append(key) }
                 counts[key, default: 0] += 1
@@ -187,6 +266,11 @@ public struct ListeningSummary: Sendable, Equatable {
             if left != right { return left > right }
             return (order.firstIndex(of: lhs) ?? 0) < (order.firstIndex(of: rhs) ?? 0)
         }
+    }
+
+    /// 兼容入口（精听那条链路的既有调用点）。
+    static func rankMissedWords(_ attempts: [ListeningAttempt]) -> [String] {
+        rankMissedWords(attempts.map(\.missedWords))
     }
 }
 
@@ -323,39 +407,50 @@ public enum ListeningRule {
         public var fastLabel: String
         public var answerPlaceholder: String
         public var submitButton: String
+        /// 提交按钮的 `.help`：说清「为什么必须先写再看」。
+        public var submitHelp: String
         public var cancelHelp: String
 
         /// 逐条列出来（断言用）。
         public var all: [String] {
             [
                 title, subtitle, counterText, playsText, playButton, replayButton,
-                stopButton, slowLabel, fastLabel, answerPlaceholder, submitButton, cancelHelp
+                stopButton, slowLabel, fastLabel, answerPlaceholder, submitButton,
+                submitHelp, cancelHelp
             ]
         }
     }
 
-    /// 组装这一刻的界面文案。**入参只有句序、遍数与语速档** ——
+    /// 组装这一刻的界面文案。**入参只有句序、遍数、语速档与模式** ——
     /// 没有任何与原文有关的输入，所以「文案里不可能带出原文」在类型层面就成立，
     /// 下面的断言只是把这条不变量钉死。
+    ///
+    /// ⚠️ `mode` 只影响**怎么称呼这件事**（标题 / 输入框引导语 / 提交按钮），
+    /// 不影响「屏幕上不会出现原文」这条不变量 —— 三种形式都不给原文（听句选义给的是**释义**，
+    /// 而释义本来就是那道题的选项）。
     public static func chrome(
         index: Int,
         total: Int,
         playCount: Int,
-        slow: Bool
+        slow: Bool,
+        mode: ListeningMode = .dictation
     ) -> ListeningChrome {
         ListeningChrome(
-            title: "无文本听力",
-            subtitle: "只听不看：把听到的那句写下来。写不全没关系，写出来才知道差在哪。",
+            title: mode.title,
+            subtitle: mode.blurb,
             counterText: "第 \(index + 1) / \(total) 句",
-            playsText: playCount == 0 ? "先听，再写" : "已经听了 \(playCount) 遍",
+            playsText: playCount == 0 ? "先听，再答" : "已经听了 \(playCount) 遍",
             playButton: "听这一句",
             replayButton: "重新听一遍",
             stopButton: "停止播放",
             slowLabel: slow ? "慢速" : "原速",
             fastLabel: slow ? "切回原速" : "切到慢速",
-            answerPlaceholder: "把你听到的那句写下来",
-            submitButton: "对照原文",
-            cancelHelp: "退出听写（今天的成绩已经记下了，下次接着来）"
+            answerPlaceholder: mode.answerPlaceholder,
+            submitButton: mode.submitTitle,
+            submitHelp: mode == .keyword
+                ? "写完再看这一句里有哪几个关键信息词 —— 先看就等于开卷"
+                : "写完再看原文，顺序反过来就不算听写了",
+            cancelHelp: "退出这一轮（今天的成绩已经记下了，下次接着来）"
         )
     }
 

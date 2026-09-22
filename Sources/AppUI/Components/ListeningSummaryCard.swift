@@ -68,10 +68,38 @@ public struct ListeningSummaryCard: View {
 
     private var metrics: some View {
         HStack(alignment: .center, spacing: 14) {
-            metric("\(summary.accuracyPercent)%", "平均对上的词", theme.accent)
-            metric("\(summary.firstPassCount)/\(summary.attempted)", "一遍就听懂", theme.success)
+            metric("\(summary.accuracyPercent)%", accuracyLabel, theme.accent)
+            metric("\(summary.firstPassCount)/\(summary.attempted)", streakLabel, theme.success)
             metric(playsText, "平均听几遍", theme.accentCool)
             Spacer(minLength: 0)
+        }
+    }
+
+    /// 三个数字的**位置**在三种形式里是同一处，**说法**随形式变。
+    ///
+    /// ⚠️ 标签不能写死成默写那一套：「一遍就听懂」放到听句选义上会让人以为
+    /// 自己得了 0 分（那个模式的 `firstPassCount` 装的是「答对句数」）。
+    private var accuracyLabel: String {
+        switch summary.mode {
+        case .dictation: return "平均对上的词"
+        case .keyword: return "平均抓住的关键词"
+        case .meaning: return "答对率"
+        }
+    }
+
+    private var streakLabel: String {
+        switch summary.mode {
+        case .dictation: return "一遍就听懂"
+        case .keyword: return "整句全抓住"
+        case .meaning: return "答对句数"
+        }
+    }
+
+    private var missedWordsTitle: String {
+        switch summary.mode {
+        case .dictation: return "没听出来的词"
+        case .keyword: return "没抓住的信息词"
+        case .meaning: return "错句里的关键词"
         }
     }
 
@@ -101,7 +129,7 @@ public struct ListeningSummaryCard: View {
                 Image(systemName: "ear.trianglebadge.exclamationmark")
                     .font(.system(size: 10))
                     .foregroundStyle(theme.warning)
-                Text("没听出来的词")
+                Text(missedWordsTitle)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.primaryText)
                 Text("这些词是耳朵真正卡住的地方")
@@ -166,7 +194,9 @@ public struct ListeningSummaryCard: View {
             .help("从第 1 句重新开始（今天已写对的成绩保留在账本里）")
 
             Button(action: onClose) {
-                Text("回到跟读")
+                // ⚠️ #308 起听力是**独立一页**，点它不再回到跟读页，只是结束这一轮；
+                // 文案写着「回到跟读」会把用户指向一个不会发生的事。
+                Text("先不练了")
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
                     .padding(.horizontal, 14)
@@ -182,6 +212,7 @@ public struct ListeningSummaryCard: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .help("结束这一轮（今天练过的成绩留在账本里，随时可以从这一页再开一轮）")
 
             Spacer(minLength: 0)
         }

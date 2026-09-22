@@ -592,29 +592,38 @@ public final class AppState {
     /// 专项在练哪个音（nil = 不在专项里）。
     public internal(set) var phonemeDrillFocus: String?
 
-    // MARK: 无文本听力（进阶 ④）
+    // MARK: 听力（#308 #309：独立成页，三种形式）
 
-    /// 是否正处在听写会话里（true = 精听接管了跟读页的正文区）。
+    /// 中栏切换：听力页。
     ///
-    /// 会话就**长在跟读页上**而不是另开一页：素材是同一批（今天的句子）、
-    /// 声音是同一把、链路是同一套，另开一页只会让侧栏多一个入口、
-    /// 让数字快捷键整体挪位，而用户要做的其实只是「这批句子先别给我看字」。
+    /// ⚠️ 与 `showingShadowing` 那一族一样由 `applySection` **一次写齐** ——
+    /// 别在 `openListening()` 里手写一串复位，漏一个就是两个条目同时高亮。
+    public var showingListening = false
+
+    /// 听力页当前练的是哪种形式（精听默写 / 关键词捕捉 / 听句选义）。
+    ///
+    /// 刻意**不落盘**：它只是「这回想怎么练」的临时选择，不是用户数据。
+    /// 落盘就得在 `init(services:)` 里补一行加载，而那一行漏掉编译器一声不响
+    /// （同 `listeningLog` 的注释）—— 为这点小便利去挂那个风险不划算。
+    public internal(set) var listeningMode: ListeningMode = .dictation
+
+    /// 是否正处在一轮听力里（true = 听力页的正文换成练习卡）。
+    ///
+    /// 一轮的句子在**开轮时定下**，中途不随素材变动：练到第 5 句时素材被换掉
+    /// （跟读页点「换一批」/ 进音素专项），存着的这一轮还能善终 ——
+    /// 现算的话第 5 句会突然变成另一句。
     public internal(set) var isListeningDrill = false
-    /// 这一轮要听写的句子（开轮时定下，中途不随素材变动）。
-    ///
-    /// 与「每次现算」的 `shadowingPassages` 相反：这里刻意存下来 ——
-    /// 听写是逐句累进的，练到第 5 句时素材被换掉（点「换一批」/ 进音素专项），
-    /// 存着的这一轮还能善终，现算的话第 5 句会突然变成另一句。
+    /// 这一轮要练的句子（开轮时定下）。
     public internal(set) var listeningRound: [ShadowingDrill] = []
     /// 轮到第几句。
     public internal(set) var listeningIndex = 0
-    /// 学员正在写的那句（提交后清空）。
+    /// 学员正在写的那句（精听：整句；关键词：那些词。提交后清空）。
     public var listeningDraft = ""
     /// 刚提交的对照结果（nil = 还没交；非 nil = 停在这一句的回执上）。
     public internal(set) var listeningResult: ListeningAttempt?
     /// 这一轮已交的听写。
     public internal(set) var listeningAttempts: [ListeningAttempt] = []
-    /// 这一句已经听了几遍（提交后归零）。
+    /// 这一句已经听了几遍（提交后归零）。**三种形式共用** —— 播放链路是同一条。
     public internal(set) var listeningPlayCount = 0
     /// 慢速播放开关（下一次播放生效）。
     public internal(set) var listeningSlowPlayback = false
@@ -622,7 +631,7 @@ public final class AppState {
     public internal(set) var listeningIsPlaying = false
     /// 这一轮的结算（走完才挂上）。
     public internal(set) var listeningSummary: ListeningSummary?
-    /// 精听的提示（可关闭）。
+    /// 听力的提示（可关闭）。
     public internal(set) var listeningNotice: String?
     /// 当天账本（句 id → 最佳准确率）。
     ///
@@ -630,6 +639,29 @@ public final class AppState {
     /// 持久化状态，由手写 `init(services:)` 从 UserDefaults 加载。给了 `= .empty`
     /// 就等于允许「哪天加载那行被删掉、今天写对的句子全没了」这种静默退化。
     var listeningLog: ListeningLog
+
+    // MARK: 听力 · 关键词捕捉（#309）
+
+    /// 学员正在写的那些词（提交后清空）。
+    public var listeningKeywordDraft = ""
+    /// 刚提交的对照（nil = 还没交）。
+    public internal(set) var listeningKeywordResult: KeywordCapture?
+    /// 这一轮已提交的关键词对照。
+    public internal(set) var listeningKeywordAttempts: [KeywordCapture] = []
+
+    // MARK: 听力 · 听句选义（#309）
+
+    /// 当前这一句的题（nil = 这一句出不了题，或已经答完在等「下一句」）。
+    public internal(set) var listeningMeaningQuestion: MeaningQuestion?
+    /// 学员选了几（nil = 还没选）。⚠️ 点下去**即判**，所以它同时是「已答」的标记 ——
+    /// 不需要再立一个布尔量，两个状态并存迟早会不一致。
+    public internal(set) var listeningMeaningSelection: Int?
+    /// 这一轮每句的对错（按作答顺序）。
+    public internal(set) var listeningMeaningCorrect: [Bool] = []
+    /// 这一轮每句答之前听了几遍（与 `listeningMeaningCorrect` 一一对应）。
+    public internal(set) var listeningMeaningPlays: [Int] = []
+    /// 这一轮答错那些句子的关键词（收进词汇本用）。
+    public internal(set) var listeningMeaningMissedWords: [String] = []
 
     // MARK: 入学定级（进阶 ⑤）
 
@@ -1527,6 +1559,7 @@ public final class AppState {
         if showingShadowing { return .shadowing }
         if showingWriting { return .writing }
         if showingReading { return .reading }
+        if showingListening { return .listening }
         if showingVocabulary { return .vocabulary }
         if showingProgress { return .progress }
         if showingDictionary { return .dictionary }
@@ -1534,7 +1567,7 @@ public final class AppState {
         return .practice
     }
 
-    /// 把「当前页」切到 `section`：**七个页面标记一次写齐**。
+    /// 把「当前页」切到 `section`：**九个页面标记一次写齐**。
     ///
     /// 所有 `open*()` 都走这里，别再各自手写一串 `showingXxx = false` ——
     /// `openScenarios()` 当初就漏了 `showingRecords`，于是「学习记录」和「情景对话」会同时高亮。
@@ -1544,6 +1577,7 @@ public final class AppState {
         showingShadowing = section == .shadowing
         showingWriting = section == .writing
         showingReading = section == .reading
+        showingListening = section == .listening
         showingVocabulary = section == .vocabulary
         showingProgress = section == .progress
         showingDictionary = section == .dictionary
@@ -1564,6 +1598,7 @@ public final class AppState {
         case .shadowing: await openShadowing()
         case .writing: await openWriting()
         case .reading: await openReading()
+        case .listening: await openListening()
         case .dictionary: await openDictionary()
         case .vocabulary: await openVocabulary()
         case .scenarios: await openScenarios()

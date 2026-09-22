@@ -127,6 +127,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable, Identifiabl
     case openShadowing
     case openWriting
     case openReading
+    case openListening
     case openDictionary
     case openVocabulary
     case openScenarios
@@ -154,6 +155,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable, Identifiabl
         case .openShadowing: return "去「跟读」"
         case .openWriting: return "去「写作」"
         case .openReading: return "去「阅读」"
+        case .openListening: return "去「听力」"
         case .openDictionary: return "去「词典」"
         case .openVocabulary: return "去「词汇本」"
         case .openScenarios: return "去「情景对话」"
@@ -169,6 +171,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable, Identifiabl
         case .openShadowing: return .shadowing
         case .openWriting: return .writing
         case .openReading: return .reading
+        case .openListening: return .listening
         case .openDictionary: return .dictionary
         case .openVocabulary: return .vocabulary
         case .openScenarios: return .scenarios

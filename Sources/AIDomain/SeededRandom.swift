@@ -46,12 +46,20 @@ public enum DailySeed {
         language: String = "",
         purpose: String = "daily-words"
     ) -> UInt64 {
+        seed(for: "\(dayKey)\u{1}\(language)", purpose: purpose)
+    }
+
+    /// 由**任意稳定标识**推出种子（跟读句 id、素材指纹这类不是日期的键走这条）。
+    ///
+    /// - ⚠️ 与上面那条同款理由，绝不能用 `Hasher`：听力选择题的选项顺序靠它定，
+    ///   一旦跨启动变样，同一句重做时选项位置就换了 —— 那次重做量的就不是听力，是记忆。
+    public static func seed(for key: String, purpose: String) -> UInt64 {
         var hash: UInt64 = 0xcbf29ce484222325
         func feed(_ byte: UInt8) {
             hash ^= UInt64(byte)
             hash = hash &* 0x100000001b3
         }
-        for byte in "\(purpose)\u{1}\(dayKey)\u{1}\(language)".utf8 {
+        for byte in "\(purpose)\u{1}\(key)".utf8 {
             feed(byte)
         }
         return hash

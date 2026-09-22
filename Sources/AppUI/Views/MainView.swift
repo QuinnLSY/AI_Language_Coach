@@ -404,6 +404,8 @@ public struct MainView: View {
                 WritingView(state: state)
             } else if state.showingReading {
                 ReadingView(state: state)
+            } else if state.showingListening {
+                ListeningView(state: state)
             } else if state.showingDictionary {
                 DictionaryView(state: state)
             } else if state.showingVocabulary {

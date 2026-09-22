@@ -32,10 +32,13 @@ final class AppSectionTests: XCTestCase {
     // MARK: - 枚举本身
 
     /// 侧栏从上到下的顺序就是 `allCases` 的顺序 —— 这是「快捷键编号 = 位置」的前提。
+    ///
+    /// 「听力」夹在阅读与词典之间是**用户指定的位置**（原话：放在左边栏的阅读和词典之间），
+    /// 不是随手插的 —— 这条断言同时钉住它的位置，挪动就会被判红。
     func testSidebarOrderIsStable() {
         XCTAssertEqual(
             AppSection.allCases.map(\.rawValue),
-            ["practice", "shadowing", "writing", "reading", "dictionary", "vocabulary", "scenarios", "progress", "records"]
+            ["practice", "shadowing", "writing", "reading", "listening", "dictionary", "vocabulary", "scenarios", "progress", "records"]
         )
     }
 
