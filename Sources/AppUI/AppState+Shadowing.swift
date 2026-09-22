@@ -25,6 +25,87 @@ extension AppState {
         return shadowingDrills[shadowingIndex]
     }
 
+    // MARK: 每句的分析常驻（切页 / 跳句 / 重启都不丢）
+
+    /// 分析缓存的键：`dayKey#drillID`。
+    ///
+    /// ⚠️ 必须带 `dayKey`：素材每天换一批，而生成 id 是 `daily-<主题序>-<句序>`，
+    /// 跨天重号但句子不同 —— 不带 dayKey 会把昨天的分析挂到今天的同一序号上。
+    static func shadowingAnalysisKey(day: String, drillID: String) -> String {
+        "\(day)#\(drillID)"
+    }
+
+    /// 「练到第几句」的持久化键（存 `dayKey|index` 一行）。
+    ///
+    /// ⚠️ 存成一行 `dayKey|index` 而不是 `[dayKey: index]` 字典：
+    /// 字典会**只增不减**地攒下每一天，而跨天的旧值一个字都用不上
+    /// （素材都换了）。一行的话自己就会作废。
+    static let shadowingProgressStorageKey = "shadowing.progress"
+
+    static func storedShadowingIndex(day: String) -> Int? {
+        guard let raw = UserDefaults.standard.string(forKey: shadowingProgressStorageKey) else { return nil }
+        let parts = raw.split(separator: "|", maxSplits: 1)
+        guard parts.count == 2, String(parts[0]) == day, let value = Int(parts[1]), value >= 0 else { return nil }
+        return value
+    }
+
+    private func saveShadowingProgress() {
+        UserDefaults.standard.set(
+            "\(ShadowingDailyRule.dayKey())|\(shadowingIndex)",
+            forKey: Self.shadowingProgressStorageKey
+        )
+    }
+
+    /// 当前这一句的最近一次分析（没有 = 这一句还没读过）。
+    public var currentShadowingResult: ShadowingResult? {
+        guard let drill = currentShadowingDrill else { return nil }
+        return shadowingAnalyses[
+            Self.shadowingAnalysisKey(day: ShadowingDailyRule.dayKey(), drillID: drill.id)
+        ]
+    }
+
+    /// 记下这一句的分析（内存缓存；界面据此常驻显示）。
+    func rememberShadowingResult(_ result: ShadowingResult, drillID: String) {
+        shadowingAnalyses[
+            Self.shadowingAnalysisKey(day: ShadowingDailyRule.dayKey(), drillID: drillID)
+        ] = result
+    }
+
+    /// 把当前这一句的**已有分析**摆回界面（没有就清空）。
+    ///
+    /// ⚠️ 换句时不能再无脑清空：清了就等于「这一句没读过」，
+    /// 而用户要的恰恰是「跳回去还能看到刚才的结果」。
+    func restoreShadowingResultForCurrentDrill() {
+        let result = currentShadowingResult
+        shadowingComparison = result?.comparison
+        shadowingPronunciation = result?.pronunciation
+    }
+
+    /// 从库里把今天这批句子的**最近一次**分析补回内存（跨重启常驻）。
+    ///
+    /// 对比结果不另存一份：`ShadowingScorer.compare` 是纯函数，
+    /// 拿当时识别出来的文本重算一遍必然得到同一个结果 ——
+    /// 另存一份反而多出一个「与原文对不上」的真源。
+    func rehydrateShadowingAnalyses() async {
+        let drills = shadowingDrills
+        guard !drills.isEmpty else { return }
+        let day = ShadowingDailyRule.dayKey()
+        let attempts = await services.latestShadowingAttempts(drillIDs: drills.map(\.id))
+        guard !attempts.isEmpty else { return }
+        for drill in drills {
+            let key = Self.shadowingAnalysisKey(day: day, drillID: drill.id)
+            // 内存里已有（刚读过）就不覆盖 —— 它比库里那条新。
+            guard shadowingAnalyses[key] == nil, let attempt = attempts[drill.id] else { continue }
+            shadowingAnalyses[key] = ShadowingResult(
+                comparison: ShadowingScorer.compare(
+                    reference: drill.text,
+                    recognized: attempt.recognizedText
+                ),
+                pronunciation: attempt.pronunciation
+            )
+        }
+    }
+
     // MARK: 段落（#232）
 
     /// 段落划分**从句子实时推导**，不另存一份 —— 存一份就多一个「换了一批句子但段落没跟着换」的失效点。
@@ -82,7 +163,10 @@ extension AppState {
             shadowingDrills = cached
             shadowingNotice = nil
             shadowingIsDailyGenerated = true
-            resetShadowingProgress()
+            resetShadowingProgress(restoreSavedIndex: true)
+            // 库里已有的分析补回来：重启后回到这一页，之前读过的那几句照样有结果。
+            await rehydrateShadowingAnalyses()
+            restoreShadowingResultForCurrentDrill()
             return
         }
 
@@ -109,7 +193,9 @@ extension AppState {
             shadowingDrills = generated
             shadowingIsDailyGenerated = true
             shadowingNotice = nil
-            resetShadowingProgress()
+            resetShadowingProgress(restoreSavedIndex: true)
+            await rehydrateShadowingAnalyses()
+            restoreShadowingResultForCurrentDrill()
         } catch {
             shadowingNotice = generatedFailureMessage(error, hasFallback: !bundled.isEmpty)
         }
@@ -117,7 +203,11 @@ extension AppState {
 
     /// 换了一批素材：练到第几句、上一句的评测结果都得跟着清 ——
     /// 留着上一批的下标会让「第 7 / 20 句」指向另一句，评测卡也挂在无关的句子上。
-    func resetShadowingProgress() {
+    ///
+    /// - Parameter restoreSavedIndex: 是否落回**今天记住的那一句**。
+    ///   只有「今天的素材」这一条路要走它（切页 / 重启回来接着上次那一句练）；
+    ///   音素专项与材料跟读是**另一批素材**，记住的位置对它们没有意义，从第一句开始。
+    func resetShadowingProgress(restoreSavedIndex: Bool = false) {
         shadowingIndex = 0
         shadowingPassageIndex = 0
         shadowingComparison = nil
@@ -125,6 +215,12 @@ extension AppState {
         shadowingPassageResult = nil
         shadowingPassagePronunciation = nil
         voiceTranscript = nil
+        guard restoreSavedIndex else { return }
+        if let saved = Self.storedShadowingIndex(day: ShadowingDailyRule.dayKey()),
+           shadowingDrills.indices.contains(saved) {
+            shadowingIndex = saved
+        }
+        restoreShadowingResultForCurrentDrill()
     }
 
     func generatedFailureMessage(_ error: any Error, hasFallback: Bool) -> String {
@@ -138,12 +234,26 @@ extension AppState {
         shadowingStats = await services.shadowing.stats()
     }
 
-    /// 换一句（顺序轮换，到底回到第一句）。换句即清掉上一句的结果。
+    /// 换到下一句（顺序轮换，到底回到第一句）。
+    ///
+    /// ⚠️ 不再清掉评测结果：换到的那一句若是**读过的**，它的分析要跟着回来
+    /// （`restoreShadowingResultForCurrentDrill`）。以前这里一律置 nil，
+    /// 于是「回头看看上一句」必须重读一遍才有结果。
     public func nextShadowingDrill() {
         guard !shadowingDrills.isEmpty else { return }
         shadowingIndex = (shadowingIndex + 1) % shadowingDrills.count
-        shadowingComparison = nil
-        shadowingPronunciation = nil
+        saveShadowingProgress()
+        restoreShadowingResultForCurrentDrill()
+        shadowingNotice = nil
+        voiceTranscript = nil
+    }
+
+    /// 换到上一句（已经是第一句时不动 —— 界面上那颗按钮根本不出现）。
+    public func previousShadowingDrill() {
+        guard shadowingDrills.indices.contains(shadowingIndex), shadowingIndex > 0 else { return }
+        shadowingIndex -= 1
+        saveShadowingProgress()
+        restoreShadowingResultForCurrentDrill()
         shadowingNotice = nil
         voiceTranscript = nil
     }
@@ -221,8 +331,10 @@ extension AppState {
             return
         }
         shadowingNotice = nil
-        shadowingComparison = nil
-        shadowingPronunciation = nil
+        // ⚠️ 这里**不动** `shadowingComparison` / `shadowingPronunciation`：
+        // 它们是「这一句**最近一次**的分析」，正在重读的这会儿它依然是最新的一次。
+        // 清掉的话，这一遍没录上音（很常见）就会把上一次的结果一起弄丢 ——
+        // 而用户可能只是想再看一眼刚才那张卡。
         shadowingPassageResult = nil
         shadowingPassagePronunciation = nil
         voiceTranscript = nil
@@ -253,6 +365,8 @@ extension AppState {
             let result = await services.shadowing.evaluate(drill: drill, recognized: recognized)
             shadowingComparison = result.comparison
             shadowingPronunciation = result.pronunciation
+            // 这一句的分析留在这句名下：待会儿跳到别的句子再跳回来，它还在。
+            rememberShadowingResult(result, drillID: drill.id)
         case .passage:
             guard let passage = currentShadowingPassage else { return }
             let evaluation = await services.shadowing.evaluatePassage(passage, recognized: recognized)

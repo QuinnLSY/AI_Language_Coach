@@ -378,17 +378,11 @@ public struct ShadowingView: View {
 
                 Spacer(minLength: 0)
 
-                Button {
-                    state.nextShadowingDrill()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.right.circle.fill")
-                        Text("换一句")
-                    }
-                    .font(.system(size: 12, design: .rounded))
-                    .foregroundStyle(theme.accent)
-                }
-                .buttonStyle(.plain)
+                ShadowingSentenceNavButtons(
+                    showsPrevious: state.shadowingIndex > 0,
+                    onPrevious: { state.previousShadowingDrill() },
+                    onNext: { state.nextShadowingDrill() }
+                )
             }
         }
     }
@@ -957,6 +951,52 @@ public struct ShadowingView: View {
     }
 
     private func percent(_ value: Double) -> String { "\(Int((value * 100).rounded()))%" }
+}
+
+/// 跟读页「上一句 / 换一句」这一对按钮。
+///
+/// 为什么单独成一个组件：
+/// ① 口径只有一条 ——「不是第一句才出现上一句」；第一句没有上一句，
+///    摆一颗点不动的按钮只会让人怀疑是不是坏了。
+/// ② 它是这次新增的全部视觉，而**整页里量不出来**：那一行被 `Spacer` 撑满，
+///    多一颗按钮页面高度一点不变。抽出来才能直接出图，量「到底多出来没有、多出来多宽」。
+///
+/// ⚠️ 两颗是**兄弟按钮**，绝不嵌套 —— 嵌套 Button 点一下会各触发一次（写成「点了没反应」）。
+struct ShadowingSentenceNavButtons: View {
+
+    @Environment(\.forestTheme) private var theme
+
+    let showsPrevious: Bool
+    let onPrevious: () -> Void
+    let onNext: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if showsPrevious {
+                Button(action: onPrevious) {
+                    label("arrow.left.circle.fill", text: "上一句", color: theme.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .help("回到上一句（那一句的分析还在）")
+                .accessibilityLabel("上一句")
+            }
+            Button(action: onNext) {
+                label("arrow.right.circle.fill", text: "换一句", color: theme.accent)
+            }
+            .buttonStyle(.plain)
+            .help("换下一句")
+            .accessibilityLabel("换一句")
+        }
+    }
+
+    private func label(_ systemImage: String, text: String, color: Color) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+            Text(text)
+        }
+        .font(.system(size: 12, design: .rounded))
+        .foregroundStyle(color)
+    }
 }
 
 /// 简易自动换行布局（逐词 chip 用）。SwiftUI 的 `Layout` 协议实现，

@@ -546,6 +546,16 @@ public final class AppState {
     public internal(set) var shadowingComparison: ShadowingComparison?
     /// 最近一次发音评测（第 23 步；nil = 没录到音频 / 还没评）。
     public internal(set) var shadowingPronunciation: PronunciationReport?
+    /// **每一句的最近一次分析**（键 = `dayKey#drillID`，见 `shadowingAnalysisKey`）。
+    ///
+    /// 存在的理由：分析结果以前只保留「当前这一句」一份，换句即清 ——
+    /// 于是「回头看看上一句刚才读得怎么样」必须**重新读一遍**才有结果。
+    /// 现在按句缓存，切页 / 跳句 / 重启回来都还在（重启那条靠 `rehydrateShadowingAnalyses()` 从库里补）。
+    ///
+    /// ⚠️ 键必须带 `dayKey`：跟读素材**每天换一批**，而生成出来的 id 是
+    /// `daily-<主题序>-<句序>` —— 跨天会重号但句子不同，不带 dayKey 就会把
+    /// 昨天的「第 0 句」分析挂到今天的第 0 句上。
+    public internal(set) var shadowingAnalyses: [String: ShadowingResult] = [:]
     /// 跟读汇总（次数 / 最佳 / 平均 / 最近）。
     public internal(set) var shadowingStats: ShadowingStats = .empty
     /// 正在跟读录音。
