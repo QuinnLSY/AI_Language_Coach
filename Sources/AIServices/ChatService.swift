@@ -1306,6 +1306,11 @@ public final class ChatService {
                 continue
             }
             guard let fields = GrammarCorrectionLine.parts(of: body) else { continue }
+            // 幻觉纠错整条丢弃：卡片 / 错题本 / 复盘 / 学习记忆共用这一份输出，
+            // 判据放在解析层，下游全部干净（见 GrammarCorrectionSanity 注释里的真实事故）。
+            // 幻觉纠错整条丢弃：卡片 / 错题本 / 复盘 / 学习记忆共用这一份输出，
+            // 判据放在解析层，下游全部干净（见 GrammarCorrectionSanity 注释里的真实事故）。
+            guard !GrammarCorrectionSanity.isHallucinated(original: fields[0], corrected: fields[1]) else { continue }
             corrections.append(
                 GrammarCorrection(
                     original: fields[0],

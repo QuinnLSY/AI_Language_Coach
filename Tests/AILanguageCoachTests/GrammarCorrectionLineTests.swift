@@ -70,6 +70,76 @@ final class GrammarCorrectionLineTests: XCTestCase {
         XCTAssertEqual(result.cleanText, "I will fix it tomorrow => promise")
     }
 
+    // MARK: - 幻觉纠错（GrammarCorrectionSanity）
+
+    /// 真实教学事故的形状。库里有铁证：学员原句本就大写、老师也回了 You did it!，
+    /// 模型仍输出「大写句 => 小写句 => 句首字母要大写」—— 无中生有、方向还反。
+    func testReversedSentenceInitialCapitalIsDropped() {
+        // 只差句首一个字母、原句本就大写 → 丢。
+        XCTAssertTrue(
+            GrammarCorrectionSanity.isHallucinated(
+                original: "I like eating Portuguese egg tarts.",
+                corrected: "i like eating Portuguese egg tarts."
+            )
+        )
+        // 通篇改小写同样丢（改完反而少了句首大写）。
+        XCTAssertTrue(
+            GrammarCorrectionSanity.isHallucinated(
+                original: "I like eating Portuguese egg tarts.",
+                corrected: "i like eating portuguese egg tarts."
+            )
+        )
+        // 走解析层整条不出现；正文照样剥干净，不能把 [[FIX]] 行漏给用户。
+        let result = ChatService.extractCorrections(
+            "You did it!\n[[FIX]] I like eating Portuguese egg tarts. => i like eating Portuguese egg tarts. => 句首字母要大写"
+        )
+        XCTAssertTrue(result.corrections.isEmpty, "幻觉纠错不该变成卡片 / 错题本")
+        XCTAssertEqual(result.cleanText, "You did it!")
+    }
+
+    func testExactCopyIsDropped() {
+        // 库里另一条铁证：把一整段要求原句原样标成纠错。
+        XCTAssertTrue(
+            GrammarCorrectionSanity.isHallucinated(
+                original: "Please explain the water cycle in detail.",
+                corrected: "Please explain the water cycle in detail."
+            )
+        )
+        // 排版差异（多空白）不算改了什么。
+        XCTAssertTrue(GrammarCorrectionSanity.isHallucinated(original: "a  apple", corrected: "a apple"))
+    }
+
+    func testGenuineCorrectionsAreKept() {
+        // 学员真写错句首 → 正经纠错，必须保留。
+        XCTAssertFalse(
+            GrammarCorrectionSanity.isHallucinated(original: "i like tea", corrected: "I like tea")
+        )
+        // 喊叫体改回正常大小写：句首被改小写，但那是去喊叫，不是幻觉。
+        XCTAssertFalse(
+            GrammarCorrectionSanity.isHallucinated(original: "I LIKE TEA", corrected: "I like tea")
+        )
+        // 词形纠错、标点纠错、更自然的说法 —— 全都放行。
+        XCTAssertFalse(
+            GrammarCorrectionSanity.isHallucinated(original: "what happend today?", corrected: "what happened today?")
+        )
+        XCTAssertFalse(
+            GrammarCorrectionSanity.isHallucinated(original: "Hi teacher!", corrected: "Hello!")
+        )
+        // 句首大小写不动、只改中间一处大小写（如标题式误大写）—— 拿不准，放行。
+        XCTAssertFalse(
+            GrammarCorrectionSanity.isHallucinated(original: "I Like Tea", corrected: "I like tea")
+        )
+    }
+
+    func testMixedGenuineAndHallucinatedLinesKeepOnlyTheGenuineOne() {
+        let result = ChatService.extractCorrections(
+            "Nice!\n[[FIX]] i love apples => I love apples => 句首字母要大写\n[[FIX]] I love apples => i love apples => 句首字母要大写"
+        )
+        XCTAssertEqual(result.corrections.count, 1)
+        XCTAssertEqual(result.corrections.first?.original, "i love apples", "正经纠错要留下")
+        XCTAssertEqual(result.corrections.first?.corrected, "I love apples")
+    }
+
     // MARK: - 朗读侧同一份判据
 
     func testSpeechCleaningUsesTheSamePredicate() {
