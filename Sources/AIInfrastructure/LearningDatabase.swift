@@ -313,15 +313,31 @@ public actor LearningDatabase {
 
     // MARK: - 会话与消息
 
-    /// 会话「结束时刻」的唯一口径：**末条消息的时间**；一条消息都没有才退回开始时刻。
+    /// 会话「开始时刻」的唯一口径：**首条消息的时间**；一条消息都没有才退回建行的时刻。
+    ///
+    /// ⚠️ 只信 `started_at` 会算出差时长：那一列是「会话行落盘那一刻」写的 `Date()`，
+    /// 不是「学员开口那一刻」。实测库里出现过 `started_at` 比末条消息还晚 5–6 秒的行
+    /// （`D4341083…` / `D7BB801F…` / `8517689B…`），
+    /// 于是 `末条 − 开始` 为负、被夹到 0，卡片上就是「练了一段、时长 0 秒」。
+    /// 三处会话查询共用这一个表达式，改口径只改这一行。
+    static let startedExpression = """
+    COALESCE((SELECT MIN(created_at) FROM messages WHERE messages.session_id = sessions.id), started_at)
+    """
+
+    /// 会话「结束时刻」的唯一口径：**末条消息的时间** → 复盘记下的时长 → 开始时刻。
     ///
     /// ⚠️ 以前这里写的是 `COALESCE(ended_at, now)`。而 `ended_at` 实际上从来没有被写过
     /// （会话不显式结束 —— `finishSession` 在正常使用路径上没人调），于是
     /// 「结束时刻」永远等于「此刻」：每个会话的时长都变成「从开始到此刻」，
     /// 昨天开的会话今天看是 1180 分钟，而且每刷新一次还在涨。
+    ///
+    /// ⚠️ 第二级兜底（复盘时长）是为**已经删掉流水的历史行**补的：
+    /// 复盘完会把消息清掉（`purgeSessionMessages`），清了之后 `MAX(created_at)` 是 NULL、
+    /// 只剩 `started_at`，跨度归零 —— 而同一屏的复盘卡里明明写着「37 分 35 秒」。
+    /// 复盘行里存着 `duration`，拿它还原结束时刻，卡片与复盘就再也对不上了。
     /// 三处会话查询共用这一个表达式，改口径只改这一行。
     static let endedExpression = """
-    COALESCE(ended_at, (SELECT MAX(created_at) FROM messages WHERE messages.session_id = sessions.id), started_at)
+    COALESCE(ended_at, (SELECT MAX(created_at) FROM messages WHERE messages.session_id = sessions.id), (SELECT started_at + duration FROM session_reviews WHERE session_reviews.session_id = sessions.id AND duration > 0 ORDER BY created_at DESC LIMIT 1), started_at)
     """
 
     public func createSession(_ session: ChatSession) throws {
@@ -493,7 +509,7 @@ public actor LearningDatabase {
     /// 最近一个会话（含消息）。没有历史会话时返回 nil。
     public func latestSession() throws -> (session: ChatSession, messages: [ChatMessage])? {
         let rows = try db.query(
-            "SELECT id, started_at, mode, scenario_id FROM sessions WHERE id != 'archive' ORDER BY started_at DESC LIMIT 1"
+            "SELECT id, \(Self.startedExpression), mode, scenario_id FROM sessions WHERE id != 'archive' ORDER BY \(Self.startedExpression) DESC LIMIT 1"
         ) { row -> (UUID, Date, PracticeMode, String?)? in
             guard let idText = row.string(0), let id = UUID(uuidString: idText),
                   let started = row.double(1),
@@ -516,8 +532,8 @@ public actor LearningDatabase {
     public func recentSessions(limit: Int = 20) throws -> [SessionSummary] {
         let rows = try db.query(
             """
-            SELECT id, started_at, \(Self.endedExpression) AS ended, message_count, scenario_id
-            FROM sessions ORDER BY started_at DESC LIMIT ?1
+            SELECT id, \(Self.startedExpression) AS started, \(Self.endedExpression) AS ended, message_count, scenario_id
+            FROM sessions WHERE id != 'archive' ORDER BY started DESC LIMIT ?1
             """,
             [.int(limit)]
         ) { row -> SessionSummary? in
@@ -686,10 +702,10 @@ public actor LearningDatabase {
     public func sessions(since: Date, limit: Int = 500) throws -> [SessionSummary] {
         try db.query(
             """
-            SELECT id, started_at, \(Self.endedExpression) AS ended, message_count, scenario_id
+            SELECT id, \(Self.startedExpression) AS started, \(Self.endedExpression) AS ended, message_count, scenario_id
             FROM sessions
-            WHERE started_at >= ?1 AND id != 'archive'
-            ORDER BY started_at DESC LIMIT ?2
+            WHERE \(Self.startedExpression) >= ?1 AND id != 'archive'
+            ORDER BY started DESC LIMIT ?2
             """,
             [.real(since.timeIntervalSince1970), .int(limit)]
         ) { row -> SessionSummary? in
@@ -712,7 +728,7 @@ public actor LearningDatabase {
     public func sessionSummary(id: UUID) throws -> SessionSummary? {
         let rows = try db.query(
             """
-            SELECT id, started_at, \(Self.endedExpression), message_count, scenario_id
+            SELECT id, \(Self.startedExpression), \(Self.endedExpression), message_count, scenario_id
             FROM sessions WHERE id = ?1
             """,
             [.text(id.uuidString)]
@@ -912,6 +928,20 @@ public actor LearningDatabase {
             let actual = try messageCount(sessionID: sessionID)
             if let expectedCount, actual != expectedCount { return -1 }
             guard actual > 0 else { return 0 }
+            // ⚠️ **删流水之前先把两个时刻冻到列上**，且必须在 DELETE 之前执行
+            // （下面的子查询要读 `messages`，删了就什么都算不出来了）。
+            // 不冻的后果：清完之后 `MAX(created_at)` 成了 NULL、`ended_at` 又是 NULL，
+            // 「结束时刻」只能退回 `started_at` —— 于是同屏的复盘卡写着「37 分 35 秒」，
+            // 上面那条记录却写着「0 秒」（用户报障的正是这一条）。
+            // 冻的就是「此刻查询本来会算出来的那两个值」，所以读取口径零变化。
+            try db.run(
+                """
+                UPDATE sessions
+                SET started_at = \(Self.startedExpression), ended_at = \(Self.endedExpression)
+                WHERE id = ?1
+                """,
+                [.text(sessionID.uuidString)]
+            )
             try db.run("DELETE FROM corrections WHERE session_id = ?1", [.text(sessionID.uuidString)])
             try db.run("DELETE FROM messages WHERE session_id = ?1", [.text(sessionID.uuidString)])
             // ⚠️ 顺手把 `message_count` 归零：它以前在这里不回滚，于是「清空过流水的会话」

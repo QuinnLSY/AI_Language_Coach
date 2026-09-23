@@ -487,8 +487,12 @@ public final class ChatService {
         // 建行与写消息放在同一个 Task 里，保证顺序（消息带外键）。
         Task {
             if needsSession {
+                // ⚠️ 开始时刻用**这条消息自己的时间**，不用 `Date()`：
+                // 会话行是在这个延迟的 `Task` 里才落盘的，`Date()` 拿到的是「落盘那一刻」，
+                // 比学员真正开口晚若干秒。库里实测出现过 `started_at` 比末条消息还晚 5–6 秒的行，
+                // 「末条 − 开始」为负被夹成 0 —— 卡片上就是「练了一段、时长 0 秒」。
                 await services.persistSession(
-                    ChatSession(id: sessionID, startedAt: Date(), mode: mode, scenarioID: scenarioID)
+                    ChatSession(id: sessionID, startedAt: message.createdAt, mode: mode, scenarioID: scenarioID)
                 )
             }
             await services.persistMessage(message, sessionID: sessionID)
