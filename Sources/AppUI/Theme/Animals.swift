@@ -202,6 +202,18 @@ public struct CuteAnimalView: View {
     /// 只有「老师黑板」这一处会传 —— 那是唯一需要「敲黑板引起注意」的地方。
     public var knockTick: Int = 0
 
+    /// **离屏渲染夹具专用总闸**：置 `false` 时动物不启动任何定时动画（眨眼 / 跳动）。
+    ///
+    /// 为什么非有它不可：`.repeatForever` 的跳动（1.5s 缓动、`bobbing` 默认开）一旦
+    /// 生效画面就**永不静止**，眨眼又每 3.2s 关 0.14s。于是「同一份输入连出两次必须
+    /// 逐像素相同」这类**确定性守卫在带动物的页面上永远无法成立** —— 帧落在哪一相，
+    /// 全看当时机器有多忙（实测：单跑 5/5 绿，全量 3/3 红；差异就是两块 10×8 的方块
+    /// —— 那两只眼睛）。靠「多等一会儿直到稳定」是治不好的：它根本不打算停。
+    ///
+    /// 产品行为**一个字节都不改**（默认 `true`），只有渲染夹具会在 setUp 里关掉它。
+    /// 与 `forcedHoveredMessageID` / `DictionaryBookCard.isHovered` 是同一类接缝。
+    public static var animationsEnabled = true
+
     @State private var isBlinking = false
     @State private var isHopping = false
 
@@ -237,14 +249,14 @@ public struct CuteAnimalView: View {
         .offset(y: isSleeping ? size * 0.02 : (isHopping ? -size * 0.045 : 0))
         .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: isHopping)
         .onAppear {
-            guard bobbing, !isSleeping else { isHopping = false; return }
+            guard bobbing, !isSleeping, Self.animationsEnabled else { isHopping = false; return }
             isHopping = true
         }
         .onChange(of: isSleeping) { _, sleeping in
-            isHopping = (bobbing && !sleeping) ? true : false
+            isHopping = (bobbing && !sleeping && Self.animationsEnabled) ? true : false
         }
         .onReceive(blinkTimer) { _ in
-            guard !isSleeping else { return }
+            guard !isSleeping, Self.animationsEnabled else { return }
             isBlinking = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) { isBlinking = false }
         }

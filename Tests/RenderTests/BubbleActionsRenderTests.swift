@@ -89,9 +89,23 @@ final class BubbleActionsRenderTests: XCTestCase {
         var rep: NSBitmapImageRep
         var scale: CGFloat
         var size: CGSize
+        /// 这几帧「稳定」下来用了几轮（见 `render` 的收敛循环）。
+        /// 只为诊断：它顶到上限就说明当时有东西一直在动，别去怀疑断言本身。
+        var settleRounds: Int = 0
     }
 
     private func render(_ view: some View, size: CGSize) throws -> Render {
+        // ⚠️ **先关掉动物动画**（眨眼 3.2s / `.repeatForever` 跳动）—— 不关的话画面永不静止，
+        // 「同一份输入连出两次必须逐像素相同」这条守卫**在物理上不可满足**。实测差异就是
+        // 两块 10×8 的方块（x=65..74 与 85..94、同一行 y=41..48）—— 那两只眼睛。
+        //
+        // 只在这一个函数的生命周期内关：视图树、`onAppear`、计时器全都在它里面发生，
+        // 出图后立刻还原，绝不外泄到别的用例（`UserDefaults` 那类跨用例污染吃过一次亏）。
+        // 放在 `setUp/tearDown` 是不行的：那是**非隔离**上下文，碰主 actor 静态量会刷屏警告。
+        let savedAnimalAnimations = CuteAnimalView.animationsEnabled
+        CuteAnimalView.animationsEnabled = false
+        defer { CuteAnimalView.animationsEnabled = savedAnimalAnimations }
+
         let theme = ForestThemeResolver.resolve(mode: .day, systemIsDark: false)
         // ⚠️ 必须把 frame 钉在**外层**：`MessageEditBox` 这类有天然高度的视图会让
         // `NSHostingView` 按内容自己长个子，出图尺寸就和请求的对不上（实测 120pt 变成 400pt）。
@@ -110,14 +124,70 @@ final class BubbleActionsRenderTests: XCTestCase {
         self.window = window
         host.layoutSubtreeIfNeeded()
         window.layoutIfNeeded()
-        // 悬停那三颗带 0.12s 淡入：不等它走完就截，量到的是半透明的中间态。
-        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
-        host.layoutSubtreeIfNeeded()
-        window.layoutIfNeeded()
 
-        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        return Render(rep: rep, scale: CGFloat(rep.pixelsHigh) / size.height, size: size)
+        // ⚠️ **等到画面真的停下来再截，而不是死等一个固定时长。**
+        //
+        // 原来这里是 `RunLoop.run(until: +0.4)`：够走完 0.12s 的悬停淡入，所以在本机
+        // 空载时一直是对的。但「预热之后两次出图必须逐像素相同」那条守卫在**满负载**下
+        // 会红（本批实测差 127–237 像素、最大通道差只有 11–14 —— 抗锯齿量级，
+        // 典型的「截在动画中途」）。同一份代码单跑该用例 5/5 全绿，全量跑 2/2 全红。
+        //
+        // 根因不在断言，在**固定时长在忙的时候不够**：`ChatView` 的每条气泡都挂着
+        // `CuteAnimalView` —— 眨眼每 3.2s 来一次，`isHopping` 更是
+        // `.repeatForever` 的 1.5s 缓动（一旦为真就**永不静止**）。两帧落在哪一相
+        // 纯看当时机器有多忙；本批给 `CoachServices` 多接了一本 122KB 的词典 JSON、
+        // 后台解析变重，就把这个潜伏问题顶出来了。
+        //
+        // ⚠️ 收敛判据**必须用本文件那把尺（逐通道容差 8），不能用逐字节相等**：
+        // 动物一直在缓慢浮动，字节级永远是「不等」，实测 30 轮全部顶到上限、
+        // 该文件从 18s 涨到 68s，而且并没有真的变确定。用 ±8 之后，循环要找的正是
+        // 后面那些断言所依赖的那个性质（同一画面在 ±8 内不动），普通情况 2–3 轮就收敛。
+        var settleRounds = 0
+        var last: NSBitmapImageRep?
+        // 先走完那段 0.12s 的悬停淡入（原来的固定预热就为它而设）—— 收敛循环虽然也能兜住，
+        // 但让它从「已经不再淡入」起算，普通情况 2 轮就结束、不会平白多花几轮。
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        while settleRounds < Self.maxSettleRounds {
+            host.layoutSubtreeIfNeeded()
+            window.layoutIfNeeded()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.08))
+            let shot = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: shot)
+            settleRounds += 1
+            if let previous = last, Self.framesAgree(previous, shot) {
+                last = shot
+                break
+            }
+            last = shot
+        }
+        // 顶到上限也没稳 → 返回最后一帧，让调用方那条 baseline 断言如实报警（而不是挂住）。
+        let frame = try XCTUnwrap(last)
+        return Render(
+            rep: frame,
+            scale: CGFloat(frame.pixelsHigh) / size.height,
+            size: size,
+            settleRounds: settleRounds
+        )
+    }
+
+    /// 收敛循环的上限（≈ 2.4s）。**别调大**：真有不歇的东西在动时，这里应该快点放弃并
+    /// 由 baseline 断言报出来，而不是让整个渲染套件慢慢爬。
+    private static let maxSettleRounds = 30
+
+    /// 两帧在**本文件那把尺**下是否算「同一画面」（逐通道容差 8，与 `compare` 一致）。
+    ///
+    /// 不复用 `compare()`：它还要算连通块，逐帧调用太贵。这里只做一次线性扫描，
+    /// 且**先试最快的 `memcmp`**（收敛时相邻两帧通常逐字节相同，一下就出去）。
+    private static func framesAgree(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Bool {
+        guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh,
+              let pa = a.bitmapData, let pb = b.bitmapData
+        else { return false }
+        let count = a.bytesPerRow * a.pixelsHigh
+        if memcmp(pa, pb, count) == 0 { return true }
+        let lhs = UnsafeBufferPointer(start: pa, count: count)
+        let rhs = UnsafeBufferPointer(start: pb, count: count)
+        for index in 0..<count where abs(Int(lhs[index]) - Int(rhs[index])) > 8 { return false }
+        return true
     }
 
     /// 先出一张废图。
@@ -354,13 +424,15 @@ final class BubbleActionsRenderTests: XCTestCase {
         // ⚠️ 先量一次「同一份输入渲染两次」差多少当地板：`warmUp` 之后它应当是 **0**
         // （不是「接近 0」）。它一旦不是 0，说明这台机器上还有别的东西在动
         // （动画 / 计时器），那时后面每一条逐像素断言都不可信 —— 先修这个。
-        let baseline = try compare(
-            try render(chatView(chat), size: canvas), try render(chatView(chat), size: canvas)
-        )
+        let firstFrame = try render(chatView(chat), size: canvas)
+        let secondFrame = try render(chatView(chat), size: canvas)
+        let baseline = try compare(firstFrame, secondFrame)
         XCTAssertEqual(
             baseline.count, 0,
             "预热之后同一份输入两次出图必须逐像素相同"
                 + "（实测差 \(baseline.count) 像素、最大通道差 \(baseline.maxDelta)；"
+                + "两帧各收敛 \(firstFrame.settleRounds) / \(secondFrame.settleRounds) 轮"
+                + "（上限 \(Self.maxSettleRounds)，**顶到上限**才说明当时还有东西一直在动）；"
                 + "不是 0 就说明这台机器上还有动画/计时器在动，后面每条逐像素断言都不可信）"
         )
 
