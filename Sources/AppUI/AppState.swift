@@ -905,8 +905,15 @@ public final class AppState {
     ///
     /// 快照还没汇总时排出来是空计划 —— 页面会显示「今天没有安排」，
     /// 而不是编一份看着热闹但不基于任何记录的假清单。
+    ///
+    /// ⚠️ 带上 `dailyTaskFloor`（当天高水位）：三项指标的完成量**只增不减**，
+    /// 任务一旦完成就固定为已完成 —— 复盘清流水、删气泡、清除学习记忆都不许让它回退。
     public var dailyPlan: DailyPlan {
-        DailyPlanner.plan(snapshot: progressSnapshot, mode: product.dailyGoalMode)
+        DailyPlanner.plan(
+            snapshot: progressSnapshot,
+            mode: product.dailyGoalMode,
+            floor: dailyTaskFloor
+        )
     }
 
     // MARK: 今日作业（老师黑板）
@@ -938,6 +945,7 @@ public final class AppState {
 
     static let todayCelebratedDayKey = "today.celebratedDayKey"
     static let todayBoardAutoExpandedDayKey = "today.boardAutoExpandedDayKey"
+    static let todayTaskFloorKey = "today.taskFloor"
     /// 上次庆祝过的 `dayKey`（**持久化**：同一天重开应用不再重复放烟花）。
     var celebratedDayKey: String {
         get { UserDefaults.standard.string(forKey: Self.todayCelebratedDayKey) ?? "" }
@@ -947,6 +955,22 @@ public final class AppState {
     var boardAutoExpandedDayKey: String {
         get { UserDefaults.standard.string(forKey: Self.todayBoardAutoExpandedDayKey) ?? "" }
         set { UserDefaults.standard.set(newValue, forKey: Self.todayBoardAutoExpandedDayKey) }
+    }
+    /// 每日任务三项指标的**当天高水位**（`DailyTaskFloor`；**持久化**，一行）。
+    ///
+    /// ⚠️ 写成 get/set 直落 `UserDefaults` 的**计算属性**，而不是带默认值的存储属性：
+    /// 后者一旦忘了在 `init` 里加载，编译器一声不响，而用户的「今天已完成」
+    /// 会在重开应用之后静默归零（这正是用户报障的情形）。
+    /// 高水位自己带 `dayKey`，换天取不到就自动作废 —— 不需要谁来清。
+    var dailyTaskFloor: DailyTaskFloor {
+        get {
+            let today = ShadowingDailyRule.dayKey()
+            guard let stored = DailyTaskFloor.parse(
+                UserDefaults.standard.string(forKey: Self.todayTaskFloorKey)
+            ), stored.dayKey == today else { return .empty(dayKey: today) }
+            return stored
+        }
+        set { UserDefaults.standard.set(newValue.storageText, forKey: Self.todayTaskFloorKey) }
     }
     /// 汇总节流：一轮对话就全量汇总一次没必要（本地聚合也有代价）。
     var lastTodayPanelRefreshAt: Date = .distantPast

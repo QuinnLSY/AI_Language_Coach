@@ -90,6 +90,10 @@ extension AppState {
         trailingRefreshTask = nil
         lastTodayPanelRefreshAt = now
         await reloadProgress(includeAnnual: false)
+        // ⚠️ 汇总完**立刻**抬高水位：这一刻的记录是今天最多的一刻。
+        // 晚一步就晚了 —— 开屏这条路上，紧接着就会走「复盘上一段 + 清流水」，
+        // 那时今天的对话数已经掉下去了（用户报障的时序正是这个）。
+        raiseDailyTaskFloor()
 
         let key = ShadowingDailyRule.dayKey()
         if TodayPanel.shouldCelebrate(
@@ -122,6 +126,23 @@ extension AppState {
             try? await Task.sleep(for: .seconds(0.6))
             self?.isBlackboardExpanded = true
         }
+    }
+
+    /// 把每日任务的三项完成量抬到「今天见过的最大值」（只增不减，`DailyTaskFloor`）。
+    ///
+    /// ⚠️ 用**不带高水位**的原始计划来抬：拿已经抬高过的计划去抬，高水位就失去了
+    /// 「今天真实做到过多少」这个含义，只会滚成一条无法解释的曲线。
+    /// ⚠️ 只在高水位真的变了的时候才写盘 —— 这个函数每轮对话末尾都会跑一次。
+    func raiseDailyTaskFloor() {
+        let dayKey = ShadowingDailyRule.dayKey()
+        let raw = DailyPlanner.plan(
+            snapshot: progressSnapshot,
+            mode: product.dailyGoalMode,
+            now: Date()
+        )
+        let raised = dailyTaskFloor.raising(raw, dayKey: dayKey)
+        guard raised != dailyTaskFloor else { return }
+        dailyTaskFloor = raised
     }
 
     /// 今日完成的收尾仪式（#227）：盖章（幂等）+ 大树小动物欢跳 + 黑板烟花几秒。

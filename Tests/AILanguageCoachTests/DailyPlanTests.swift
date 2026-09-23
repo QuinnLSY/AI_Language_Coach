@@ -409,4 +409,126 @@ final class DailyPlanTests: XCTestCase {
         )
         XCTAssertNil(DailyPlanner.focus(healthy))
     }
+
+    // MARK: - 当天高水位（#328：三项指标只增不减）
+
+    /// 用户报障的正题：今天聊够了 → 关掉应用 → 重开时对上一段做了复盘（流水被清）
+    /// → 续聊。今天的对话数掉回个位数，卡片又变成「未完成」。
+    ///
+    /// 高水位必须在**复盘之前**记下来（`refreshTodayPanel` 里，见 `raiseDailyTaskFloor`），
+    /// 之后无论如何都不许回退。
+    ///
+    /// 反证：把 `conversationTask` 里的 `floor?.progress(...)` 换回 `today.messages` → 变红。
+    func testConversationStaysDoneAfterTheFlowIsPurged() {
+        let now = day(2026, 9, 23, 21, 0)
+        let today = calendar.startOfDay(for: now)
+        // 目标 10 轮（15 分钟档），今天已经聊了 10 条 —— 刚好达标。
+        let before = snapshot(today: DailyActivity(day: today, seconds: 900, messages: 10))
+        let donePlan = DailyPlanner.plan(snapshot: before, now: now, calendar: calendar)
+        XCTAssertTrue(
+            donePlan.tasks.first { $0.kind == .conversation }?.isDone == true,
+            "10 条对话对 10 轮目标就是达标"
+        )
+
+        // 复盘那一刻记下高水位。
+        let floor = DailyTaskFloor.empty(dayKey: "2026-09-23")
+            .raising(donePlan, dayKey: "2026-09-23")
+        XCTAssertEqual(floor.conversation, 10)
+
+        // 复盘之后流水被清，续聊只说了一句 —— 此刻的记录只剩 2 条。
+        let after = snapshot(today: DailyActivity(day: today, seconds: 120, messages: 2))
+        let afterPlan = DailyPlanner.plan(snapshot: after, now: now, calendar: calendar, floor: floor)
+        let task = afterPlan.tasks.first { $0.kind == .conversation }
+        XCTAssertEqual(task?.progress, 10, "完成量只增不减：记录被清掉也不能把进度带回去")
+        XCTAssertTrue(task?.isDone == true, "任务一旦完成就固定为已完成，不许回退")
+        XCTAssertEqual(afterPlan.completedCount, donePlan.completedCount, "整卡完成数也不许掉")
+        XCTAssertTrue(
+            task?.reason.contains("已聊 10 轮") == true,
+            "理由行跟进度同口径，不能一个说 10 一个说 2；实测：\(task?.reason ?? "nil")"
+        )
+    }
+
+    /// 跟读与复习两项同样吃高水位（「清除学习记忆」会把这两项的流水删掉）。
+    func testShadowingAndReviewAlsoHonorTheFloor() {
+        let now = day(2026, 9, 23, 21, 0)
+        let today = calendar.startOfDay(for: now)
+        let full = snapshot(
+            today: DailyActivity(day: today, seconds: 600, messages: 10, shadowingAttempts: 3),
+            vocabulary: VocabularyStats(
+                total: 20, due: 0, mastered: 8, defined: 20,
+                dueAtDayStart: 8, dueAtDayStartReviewed: 8
+            ),
+            shadowing: ShadowingStats(attempts: 30, bestAccuracy: 0.9, averageAccuracy: 0.8,
+                                      lastAccuracy: 0.8, bestPronunciation: 90, averagePronunciation: 80)
+        )
+        let before = DailyPlanner.plan(snapshot: full, now: now, calendar: calendar)
+        XCTAssertTrue(before.isAllDone, "夹具前提：三项都做完了")
+        let floor = DailyTaskFloor.empty(dayKey: "2026-09-23").raising(before, dayKey: "2026-09-23")
+        XCTAssertEqual(floor.shadowing, 3)
+        XCTAssertEqual(floor.review, 8)
+
+        // 清除学习记忆：跟读流水与复习流水都没了。
+        // ⚠️ 单词本本身还在，所以「今天起初到期 8 个」这个量**不变** ——
+        // 变的是「今天复习过几个」（复习流水被删），任务因此从 8/8 掉回 0/8。
+        let wiped = snapshot(
+            today: DailyActivity(day: today, seconds: 600, messages: 10),
+            vocabulary: VocabularyStats(
+                total: 20, due: 0, mastered: 0, defined: 20,
+                dueAtDayStart: 8, dueAtDayStartReviewed: 0
+            )
+        )
+        let raw = DailyPlanner.plan(snapshot: wiped, now: now, calendar: calendar)
+        XCTAssertEqual(
+            raw.tasks.first { $0.kind == .review }?.progress, 0,
+            "夹具前提：只看此刻的记录，复习进度确实掉回 0"
+        )
+        let after = DailyPlanner.plan(snapshot: wiped, now: now, calendar: calendar, floor: floor)
+        XCTAssertEqual(after.tasks.first { $0.kind == .shadowing }?.progress, 3)
+        XCTAssertEqual(after.tasks.first { $0.kind == .review }?.progress, 8)
+        XCTAssertTrue(after.isAllDone, "清完学习记忆也不该把当天已完成的判定收回去")
+    }
+
+    /// 高水位只涨不跌，且**换天自动作废**（昨天的高水位不许套到今天头上）。
+    func testFloorOnlyRisesAndExpiresOnANewDay() {
+        let now = day(2026, 9, 23, 21, 0)
+        let today = calendar.startOfDay(for: now)
+        let busy = DailyPlanner.plan(
+            snapshot: snapshot(today: DailyActivity(day: today, messages: 12, shadowingAttempts: 3)),
+            now: now, calendar: calendar
+        )
+        var floor = DailyTaskFloor.empty(dayKey: "2026-09-23").raising(busy, dayKey: "2026-09-23")
+        XCTAssertEqual(floor.conversation, 12)
+
+        // 再用一份「做得更少」的计划去抬 —— 不许把 12 拉下来。
+        let quieter = DailyPlanner.plan(
+            snapshot: snapshot(today: DailyActivity(day: today, messages: 3)), now: now, calendar: calendar
+        )
+        floor = floor.raising(quieter, dayKey: "2026-09-23")
+        XCTAssertEqual(floor.conversation, 12, "高水位只涨不跌")
+
+        // 换一天：从零重记，昨天的 12 不许溢出到今天。
+        let tomorrow = floor.raising(
+            DailyPlanner.plan(
+                snapshot: snapshot(today: DailyActivity(day: today)), now: now, calendar: calendar
+            ),
+            dayKey: "2026-09-24"
+        )
+        XCTAssertEqual(tomorrow.conversation, 0)
+        XCTAssertEqual(tomorrow.dayKey, "2026-09-24")
+    }
+
+    /// 持久化格式：一行 `dayKey|对话|跟读|复习`；坏数据一律当「没有记录」
+    /// （宁可少记一天，也不能让一行坏字符串把三项任务都读成一个离谱的数）。
+    func testFloorStorageRoundTripAndGarbage() {
+        let floor = DailyTaskFloor(dayKey: "2026-09-23", conversation: 12, shadowing: 3, review: 8)
+        XCTAssertEqual(DailyTaskFloor.parse(floor.storageText), floor)
+
+        XCTAssertNil(DailyTaskFloor.parse(nil))
+        XCTAssertNil(DailyTaskFloor.parse(""))
+        XCTAssertNil(DailyTaskFloor.parse("2026-09-23|12|3"), "字段不足")
+        XCTAssertNil(DailyTaskFloor.parse("|12|3|8"), "没有日期")
+        XCTAssertNil(DailyTaskFloor.parse("2026-09-23|a|3|8"), "不是数字")
+        // 缺省值：没记录时三项都是 0，显示的就是「此刻算出来的」。
+        XCTAssertEqual(DailyTaskFloor.empty(dayKey: "2026-09-23").progress(for: .conversation, current: 4), 4)
+    }
 }

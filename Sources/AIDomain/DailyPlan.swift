@@ -118,6 +118,95 @@ public struct DailyPlan: Sendable, Equatable {
     public var nextTask: DailyTask? { tasks.first { !$0.isDone } }
 }
 
+// MARK: - 当天高水位（#328：三项指标只增不减）
+
+/// 每日任务三项指标的**当天高水位**。
+///
+/// 产品口径（用户 2026-09-23 报障）：「三个任务指标应该是确定的、不会改变的，
+/// 完成的量只会增加、不会减少；任务一旦完成就固定为已完成，
+/// 不管后面做什么学习操作都不会回退」。
+///
+/// 为什么必须另记一份：三项指标读的都是**此刻还存在的记录**，而这些记录会被
+/// 正当理由删掉 —— 复盘成功后练习流水会被清（`purgePracticeMessages`）、
+/// 气泡上的删除、「清除学习记忆」删复习流水。记录一少，进度就掉回头，
+/// 卡片从「已完成」退回「未完成」，而那一天他明明做到了。
+/// （复习那一项早前已经用「取今天起初的到期数」绕过同一个坑，见 `reviewTask` 的注释；
+/// 对话与跟读没有那样一个「起初量」可取，所以统一在这里记高水位。）
+///
+/// ⚠️ 高水位只属于**那一天**：存的是 `dayKey` + 三个数，换天自动作废。
+/// 与 `shadowing.progress` 存成一行 `dayKey|index` 是同一个套路 ——
+/// 攒字典只会留下一堆用不上的旧日子。
+public struct DailyTaskFloor: Sendable, Equatable {
+
+    /// 归属的日子（`ShadowingDailyRule.dayKey` 格式）。
+    public var dayKey: String
+    public var conversation: Int
+    public var shadowing: Int
+    public var review: Int
+
+    public init(dayKey: String, conversation: Int = 0, shadowing: Int = 0, review: Int = 0) {
+        self.dayKey = dayKey
+        self.conversation = max(conversation, 0)
+        self.shadowing = max(shadowing, 0)
+        self.review = max(review, 0)
+    }
+
+    public static func empty(dayKey: String) -> DailyTaskFloor {
+        DailyTaskFloor(dayKey: dayKey)
+    }
+
+    /// 这一项今天见过的最大值（不是今天记的一律当 0）。
+    public func value(for kind: DailyTask.Kind) -> Int {
+        switch kind {
+        case .conversation: conversation
+        case .shadowing: shadowing
+        case .review: review
+        }
+    }
+
+    /// 显示用的完成量：**此刻算出来的**与高水位取大。
+    public func progress(for kind: DailyTask.Kind, current: Int) -> Int {
+        max(current, value(for: kind))
+    }
+
+    /// 用一份计划抬高高水位（只增不减）。换天则从零开始重记。
+    public func raising(_ plan: DailyPlan, dayKey: String) -> DailyTaskFloor {
+        var next = self.dayKey == dayKey ? self : .empty(dayKey: dayKey)
+        for task in plan.tasks {
+            switch task.kind {
+            case .conversation: next.conversation = max(next.conversation, task.progress)
+            case .shadowing: next.shadowing = max(next.shadowing, task.progress)
+            case .review: next.review = max(next.review, task.progress)
+            }
+        }
+        return next
+    }
+
+    // MARK: 持久化（格式留在域层，**存哪儿**由 UI 层决定）
+
+    /// 一行：`dayKey|对话|跟读|复习`。
+    public var storageText: String {
+        "\(dayKey)|\(conversation)|\(shadowing)|\(review)"
+    }
+
+    /// 解析一行；格式不对或字段缺失一律当「没有记录」（返回 nil）。
+    public static func parse(_ raw: String?) -> DailyTaskFloor? {
+        guard let raw else { return nil }
+        let parts = raw.split(separator: "|", omittingEmptySubsequences: false)
+        guard parts.count == 4, !parts[0].isEmpty,
+              let conversation = Int(parts[1]),
+              let shadowing = Int(parts[2]),
+              let review = Int(parts[3])
+        else { return nil }
+        return DailyTaskFloor(
+            dayKey: String(parts[0]),
+            conversation: conversation,
+            shadowing: shadowing,
+            review: review
+        )
+    }
+}
+
 // MARK: - 排计划（纯函数）
 
 public enum DailyPlanner {
@@ -157,17 +246,20 @@ public enum DailyPlanner {
     ///   - mode: 目标档位。保底档把三项任务都缩到 5 分钟内可完成的量；
     ///     进阶档按 `snapshot.goalMinutes` 排（原有行为）。
     ///   - now: 判定「今天」的基准时间（测试注入）。
+    ///   - floor: 当天高水位（见 `DailyTaskFloor`）。传 nil = 只看此刻的记录。
+    ///     传进来之后**三项的完成量都只增不减** —— 任务一旦完成就固定为已完成。
     public static func plan(
         snapshot: ProgressSnapshot,
         mode: DailyGoalMode = .advanced,
         now: Date = Date(),
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        floor: DailyTaskFloor? = nil
     ) -> DailyPlan {
         let day = calendar.startOfDay(for: now)
         let tasks = [
-            conversationTask(snapshot, mode: mode),
-            shadowingTask(snapshot, mode: mode),
-            reviewTask(snapshot, mode: mode),
+            conversationTask(snapshot, mode: mode, floor: floor),
+            shadowingTask(snapshot, mode: mode, floor: floor),
+            reviewTask(snapshot, mode: mode, floor: floor),
         ].compactMap { $0 }
 
         return DailyPlan(day: day, tasks: tasks, focus: focus(snapshot))
@@ -176,26 +268,30 @@ public enum DailyPlanner {
     // MARK: 三项任务
 
     private static func conversationTask(
-        _ snapshot: ProgressSnapshot, mode: DailyGoalMode
+        _ snapshot: ProgressSnapshot, mode: DailyGoalMode, floor: DailyTaskFloor?
     ) -> DailyTask? {
         let target = mode == .baseline
             ? baselineConversationTarget
             : exchangeTarget(goalMinutes: snapshot.goalMinutes)
         let today = snapshot.today
+        // ⚠️ 完成量取「此刻记录数」与「当天高水位」的较大者：
+        // 复盘之后练习流水会被清掉，只看此刻的话「昨天聊够了」的对话数会掉回个位数，
+        // 卡片又退回「未完成」（用户实测报障的正是这一条）。
+        let done = floor?.progress(for: .conversation, current: today.messages) ?? today.messages
         // 今天已经聊够了就别再挂一项催他（完成了的任务留着，✅ 也是有价值的反馈）。
         let reason: String
-        switch (mode, today.messages == 0) {
+        switch (mode, done == 0) {
         case (.baseline, true): reason = "保底目标 \(DailyGoalMode.baselineMinutes) 分钟，今天还没开口"
-        case (.baseline, false): reason = "保底目标 · 今天已聊 \(today.messages) 轮"
+        case (.baseline, false): reason = "保底目标 · 今天已聊 \(done) 轮"
         case (_, true): reason = "每日目标 \(snapshot.goalMinutes) 分钟，今天还没开口"
-        case (_, false): reason = "每日目标 \(snapshot.goalMinutes) 分钟 · 今天已聊 \(today.messages) 轮"
+        case (_, false): reason = "每日目标 \(snapshot.goalMinutes) 分钟 · 今天已聊 \(done) 轮"
         }
         return DailyTask(
             kind: .conversation,
             title: "和老师聊 \(target) 轮",
             reason: reason,
             target: target,
-            progress: today.messages,
+            progress: done,
             unit: "轮"
         )
     }
@@ -207,9 +303,11 @@ public enum DailyPlanner {
     }
 
     private static func shadowingTask(
-        _ snapshot: ProgressSnapshot, mode: DailyGoalMode
+        _ snapshot: ProgressSnapshot, mode: DailyGoalMode, floor: DailyTaskFloor?
     ) -> DailyTask? {
-        let attempts = snapshot.today.shadowingAttempts
+        let recorded = snapshot.today.shadowingAttempts
+        // 与对话同一口径：跟读记录也会被「清除学习记忆」删掉，完成量同样取高水位。
+        let attempts = floor?.progress(for: .shadowing, current: recorded) ?? recorded
         var reason = attempts == 0 ? "今天还没跟读" : "今天已跟读 \(attempts) 次"
         if let average = snapshot.shadowing.averagePronunciation {
             reason += " · 发音均分 \(Int(average.rounded()))"
@@ -226,7 +324,7 @@ public enum DailyPlanner {
     }
 
     private static func reviewTask(
-        _ snapshot: ProgressSnapshot, mode: DailyGoalMode
+        _ snapshot: ProgressSnapshot, mode: DailyGoalMode, floor: DailyTaskFloor?
     ) -> DailyTask? {
         // ⚠️ 指标取「**今天起初**到期」（`dueAtDayStart`），**不是**「此刻到期」（`due`）。
         // 复习答对会把间隔拉长，此刻到期数随复习一路变小 —— 拿它当指标的话，
@@ -239,7 +337,9 @@ public enum DailyPlanner {
         let target = min(due, cap)
         // 完成度也只在**今天起初那批词**里数：今天新加的词被复习了不算数
         // （用户口径：「完成了表示今天已经达标，多完成的不应该再计入」）。
-        let done = snapshot.vocabulary.dueAtDayStartReviewed
+        let recorded = snapshot.vocabulary.dueAtDayStartReviewed
+        // 第三层保险：「清除学习记忆」会把复习流水一并删掉，那之后也要保持已完成。
+        let done = floor?.progress(for: .review, current: recorded) ?? recorded
         let reason = due > cap
             ? "今天有 \(due) 个词要复习，先做前 \(target) 个"
             : "今天有 \(due) 个词要复习"

@@ -99,4 +99,73 @@ final class LaunchTodayPanelTests: XCTestCase {
             "后台开场绝不能把学员刚说的话清掉"
         )
     }
+
+    // MARK: - ④ 已完成的任务不许回退（#328）
+
+    /// 用户报障的完整时序（2026-09-23）：
+    /// 今天聊够了 → 关掉应用 → 重开时对上一段做了复盘（**流水被清**）→ 续聊。
+    /// 此刻的记录只剩新会话那几句，对话数掉回个位数，卡片又变成「未完成」。
+    ///
+    /// 这里按真实路径走一遍：`refreshTodayPanel`（记高水位）→ 清流水 → 再汇总。
+    ///
+    /// ⚠️ 顺带钉住**持久化**：`dailyTaskFloor` 写在 `UserDefaults` 上，
+    /// 第二个 `AppState`（= 重开应用）读到的必须还是「已完成」。
+    func testFinishedTasksStayFinishedAfterTheFlowIsPurged() async throws {
+        let keys = [
+            AppState.todayTaskFloorKey,
+            AppState.todayCelebratedDayKey,
+            AppState.todayBoardAutoExpandedDayKey,
+        ]
+        // ⚠️ 测试进程用的是 `com.apple.dt.xctest.tool` 域，会串到同进程后续用例 ——
+        // 改完必须原样还原（见技能 macos-ui-verify）。
+        let saved = keys.map { UserDefaults.standard.string(forKey: $0) }
+        defer {
+            for (key, value) in zip(keys, saved) {
+                if let value { UserDefaults.standard.set(value, forKey: key) }
+                else { UserDefaults.standard.removeObject(forKey: key) }
+            }
+        }
+        for key in keys { UserDefaults.standard.removeObject(forKey: key) }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("task-floor-probe-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let databasePath = directory.appendingPathComponent("learning.db").path
+        let store = ConfigStore(fileURL: directory.appendingPathComponent("config.json"))
+        let services = CoachServices(config: store, databasePath: databasePath)
+
+        // 今天聊了 10 条（目标 10 轮 → 刚好达标）。
+        let session = ChatSession(startedAt: Date(), mode: .conversation)
+        try await services.persistSession(session)
+        for index in 0..<10 {
+            await services.persistMessage(
+                ChatMessage(role: index.isMultiple(of: 2) ? .user : .assistant, content: "turn \(index)"),
+                sessionID: session.id
+            )
+        }
+        let state = AppState(services: services)
+        await state.refreshTodayPanel(force: true)
+        let conversation = { (plan: DailyPlan) in plan.tasks.first { $0.kind == .conversation } }
+        let before = try XCTUnwrap(conversation(state.dailyPlan))
+        XCTAssertTrue(before.isDone, "10 条对话对 10 轮目标就是达标；实测 \(before.progress)/\(before.target)")
+
+        // 复盘成功 → 练习流水被清（真实路径见 `concludeCurrentPractice`）。
+        let purged = await services.purgePracticeMessages(sessionID: session.id)
+        XCTAssertGreaterThan(purged, 0, "夹具前提：流水真的被清掉了")
+
+        await state.refreshTodayPanel(force: true)
+        let after = try XCTUnwrap(conversation(state.dailyPlan))
+        XCTAssertEqual(
+            after.progress, before.progress,
+            "流水清了，完成量也不许掉 —— 记录少不等于那天没做到"
+        )
+        XCTAssertTrue(after.isDone, "任务一旦完成就固定为已完成")
+
+        // 重开应用：同一个 UserDefaults，读到的还得是「已完成」。
+        let relaunched = AppState(services: CoachServices(config: store, databasePath: databasePath))
+        await relaunched.refreshTodayPanel(force: true)
+        let restored = try XCTUnwrap(conversation(relaunched.dailyPlan))
+        XCTAssertTrue(restored.isDone, "重开应用也不许回退（高水位是落盘的）")
+        XCTAssertEqual(restored.progress, before.progress)
+    }
 }
