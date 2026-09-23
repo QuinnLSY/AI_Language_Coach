@@ -510,7 +510,10 @@ public struct RecordsView: View {
             }
 
             if isExpanded {
-                Group {
+                // ⚠️ 出现方式在 `DisclosureBlock` 里（只淡入不位移）：
+                // `.move(edge: .top)` 的位移量等于内容自身高度，复盘很高时
+                // 整块会从别的卡片上方滑进来、动画期间溢出卡片边界（#2 的「穿透」）。
+                DisclosureBlock {
                     if let review {
                         reviewBody(review)
                     } else {
@@ -519,13 +522,14 @@ public struct RecordsView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 10)
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(theme.surfaceAlt.opacity(0.5))
         )
+        // 兜底：动画期间任何内容都画不出卡片边界（配合上面的淡入双保险）。
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(isExpanded ? theme.accent.opacity(0.5) : .clear, lineWidth: 1)
