@@ -138,11 +138,25 @@ extension AppState {
         requestExamSampleAnswers()
     }
 
-    /// 老师一轮结束（`ChatService.onTeacherTurnEnd`）：考试模式下做两件事。
+    /// 老师一轮结束（`ChatService.onTeacherTurnEnd`）：先做考试模式内外都要做的事，
+    /// 考试模式下再额外做两件。
     ///
-    /// ⚠️ 这两件事都**只能**发生在这里：起表要知道题目何时真正出现在学员眼前，
+    /// ⚠️ 后两件事都**只能**发生在这里：起表要知道题目何时真正出现在学员眼前，
     /// 补记纠错要知道老师这一轮标了几处 —— 都在一次生成之后才知道。
     func handleTeacherTurnEnd(_ message: ChatMessage?, corrections: [GrammarCorrection]) {
+        // ⓪ 批注实时进错题本（考试模式内外都要）：老师这轮标了几处，
+        //    错题本当场就多几条 —— 不等学员进记录页才 loadRecords
+        //    （#3 报障的正是「有卡片有复盘、错题本却空着」）。
+        //    ⚠️ 顺序与口径都向数据库看齐：新 → 旧、上限 50、**不去重** ——
+        //    同一处错再犯一次就再记一条（反复错误本来就按次数算）；
+        //    ChatService 已保证回调触发前本轮纠错落库完成，这里的内存态
+        //    与随后 loadRecords 读到的完全一致。
+        //    「老师记住了你什么」跟着重算（读的也是已落库的同一份数据）。
+        if !corrections.isEmpty {
+            mistakes.insert(contentsOf: corrections.reversed(), at: 0)
+            mistakes = Array(mistakes.prefix(50))
+            Task { await refreshLearningMemory() }
+        }
         guard var runner = examRunner else { return }
         // ① 老师这一轮没产出正文（模型没起来 / 回空）→ 这一问由考卷本地宣布。
         //    题目照出、整场不卡，而且学员仍然有可答的东西。

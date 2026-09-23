@@ -343,7 +343,7 @@ public actor LearningDatabase {
     /// 会话「对话条数」的唯一口径：**现存的流水条数** → 复盘时记下的条数 → 0。
     ///
     /// ⚠️ 只读 `sessions.message_count` 会算出「0 条对话」：复盘成功后
-    /// `purgeSessionMessages` 会把消息连同纠错一起删掉、并把这一列归零
+    /// `purgeSessionMessages` 会把消息清掉、并把这一列归零
     /// （归零是必要的 —— `hygiene()` 就是拿 `message_count = 0` 当空会话判据的）。
     /// 于是「最近练习」里那一条明明写着「时长 2 分 54 秒」，右边却是「0 条对话」，
     /// 而同屏展开的复盘里写着「1 轮对话」—— 同一件事在三个地方各说各的。
@@ -958,7 +958,10 @@ public actor LearningDatabase {
                 """,
                 [.text(sessionID.uuidString)]
             )
-            try db.run("DELETE FROM corrections WHERE session_id = ?1", [.text(sessionID.uuidString)])
+            // ⚠️ 纠错（corrections）**不删**：它是学习记忆，不是流水。
+            // 错题本、复盘里的「老师记住了你什么」、反复错误统计都靠它 ——
+            // 以前这里顺手 DELETE，复盘一跑错题本就被清空（#3 报障的根因）。
+            // 它的生命周期归 `clearLearningMemory`（用户显式清除）管。
             try db.run("DELETE FROM messages WHERE session_id = ?1", [.text(sessionID.uuidString)])
             // ⚠️ 顺手把 `message_count` 归零：它以前在这里不回滚，于是「清空过流水的会话」
             // 还留着一个虚高的计数（`hygiene()` 靠这个列判空，虚高就永远判不出来）。

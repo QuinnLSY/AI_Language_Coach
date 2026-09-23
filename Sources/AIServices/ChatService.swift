@@ -888,7 +888,7 @@ public final class ChatService {
             engine.send(.generationFinished)
             if !parsed.corrections.isEmpty {
                 correctionsByMessage[message.id] = parsed.corrections
-                persistCorrections(parsed.corrections)
+                await persistCorrections(parsed.corrections)
                 // 结构化分析（分类 / 定级 / 判重）——同样零请求：
                 // 结果进「已知错误」，成为**下一轮**决策的依据（「反复错误 → 集中练」由此生效）。
                 _ = engine.analyzeReply(parsed.corrections, history: await services.recentCorrectionRecords())
@@ -985,7 +985,7 @@ public final class ChatService {
         engine.send(.generationFinished)
         if !parsed.corrections.isEmpty {
             correctionsByMessage[message.id] = parsed.corrections
-            persistCorrections(parsed.corrections)
+            await persistCorrections(parsed.corrections)
         }
         DailyTokenCounter.add(max(estimatedContextTokens - tokensBefore, 0))
         turnResult = (message, parsed.corrections)
@@ -1128,7 +1128,7 @@ public final class ChatService {
         engine.send(.generationFinished)
         if !parsed.corrections.isEmpty {
             correctionsByMessage[message.id] = parsed.corrections
-            persistCorrections(parsed.corrections)
+            await persistCorrections(parsed.corrections)
         }
         DailyTokenCounter.add(max(estimatedContextTokens - tokensBefore, 0))
         turnResult = (message, parsed.corrections)
@@ -1334,12 +1334,14 @@ public final class ChatService {
         .joined(separator: "\n")
     }
 
-    private func persistCorrections(_ corrections: [GrammarCorrection]) {        let sessionID = sessionID
-        let services = services
-        Task {
-            for correction in corrections {
-                await services.persistCorrection(correction, sessionID: sessionID)
-            }
+    /// 落库本轮纠错。⚠️ 必须 **await 完成后**才让 `onTeacherTurnEnd` 触发：
+    /// 错题本与「老师记住了你什么」都会在回调里读库，若落库还在飞，
+    /// 它们读到的就少这一轮的几条（fire-and-forget 是 #3 报障的根因之一）。
+    /// 本地库写入，亚毫秒，不构成卡顿。
+    private func persistCorrections(_ corrections: [GrammarCorrection]) async {
+        let sessionID = sessionID
+        for correction in corrections {
+            await services.persistCorrection(correction, sessionID: sessionID)
         }
     }
 

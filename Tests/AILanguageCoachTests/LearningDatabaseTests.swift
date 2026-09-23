@@ -310,7 +310,9 @@ final class LearningDatabaseTests: XCTestCase {
         XCTAssertNil(cleared, "重练这一关要能把进度清掉")
     }
 
-    /// 复盘成功后删流水：消息与纠错清掉，**会话行与复盘必须留着**（记录页要显示它们）。
+    /// 复盘成功后删流水：消息清掉，**会话行、复盘、纠错必须留着**。
+    /// 纠错是学习记忆不是流水 —— 错题本与「老师记住了你什么」都靠它，
+    /// 清流水顺手删纠错会让复盘一跑错题本就被清空（#3 报障）。
     func testPurgeSessionMessagesKeepsSessionAndReview() async throws {
         let db = try makeDB()
         let session = ChatSession(mode: .conversation, scenarioID: "restaurant")
@@ -334,7 +336,8 @@ final class LearningDatabaseTests: XCTestCase {
         let messagesAfter = try await db.messages(sessionID: session.id)
         let correctionsAfter = try await db.corrections(sessionID: session.id)
         XCTAssertTrue(messagesAfter.isEmpty)
-        XCTAssertTrue(correctionsAfter.isEmpty)
+        XCTAssertEqual(correctionsAfter.count, 1, "纠错要留住 —— 清流水只清流水，不动学习记忆")
+        XCTAssertEqual(correctionsAfter.first?.corrected, "I went")
 
         let summary = try await db.sessionSummary(id: session.id)
         XCTAssertNotNil(summary, "会话行必须留着 —— 记录页要显示情景名与时长")
