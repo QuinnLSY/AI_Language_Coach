@@ -162,7 +162,7 @@ public struct ChatView: View {
     /// 聊天区是否处于「上翻」状态（距底部超过阈值）——
     /// 决定「回到底部」按钮与输入框上方的虚化是否出现。
     @State private var isScrolledUp = false
-    /// 鼠标停在**哪一条**消息上（学员气泡的三颗动作据此浮现）。
+    /// 鼠标停在**哪一条**消息上（学员气泡的三颗图标据此由 30% 变 100%）。
     ///
     /// ⚠️ 悬停态放在这里而不是气泡组件内部：组件自己 `onHover` 就没法在离屏渲染里
     /// 验证「悬停时到底长什么样」，而那一行按钮正是这次新增的全部视觉。
@@ -171,6 +171,16 @@ public struct ChatView: View {
     @State private var editingMessageID: UUID?
     /// 编辑框里的草稿。与消息正文分开存：取消这次编辑时原文必须**一字不动**。
     @State private var editingDraft: String = ""
+    /// 删除确认的两步状态（点垃圾桶只登记，确认之后才真删）。
+    @State private var deleteConfirmation = DeleteConfirmation()
+
+    /// 学员气泡那三颗图标**常驻时的透明度**（悬停时 100%）。
+    ///
+    /// ⚠️ 为什么不是 0：要够到它们得先把鼠标移到气泡右下角，而 0 的那一下图标是隐形的 ——
+    /// 用户看不到自己在往哪儿移，鼠标一偏图标又没了（2026-09-23 用户口径：改成常驻）。
+    /// ⚠️ 为什么不再往上：三颗是**次要动作**，30% 已经在「看得见」的边缘，
+    /// 再亮就和正文抢注意力了。
+    nonisolated static let learnerActionIdleOpacity: Double = 0.3
 
     /// 每条预设提问停留的秒数。
     private let rotationInterval: Double = 3.4
@@ -362,6 +372,37 @@ public struct ChatView: View {
                 questionIndex = (questionIndex + 1) % starterQuestions.count
             }
         }
+        // 删除确认（2026-09-23）。三颗图标常驻之后，「先精确悬停」那层阻力没有了，
+        // 而误点的代价是一整轮问答（学员那句 + 老师紧邻的那句回复）——
+        // 于是把阻力加回到**最该加的那一步**上（编辑 / 复制不必陪着受罪）。
+        //
+        // ⚠️ 真正调 `onDeleteMessage` 的**只有**这里那颗红色按钮：
+        // 垃圾桶那一颗只 `request`（登记），这就保证了「点错一下」不会删掉任何东西。
+        // ⚠️ `set` 分支要接住 Esc / 点框外：`isPresented` 变 false 一律当「放弃」，
+        // 否则待确认的那条会一直挂着，下一次点垃圾桶还弹同一个人的名字。
+        .confirmationDialog(
+            BubbleDeletePrompt.title,
+            isPresented: Binding(
+                get: { deleteConfirmation.isPresented },
+                set: { if !$0 { deleteConfirmation.cancel() } }
+            ),
+            titleVisibility: .visible,
+            presenting: deleteConfirmation.pending
+        ) { id in
+            Button("删除", role: .destructive) {
+                if let confirmed = deleteConfirmation.confirm() {
+                    onDeleteMessage?(confirmed)
+                }
+            }
+            Button("取消", role: .cancel) { deleteConfirmation.cancel() }
+        } message: { id in
+            Text(BubbleDeletePrompt.message(for: pendingDeleteText(id)))
+        }
+    }
+
+    /// 待删除那条的正文（确认框里拿它写摘要）。
+    private func pendingDeleteText(_ id: UUID) -> String {
+        chat.visibleMessages.first { $0.id == id }?.content ?? ""
     }
 
     /// 当前轮换到的预设提问（没有预设时返回 nil，输入框退回普通占位）。
@@ -903,8 +944,10 @@ public struct ChatView: View {
 
     /// 气泡那一列（正文 + 译文 + 纠错 + 动作行），编辑态与正常态二选一。
     ///
-    /// ⚠️ 悬停区钉在**这一列**上（不含外侧留白与头像）：挂到整行上的话，
-    /// 鼠标飘到气泡旁边的空白里按钮也会留着不走，「移到气泡上才出现、移出就消失」就不成立。
+    /// ⚠️ 悬停判定区钉在**这一整块**上（气泡 + 三颗图标 + 译文 + 纠错），
+    /// 但**不含**头像与外侧留白 —— 用户 2026-09-23 的口径是「整体判定区」，
+    /// 指的就是这一块；把整行（含 `Spacer` 的空白）都算进来的话，
+    /// 鼠标飘到对话区左边那一大片空里图标也亮着，那是噪声不是反馈。
     @ViewBuilder
     private func bubbleColumn(
         _ message: ChatMessage,
@@ -1010,19 +1053,25 @@ public struct ChatView: View {
                 // 那三颗盖住（出图实测；用户看过图之后把位置定在了气泡外）。
                 // ⚠️ 为什么用「常驻占位 + 只改透明度」而不是 `if isHovered`：后者会让
                 // 气泡在鼠标进入的瞬间长高、整段对话跟着上下跳；占位高度恒定，跳就不可能发生。
-                // ⚠️ 藏起来时必须 `allowsHitTesting(false)` —— 否则那三颗看不见的按钮照样点得动。
+                // ⚠️ 三颗**常驻**（未悬停 30%、悬停 100%），不再 `allowsHitTesting(false)`：
+                // 「看得见」与「点得动」必须是同一件事 —— 看得见却点不动是最气人的那种 UI。
+                // 误点由删除那一颗的确认框兜住（`DeleteConfirmation`）。
                 if isUser {
                     LearnerBubbleActionRow(
                         text: message.content,
                         isEnabled: canMutateMessages,
-                        onDelete: { onDeleteMessage?(message.id) },
+                        onDelete: { deleteConfirmation.request(message.id) },
                         onEdit: { beginEditing(message) }
                     )
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
+                    .opacity(isHovered ? 1 : Self.learnerActionIdleOpacity)
                     .animation(.easeOut(duration: 0.12), value: isHovered)
                 }
             }
+            // ⚠️ 判定区就是**这一整块**（气泡 + 三颗图标 + 译文 + 纠错）：
+            // 用户口径是「整体判定区」，而不是只认气泡本体。
+            // `contentShape` 不能省：块内的行间距（6pt 那条缝）本来不可命中，
+            // 鼠标从气泡往图标那一条移过去时会先掉出判定区 —— 图标闪一下再亮，很难看。
+            .contentShape(Rectangle())
             .onHover { inside in updateHover(inside, on: message) }
         }
     }

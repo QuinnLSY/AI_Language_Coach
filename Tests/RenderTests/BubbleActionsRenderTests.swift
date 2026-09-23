@@ -12,14 +12,18 @@ import XCTest
 ///
 /// 三条口径里，「点了会怎样」已经由 `ChatBubbleActionTests` 钉住（那是数据），
 /// 这里只钉**用户眼睛能看见的那部分**：
-/// ① 学员气泡的三颗**只在鼠标停上去时出现**，而且**不许把对话顶下去**（贴在上，不是插一行）；
+/// ① 学员气泡的三颗**常驻在场**（未悬停 30%、悬停 100%），而且**不许把对话顶下去**；
 /// ② 老师气泡的复制 / 重新生成**始终在场**（与悬停无关 —— 悬停到老师气泡上不该多出任何东西）；
 /// ③ 点「编辑」时，气泡**整条换成一条更大的输入框**（不是塞一个单行框，也不会只多一颗图标）。
+///
+/// ⚠️ ① 2026-09-23 改了口径：以前是「悬停才浮现」（未悬停时透明度 **0**），
+/// 用户报障「要够到它们得先精确停在气泡上，鼠标一偏图标就没了」。现在是常驻 30%。
+/// 这条用例因此分成两半：**idle 图上必须有它们**（常驻）+ **悬停之后它们更重**（30%→100%）。
 ///
 /// ⚠️ 一律**不碰真实数据**：配置写临时文件、库开 `:memory:`，也不写 `UserDefaults`。
 /// ⚠️ 悬停 / 编辑都由 `forcedHoveredMessageID` / `forcedEditingMessageID` 注入 ——
 /// 离屏没有鼠标，不给入口就只能靠人眼。这与 `DictionaryBookCard.isHovered` 是同一件事。
-/// ⚠️ 断言只钉**几何**（差在哪、差多大），不钉色值：离屏过一次色彩空间换算。
+/// ⚠️ 断言只钉**几何与墨量**（差在哪、差多大），不钉色值：离屏过一次色彩空间换算。
 @MainActor
 final class BubbleActionsRenderTests: XCTestCase {
 
@@ -354,9 +358,31 @@ final class BubbleActionsRenderTests: XCTestCase {
         try png.write(to: directory.appendingPathComponent(name))
     }
 
-    // MARK: - ① 学员气泡：悬停才出现，且整个落在气泡下方
+    /// 在某个 x 区间 × y 带里数「与页面底色不同」的像素。
+    ///
+    /// ⚠️ 不能用本文件那把 `Pixel.isInk`（阈值是「暗到能当墨」）：常驻态是 **30% 不透明度**，
+    /// 图标叠在浅底上够不着那个阈值 —— 「图标在不在」会被判成「不在」，
+    /// 于是这条用例永远证不了常驻。判据只能是「与底色有差（>8）」。
+    private func nonBackgroundPixels(
+        _ render: Render,
+        xRange: Range<Int>,
+        yRange: Range<Int>,
+        background: (r: Int, g: Int, b: Int)
+    ) throws -> Int {
+        let image = try rgba(render.rep)
+        var count = 0
+        for y in yRange.clamped(to: 0..<image.height) {
+            for x in xRange.clamped(to: 0..<image.width)
+            where differs(sample(image, x: x, y: y), from: background) {
+                count += 1
+            }
+        }
+        return count
+    }
 
-    func testLearnerActionsAppearOnHoverBelowTheBubble() async throws {
+    // MARK: - ① 学员气泡：常驻三颗，悬停变重，且整个落在气泡下方
+
+    func testLearnerActionsAreAlwaysThereAndBrightenOnHover() async throws {
         let chat = try await makeChat()
         let user = try XCTUnwrap(
             chat.visibleMessages.first { $0.role == .user }, "夹具里应当有一条学员消息"
@@ -365,21 +391,50 @@ final class BubbleActionsRenderTests: XCTestCase {
         let idle = try render(chatView(chat), size: canvas)
         let hovered = try render(chatView(chat, hovered: user.id), size: canvas)
         let diff = try compare(idle, hovered)
-        let blob = try XCTUnwrap(diff.largest, "悬停时一个像素都没变 —— 三颗图标根本没出来")
+        let blob = try XCTUnwrap(diff.largest, "悬停前后一个像素都没变 —— 三颗图标根本没跟着变重")
         let blocks = diff.significantBlobs
 
+        // 悬停那一下只该改**这三颗的深浅**，不该牵动布局。
         XCTAssertGreaterThan(
             diff.significantPixels, 100,
-            "悬停时必须真的多出东西（三颗图标），实测成块的墨只有 \(diff.significantPixels) 像素"
+            "悬停时必须真的看得出变重（三颗图标从 30% 到 100%），实测成块的墨只有 \(diff.significantPixels) 像素"
         )
         XCTAssertLessThan(
             blob.heightPt(scale: idle.scale), 26,
             "动作行只有 20pt 高的一行图标；实测 \(blob.heightPt(scale: idle.scale))pt"
-                + " —— 更高说明它把气泡撑起来了，鼠标一进去整段对话就会跳"
+                + " —— 更高说明变重那一下把气泡撑起来了，鼠标一进去整段对话就会跳"
         )
         XCTAssertGreaterThan(
             blob.minXPt(scale: idle.scale), canvas.width * 0.5,
             "学员的动作行**右对齐**（实测左边界 \(blob.minXPt(scale: idle.scale))pt）"
+        )
+
+        // 图标所在的那一带（由悬停差异本身定出来 —— 它只可能是那三颗）。
+        let iconTop = blocks.map(\.minY).min() ?? 0
+        let iconBottom = blocks.map(\.maxY).max() ?? 0
+        let iconLeft = blocks.map(\.minX).min() ?? 0
+        let iconRight = blocks.map(\.maxX).max() ?? 0
+        let midY = (iconTop + iconBottom) / 2
+        let background = sample(try rgba(hovered.rep), x: 20, y: midY)
+
+        // 常驻：**idle 图上这一带本来就有墨**（30% 也看得见）——
+        // 这正是 2026-09-23 那次报障要的性质；把透明度改回 0 这里就必须红。
+        let idleInk = try nonBackgroundPixels(
+            idle, xRange: iconLeft..<(iconRight + 1), yRange: iconTop..<(iconBottom + 1),
+            background: background
+        )
+        let hoveredInk = try nonBackgroundPixels(
+            hovered, xRange: iconLeft..<(iconRight + 1), yRange: iconTop..<(iconBottom + 1),
+            background: background
+        )
+        XCTAssertGreaterThan(
+            idleInk, 100,
+            "三颗图标要**常驻**（未悬停 30% 也看得见），实测那一带只有 \(idleInk) 个非底色像素"
+                + " —— 为 0 就说明又退回「悬停才浮现」了"
+        )
+        XCTAssertGreaterThan(
+            hoveredInk, idleInk,
+            "悬停要把它们从 30% 提到 100%（更重/更实），实测 idle \(idleInk) → hovered \(hoveredInk)"
         )
 
         // 「不盖字」：这一行整个落在气泡**下方**，悬停不得动到气泡及其以上的任何像素。
@@ -387,28 +442,32 @@ final class BubbleActionsRenderTests: XCTestCase {
         // ⚠️ 判据走**连通块**而不是「差异像素的最小 y」：这台机器上页头偶发会有一两个像素
         // 跟着动（同一份输入连出两次不出现、隔几次冒一次），拿全页最小 y 去比会常年假警；
         // 而零星散点凑不出 40 像素的一块。
-        let xRange = (blocks.map(\.minX).min() ?? 0)...(blocks.map(\.maxX).max() ?? 0)
-        let iconBottom = blocks.map(\.maxY).max() ?? 0
-        let midY = blocks.map { ($0.minY + $0.maxY) / 2 }.max() ?? 0
-        let background = sample(try rgba(idle.rep), x: 20, y: midY)
+        //
+        // ⚠️ 气泡下沿必须在**图标那一带之外**的一列上量：常驻之后图标自己也会出墨，
+        // 拿图标所在的列去量「最后一个有内容的行」量到的就是图标，这条断言会自己骗自己。
+        // 图标那三颗右对齐贴在气泡右缘下方，因此往左挪一点就只剩气泡（气泡比它们宽得多）。
+        let probeX = max(1, iconLeft - Int(12 * idle.scale))
         let bubbleBottom = try contentBottom(
-            in: idle, xRange: xRange, yRange: 0..<(iconBottom + 1), background: background
+            in: idle, xRange: probeX...probeX, yRange: 0..<iconTop, background: background
+        )
+        XCTAssertGreaterThan(
+            bubbleBottom, 0, "探针那一列应当压在气泡上（气泡比动作行宽得多），实测没量到任何内容"
+        )
+        XCTAssertGreaterThan(
+            iconTop, bubbleBottom,
+            "动作行必须整个落在气泡下沿（y=\(bubbleBottom)）以下；实测它从 y=\(iconTop) 就开始了"
+                + " —— 压上去就是盖住了正文"
         )
 
         let covering = blocks.filter { $0.minY <= bubbleBottom }
         XCTAssertTrue(
             covering.isEmpty,
-            "动作行必须整个落在气泡下沿（y=\(bubbleBottom)）以下；实测有 \(covering.count) 块压在它上面"
+            "变重的那几块必须整个落在气泡下沿以下；实测有 \(covering.count) 块压在它上面"
                 + "（\(covering.map { "\($0.minX),\($0.minY)-\($0.maxX),\($0.maxY)" }.joined(separator: " / "))）"
-                + " —— 压在气泡上就是盖住了正文"
-        )
-        XCTAssertTrue(
-            blocks.contains { $0.minY > bubbleBottom },
-            "气泡下沿以下必须真的多出墨迹（三颗图标），实测一块都没有"
         )
 
-        try dump(idle, name: "round307-bubble-idle.png")
-        try dump(hovered, name: "round307-bubble-hovered.png")
+        try dump(idle, name: "round329-bubble-idle.png")
+        try dump(hovered, name: "round329-bubble-hovered.png")
     }
 
     // MARK: - ② 老师气泡：始终在场，与悬停无关

@@ -34,12 +34,20 @@ struct BubbleIconButton: View {
     /// 强制点亮（不依赖悬停）。复制成功后的对勾用它 ——
     /// 那一瞬间鼠标可能已经移开，只靠悬停高亮的话「成功了」这个反馈会一起消失。
     var isHighlighted: Bool = false
+    /// 这一颗的**语义色**。nil = 沿用「次要文字 → accent」的默认口径。
+    ///
+    /// 只有破坏性动作（删除）会传 `danger`：一颗红色的垃圾桶说的是「这一颗会删东西」，
+    /// 而不是在礼貌地邀请你去点它。另两颗**刻意保持中性** ——
+    /// 三颗都上色等于三颗都没上色（`LearnerBubbleActionRow.tint(for:theme:)`）。
+    var tint: Color? = nil
     var accessibilityText: String? = nil
     let action: () -> Void
 
     @State private var isHovering = false
 
     private var isLit: Bool { (isHovering || isHighlighted) && isEnabled }
+    private var litColor: Color { tint ?? theme.accent }
+    private var idleColor: Color { (tint ?? theme.secondaryText).opacity(0.8) }
 
     var body: some View {
         Button {
@@ -47,9 +55,9 @@ struct BubbleIconButton: View {
         } label: {
             Image(systemName: systemImage)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(isLit ? theme.accent : theme.secondaryText.opacity(0.8))
+                .foregroundStyle(isLit ? litColor : idleColor)
                 .frame(width: 20, height: 20)
-                .background(Circle().fill(isLit ? theme.accent.opacity(0.14) : Color.clear))
+                .background(Circle().fill(isLit ? litColor.opacity(0.14) : Color.clear))
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -92,11 +100,38 @@ struct CopyIconButton: View {
     }
 }
 
-/// 学员气泡上「悬停才浮现」的动作条：删除 / 编辑 / 复制。
+/// 学员气泡上的动作条：删除 / 编辑 / 复制。
 ///
 /// 顺序与产品给的参考图一致（删除在最左）：
 /// 三个都是**破坏性递减**的排列 —— 最左最危险，最右最无害。
+///
+/// ⚠️ 三颗是**常驻**的（2026-09-23 用户口径），由外层控制透明度：
+/// 未悬停 30%、悬停 100%。以前是「悬停才浮现」，问题出在**要够到它们得先精确停在气泡上**——
+/// 鼠标往右下角移过去的那一下，图标先消失了，于是永远点不着。
+/// 常驻之后「看得见」与「点得动」是同一件事（外层不再 `allowsHitTesting(false)`），
+/// 误点由删除那一颗的**确认框**兜住（见 `DeleteConfirmation`）。
 struct LearnerBubbleActionRow: View {
+
+    @Environment(\.forestTheme) private var theme
+
+    /// 三颗图标各自的动作。**颜色口径按它来**（见 `tint(for:theme:)`）。
+    enum Action: String, CaseIterable, Sendable {
+        case delete
+        case edit
+        case copy
+    }
+
+    /// 三颗图标的着色口径：**只有删除是破坏性的**，用 `danger`；编辑与复制保持中性。
+    ///
+    /// ⚠️ 抽成静态纯函数是为了**能把它钉住**：离屏渲染过一次色彩空间换算，
+    /// 渲染断言里不能比色值（见技能 `macos-ui-verify`），
+    /// 「用的是不是 `danger`」只能在「选了哪个令牌」这一层证。
+    static func tint(for action: Action, theme: ForestTheme) -> Color? {
+        switch action {
+        case .delete: theme.danger
+        case .edit, .copy: nil
+        }
+    }
 
     let text: String
     /// 生成中 / 考试中不给改（见 `AppState.canMutateChatMessages`）。
@@ -110,6 +145,7 @@ struct LearnerBubbleActionRow: View {
                 systemImage: "trash",
                 help: "删除这一轮对话",
                 isEnabled: isEnabled,
+                tint: Self.tint(for: .delete, theme: theme),
                 accessibilityText: "删除这一轮对话"
             ) {
                 onDelete()
@@ -118,12 +154,81 @@ struct LearnerBubbleActionRow: View {
                 systemImage: "pencil",
                 help: "改一改这句话再发",
                 isEnabled: isEnabled,
+                tint: Self.tint(for: .edit, theme: theme),
                 accessibilityText: "编辑这条消息"
             ) {
                 onEdit()
             }
             CopyIconButton(text: text)
         }
+    }
+}
+
+/// 删除确认：**点垃圾桶只是登记，真正删要等确认**。
+///
+/// ① 为什么要有这一步：三颗图标改成**常驻**之后，删除不再需要「先精确悬停」——
+///    阻力的那一层没了，误点的代价却是删掉一整轮问答（学员那句 + 老师那句）。
+///    确认框把阻力加回到了**最该加的那一步**上，而编辑 / 复制不必陪着受罪。
+/// ② 为什么单独成一个纯值类型，而不是在 View 里放一个 `@State UUID?`：
+///    对话框本身离屏渲染不出来、合成点击又会 abort 整个测试进程（见技能），
+///    「确认前不许删」这条**只能**在状态机这一层证 —— 见 `BubbleDeleteTests`。
+struct DeleteConfirmation: Equatable {
+
+    /// 待确认的那一条（nil = 没有待确认的删除）。
+    private(set) var pending: UUID?
+
+    init(pending: UUID? = nil) {
+        self.pending = pending
+    }
+
+    /// 对话框此刻该不该弹。
+    var isPresented: Bool { pending != nil }
+
+    /// 点了垃圾桶：**只登记**。这里绝不触发删除。
+    mutating func request(_ id: UUID) {
+        pending = id
+    }
+
+    /// 点了「取消」/ 按了 Esc：什么都不做地散场。
+    mutating func cancel() {
+        pending = nil
+    }
+
+    /// 点了「删除」：交出要删的 id（没有待确认的就交 nil），并清场。
+    mutating func confirm() -> UUID? {
+        defer { pending = nil }
+        return pending
+    }
+}
+
+/// 删除确认框里的文案（纯函数，可单测）。
+///
+/// ⚠️ 「删掉的是什么」必须说准：删除会把**紧邻的那条老师回复一起带走**
+/// （见 `ChatService.deleteMessage`），而纠错 / 复盘 / 生词这些**学习记录不动**。
+/// 两件事都得写出来 —— 用户点之前有权知道边界在哪。
+enum BubbleDeletePrompt {
+
+    static let title = "删除这一轮对话？"
+
+    /// 摘要里最多留几个字（约一行）。
+    static let previewLimit = 24
+
+    static func message(for text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "这条消息和老师的那句回复会一起删掉。纠错、复盘、生词这些学习记录不受影响。"
+        }
+        return "「\(preview(of: trimmed))」和老师的那句回复会一起删掉。"
+            + "纠错、复盘、生词这些学习记录不受影响。"
+    }
+
+    /// 正文摘要：先压掉换行与连续空白（多行消息塞进一句话里会变成一坨），再按长度截断。
+    static func preview(of text: String) -> String {
+        let flattened = text
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        guard flattened.count > previewLimit else { return flattened }
+        return String(flattened.prefix(previewLimit)) + "…"
     }
 }
 
