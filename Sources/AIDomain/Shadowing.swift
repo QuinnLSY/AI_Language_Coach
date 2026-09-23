@@ -185,6 +185,44 @@ public enum ShadowingDailyRule {
     }
 }
 
+// MARK: - 历史记录能不能当「今天这一句」的分析
+
+/// 判据：一条库里的跟读记录能不能被认成**今天这一句**的逐句分析（**纯函数**）。
+///
+/// 用户报障（2026-09-23）：「昨天读过的分析今天还在，匹配率还是昨天那个数」。
+/// 根因是记录与素材之间**只有一个 `drill_id` 相连**，而这个 id 与内容无关 ——
+/// 每日素材的 id 是 `daily-<主题序号>-<句内序号>`（见 `ShadowingDailyRule.parse`），
+/// 换一天主题轮换，**同一批 id 换了一批全新的句子**。只按 id 取，
+/// 就会把昨天的识别文本拿来对**今天**的参考句算匹配率，发音分也是昨天那次的。
+///
+/// 所以两个条件缺一不可：
+/// 1. **同一天**（`dayKey`）：跨天一律不认。
+/// 2. **参考文本一致**：同一天里用户点「换一批」会换掉整批句子，而 id 一个都不变。
+///
+/// 不满足就当作「这一句还没读过」——**宁可让用户重读一句，也不许把别人的成绩安在他头上**。
+public enum ShadowingAnalysisAdoption {
+
+    public static func adopts(
+        _ attempt: ShadowingAttempt,
+        for drill: ShadowingDrill,
+        dayKey: String,
+        calendar: Calendar = .current
+    ) -> Bool {
+        guard ShadowingDailyRule.dayKey(attempt.createdAt, calendar: calendar) == dayKey else {
+            return false
+        }
+        return normalized(attempt.referenceText) == normalized(drill.text)
+    }
+
+    /// 参考文本的比较口径：压掉空白与大小写的差异。
+    ///
+    /// 只做这两样：漏一个多余空格不该让用户重读一遍；而**再往下归一**
+    /// （去标点、词形还原）会把两句真正不同的话看成一个 —— 那正是这次要修的病。
+    public static func normalized(_ text: String) -> String {
+        text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ").lowercased()
+    }
+}
+
 // MARK: - 逐词对齐结果
 
 /// 参考句里每个词的跟读结果。

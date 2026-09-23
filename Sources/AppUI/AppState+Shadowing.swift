@@ -86,6 +86,11 @@ extension AppState {
     /// 对比结果不另存一份：`ShadowingScorer.compare` 是纯函数，
     /// 拿当时识别出来的文本重算一遍必然得到同一个结果 ——
     /// 另存一份反而多出一个「与原文对不上」的真源。
+    ///
+    /// ⚠️ 库里查到的记录**不等于**「今天这一句」的记录：`drill_id` 是
+    /// `daily-<主题>-<序号>`，与内容无关，换天/换一批都会重用同一批 id
+    /// （见 `ShadowingAnalysisAdoption`）。放行判据在那边，这里一律按它筛 ——
+    /// 不筛的话，昨天的识别文本会被拿去对今天的参考句算匹配率，发音分也是昨天那次的。
     func rehydrateShadowingAnalyses() async {
         let drills = shadowingDrills
         guard !drills.isEmpty else { return }
@@ -96,6 +101,8 @@ extension AppState {
             let key = Self.shadowingAnalysisKey(day: day, drillID: drill.id)
             // 内存里已有（刚读过）就不覆盖 —— 它比库里那条新。
             guard shadowingAnalyses[key] == nil, let attempt = attempts[drill.id] else { continue }
+            // 认不出来 = 这一句还没读过（宁可重读一句，也不许把别人的成绩安在他头上）。
+            guard ShadowingAnalysisAdoption.adopts(attempt, for: drill, dayKey: day) else { continue }
             shadowingAnalyses[key] = ShadowingResult(
                 comparison: ShadowingScorer.compare(
                     reference: drill.text,
