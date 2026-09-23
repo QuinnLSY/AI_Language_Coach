@@ -443,8 +443,11 @@ extension AppState {
         vocabularyNotice = AppNotice(text: "每日推荐学习进度已重置：认识记录清零，词库重新从简单档开始推荐。")
     }
 
-    /// 抽 12 个推荐词（3 简单 / 5 中等 / 2 困难 / 2 词组，雅思标准）。
+    /// 抽一批推荐词（4 生词 / 3 简单 / 5 中等 / 2 困难 / 2 词组，共 16 张 = 收起态 4 页）。
     /// 只在第一次进词汇本页时抽，之后进页面保持同一组；已认熟的词不再出现。
+    ///
+    /// 其中「生词」档来自**词汇本**（练习里遇到的生词，见 `DailyVocabularyPool`），
+    /// 不足 4 个时由词典档补齐 —— 总数恒定 16，收起态翻页不会翻出半空的尾巴页。
     ///
     /// ⚠️ **按天恒定**：种子由「日期 + 学习语言」派生，所以同一天关掉再打开看到的还是
     /// 这一批（原先是每次启动真随机，一天里换好几拨，「今天要学的词」这件事立不住）。
@@ -462,10 +465,14 @@ extension AppState {
         )
     }
 
-    /// 刷新：重新抽 12 个与当前展示的**不同**的词（清空展开态与本次「认识」记录，
+    /// 刷新：重新抽一批与当前展示的**不同**的词典词（清空展开态与本次「认识」记录，
     /// 已认熟的词不再出现；释义缓存保留可复用）。
+    ///
+    /// ⚠️ **生词档不参与「换一批」**：换一批的语义是「换几个雅思词看看」，
+    /// 而生词是你自己的词 —— 把它一起排掉的话，用户点一下「换一批」，
+    /// 自己的生词就当天再也见不到了（还得再点一次才回来）。
     public func refreshDailyWords() async {
-        var excluding = Set(dailyWords.map { $0.word.lowercased() })
+        var excluding = Set(dailyWords.filter { !$0.isVocabularyWord }.map { $0.word.lowercased() })
         excluding.formUnion(retiredDailyWords)
         let next = await services.dailyWordRecommendation(excluding: excluding)
         // 词库不足时可能抽不满，把排除条件放宽再抽一次。

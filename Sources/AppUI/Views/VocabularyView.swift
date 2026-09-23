@@ -125,6 +125,21 @@ public struct VocabularyView: View {
     /// 收起态每页卡片数（2 行 × 2 列）。
     private static let dailyPageSize = DailyWordPager.pageSize
 
+    /// 这一批的档位构成（**按实际数量**，不是配额）。
+    ///
+    /// ⚠️ 不能写死配额：生词档由词汇本供货，词典档的配额又会在生词不足时被顶掉
+    /// （见 `DailyWordPicker.select`）—— 写死就一定会出现「文案说 3 个简单、实际 6 个」。
+    /// 按实际数生成还顺带解决另一件事：生词档为 0 时它自己不显示，不用额外判断。
+    private var dailyCompositionCaption: String {
+        DailyWordPicker.levelOrder
+            .compactMap { level -> String? in
+                let count = state.dailyWords.filter { $0.difficulty == level }.count
+                guard count > 0 else { return nil }
+                return "\(count) \(DailyWord.difficultyLabel(for: level))"
+            }
+            .joined(separator: " / ")
+    }
+
     @ViewBuilder
     private var dailySection: some View {
         if !state.dailyWords.isEmpty {
@@ -136,7 +151,7 @@ public struct VocabularyView: View {
                     Text("每日推荐")
                         .font(.system(size: 14, weight: .bold, design: .rounded))
                         .foregroundStyle(theme.primaryText)
-                    Text("雅思标准 · 3 简单 / 5 中等 / 2 困难 / 2 词组")
+                    Text(dailyCompositionCaption)
                         .font(.system(size: 10, design: .rounded))
                         .foregroundStyle(theme.secondaryText)
                     Spacer(minLength: 0)
@@ -152,7 +167,7 @@ public struct VocabularyView: View {
                         .foregroundStyle(theme.accent)
                     }
                     .buttonStyle(.plain)
-                    .help("重新随机推荐 12 个不同的单词与词组")
+                    .help("换一批雅思词（你自己的生词保留不动）")
                 }
 
                 dailyGrid
@@ -651,6 +666,13 @@ public struct VocabularyView: View {
         return definition == nil ? "查释义" : "看释义"
     }
 
+    /// 档位标签。
+    ///
+    /// ⚠️ 第 5 档（生词）**刻意**与第 4 档（词组）共用 `default` 这一支的紫色：
+    /// 两者都是「非雅思难度档」的特殊类别，靠标签文字（生词 / 词组）区分。
+    /// 试过几个替代色都不成立 —— `accentCool`（0x6F5CE8）与 0x8A7BF0 本来就相邻，
+    /// `accentFill` 的橘会糊进整片橘色卡片区（这一块卡片区的框与淡底都是 accent 系）。
+    /// 真要给生词换色时记得：**加在这里而不是新分支乱挑 hex**（主题铁律禁新 hex）。
     private func difficultyTag(_ difficulty: Int) -> some View {
         let color: Color = switch difficulty {
         case 1: .green

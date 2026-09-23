@@ -458,21 +458,33 @@ public actor VocabularyService {
 
     // MARK: - 每日推荐（本地选词 + 按需 LLM 释义）
 
-    /// 抽一组每日推荐：3 简单 / 5 中等 / 2 困难 / 2 词组（雅思标准），排除指定词。
-    /// 某档学完（该档词全被排除）时缺口由未学完的最低档补（见 `DailyWordPicker.pick`）。
-    /// 词库资源缺失时返回空（UI 隐藏板块，不崩）。
-    public func dailyRecommendation(excluding: Set<String> = [], seed: UInt64? = nil) -> [DailyWord] {
-        let bank = VocabularyWordBank.load()
-        guard let seed else {
-            return DailyWordPicker.pick(from: bank, excluding: excluding)
-        }
-        return DailyWordPicker.pick(from: bank, excluding: excluding, seed: seed)
+    /// 练习生词池：词汇本里「练过、还没认熟」的词（口径见 `DailyVocabularyPool`）。
+    ///
+    /// 它作为**最优先词源**插在词典之前，但只供生词档（`DailyWord.vocabularyLevel`），
+    /// 所以不抢词典词的配额；反过来生词不够 4 个时，缺口由词典档补齐。
+    private func vocabularyPool(excluding: Set<String>) async -> [DailyWord] {
+        DailyVocabularyPool.candidates(from: await entries(), excluding: excluding)
+    }
+
+    /// 抽一组每日推荐（词源 = **随包词库**；词典库一本可见书都没有时的回退路径）。
+    ///
+    /// 规则（配额 / 补齐 / 去重）全部在下面那个多源入口里，这里只是换个词源转调 ——
+    /// 两条路径各写一遍才是最容易走偏的做法。
+    public func dailyRecommendation(excluding: Set<String> = [], seed: UInt64? = nil) async -> [DailyWord] {
+        await dailyRecommendation(
+            fromSources: [VocabularyWordBank.load()],
+            excluding: excluding,
+            seed: seed
+        )
     }
 
     /// 抽一组每日推荐，词源是**多本词典**（顺序 = 词典库里的优先级）。
     ///
-    /// 与上面那个单库入口的差别只在词源：配额、缺口补齐、去重规则都是同一套
-    /// （`DailyWordPicker.select`）—— 换词源不该顺带换掉「3 简单 / 5 中等 / 2 困难 / 2 词组」。
+    /// 配额、缺口补齐、去重规则都是同一套（`DailyWordPicker.select`）：
+    /// **4 生词 / 3 简单 / 5 中等 / 2 困难 / 2 词组** —— 换词源不该顺带换掉配额。
+    ///
+    /// **生词档由词汇本供货**（练习里收的生词）并插在最前，所以收起态第一页就是「你自己的词」；
+    /// 它同时是补齐链的第一站 —— 生词不够时由简单档顶上，日推总数恒定 16（正好 4 页）。
     ///
     /// - Parameter seed: 给了就按种子抽（同一天同一批，见 `DailySeed`）；
     ///   不给才是真随机 —— 「换一批」按钮走这一条。
@@ -480,8 +492,8 @@ public actor VocabularyService {
         fromSources sources: [[DailyWord]],
         excluding: Set<String> = [],
         seed: UInt64? = nil
-    ) -> [DailyWord] {
-        let pools = sources.filter { !$0.isEmpty }
+    ) async -> [DailyWord] {
+        let pools = ([await vocabularyPool(excluding: excluding)] + sources).filter { !$0.isEmpty }
         guard !pools.isEmpty else { return [] }
         guard let seed else {
             return DailyWordPicker.pick(fromSources: pools, excluding: excluding)

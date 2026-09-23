@@ -609,11 +609,23 @@ public enum VocabularyTermCompletion {
 
 /// 每日推荐的一个词 / 词组（来自本地雅思词库，不落库、默认不进复习列表）。
 public struct DailyWord: Sendable, Equatable, Identifiable, Codable {
-    /// 难度档上限：1 简单 / 2 中等 / 3 困难 / 4 词组（雅思标准）。
+    /// **词库**难度档上限：1 简单 / 2 中等 / 3 困难 / 4 词组（雅思标准）。
+    ///
+    /// ⚠️ 它只描述**词典库**那四档，`DictionaryWord.init` 也在拿它夹取值 ——
+    /// 「生词档」（`vocabularyLevel`）不是第五条词库档，别把它并进来。
     public static let maxDifficulty = 4
 
+    /// **词汇本生词档**（每日推荐的第 5 档）。
+    ///
+    /// ⚠️ 它不是「比词组更难的词」，而是**来源不同**：前四档从词典库选词，
+    /// 这一档从词汇本选（练习里遇到的生词，见 `DailyVocabularyPool`）。
+    /// 之所以共用 `difficulty` 这一个字段，是为了让配额 / 缺口补齐 / 去重
+    /// 全都直接走 `DailyWordPicker` 那套现成规则 ——
+    /// 「词汇本里只有 2 个生词」时缺口会自动由词典档顶满，日推仍是整页数。
+    public static let vocabularyLevel = 5
+
     public var word: String
-    /// 难度档：1 简单 / 2 中等 / 3 困难 / 4 词组。
+    /// 难度档：1 简单 / 2 中等 / 3 困难 / 4 词组 / 5 生词（见 `vocabularyLevel`）。
     public var difficulty: Int
 
     public var id: String { word }
@@ -621,44 +633,78 @@ public struct DailyWord: Sendable, Equatable, Identifiable, Codable {
     /// 词组档（短语 / 固定搭配）。
     public var isPhrase: Bool { difficulty == DailyWordPicker.phraseDifficulty }
 
+    /// 生词档（来自词汇本，**不是**从词典库抽的）。
+    public var isVocabularyWord: Bool { difficulty == Self.vocabularyLevel }
+
     public init(word: String, difficulty: Int) {
         self.word = word.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.difficulty = min(max(difficulty, 1), Self.maxDifficulty)
+        self.difficulty = min(max(difficulty, 1), Self.vocabularyLevel)
     }
 
     /// 难度标签（UI 展示）。
     public var difficultyLabel: String { Self.difficultyLabel(for: difficulty) }
 
     /// 难度标签（静态版，给没有词实例的 UI 用）。
+    ///
+    /// ⚠️ `case 4` 必须**显式**写出来：原先它是 `default`，加了生词档之后
+    /// `default` 已经归生词，再留「词组」当兜底会让第 5 档显示成「词组」。
     public static func difficultyLabel(for difficulty: Int) -> String {
         switch difficulty {
         case 1: "简单"
         case 2: "中等"
         case 3: "困难"
-        default: "词组"
+        case 4: "词组"
+        default: "生词"
         }
     }
 }
 
 /// 每日推荐选词器：**纯函数**。
 ///
-/// 规则：每次最多 12 个 —— 3 简单 / 5 中等 / 2 困难 / 2 词组（雅思标准）；
-/// 从词库对应档位里随机抽，排除指定集合（刷新时排除当前展示的一批 + 已认熟的词）。
+/// 规则：每次最多 16 个 —— 4 生词 / 3 简单 / 5 中等 / 2 困难 / 2 词组；
+/// 从对应档位里随机抽，排除指定集合（刷新时排除当前展示的一批 + 已认熟的词）。
+///
+/// **档次顺序**：生词档在最前 —— 它是「你自己的词」，收起态第一页就摆它们。
 ///
 /// **等级补齐**：某档的词全被认熟（`excluding` 里已无该档可用词）时该档不再出词，
 /// 它的配额空缺由**还没学完的最低档**顶上（中/困学完 → 简单补；简单学完 → 中等补；
 /// 简 + 中完 → 只剩困难）。词库整体不够时有多少给多少，不凑数。
+///
+/// ⚠️ **生词档不足也走同一条补齐链**：词汇本里只有 2 个生词时那 2 个空位由词典档顶满，
+/// 日推总数**恒定 16**。这不是「凑数」，是收起态翻页的前提 ——
+/// 每页 4 张（2×2），16 张 = 正好 4 页；少一张就会翻出一个半空的尾巴页。
 public enum DailyWordPicker {
     /// 词组档难度值。
     public static let phraseDifficulty = 4
-    /// 每次推荐的配额（难度 1/2/3/4 → 个数）。
-    public static let quota: [Int: Int] = [1: 3, 2: 5, 3: 2, 4: 2]
+    /// 生词档难度值（= `DailyWord.vocabularyLevel`）。
+    ///
+    /// 用别名而不是再写一遍 `5`：两个常量各写一份，改一处忘了另一处就会
+    /// 静默错档（生词被当成「比词组更难的档」塞进别的配额里）。
+    public static let vocabularyDifficulty = DailyWord.vocabularyLevel
+    /// 每次推荐的配额（难度 1/2/3/4/5 → 个数）。
+    ///
+    /// 4 生词 = 收起态**一整页**（2×2）：生词跟着需求「直接多给一页」，
+    /// 而不是从别的档挪名额 —— 挪了就是把雅思词的曝光量换给生词。
+    public static let quota: [Int: Int] = [1: 3, 2: 5, 3: 2, 4: 2, vocabularyDifficulty: 4]
 
-    /// 难度档顺序（补齐时按「最低档优先」遍历）。
-    public static let levelOrder: [Int] = [1, 2, 3, phraseDifficulty]
+    /// 难度档顺序（补齐时按这个顺序遍历）。
+    ///
+    /// ⚠️ **生词排最前**，理由有两条：① 展示顺序就是它 —— `select` 出结果时按这个
+    /// 顺序拼接，所以生词天然占据收起态第一页；② 补齐优先级 —— 遍历时先看能不能给
+    /// 生词档补（它自己不缺就跳过），再轮到简单档。
+    public static let levelOrder: [Int] = [vocabularyDifficulty, 1, 2, 3, phraseDifficulty]
 
-    /// 每次推荐的总数。
+    /// 名义配额上限（含生词档）。**不是**某一次实际会出几张卡 —— 见下一个方法。
     public static var total: Int { quota.values.reduce(0, +) }
+
+    /// 这批源实际供了 `declared` 里那几档时，本次的配额总数。
+    ///
+    /// 「这次应该出几张卡」的正确答案是它，不是 `total`：生词档没有供货方时
+    /// （词汇本里一个生词都没有），那 4 个位子既不占位、**也不会被别的档顶上** ——
+    /// 否则没有生词的用户每天会凭空多出 4 个简单词。
+    public static func quotaTotal(forDeclared declared: Set<Int>) -> Int {
+        levelOrder.reduce(0) { $0 + (declared.contains($1) ? (quota[$1] ?? 0) : 0) }
+    }
 
     /// 从词库抽一组每日推荐（可注入随机源，便于单测）。
     public static func pick<R: RandomNumberGenerator>(
@@ -688,7 +734,17 @@ public enum DailyWordPicker {
                 )
             }
         }
-        return select(from: pools)
+        return select(from: pools, declaredLevels: declaredLevels(of: sources))
+    }
+
+    /// 这批词源**实际供了哪些档**。
+    ///
+    /// ⚠️ 必须在**排除之前**、从源本身算 —— 从分好的 `pools` 里看不出区别：
+    /// `pools[level, default: []]` 会给每个档都建 key，所以「源里根本没有这一档」
+    /// 与「源里有、但被排除干净了」在 pools 里长得一样，而这两件事的后果**相反**：
+    /// 前者配额该一起消失，后者该走缺口补齐（见 `select`）。
+    static func declaredLevels(of sources: [[DailyWord]]) -> Set<Int> {
+        Set(sources.flatMap { $0.lazy.map(\.difficulty) })
     }
 
     // MARK: 按天恒定（种子派生）
@@ -713,11 +769,46 @@ public enum DailyWordPicker {
     }
 
     /// 按配额抽词 + 缺口补齐（抽词规则见本类型文档）。
-    static func select(from pools: [Int: [DailyWord]]) -> [DailyWord] {
+    ///
+    /// - Parameter declaredLevels: 这批词源实际供了哪些档（见 `declaredLevels(of:)`）。
+    ///   默认「全部档都在」—— 直接调本函数的测试想验的就是无源信息时的完整配额。
+    static func select(
+        from pools: [Int: [DailyWord]],
+        declaredLevels: Set<Int> = Set(DailyWordPicker.levelOrder)
+    ) -> [DailyWord] {
+        // ⚠️ **去重必须在切配额之前做。**
+        //
+        // 原先的顺序是「先按配额切 prefix、最后出结果时再去重」，于是同一个词
+        // 只要同时出现在两档 / 两个词源里，它占掉的那个名额就**白白丢了**
+        // （词被去重掉，却没有下一个候选顶上来）。加生词档之前这只是边缘情况；
+        // 生词档一进来就变成常态 —— 练习生词与雅思词库重合是常事，
+        // 少一张卡就意味着收起态翻页多出一个半空的尾巴页。
+        //
+        // 按 `levelOrder` 逐档去重：排前的档先占位（生词 > 简单 > 中等 > 困难 > 词组），
+        // 后面的档看不到已被占用的词，自然用它自己的下一个候选顶上。
+        var seen = Set<String>()
+        var candidates: [Int: [DailyWord]] = [:]
+        for level in levelOrder {
+            var list: [DailyWord] = []
+            for word in pools[level] ?? [] {
+                let key = word.word.lowercased()
+                guard !seen.contains(key) else { continue }
+                seen.insert(key)
+                list.append(word)
+            }
+            candidates[level] = list
+        }
+
         var picked: [Int: [DailyWord]] = [:]
         var deficit = 0
         for level in levelOrder {
-            let pool = pools[level] ?? []
+            // ⚠️ **源里根本没有这一档 → 配额一起消失，不制造缺口。**
+            // 「词汇本里一个生词都没有」与「生词都被认熟了」是两回事：
+            // 前者（源没供 5 档）那 4 个位子**不该**塞给简单档 —— 那会让没有生词的
+            // 用户每天凭空多出 4 个简单词；后者（源供了 5 档、只是被排除干净）才该补齐。
+            // 判据只能是「源供没供这一档」，因为 pools 里两种情况的形状一样。
+            guard declaredLevels.contains(level) else { continue }
+            let pool = candidates[level] ?? []
             let want = quota[level] ?? 0
             picked[level] = Array(pool.prefix(min(want, pool.count)))
             // 这一档学完了（可用词不足配额）→ 缺多少记下来给别人补。
@@ -726,7 +817,7 @@ public enum DailyWordPicker {
 
         // 缺口由**还没学完的最低档**依次顶上（低档先补，补不动再轮到下一档）。
         for level in levelOrder where deficit > 0 {
-            let pool = pools[level] ?? []
+            let pool = candidates[level] ?? []
             let used = picked[level]?.count ?? 0
             let spare = pool.count - used
             guard spare > 0 else { continue }
@@ -735,14 +826,10 @@ public enum DailyWordPicker {
             deficit -= extra
         }
 
-        // 同名词可能同时长在多本词典里 —— 出结果前按词去重，不让它占两个名额。
-        var seen = Set<String>()
+        // 出结果：按档次顺序拼接（生词在前）—— 名单已在上面去过重，这里不再过滤。
         var result: [DailyWord] = []
         for level in levelOrder {
-            for word in picked[level] ?? [] where !seen.contains(word.word.lowercased()) {
-                seen.insert(word.word.lowercased())
-                result.append(word)
-            }
+            result.append(contentsOf: picked[level] ?? [])
         }
         return result
     }
@@ -757,6 +844,59 @@ public enum DailyWordPicker {
     public static func pick(fromSources sources: [[DailyWord]], excluding: Set<String> = []) -> [DailyWord] {
         var rng = SystemRandomNumberGenerator()
         return pick(fromSources: sources, excluding: excluding, using: &rng)
+    }
+}
+
+/// 每日推荐里的「练习生词」池（**纯函数**）。
+///
+/// 真源是**词汇本**：对话复盘的生词、情景目标词、上传材料出的生词表、划词收藏 ——
+/// 练习里遇到的词最后都收进 `VocabularyEntry`，所以接它一处就够，
+/// 不必去接四个入口（那样迟早漏一个）。
+///
+/// 口径（逐条给理由）：
+/// - **未掌握**：`mastery` 封顶的词已经学完了，再推只是占位置；
+/// - **排除集外**：`excluding` 里带着「每日推荐里认满 3 次毕业」的名单；
+/// - **练过的优先**：`reviewCount > 0` 或复习过 ——「遇到过好几次还是没记住」
+///   比「今天刚收藏、一次没碰」更该再露一面；
+/// - 同优先级里**最近入本的在前**（`createdAt` 倒序）：练完第二天的推荐里就有它；
+/// - 同名去重（词汇本按 word 唯一，但手工添加可能大小写不同）。
+///
+/// ⚠️ **刻意不按 seed 洗牌**：生词就那么几个，每天换一批只会让每个词都等不到第二面。
+/// 稳稳定定推同一批、直到用户点「认识」满 3 次毕业（或复习到掌握度封顶），才是这一档
+/// 该有的样子 —— 也是它和「雅思词随机抽」最大的区别。
+/// （每日推荐的「换一批」也不会换掉这一档，见 `AppState.refreshDailyWords`。）
+public enum DailyVocabularyPool {
+    /// 取候选（默认取满生词档配额）。
+    public static func candidates(
+        from entries: [VocabularyEntry],
+        excluding: Set<String> = [],
+        limit: Int = DailyWordPicker.quota[DailyWord.vocabularyLevel] ?? 0
+    ) -> [DailyWord] {
+        guard limit > 0 else { return [] }
+        var seen = Set<String>()
+        let ranked = entries
+            .filter {
+                !$0.isMastered
+                    && !$0.word.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            .filter { !excluding.contains($0.word.lowercased()) }
+            .filter { seen.insert($0.word.lowercased()).inserted }
+            .sorted { lhs, rhs in
+                let left = hasBeenPracticed(lhs)
+                let right = hasBeenPracticed(rhs)
+                if left != right { return left }
+                if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }
+                // 同一时刻入本（历史数据里很常见）→ 按词序定死，测试才可复现。
+                return lhs.word < rhs.word
+            }
+        return ranked.prefix(limit).map {
+            DailyWord(word: $0.word, difficulty: DailyWord.vocabularyLevel)
+        }
+    }
+
+    /// 这个词被练过没有（复习过至少一次）。
+    private static func hasBeenPracticed(_ entry: VocabularyEntry) -> Bool {
+        entry.reviewCount > 0 || entry.lastReviewedAt != nil
     }
 }
 

@@ -8,17 +8,23 @@ final class VocabularyTests: XCTestCase {
 
     // MARK: - ReviewScheduler（复习调度，Plan §24 硬要求：复习逻辑与 UI 分离）
 
+    /// ⚠️ `createdAt` 的默认值**必须**是「此刻」而不是某个固定时刻：
+    /// `VocabularyStats` 的今日指标靠 `createdAt < 今天 0 点` 区分「今天新加的词」，
+    /// 默认值一改，既有用例的语义会跟着静默变化（实测把它设成 1970 后
+    /// `testStatsCounts` 的「今天起初到期」从 0 变成 3）。要固定时间就在用例里显式传。
     private func makeEntry(
         word: String = "apple",
         meaning: String = "",
         mastery: Int = 0,
         reviewCount: Int = 0,
         lastReviewedAt: Date? = nil,
-        ease: Double = ReviewScheduler.defaultEase
+        ease: Double = ReviewScheduler.defaultEase,
+        createdAt: Date = Date()
     ) -> VocabularyEntry {
         VocabularyEntry(
             word: word, meaning: meaning, mastery: mastery,
-            reviewCount: reviewCount, lastReviewedAt: lastReviewedAt, ease: ease
+            reviewCount: reviewCount, lastReviewedAt: lastReviewedAt, ease: ease,
+            createdAt: createdAt
         )
     }
 
@@ -605,20 +611,28 @@ final class VocabularyTests: XCTestCase {
         }
     }
 
-    private func makeBank(easy: Int, medium: Int, hard: Int, phrases: Int = 0) -> [DailyWord] {
+    private func makeBank(easy: Int, medium: Int, hard: Int, phrases: Int = 0, vocabulary: Int = 0) -> [DailyWord] {
         var bank: [DailyWord] = []
         for index in 0..<easy { bank.append(DailyWord(word: "easy\(index)", difficulty: 1)) }
         for index in 0..<medium { bank.append(DailyWord(word: "med\(index)", difficulty: 2)) }
         for index in 0..<hard { bank.append(DailyWord(word: "hard\(index)", difficulty: 3)) }
         for index in 0..<phrases { bank.append(DailyWord(word: "phrase \(index)", difficulty: 4)) }
+        for index in 0..<vocabulary {
+            bank.append(DailyWord(word: "vocab\(index)", difficulty: DailyWord.vocabularyLevel))
+        }
         return bank
     }
 
     func testDailyPickerFollowsQuota() {
-        // 雅思配额：3 简单 / 5 中等 / 2 困难 / 2 词组。
-        XCTAssertEqual(DailyWordPicker.quota, [1: 3, 2: 5, 3: 2, 4: 2])
-        XCTAssertEqual(DailyWordPicker.total, 12)
+        // 雅思配额：3 简单 / 5 中等 / 2 困难 / 2 词组；生词档另占 4 个（见下面几条）。
+        XCTAssertEqual(
+            DailyWordPicker.quota,
+            [1: 3, 2: 5, 3: 2, 4: 2, DailyWord.vocabularyLevel: 4]
+        )
+        XCTAssertEqual(DailyWordPicker.total, 16, "含生词档的名义上限")
+        XCTAssertEqual(DailyWordPicker.quotaTotal(forDeclared: [1, 2, 3, 4]), 12, "只有词典四档时的实际总数")
         var rng = SeededRNG(state: 42)
+        // 这个词库不含生词档 → 生词配额不参与，仍是 12 张（收起态 3 页整）。
         let picked = DailyWordPicker.pick(from: makeBank(easy: 10, medium: 10, hard: 10, phrases: 10), using: &rng)
         XCTAssertEqual(picked.count, 12)
         XCTAssertEqual(picked.filter { $0.difficulty == 1 }.count, 3)
@@ -627,9 +641,10 @@ final class VocabularyTests: XCTestCase {
         XCTAssertEqual(picked.filter(\.isPhrase).count, 2, "再随机给两个词组")
         // 同一批内不重复。
         XCTAssertEqual(Set(picked.map(\.word)).count, 12)
-        // 第 4 档的标签是「词组」（前三档仍是简单 / 中等 / 困难）。
+        // 档位标签：4 词组 / 5 生词（前三档仍是简单 / 中等 / 困难）。
         XCTAssertEqual(DailyWord.difficultyLabel(for: 4), "词组")
         XCTAssertEqual(DailyWord.difficultyLabel(for: 2), "中等")
+        XCTAssertEqual(DailyWord.difficultyLabel(for: DailyWord.vocabularyLevel), "生词")
     }
 
     func testDailyPickerExcludesAndToleratesSmallBank() {
@@ -685,6 +700,11 @@ final class VocabularyTests: XCTestCase {
         XCTAssertEqual(DailyWordPager.pageCount(few), 2)
         XCTAssertEqual(DailyWordPager.page(few, index: 1).count, 2)
         XCTAssertTrue(DailyWordPager.page([], index: 0).isEmpty)
+        // 16 张（4 生词 + 12 雅思词）正好 4 页整 —— 「收起态翻页完整」就是这一条：
+        // 最后一页同样有 4 张，不会翻出一个半空的尾巴页。
+        let full = (0..<16).map { DailyWord(word: "f\($0)", difficulty: 1) }
+        XCTAssertEqual(DailyWordPager.pageCount(full), 4)
+        XCTAssertEqual(DailyWordPager.page(full, index: 3).count, 4)
     }
 
     func testDailyPagerSplitsPageIntoTwoColumns() {
@@ -702,6 +722,146 @@ final class VocabularyTests: XCTestCase {
         XCTAssertTrue(DailyWordPager.rows([], perRow: 2).isEmpty)
         // 每页正好 4 张 → 2 行，行数与页容量一致。
         XCTAssertEqual(DailyWordPager.rows(DailyWordPager.page(words, index: 0)).count, 2)
+    }
+
+    // MARK: - 生词档（每日推荐第 5 档：练习里遇到的生词）
+
+    func testDailyPickerGivesVocabularyItsOwnFullPage() {
+        var rng = SeededRNG(state: 99)
+        let bank = makeBank(easy: 10, medium: 10, hard: 10, phrases: 10, vocabulary: 6)
+        let picked = DailyWordPicker.pick(from: bank, using: &rng)
+
+        XCTAssertEqual(picked.count, 16, "4 生词 + 12 雅思词 = 收起态 4 页整")
+        XCTAssertEqual(picked.filter(\.isVocabularyWord).count, 4)
+        // 生词占住**最前 4 位** → 收起态第一页就是「你自己的词」。
+        XCTAssertTrue(
+            picked.prefix(4).allSatisfy(\.isVocabularyWord),
+            "生词档在 levelOrder 最前，出结果时也按这个顺序拼接"
+        )
+        XCTAssertEqual(Set(picked.map(\.word)).count, 16, "同批不重复")
+    }
+
+    func testDailyPickerKeepsThePageFullWhenVocabularyIsShort() {
+        var rng = SeededRNG(state: 100)
+        let bank = makeBank(easy: 10, medium: 10, hard: 10, phrases: 10, vocabulary: 2)
+        let picked = DailyWordPicker.pick(from: bank, using: &rng)
+
+        XCTAssertEqual(
+            picked.count, 16,
+            "生词只有 2 个时缺口由词典档顶满 —— 少这一张就会翻出半空的尾巴页"
+        )
+        XCTAssertEqual(picked.filter(\.isVocabularyWord).count, 2)
+        XCTAssertEqual(picked.filter { $0.difficulty == 1 }.count, 5, "缺的 2 个位子落到简单档")
+    }
+
+    func testDailyPickerDropsTheVocabularyQuotaWhenNothingSuppliesIt() {
+        var rng = SeededRNG(state: 101)
+        let bank = makeBank(easy: 10, medium: 10, hard: 10, phrases: 10)
+        let picked = DailyWordPicker.pick(from: bank, using: &rng)
+
+        XCTAssertEqual(picked.count, 12, "词汇本里一个生词都没有 → 这一档不存在，配额一起消失")
+        XCTAssertLessThan(picked.count, DailyWordPicker.total, "total 是名义上限（含生词档）")
+        XCTAssertTrue(picked.allSatisfy { !$0.isVocabularyWord })
+        // ⚠️ 这一条是「生词**没供货**」与「生词**被学完**」的分水岭：后者才该走补齐。
+        XCTAssertEqual(picked.filter { $0.difficulty == 1 }.count, 3, "简单档不该被顶成 7 个")
+    }
+
+    func testDuplicateNamesAcrossSourcesDoNotWasteAQuotaSlot() {
+        var rng = SeededRNG(state: 2027)
+        // 同一个词同时长在两本词典里（`say` / `go` 这类几本书都收的词很常见）。
+        let shared = DailyWord(word: "shared", difficulty: 1)
+        let sources = [
+            [shared],
+            [shared] + (0..<8).map { DailyWord(word: "b\($0)", difficulty: 2) },
+        ]
+        let picked = DailyWordPicker.pick(fromSources: sources, using: &rng)
+
+        // 简单档实际只有 1 个可用词 → 差的 2 个位子由中等档补上，总数仍是 8 个名额。
+        // （旧顺序是「先按配额切 3 个、出结果再去重」，重复词占掉的名额会白白丢掉。）
+        XCTAssertEqual(picked.count, DailyWordPicker.quotaTotal(forDeclared: [1, 2]))
+        XCTAssertEqual(Set(picked.map(\.word)).count, 8, "同批不重复，且没浪费名额")
+        XCTAssertEqual(picked.filter { $0.difficulty == 2 }.count, 7)
+    }
+
+    func testVocabularyWordWinsWhenItAlsoLivesInTheBank() {
+        var rng = SeededRNG(state: 2028)
+        let bank = [
+            DailyWord(word: "focus", difficulty: 1),
+            DailyWord(word: "easy0", difficulty: 1),
+            DailyWord(word: "easy1", difficulty: 1),
+            DailyWord(word: "easy2", difficulty: 1),
+            // 生词档：与词库重名（练习里收过 focus）。
+            DailyWord(word: "focus", difficulty: DailyWord.vocabularyLevel),
+            DailyWord(word: "vocab0", difficulty: DailyWord.vocabularyLevel),
+        ] + (0..<10).map { DailyWord(word: "med\($0)", difficulty: 2) }
+        let picked = DailyWordPicker.pick(fromSources: [bank], using: &rng)
+
+        XCTAssertEqual(picked.count, 12, "生词档 2（缺 2 补齐）+ 简单 3 + 中等 5 = 12，一个名额都没浪费")
+        XCTAssertEqual(picked.filter { $0.word == "focus" }.count, 1, "跨档同名只出现一次")
+        XCTAssertEqual(
+            picked.first { $0.word == "focus" }?.difficulty,
+            DailyWord.vocabularyLevel,
+            "生词档在 levelOrder 最前 → 同名时由它先占位"
+        )
+    }
+
+    // MARK: - 练习生词池（口径纯函数）
+
+    func testVocabularyPoolSkipsMasteredAndExcluded() {
+        let entries = [
+            makeEntry(word: "alpha"),
+            makeEntry(word: "beta", mastery: ReviewScheduler.masteredMastery),
+            makeEntry(word: "gamma"),
+        ]
+        let pool = DailyVocabularyPool.candidates(from: entries, excluding: ["gamma"])
+
+        XCTAssertEqual(pool.map(\.word), ["alpha"])
+        XCTAssertTrue(pool.allSatisfy { $0.difficulty == DailyWord.vocabularyLevel })
+    }
+
+    func testVocabularyPoolPrefersPracticedThenNewest() {
+        let entries = [
+            makeEntry(word: "fresh", createdAt: Date(timeIntervalSince1970: 900)),
+            makeEntry(word: "drilled", reviewCount: 2, createdAt: Date(timeIntervalSince1970: 100)),
+            makeEntry(word: "recent", createdAt: Date(timeIntervalSince1970: 500)),
+        ]
+        XCTAssertEqual(
+            DailyVocabularyPool.candidates(from: entries).map(\.word),
+            ["drilled", "fresh", "recent"],
+            "练过的优先，其余按入本时间倒序"
+        )
+    }
+
+    func testVocabularyPoolIsStableAndCapped() {
+        let entries = (0..<10).map {
+            makeEntry(word: "w\($0)", createdAt: Date(timeIntervalSince1970: Double($0)))
+        }
+        let first = DailyVocabularyPool.candidates(from: entries)
+        let second = DailyVocabularyPool.candidates(from: entries)
+
+        XCTAssertEqual(
+            first.count,
+            DailyWordPicker.quota[DailyWord.vocabularyLevel] ?? 0,
+            "上限 = 生词档配额"
+        )
+        XCTAssertEqual(first.map(\.word), second.map(\.word), "**刻意不洗牌**：同一批词每天都该出现，直到毕业")
+        XCTAssertEqual(first.first?.word, "w9", "最近入本的排最前")
+    }
+
+    func testVocabularyPoolDedupesSameWordInDifferentCase() {
+        let entries = [makeEntry(word: "Apple"), makeEntry(word: "apple")]
+        XCTAssertEqual(
+            DailyVocabularyPool.candidates(from: entries).map(\.word),
+            ["Apple"],
+            "大小写不同的两条是同一个词"
+        )
+    }
+
+    func testVocabularyPoolIgnoresBlankAndHonoursCustomLimit() {
+        XCTAssertTrue(DailyVocabularyPool.candidates(from: [makeEntry(word: "   ")]).isEmpty)
+        let entries = (0..<5).map { makeEntry(word: "w\($0)") }
+        XCTAssertEqual(DailyVocabularyPool.candidates(from: entries, limit: 2).count, 2)
+        XCTAssertTrue(DailyVocabularyPool.candidates(from: entries, limit: 0).isEmpty)
     }
 
     func testWordBankParseFiltersInvalidAndDuplicates() throws {

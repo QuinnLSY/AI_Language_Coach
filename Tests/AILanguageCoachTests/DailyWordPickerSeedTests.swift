@@ -97,7 +97,7 @@ final class DailyWordPickerSeedTests: XCTestCase {
     func testSeededPickStillHonoursTheQuota() {
         let picked = DailyWordPicker.pick(from: bank(), seed: seed(dayKey: "2026-09-18"))
 
-        XCTAssertEqual(picked.count, DailyWordPicker.total, "总数仍是 12")
+        XCTAssertEqual(picked.count, DailyWordPicker.total, "总数仍是 16（这个合成词库含生词档）")
         for level in DailyWordPicker.levelOrder {
             XCTAssertEqual(
                 picked.filter { $0.difficulty == level }.count,

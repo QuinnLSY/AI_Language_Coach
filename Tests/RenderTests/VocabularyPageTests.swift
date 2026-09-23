@@ -34,6 +34,39 @@ final class VocabularyPageTests: XCTestCase {
         XCTAssertEqual(picked.filter(\.isPhrase).count, 2, "2 个随机词组")
     }
 
+    /// 练习生词真的接进来了，而且占住最前的位置（收起态第一页 = 你自己的词）。
+    func testDailyRecommendationTakesPracticeVocabularyFirst() async {
+        let state = makeAppState()
+        // ⚠️ `makeAppState` 用的是 `:memory:` + 临时配置 —— 绝不碰真实学习数据。
+        _ = await state.services.vocabulary.add(word: "resilient")
+        _ = await state.services.vocabulary.add(word: "tentative")
+
+        let words = await state.services.dailyWordRecommendation()
+
+        XCTAssertEqual(words.count, 16, "2 生词 + 12 雅思词 + 补齐 2 = 收起态 4 页整")
+        XCTAssertEqual(
+            Set(words.prefix(2).map(\.word)), ["resilient", "tentative"],
+            "词汇本的词排在最前（两个词的先后由入本时间决定，这里不钉微秒顺序）"
+        )
+        XCTAssertTrue(words.prefix(2).allSatisfy(\.isVocabularyWord))
+        XCTAssertEqual(Set(words.map(\.word)).count, 16, "同批不重复")
+    }
+
+    /// 「换一批」只换雅思词 —— 生词是你自己的词，点了换一批不该当天再见不到它。
+    func testRefreshDailyWordsKeepsPracticeVocabulary() async {
+        let state = makeAppState()
+        _ = await state.services.vocabulary.add(word: "resilient")
+
+        await state.loadDailyWordsIfNeeded()
+        XCTAssertTrue(state.dailyWords.contains(where: \.isVocabularyWord), "生词档由词汇本供货")
+
+        await state.refreshDailyWords()
+        XCTAssertTrue(
+            state.dailyWords.contains(where: \.isVocabularyWord),
+            "换一批之后生词仍在（排除集里不该有它）"
+        )
+    }
+
     func testVocabularyPageLayoutsDailySectionAndEntries() async {
         let state = makeAppState()
         _ = await state.services.vocabulary.add(word: "a substantial effort")
@@ -225,5 +258,36 @@ final class VocabularyPageTests: XCTestCase {
         hosting.layoutSubtreeIfNeeded()
         // 关键断言：结构换行约束下不会超出提案宽度（旧量宽方案曾撑出容器）。
         XCTAssertLessThanOrEqual(hosting.bounds.width, 401)
+    }
+
+    /// 生词档落地后的每日推荐板块：**离屏渲染**供人工复核
+    /// 「收起态第一页就是 4 张生词卡、页码 1/4」。
+    ///
+    /// ⚠️ 这里只出图不比对像素：`dailyPage` / `dailyExpanded` 都是视图私有状态，
+    /// 外部塞不进去，也没有验证钩子 —— 分页正确性由 `DailyWordPager` 的纯函数用例守着，
+    /// 「第一页是不是生词」由 `testDailyRecommendationTakesPracticeVocabularyFirst` 守着。
+    func testDailySectionRendersPracticeVocabularyFirstPage() async throws {
+        let state = makeAppState()
+        for word in ["resilient", "tentative", "candid"] {
+            _ = await state.services.vocabulary.add(word: word)
+        }
+        await state.loadDailyWordsIfNeeded()
+        XCTAssertEqual(state.dailyWords.count, 16, "3 生词 + 12 雅思词 + 补齐 1")
+
+        // ⚠️ 出图这一段落**必须是同步方法**：`RunLoop.current.run(until:)` 在 async 上下文里
+        // 直接编译不过（"unavailable from asynchronous contexts"）。
+        try dumpDailySection(state, name: "round53-daily-words-practice-vocabulary-day.png")
+    }
+
+    private func dumpDailySection(_ state: AppState, name: String) throws {
+        let hosting = NSHostingView(rootView: VocabularyView(state: state))
+        hosting.frame = NSRect(x: 0, y: 0, width: 760, height: 980)
+        hosting.layoutSubtreeIfNeeded()
+        // 出图前等弹簧动画走完（否则量到的是动画中间态）。
+        RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+        hosting.layoutSubtreeIfNeeded()
+
+        XCTAssertGreaterThan(hosting.fittingSize.height, 0, "整页应当能布局")
+        try dump(hosting, name: name)
     }
 }

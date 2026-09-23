@@ -597,7 +597,11 @@ final class DictionaryTests: XCTestCase {
             + pool("b3", difficulty: 4, count: 10)
         let picked = DailyWordPicker.pick(fromSources: [first, second], excluding: [], using: &rng)
 
-        XCTAssertEqual(picked.count, DailyWordPicker.total)
+        XCTAssertEqual(
+            picked.count,
+            DailyWordPicker.quotaTotal(forDeclared: [1, 2, 3, 4]),
+            "词源里没有生词档 → 那 4 个位子不参与，总数是词典四档的 12"
+        )
         XCTAssertEqual(
             picked.filter { $0.difficulty == 1 }.count, 3,
             "简单档的 3 个名额必须来自优先级最高的那本"
