@@ -294,10 +294,22 @@ final class ProgressTests: XCTestCase {
         try await db.createSession(session)
 
         // 新消息 + 30 天前的旧消息；窗口查询只应看到新的。
+        //
+        // ⚠️ 旧消息必须挂在**另一个会话**上（2026-09-23 改）：会话的「开始时刻」
+        // 现在是 `COALESCE(首条消息时间, started_at)`（#326 —— 原来的 `started_at` 取的是
+        // 落盘那一刻，比学员开口晚几秒，跨度会被夹成 0）。把一条 30 天前的消息塞进
+        // 「此刻开始」的会话里，等于造出一个「起点在 30 天前」的会话 ——
+        // 那样下面 `sessions(since:)` 取不到它并不是窗口筛选坏了，而是这个夹具自相矛盾
+        // （真实路径下消息总在开始之后；`persist` 现在也直接拿首条消息的 `createdAt` 建行）。
+        let oldSession = ChatSession(
+            id: UUID(), startedAt: now.addingTimeInterval(-30 * 86_400), mode: .conversation
+        )
+        try await db.createSession(oldSession)
+
         let recent = ChatMessage(role: .user, content: "hello", createdAt: now.addingTimeInterval(-60))
         let old = ChatMessage(role: .user, content: "old", createdAt: now.addingTimeInterval(-30 * 86_400))
         try await db.appendMessage(recent, sessionID: session.id)
-        try await db.appendMessage(old, sessionID: session.id)
+        try await db.appendMessage(old, sessionID: oldSession.id)
 
         let cutoff = now.addingTimeInterval(-7 * 86_400)
         let stamps = try await db.messageTimestamps(since: cutoff)

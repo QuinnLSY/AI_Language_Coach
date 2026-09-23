@@ -93,4 +93,66 @@ final class ShadowingPassageRenderTests: XCTestCase {
             "结果卡要真的插进页面（评分前 \(beforeHeight) → 评分后 \(afterHeight)）"
         )
     }
+
+    /// 结果卡必须**只有这一句真有分析时**才画（#331 的落点）。
+    ///
+    /// 跨天判据本身在 `ShadowingAnalysisAdoption`（有它自己的纯函数用例 + 真链路用例），
+    /// 这一条守的是**判据到屏幕的那一段接线**：缓存里没有 ⇒ 页面上没有那张卡；
+    /// 缓存里有 ⇒ 多出一张卡。少了它，「不跨天冒充」可以判得很对，而屏幕上该显示时仍然不显示。
+    ///
+    /// ⚠️ 反向也钉住：夹具先断言**这一句确实没有分析**（`shadowingComparison == nil`），
+    /// 再拿这个状态当基线量高度 —— 否则「多出一张卡」可能只是拿两个都空的状态在比。
+    func testAnalysisCardIsDrawnOnlyWhenTheSentenceHasOne() async throws {
+        // ⚠️ `loadTodayShadowingDrills` 会落回「今天记住的那一句」（`shadowing.progress`），
+        // 不隔离就随开发机的使用状态时红时绿。先清键，`defer` 原样放回。
+        let key = AppState.shadowingProgressStorageKey
+        let saved = UserDefaults.standard.string(forKey: key)
+        UserDefaults.standard.removeObject(forKey: key)
+        defer {
+            if let saved { UserDefaults.standard.set(saved, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+
+        let state = try await makeState()
+        let drill = try XCTUnwrap(state.currentShadowingDrill, "夹具：今天应当有句子")
+
+        // 夹具前提：这一句还没分析过（库里也没有 —— 临时库，一条记录都没有）。
+        XCTAssertNil(
+            state.shadowingComparison,
+            "夹具：库里没有任何记录，这一句不该带着分析进页面"
+        )
+        let clean = try renderPage(state)
+        let cleanHeight = clean.fittingSize.height
+        try dump(clean, name: "round331-shadowing-no-analysis.png")
+
+        // 给这一句放一份分析（走真入口，不碰私有字典）。
+        let comparison = ShadowingScorer.compare(reference: drill.text, recognized: drill.text)
+        state.rememberShadowingResult(
+            ShadowingResult(comparison: comparison, pronunciation: nil), drillID: drill.id
+        )
+        state.restoreShadowingResultForCurrentDrill()
+        XCTAssertNotNil(state.shadowingComparison, "夹具：这一步应当把分析摆进当前句")
+
+        let withCard = try renderPage(state)
+        let withCardHeight = withCard.fittingSize.height
+        try dump(withCard, name: "round331-shadowing-with-analysis.png")
+
+        XCTAssertGreaterThan(
+            withCardHeight, cleanHeight + 60,
+            "这一句有分析时页面上必须多出一张卡（无分析 \(cleanHeight) → 有分析 \(withCardHeight)）；"
+                + "一样高就说明卡片根本没接上屏幕 —— 那样「不跨天冒充」对了也白搭"
+        )
+    }
+
+    /// 出图：`.workbuddy/verify/`（与其它渲染用例同一处，人眼复核用）。
+    private func dump(_ host: NSHostingView<AnyView>, name: String) throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let directory = root.appendingPathComponent(".workbuddy/verify", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        let png = try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+        try png.write(to: directory.appendingPathComponent(name))
+    }
 }

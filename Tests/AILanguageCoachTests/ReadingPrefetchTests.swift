@@ -260,7 +260,7 @@ final class ReadingPrefetchTests: XCTestCase {
         // ⚠️ `try?`：桩服务对「卸载模型」那条 `POST /api/generate` 回的是 OpenAI 形状的体，
         // 适配器解不出来就会抛。但**状态是在调控制器之前就落下的**
         // （`CoachServices.setModelRunning` 先 `stoppedKinds.insert`），所以这里只管状态。
-        try? await state.services.setModelRunning(.llm, running: false)
+        _ = try? await state.services.setModelRunning(.llm, running: false)
         // ⚠️ 断言钉子问的是**服务层真源**：`AppState.modelRunStates` 是界面快照，
         // 它这里仍然是 true（本次没有 `syncModelRunStates`）——
         // 而预生成要挡的正是「快照过期」那种情形，问快照就等于没挡。

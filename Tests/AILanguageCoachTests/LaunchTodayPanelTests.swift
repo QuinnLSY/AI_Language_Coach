@@ -136,7 +136,7 @@ final class LaunchTodayPanelTests: XCTestCase {
 
         // 今天聊了 10 条（目标 10 轮 → 刚好达标）。
         let session = ChatSession(startedAt: Date(), mode: .conversation)
-        try await services.persistSession(session)
+        await services.persistSession(session)
         for index in 0..<10 {
             await services.persistMessage(
                 ChatMessage(role: index.isMultiple(of: 2) ? .user : .assistant, content: "turn \(index)"),
