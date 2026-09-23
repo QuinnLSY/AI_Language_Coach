@@ -133,6 +133,17 @@ struct LearnerBubbleActionRow: View {
         }
     }
 
+    /// 三颗图标的整体宽度（图标 20 + 间距 2：`20*3 + 2*2`）。
+    ///
+    /// ⚠️ 它同时是**学员气泡的最小宽度**：气泡比自己的动作行还窄时看起来像被压瘪了
+    /// （用户 2026-09-24 口径）。气泡本体带左右各 14 的内边距，所以正文视图的地板是
+    /// `totalWidth - 28`（见 `minimumBubbleContentWidth`）。
+    /// ⚠️ `nonisolated`：纯常量，但声明在 SwiftUI `View` 里会被 `@MainActor` 连坐。
+    nonisolated static let totalWidth: CGFloat = 64
+
+    /// 学员气泡**正文**的最小宽度 —— 气泡自身宽度 = 它 + 左右内边距 14×2 = `totalWidth`。
+    nonisolated static let minimumBubbleContentWidth: CGFloat = totalWidth - 28
+
     let text: String
     /// 生成中 / 考试中不给改（见 `AppState.canMutateChatMessages`）。
     var isEnabled: Bool = true

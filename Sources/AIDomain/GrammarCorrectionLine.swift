@@ -44,6 +44,26 @@ public enum GrammarCorrectionLine {
     /// 分隔符：正文的三段怎么切。`=>` 是提示词里要求的写法，模型偶尔写箭头也要认。
     static let separators = ["=>", "⇒", "→", "＝>", "＝＞"]
 
+    /// 「这一轮没有错」的标记词。老师按规则 4 在无错时**也要收尾**，写的就是这几个之一。
+    ///
+    /// ⚠️ 为什么要求它写出来、而不是干脆不写：`[[FIX]] NONE` 让「没找到错」变成一件
+    /// **看得见的事**。两种写法在解析结果里都是「本轮无纠错」，但在**有没有合规收尾**上不同 ——
+    /// `extractCorrections` 据此报出 `didConclude`，漏行时才有据可依地补问一次
+    /// （见 `ChatService.probeMissedCorrection`）。
+    static let noneMarkers: Set<String> = [
+        "none", "no mistake", "no mistakes", "no error", "no errors", "nothing to correct",
+        "无", "无错", "无错误", "没有错误",
+    ]
+
+    /// 标记后的正文是不是「本轮无错」。句末标点与装饰星号先剥掉（`NONE.`、`None **`）。
+    public static func isNoneMarker(_ body: String) -> Bool {
+        var text = body.trimmingCharacters(in: .whitespaces)
+        while let last = text.last, "-—–.,。！!、*`：:".contains(last) {
+            text = String(text.dropLast()).trimmingCharacters(in: .whitespaces)
+        }
+        return noneMarkers.contains(text.lowercased())
+    }
+
     /// 把标记后的正文切成「原句 / 改正 / 说明」三段。切不出两段以上 → nil（这行作废）。
     public static func parts(of body: String) -> [String]? {
         var pieces = [body]

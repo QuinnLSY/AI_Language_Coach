@@ -1017,6 +1017,15 @@ public struct ChatView: View {
                             }
                         }
                         MarkdownText(message.content, fontSize: 14, color: theme.primaryText, lookup: wordLookup)
+                            // #2 二轮（用户 2026-09-24）：学员气泡的地板宽度 = 它自己那三颗
+                            // 图标行的整宽（64 − 左右内边距 28 = 36）。极短的一句（"Ok."）
+                            // 否则会缩得比动作行还窄，看着像被压瘪了。
+                            // 老师气泡不设：它下面那一排（朗读 / 语速 / 复制 / 重答）更宽，
+                            // 拿哪一颗当基准都是猜。
+                            .frame(
+                                minWidth: isUser ? LearnerBubbleActionRow.minimumBubbleContentWidth : nil,
+                                alignment: .leading
+                            )
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
                             .background(

@@ -446,9 +446,12 @@ public enum PromptBuilder {
             template = loaded
         } else {
             template = """
-            Continuing from last practice — you remember what happened
+            Continuing from last practice — background, not today's topic
             {facts}
-            - Do not pretend this is a fresh start; follow up early on the thing above.
+            - This is background only: the conversation you are in right now always comes first.
+            - You are mid-conversation, not starting one. Never open with it, never re-greet,
+              and never restart a topic. Answer the learner's last message directly.
+            - Bring these notes up only when the current topic naturally calls for them.
             - Refer only to what is listed above.
             """
         }
@@ -522,6 +525,46 @@ public enum PromptBuilder {
 
         Reply to rewrite:
         \(text)
+        """
+    }
+
+    /// 漏行追问：老师这一轮既没落纠错行、也没写「本轮无错」时，**只问这一件事**。
+    ///
+    /// 存在的理由见 `ChatService.probeMissedCorrection`：纠错卡 / 错题本 / 学习记忆都只认
+    /// `[[FIX]]` 行，老师口头纠正而不落行时那次纠错就消失了。判据是确定性的（漏行才发），
+    /// 所以这多出来的一次请求只花在真正需要的时候。
+    ///
+    /// ⚠️ 与 `englishOnlyRewritePrompt` 同一个坑：**不带对话历史**。带上时弱模型会去抄历史
+    /// 里的句子当输出；只给它「学员说了什么 + 你回答了什么」，它没有可抄错的东西。
+    public static func correctionProbePrompt(
+        learningLanguage: String,
+        nativeLanguage: String,
+        learnerMessage: String,
+        teacherReply: String
+    ) -> String {
+        """
+        You are checking ONE turn of a \(learningLanguage) lesson for a learner whose native \
+        language is \(nativeLanguage).
+
+        The learner wrote:
+        \(learnerMessage)
+
+        The teacher replied:
+        \(teacherReply)
+
+        If the teacher pointed out, recast, or explained a language mistake anywhere in that reply \
+        (grammar, word choice, spelling, word form), output ONE line and nothing else:
+        [[FIX]] the learner's original sentence => the corrected sentence => a short explanation in \(nativeLanguage)
+
+        If the teacher did not correct anything at all, output exactly:
+        [[FIX]] NONE
+
+        Rules:
+        - Output that single line only — no greeting, no commentary, no repeat of the teacher's reply.
+        - The correction must be what the learner should have said instead. Never output the \
+        learner's sentence unchanged as the corrected sentence.
+        - Keep the learner's own wording; fix only what was wrong.
+        - The explanation is in \(nativeLanguage), under 20 characters where possible.
         """
     }
 

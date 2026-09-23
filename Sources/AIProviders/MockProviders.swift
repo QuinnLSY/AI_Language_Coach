@@ -14,11 +14,23 @@ public final class MockLLMProvider: LLMProvider, @unchecked Sendable {
     private let state = ProviderStateBox()
     private let scriptedResponse: String
     private let chunkDelayNanoseconds: UInt64
+    /// 需要「按请求内容给不同回复」的测试用它 —— 返回 nil 就落回 `scriptedResponse`。
+    ///
+    /// 用例：**漏行追问**（`ChatService.probeMissedCorrection`）—— 主回复那条不带 `[[FIX]]`、
+    /// 追问那条要带回一行，同一次会话里两种产物必须来自同一个 provider。固定脚本做不到这件事，
+    /// 于是给它一个看请求内容的出口。生产路径永不传它。
+    public let responder: (@Sendable (LLMRequest) -> String?)?
 
-    public init(providerID: String = "mock.llm", scriptedResponse: String = "Hello! Let's practice together.", chunkDelayNanoseconds: UInt64 = 20_000_000) {
+    public init(
+        providerID: String = "mock.llm",
+        scriptedResponse: String = "Hello! Let's practice together.",
+        chunkDelayNanoseconds: UInt64 = 20_000_000,
+        responder: (@Sendable (LLMRequest) -> String?)? = nil
+    ) {
         self.providerID = providerID
         self.scriptedResponse = scriptedResponse
         self.chunkDelayNanoseconds = chunkDelayNanoseconds
+        self.responder = responder
     }
 
     public func initialize(config: ProviderConfig) async throws {
@@ -47,12 +59,17 @@ public final class MockLLMProvider: LLMProvider, @unchecked Sendable {
 
     public func generate(_ request: LLMRequest) async throws -> LLMResponse {
         guard await state.currentConfig != nil else { throw AIProviderError.notInitialized }
-        return LLMResponse(text: scriptedResponse, model: request.model, finishReason: "stop")
+        return LLMResponse(
+            text: responder?(request) ?? scriptedResponse,
+            model: request.model,
+            finishReason: "stop"
+        )
     }
 
-    /// 固定脚本回放，不看请求内容（协议要求带 `request`，这里照实标注不用它）。
-    public func stream(_: LLMRequest) -> AsyncThrowingStream<LLMChunk, Error> {
-        let pieces = scriptedResponse.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+    /// 脚本回放：默认固定文本，`responder` 在场时按请求内容现算。
+    public func stream(_ request: LLMRequest) -> AsyncThrowingStream<LLMChunk, Error> {
+        let text = responder?(request) ?? scriptedResponse
+        let pieces = text.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
         let delay = chunkDelayNanoseconds
         return AsyncThrowingStream { continuation in
             let task = Task {

@@ -48,7 +48,9 @@ final class TeacherEnglishOnlyTests: XCTestCase {
     func testChineseReplyIsReplacedByEnglishRewrite() async throws {
         let (chat, provider, fileURL) = try await makeChat(scripts: [
             "那真是太好了！(That's great!) 不过，通常我们会说用 hands 或 fingers。",
-            "That's great! Though we usually say \"hands\" or \"fingers\"."
+            "That's great! Though we usually say \"hands\" or \"fingers\".",
+            // ③ 老师这轮没落 `[[FIX]]` 行 → 还有一笔「漏行追问」（见 `probeMissedCorrection`）。
+            "[[FIX]] NONE"
         ])
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
@@ -61,11 +63,16 @@ final class TeacherEnglishOnlyTests: XCTestCase {
             "That's great! Though we usually say \"hands\" or \"fingers\"."
         )
         XCTAssertFalse(TeacherLanguageGuard.containsNativeScript(chat.messages.last?.content ?? ""))
-        XCTAssertEqual(provider.generatedRequests.count, 1, "只多要**一次**重写")
+
+        // ⚠️ 除了重写，这一轮还有一笔「漏行追问」（老师没交代有没有错就要追问一次）。
+        // 两笔都是单条指令、都不带历史，所以**按 prompt 里的标记分开数** ——
+        // 拿总请求数当「只重写了一次」的证据是错的：追问一开口总数就变 2。
+        XCTAssertEqual(provider.rewriteRequests.count, 1, "只多要**一次**重写")
+        XCTAssertEqual(provider.correctionProbeRequests.count, 1, "漏行追问一笔")
 
         // ⚠️ 重写请求不能带对话历史，且要自带原文 —— 否则弱模型会去抄历史里那句英文
         // （实测：老师会答非所问地复读开场白）。
-        let rewrite = try XCTUnwrap(provider.generatedRequests.first)
+        let rewrite = try XCTUnwrap(provider.rewriteRequests.first)
         XCTAssertEqual(rewrite.messages.count, 1, "重写请求只该有一条指令，不带历史")
         XCTAssertTrue(
             rewrite.messages[0].content.contains("fingers"),
@@ -107,9 +114,11 @@ final class TeacherEnglishOnlyTests: XCTestCase {
     func testRewriteThatRepeatsAnEarlierReplyIsRejected() async throws {
         let greeting = "Welcome back to our cozy forest corner. What are you feeling like practicing today?"
         let (chat, provider, fileURL) = try await makeChat(scripts: [
-            greeting,                     // ① 老师先打了个招呼
-            "你好，我们来练英语吧。",        // ② 学员问了话，老师却用中文答
-            greeting                      // ③ 重写这条指令被模型拿去复读了开场白
+            greeting,                     // ① 老师先打了个招呼（stream）
+            "[[FIX]] NONE",               // ② 这一轮的漏行追问（老师没落纠错行）
+            "你好，我们来练英语吧。",        // ③ 学员问了话，老师却用中文答（stream）
+            greeting,                     // ④ 重写这条指令被模型拿去复读了开场白
+            "[[FIX]] NONE"                // ⑤ 这一轮的漏行追问
         ])
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
@@ -120,7 +129,7 @@ final class TeacherEnglishOnlyTests: XCTestCase {
         chat.send("老师，这句话是什么意思？")
         await waitForAssistant(chat)
 
-        XCTAssertEqual(provider.generatedRequests.count, 1, "确实发过一次重写")
+        XCTAssertEqual(provider.rewriteRequests.count, 1, "确实发过一次重写")
         XCTAssertEqual(
             chat.messages.last?.content,
             "你好，我们来练英语吧。",
@@ -152,6 +161,16 @@ final class ScriptedLLMProvider: LLMProvider, @unchecked Sendable {
 
     var streamedRequests: [LLMRequest] { lock.withLock { streamed } }
     var generatedRequests: [LLMRequest] { lock.withLock { generated } }
+
+    /// 按 **prompt 里的标记**区分两笔辅助请求，别拿总请求数下结论：
+    /// 「英文重写」与「漏行追问」都可能各来一笔（见 `ChatService.probeMissedCorrection`）。
+    private func generatedRequests(marked marker: String) -> [LLMRequest] {
+        generatedRequests.filter { $0.messages.first?.content.contains(marker) == true }
+    }
+    /// 英文重写（标记来自 `PromptBuilder.englishOnlyRewritePrompt`）。
+    var rewriteRequests: [LLMRequest] { generatedRequests(marked: "Reply to rewrite:") }
+    /// 漏行追问（标记来自 `PromptBuilder.correctionProbePrompt`）。
+    var correctionProbeRequests: [LLMRequest] { generatedRequests(marked: "The teacher replied:") }
 
     func initialize(config: ProviderConfig) async throws { lock.withLock { self.config = config } }
     func load() async throws {}

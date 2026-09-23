@@ -523,23 +523,37 @@ struct WordLookupText: NSViewRepresentable {
         //    撑成一千万点宽，整张查词卡片排版塌成空白（用户实测报障）。按 `boundingRect`
         //    量才是真的按内容算。
         let naturalWidth = Self.naturalWidth(of: attributed)
-
-        let width: CGFloat
-        if let requested = proposal.width, requested < Self.unboundedWidth {
-            // 有真实可用宽度：**沿用老口径**（等价于「用满可用宽度」）——
-            // 聊天气泡、例句、跟读参考句的排版都建立在这条路径上，本此不动它。
-            width = max(requested, Self.minimumWidth)
-        } else {
-            // 不限宽（`fixedSize(horizontal: true)`，或父视图没给宽度）：**就是它了**，
-            // 回真实内容宽度 —— 固定搭配后面的中文译文才能紧贴着排（这是那处 `.fixedSize`
-            // 想要的语义），同时不会再撑出一千万点的怪物宽度。
-            width = max(naturalWidth, Self.minimumWidth)
-        }
+        let width = Self.layoutWidth(
+            natural: naturalWidth,
+            requested: proposal.width,
+            minimum: Self.minimumWidth
+        )
 
         container.containerSize = CGSize(width: width, height: .greatestFiniteMagnitude)
         layout.ensureLayout(for: container)
         let used = layout.usedRect(for: container)
         return CGSize(width: width, height: Self.contentHeight(of: attributed, width: width, usedHeight: used.height))
+    }
+
+    /// 「这句话该排多宽」—— 与量高分开的**纯函数**，好单测。
+    ///
+    /// 口径（2026-09-24 用户口径：练习页里短句学员气泡右侧留一大片空白）：
+    /// - **有可用宽度**：取「自然宽度」与「可用宽度」的**较小者** ——
+    ///   够放一行就贴着内容（短句不再被拉成一条长气泡），放不下才按可用宽度折行。
+    /// - **没有可用宽度**（`fixedSize(horizontal: true)` / 父视图不限宽）：**就是它了** ——
+    ///   回真实内容宽度，固定搭配后面的中文译文才能紧贴着排（那处 `.fixedSize` 想要的语义），
+    ///   同时不会再撑出一千万点的怪物宽度（见上面 `naturalWidth` 那段）。
+    /// - 两头都夹 `minimum` 地板。
+    ///
+    /// ⚠️ 这条分支原先是「有可用宽度就**用满**」（把自己当贪心视图，见下面那段老注释）。
+    /// 改成取较小者不会伤到真正需要吃满的调用方：它们（如 `TextWithTrailingActionRow`、
+    /// 查词卡例句）本来就是先按 `.unspecified` 量自然宽度、再自己决定怎么折行的。
+    /// ⚠️ `nonisolated`：这是纯算式，但它声明在 SwiftUI `View` 里，会被 `@MainActor` 连坐；
+    /// 单测在同步非隔离上下文里直接调它（不标就刷 `ActorIsolatedCall` 警告）。
+    nonisolated static func layoutWidth(natural: CGFloat, requested: CGFloat?, minimum: CGFloat) -> CGFloat {
+        let naturalWidth = max(natural, minimum)
+        guard let requested, requested < Self.unboundedWidth else { return naturalWidth }
+        return min(naturalWidth, max(requested, minimum))
     }
 
     /// 这段富文本在给定宽度下的**排版高度**（取三者最大：实时量 / TextKit 现值 / 一行地板）。
@@ -582,5 +596,5 @@ struct WordLookupText: NSViewRepresentable {
 
     /// 「不限宽」的分界。任何真实窗口 / 分栏都远窄于此，拿它当分界既够安全、
     /// 又不会把正常的有限宽度误判成无限。
-    static let unboundedWidth: CGFloat = 1_000_000
+    nonisolated static let unboundedWidth: CGFloat = 1_000_000
 }

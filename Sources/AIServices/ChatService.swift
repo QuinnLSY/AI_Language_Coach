@@ -126,6 +126,16 @@ public final class ChatService {
     private var didWriteMessageInCurrentSession = false
     /// 本次运行是否已经由老师打过招呼（每次打开应用只开一次场）。
     private var didGreetThisLaunch = false
+    /// 本会话已经为「漏写的纠错行」追问过几次（上限见 `correctionProbeLimit`）。
+    ///
+    /// 判据是确定的（老师既没落行、也没写「本轮无错」才追问）、命中才花钱，
+    /// 但仍要封顶：弱模型若整段会话都不肯收尾，追问会让每轮请求翻倍。
+    private var correctionProbesUsed = 0
+    /// 每会话的漏行追问上限。
+    ///
+    /// ⚠️ `nonisolated`：它被 `shouldProbeCorrection`（nonisolated 纯函数）的默认参数引用，
+    /// 而本类型是 `@MainActor` —— 不标就意味着那个纯函数读不到它。
+    nonisolated static let correctionProbeLimit = 3
     /// 本会话是随口练（开场与 Prompt 引导都走「学员主导」那一路）。
     private var isFreeTalkSession = false
     /// 本会话在考试（非 nil = 老师这一轮以**考官**身份说话）。
@@ -572,6 +582,8 @@ public final class ChatService {
         isFreeTalkSession = false
         examContext = nil
         scenarioStartIndex = 0
+        // 新的一段练习 = 重新开始攒「漏行追问」的额度。
+        correctionProbesUsed = 0
         // ⚠️ 这里**不写**会话绑定。`clear()` 的调用点全是「马上要开新的一段」：
         // `beginNewSession()` 会把 sessionID 换成新的，`beginFreeTalk()` 则在新 id 上重开。
         // 写一次 `attachScenario(nil, mode: .conversation)` 有两个坏处：
@@ -876,6 +888,24 @@ public final class ChatService {
             }
             // 抽取老师标注的纠错块（[[FIX]] ...），不进聊天正文。
             let parsed = Self.extractCorrections(finalText)
+            // 漏行兜底（用户 2026-09-24 口径：老师指出错误就必须出现改一改卡片）：
+            // 老师这一轮**既没落纠错行、也没写「本轮无错」**时，追问一次把它逼出来。
+            // ⚠️ 必须发生在 append(message) 之前 —— 卡片、错题本、「老师记住了你什么」
+            // 读的都是下面这一份 `corrections`，补回来的那一条要跟原生的走同一条路。
+            var corrections = parsed.corrections
+            if Self.shouldProbeCorrection(
+                didConclude: parsed.didConclude,
+                hasLearnerMessage: !learnerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                probesUsed: correctionProbesUsed,
+                isExam: examContext != nil
+            ) {
+                correctionProbesUsed += 1
+                corrections = await probeMissedCorrection(
+                    learnerMessage: learnerText,
+                    teacherReply: parsed.cleanText,
+                    request: request
+                )
+            }
             let trimmedReasoning = reasoning.trimmingCharacters(in: .whitespacesAndNewlines)
             let message = ChatMessage(
                 role: .assistant,
@@ -886,16 +916,16 @@ public final class ChatService {
             persist(message)
             engine.recordTeacher(parsed.cleanText, at: message.createdAt)
             engine.send(.generationFinished)
-            if !parsed.corrections.isEmpty {
-                correctionsByMessage[message.id] = parsed.corrections
-                await persistCorrections(parsed.corrections)
+            if !corrections.isEmpty {
+                correctionsByMessage[message.id] = corrections
+                await persistCorrections(corrections)
                 // 结构化分析（分类 / 定级 / 判重）——同样零请求：
                 // 结果进「已知错误」，成为**下一轮**决策的依据（「反复错误 → 集中练」由此生效）。
-                _ = engine.analyzeReply(parsed.corrections, history: await services.recentCorrectionRecords())
+                _ = engine.analyzeReply(corrections, history: await services.recentCorrectionRecords())
             }
             // 今日全局 token 用量（上下文增量估算，供黑板/督促气泡）。
             DailyTokenCounter.add(max(estimatedContextTokens - tokensBefore, 0))
-            turnResult = (message, parsed.corrections)
+            turnResult = (message, corrections)
             return
         }
 
@@ -1276,6 +1306,58 @@ public final class ChatService {
         return candidate
     }
 
+    /// 这一轮该不该为「老师漏写的纠错行」追问一次。**纯函数**，判据全在这儿，好单测。
+    ///
+    /// 四条都成立才追问：① 老师没交代（既没落行、也没写「本轮无错」）；
+    /// ② 这一轮确实有学员发言（老师开场那一条没什么可纠的）；
+    /// ③ 不在考试里（考场不纠错，且考试作答是零请求的硬口径）；
+    /// ④ 本会话还没用满额度（见 `correctionProbeLimit`）。
+    nonisolated static func shouldProbeCorrection(
+        didConclude: Bool,
+        hasLearnerMessage: Bool,
+        probesUsed: Int,
+        isExam: Bool,
+        limit: Int = correctionProbeLimit
+    ) -> Bool {
+        !didConclude && hasLearnerMessage && !isExam && probesUsed < limit
+    }
+
+    /// 漏行追问：老师把错误讲在正文里、却没落 `[[FIX]]` 行时，**再多问一次**。
+    ///
+    /// 为什么值得多花这一次请求：纠错卡 / 错题本 / 「老师记住了你什么」**只认** `[[FIX]]` 行。
+    /// 老师口头纠正而不落行时，那次纠错就彻底消失了 —— 用户 2026-09-24 报障正是如此：
+    /// 老师说「we use "compared to"」「be careful with the spelling of "prefer"」，
+    /// 界面上却一张改一改卡片都没有，错题本里也没有（`corrections` 表那天一条没增）。
+    ///
+    /// ⚠️ 与 `englishOnlyRewriteIfNeeded` 同款口径：
+    /// - **不带对话历史**（弱模型会去抄历史里的句子当输出）；
+    /// - **失败即放弃**：拿不到就当作「这一轮没有纠错」，绝不影响正文上屏。
+    private func probeMissedCorrection(
+        learnerMessage: String,
+        teacherReply: String,
+        request: LLMRequest
+    ) async -> [GrammarCorrection] {
+        let probe = LLMRequest(
+            messages: [
+                LLMMessage(
+                    role: .user,
+                    content: PromptBuilder.correctionProbePrompt(
+                        learningLanguage: profile.learningLanguage,
+                        nativeLanguage: profile.nativeLanguage,
+                        learnerMessage: learnerMessage,
+                        teacherReply: teacherReply
+                    )
+                )
+            ],
+            model: request.model,
+            temperature: request.temperature,
+            topP: request.topP,
+            maxTokens: request.maxTokens
+        )
+        guard let response = try? await services.llm.generate(probe) else { return [] }
+        return Self.extractCorrections(Self.stripThinking(response.text)).corrections
+    }
+
     /// 无流式兜底：同样请求再走一次非流式通道，返回可用的正文（失败返回 nil）。
     private func nonStreamingFallback(_ request: LLMRequest) async -> String? {
         var plain = request
@@ -1290,13 +1372,19 @@ public final class ChatService {
     }
 
     /// 解析并剥离 `[[FIX]] 原句 => 改正 => 简短说明` 行。
-    /// 返回净化后的正文与纠错列表（纯函数，便于单测）。
+    /// 返回净化后的正文、纠错列表，以及**这一轮有没有按规则收尾**（见下）。
     ///
     /// 标记的识别与容错全在 `GrammarCorrectionLine`（朗读那边也用它）：
     /// 这里只管「剥出来 → 解析 → 不进正文」。
-    nonisolated static func extractCorrections(_ text: String) -> (cleanText: String, corrections: [GrammarCorrection]) {
+    ///
+    /// `didConclude`：老师这一轮到底有没有交代清楚「有错」还是「没错」——
+    /// 落了一条真纠错算交代了，写 `[[FIX]] NONE` 也算交代了；
+    /// **两者都没有 = 漏写**，调用方据此补问一次（`probeMissedCorrection`）。
+    nonisolated static func extractCorrections(_ text: String)
+        -> (cleanText: String, corrections: [GrammarCorrection], didConclude: Bool) {
         var corrections: [GrammarCorrection] = []
         var keptLines: [String] = []
+        var didConclude = false
         for line in text.components(separatedBy: "\n") {
             // ⚠️ 认不出标记的行**原样保留**：它可能只是一句普通的正文。
             // 但**认得出标记**、却切不出三段的，整行丢掉 —— 那是半个纠错块，
@@ -1305,9 +1393,12 @@ public final class ChatService {
                 keptLines.append(line)
                 continue
             }
+            // 「本轮没找到错」的显式收尾：不进正文、不产卡片，只证明老师交代过了。
+            if GrammarCorrectionLine.isNoneMarker(body) {
+                didConclude = true
+                continue
+            }
             guard let fields = GrammarCorrectionLine.parts(of: body) else { continue }
-            // 幻觉纠错整条丢弃：卡片 / 错题本 / 复盘 / 学习记忆共用这一份输出，
-            // 判据放在解析层，下游全部干净（见 GrammarCorrectionSanity 注释里的真实事故）。
             // 幻觉纠错整条丢弃：卡片 / 错题本 / 复盘 / 学习记忆共用这一份输出，
             // 判据放在解析层，下游全部干净（见 GrammarCorrectionSanity 注释里的真实事故）。
             guard !GrammarCorrectionSanity.isHallucinated(original: fields[0], corrected: fields[1]) else { continue }
@@ -1318,10 +1409,11 @@ public final class ChatService {
                     explanation: fields.count >= 3 ? fields[2] : ""
                 )
             )
+            didConclude = true
         }
         let clean = keptLines.joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return (clean, corrections)
+        return (clean, corrections, didConclude)
     }
 
     /// 把纠错列表还原成 `[[FIX]]` 行（英文重说丢块时按这个补回去，见 `generate`）。
