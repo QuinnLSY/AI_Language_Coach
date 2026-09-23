@@ -260,11 +260,6 @@ public struct AnnualRecapCard: View {
                         key: HeatmapFrameKey.self,
                         value: proxy.frame(in: .named(Self.coordinateSpaceName))
                     )
-                    // 反证：浮卡挂回热图层（旧结构）—— footer/footnote 是晚兄弟，
-                    // 会画在浮卡头上。
-                    .overlay(alignment: .topLeading) {
-                        tooltipOverlay(containerSize: proxy.size)
-                    }
             }
         }
     }
