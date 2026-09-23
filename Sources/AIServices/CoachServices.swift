@@ -171,11 +171,18 @@ public actor CoachServices {
     }
     public var configStore: ConfigStore { config }
 
+    /// 「还没配语言模型」的同一句话。
+    ///
+    /// 开屏装配与高级设置两条路都会撞上它，**写两份就迟早漂移成一长一短两种说法**。
+    /// 措辞要与「AI 大脑还没启动，先在设置里点绿色的「启动」，再来查…」一致：说清**去哪儿做什么**，
+    /// 而不是说「配置错误」——用户既不知道「配置」指什么，也不知道点哪里。
+    private static let missingLLMProviderMessage = "还没有可用的语言模型，先在设置里启用一个。"
+
     /// 按当前配置装配 LLM Provider（初始化 + 校验）。不抛错则可用。
     public func bootstrapLLM() async throws {
         let configuration = await config.current
         guard var providerConfig = configuration.resolvedProvider(for: .llm) else {
-            throw AppError.configuration("没有可用的 LLM Provider")
+            throw AppError.configuration(Self.missingLLMProviderMessage)
         }
         if let model = configuration.resolvedModel(for: .llm) {
             providerConfig.model = model
@@ -449,16 +456,31 @@ public actor CoachServices {
     /// 原文件可能被移动 / 删除 / 在云端盘上被驱逐，那时克隆音色会莫名其妙地失效却查不出原因；
     /// 而且「引用任意外部路径」本身就是「拿别人的音频做克隆」的入口，
     /// 复制进应用自己的目录后，来源与生命周期都可控（删档案时可一并清理）。
-    public func importVoiceReference(from sourceURL: URL) throws -> String {
+    /// 把选中的参考音频**复制**进音色资产目录，返回落盘后的路径。
+    ///
+    /// 目录取自 `VoiceProfileStore.referenceAudioDirectory`（与 `voice-profiles.json` 同处一室），
+    /// 而不是在这里自己拼 `AppPaths.userDataDirectory()` —— 后者会让测试进程
+    /// 无论怎么注入仓库都照样写真实数据目录。
+    public func importVoiceReference(from sourceURL: URL) async throws -> String {
         let manager = FileManager.default
-        let directory = AppPaths.userDataDirectory().appendingPathComponent("voices", isDirectory: true)
+        let directory = await voiceProfileStore.referenceAudioDirectory
         try manager.createDirectory(at: directory, withIntermediateDirectories: true)
         let ext = sourceURL.pathExtension.isEmpty ? "wav" : sourceURL.pathExtension.lowercased()
         let destination = directory.appendingPathComponent("\(UUID().uuidString).\(ext)")
         if manager.fileExists(atPath: destination.path) {
             try manager.removeItem(at: destination)
         }
-        try manager.copyItem(at: sourceURL, to: destination)
+        do {
+            try manager.copyItem(at: sourceURL, to: destination)
+        } catch {
+            // `FileManager` 抛的是系统原文（英文、不说在干什么）。**动作名由这一层写**：
+            // 只有这里知道刚才是为了「保存这个音色」在搬文件；留给 UI 的 catch 去猜，
+            // 它就只能再补一句「保存音色失败：」，而 `saveVoiceProfile` 那一路
+            // 底层早就写着「保存音色档案失败：」—— 两句动作名叠在一起就是三个冒号。
+            throw AppError.storage(
+                "没能把这个音频文件读进来（\(sourceURL.lastPathComponent)）：\(error.localizedDescription)"
+            )
+        }
         return destination.path
     }
 
@@ -738,7 +760,7 @@ public actor CoachServices {
     public func setLLMProviderField(endpoint: String? = nil, temperature: Double? = nil) async throws {
         let configuration = await config.current
         guard let provider = configuration.resolvedProvider(for: .llm) else {
-            throw AppError.configuration("没有可用的 LLM Provider")
+            throw AppError.configuration(Self.missingLLMProviderMessage)
         }
         // 原子更新：只动高级设置里这两个字段，避免整条写回覆盖 apiKey 等。
         try await config.mutateProvider(id: provider.id) { p in
@@ -1370,7 +1392,7 @@ public actor CoachServices {
     /// 设置某能力当前使用的模型（本地检测选择 / 手动填写共用），并重装配。
     public func setCapabilityModel(_ kind: AIProviderKind, model: String) async throws {
         guard let provider = await config.current.resolvedProvider(for: kind) else {
-            throw AppError.configuration("没有可用的 \(kind.displayName) Provider")
+            throw AppError.configuration("还没有可用的\(kind.displayName)，先在设置里启用一个。")
         }
         // 原子更新：只改这个 Provider 的 model 与产品层的选中模型，
         // 不碰同一条记录上的 apiKey / endpoint（旧写法用过期快照整体写回，会连带覆盖）。

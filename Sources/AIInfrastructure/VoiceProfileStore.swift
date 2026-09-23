@@ -34,6 +34,16 @@ public actor VoiceProfileStore {
     public var storageLocation: URL { fileURL }
     public var isEmpty: Bool { profiles.isEmpty }
 
+    /// 参考音频（克隆音色的样本）存放目录：`voice-profiles.json` 旁边的 `voices/`。
+    ///
+    /// **从 `fileURL` 派生，不直接读 `AppPaths`** —— 这样注入一个临时 `fileURL` 的仓库
+    /// 连音频目录一起被隔离。原先 `CoachServices.importVoiceReference` 自己拼
+    /// `AppPaths.userDataDirectory()/voices`，于是测试进程（同罪：会写真实数据目录）
+    /// 一碰「保存音色」就会在开发机的 `.workbuddy/app-config/` 里造目录。
+    public var referenceAudioDirectory: URL {
+        fileURL.deletingLastPathComponent().appendingPathComponent("voices", isDirectory: true)
+    }
+
     public func profile(id: String) -> VoiceProfile? {
         profiles.first { $0.id == id }
     }

@@ -421,7 +421,9 @@ extension AppState {
             await refreshDailyWordsAfterDictionaryChange()
             dictionaryNotice = AppNotice(text: "已导入「\(book.name)」，共 \(book.entryCount) 词。")
         } catch {
-            dictionaryNotice = AppNotice(text: "导入失败：\(error.localizedDescription)")
+            // 底层的两种失败都自带主语（「保存词典库失败：…」/「这个文件里没有读到任何词条。…」），
+            // 再罩一句「导入失败：」就是两个冒号说同一件事。
+            dictionaryNotice = AppNotice(text: error.localizedDescription)
         }
     }
 

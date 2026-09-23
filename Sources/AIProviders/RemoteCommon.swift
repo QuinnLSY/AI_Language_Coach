@@ -120,8 +120,11 @@ public enum RemoteCommon {
         billable: Bool = true
     ) async throws -> RemoteCallPolicy.Intent {
         guard RemoteCallPolicy.operationMatches(kind: kind, operation: operation) else {
+            // 不再自带「内部错误：」——`.invalidRequest` 已经会加「请求无效：」，
+            // 两层叠上去就是「请求无效：内部错误：…」。这层守卫是编程错误（真机上跑不到），
+            // 「已阻止这次云端调用」已经把性质交代清楚了。
             throw AIProviderError.invalidRequest(
-                "内部错误：\(operation.displayName)不能由「\(kind.displayName)」发起，已阻止这次云端调用。"
+                "\(operation.displayName)不能由「\(kind.displayName)」发起，已阻止这次云端调用。"
             )
         }
         guard let model = RemoteCallPolicy.resolvedModel(selected: selectedModel, providerDefault: providerModel),

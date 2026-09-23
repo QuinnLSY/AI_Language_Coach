@@ -207,7 +207,11 @@ extension AppState {
             voiceProfileNotice = "已保存音色「\(profile.displayName)」，启用后老师就用它说话。"
             return profile
         } catch {
-            voiceProfileNotice = "保存音色失败：\(error.localizedDescription)"
+            // **原样透出，不再拼「保存音色失败：」**。这条路的两处失败都自带动作了：
+            // `importVoiceReference` 说「没能把这个音频文件读进来（x.wav）：…」，
+            // `VoiceProfileStore.save` 说「保存音色档案失败：…」。补一句更笼统的动作名
+            // 只会得到「保存音色失败：保存音色档案失败：…」。
+            voiceProfileNotice = error.localizedDescription
             return nil
         }
     }

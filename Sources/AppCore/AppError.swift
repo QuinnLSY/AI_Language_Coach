@@ -2,17 +2,24 @@ import Foundation
 
 /// 通用应用层错误。Provider 相关错误见 `AIInterfaces.AIProviderError`。
 ///
-/// **前五档会给消息加一个品类前缀，`.unknown` 不加** —— 两者的消息来源不同：
+/// **六档一律原样透出消息，谁也不加品类前缀。** 上一版是「前五档加前缀、`.unknown` 不加」，
+/// 结果是同一句话里出现两个冒号，甚至三个：
 ///
-/// - 前五档的消息通常是「哪个动作失败了」的片段（`保存配置失败：…`），前面补一个
-///   「存储错误」/「数据库错误」能告诉用户**这是哪一层**出的问题；
-/// - `.unknown` 是收容所，投进来的**本身就是完整的一句话**，而且大多来自
-///   `ModelDiagnostics.describe` 这类会自己交代「谁、怎么坏的」的地方
-///   （`本地模型 · qwen3:8b 服务未启动或不可达：…`）。再罩一层「未知错误：」
-///   既没多给信息，还把**已经确诊**的失败说成了「未知」——用户看到「未知错误」
-///   只会以为是程序崩了，而不是「材料短了 3 个字」。
+/// ```
+/// 保存音色失败：存储错误：保存音色档案失败：文件 “x” 无法写入。   ← 修之前
+/// 保存音色档案失败：文件 “x” 无法写入。                          ← 现在
+/// ```
 ///
-/// 所以往 `.unknown` 里丢东西时，请**直接写给人看的那句话**，不要写内部术语。
+/// 三层各有各的错，但病根只有一个：**前缀让消息看起来像「片段」**——于是 `catch`
+/// 处觉得自己该补动作名，而动作名抛出点早就写过了。去掉前缀之后消息就是一句完整的话，
+/// `catch` 自然只做透出（口径见 `MEMORY.md` 的「用户可见文案」）。
+///
+/// 顺带一提「存储错误」「数据库错误」这类前缀本身也没多大用：用户既不能据此决定做什么，
+/// 也无法判断严重性——他需要的是「什么动作失败了 + 为什么 + 能不能重试」。而**分类并没有丢**：
+/// 它留在这几个 `case` 上，日志、诊断、测试照样能分辨是配置还是存储出的问题。
+///
+/// 所以往任何一档里丢东西时，请**直接写给人看的那句话**（动作 + 原因），不要写内部术语，
+/// 也不要指望前缀替你补上下文。
 public enum AppError: Error, Sendable, LocalizedError, Equatable {
     case configuration(String)
     case permission(String)
@@ -21,14 +28,15 @@ public enum AppError: Error, Sendable, LocalizedError, Equatable {
     case database(String)
     case unknown(String)
 
+    /// 六档共用一支：消息即文案。
+    ///
+    /// 写成合并的 `case` 分支是有意的——它让「六档行为完全一致」成为一眼可见的事实，
+    /// 将来谁想给某一档单独加前缀，就必须先把这个分支拆开，拆的时候会读到上面那段理由。
     public var errorDescription: String? {
         switch self {
-        case .configuration(let m): "配置错误：\(m)"
-        case .permission(let m): "权限不足：\(m)"
-        case .storage(let m): "存储错误：\(m)"
-        case .audio(let m): "音频错误：\(m)"
-        case .database(let m): "数据库错误：\(m)"
-        case .unknown(let m): m
+        case .configuration(let m), .permission(let m), .storage(let m),
+             .audio(let m), .database(let m), .unknown(let m):
+            m
         }
     }
 }

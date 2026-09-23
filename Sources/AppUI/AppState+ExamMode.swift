@@ -654,7 +654,9 @@ extension AppState {
                 ? "本来就没有可清除的学习记忆。"
                 : "已清除 \(cleared.total) 条学习记忆（纠错 \(cleared.corrections) · 复盘 \(cleared.reviews) · 跟读 \(cleared.shadowing) · 复习流水 \(cleared.vocabularyReviews)）。单词本和对话记录都还在。"
         } catch {
-            learningMemoryNotice = "清除失败：\(error.localizedDescription)"
+            // 底层是「学习库尚未就绪」/「SQL 执行失败：…」，动作名已经有了；
+            // 再补一句「清除失败：」就是「清除失败：数据库错误：SQL 执行失败：…」那串三冒号。
+            learningMemoryNotice = error.localizedDescription
         }
     }
 
