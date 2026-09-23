@@ -766,6 +766,12 @@ public struct ChatView: View {
                     // 思考阶段也保持滚动到底（面板自动跟随最新内容）
                     if chat.streamingText.isEmpty { scrollToBottom(proxy) }
                 }
+                .task {
+                    // #6：练习页是 if/else 切出来的 —— 从别的页面回来时本视图是
+                    // **重建**的，ScrollView 初始停在对话开头。等一帧让消息真正
+                    // 落位，再**无动画**定位到最后（带动画会从顶飞到底，更糟）。
+                    await positionAtLatestOnAppear(proxy)
+                }
             }
         }
     }
@@ -868,12 +874,23 @@ public struct ChatView: View {
         }
     }
 
-    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool = true) {
         let target: String? = chat.isGenerating ? "streaming" : chat.visibleMessages.last?.id.uuidString
         guard let target else { return }
-        withAnimation(.easeOut(duration: 0.2)) {
+        if animated {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(target, anchor: .bottom)
+            }
+        } else {
             proxy.scrollTo(target, anchor: .bottom)
         }
+    }
+
+    /// #6：进入练习页时的落位。睡一拍等首帧布局完成（消息尺寸还是估算值时
+    /// `scrollTo` 会停在中途），然后无动画直落底部。
+    private func positionAtLatestOnAppear(_ proxy: ScrollViewProxy) async {
+        try? await Task.sleep(nanoseconds: 120_000_000)
+        scrollToBottom(proxy, animated: false)
     }
 
     /// 每条消息上方的时间戳：`9月9日 周三 18:57`（仅间隔 > 5 分钟才出现）。
