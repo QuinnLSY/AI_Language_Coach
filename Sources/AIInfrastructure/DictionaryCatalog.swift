@@ -43,7 +43,7 @@ public enum DictionaryCatalog {
             file: "phrases",
             name: "常用搭配",
             coverLabel: "搭配",
-            subtitle: "固定搭配与常用词组",
+            subtitle: "固定搭配与词组",
             coverStyle: .plum,
             kind: .phrases
         ),
