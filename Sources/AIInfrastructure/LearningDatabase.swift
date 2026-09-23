@@ -340,6 +340,22 @@ public actor LearningDatabase {
     COALESCE(ended_at, (SELECT MAX(created_at) FROM messages WHERE messages.session_id = sessions.id), (SELECT started_at + duration FROM session_reviews WHERE session_reviews.session_id = sessions.id AND duration > 0 ORDER BY created_at DESC LIMIT 1), started_at)
     """
 
+    /// 会话「对话条数」的唯一口径：**现存的流水条数** → 复盘时记下的条数 → 0。
+    ///
+    /// ⚠️ 只读 `sessions.message_count` 会算出「0 条对话」：复盘成功后
+    /// `purgeSessionMessages` 会把消息连同纠错一起删掉、并把这一列归零
+    /// （归零是必要的 —— `hygiene()` 就是拿 `message_count = 0` 当空会话判据的）。
+    /// 于是「最近练习」里那一条明明写着「时长 2 分 54 秒」，右边却是「0 条对话」，
+    /// 而同屏展开的复盘里写着「1 轮对话」—— 同一件事在三个地方各说各的。
+    /// 复盘行里存着当时的条数，拿它兜底，卡片与复盘就再也打不了架。
+    ///
+    /// 取两者**较大值**而不是「0 就用复盘顶着」：复盘之后又接着聊了几句时
+    /// （清过流水、计数从 0 重新涨），计数不会比复盘里那句缩水。
+    /// 三处会话查询共用这一个表达式，改口径只改这一行。
+    static let messageCountExpression = """
+    MAX(COALESCE(message_count, 0), COALESCE((SELECT message_count FROM session_reviews WHERE session_reviews.session_id = sessions.id ORDER BY created_at DESC LIMIT 1), 0))
+    """
+
     public func createSession(_ session: ChatSession) throws {
         try db.run(
             "INSERT OR REPLACE INTO sessions (id, started_at, ended_at, mode, message_count, scenario_id) VALUES (?1, ?2, NULL, ?3, 0, ?4)",
@@ -532,7 +548,7 @@ public actor LearningDatabase {
     public func recentSessions(limit: Int = 20) throws -> [SessionSummary] {
         let rows = try db.query(
             """
-            SELECT id, \(Self.startedExpression) AS started, \(Self.endedExpression) AS ended, message_count, scenario_id
+            SELECT id, \(Self.startedExpression) AS started, \(Self.endedExpression) AS ended, \(Self.messageCountExpression) AS message_count, scenario_id
             FROM sessions WHERE id != 'archive' ORDER BY started DESC LIMIT ?1
             """,
             [.int(limit)]
@@ -702,7 +718,7 @@ public actor LearningDatabase {
     public func sessions(since: Date, limit: Int = 500) throws -> [SessionSummary] {
         try db.query(
             """
-            SELECT id, \(Self.startedExpression) AS started, \(Self.endedExpression) AS ended, message_count, scenario_id
+            SELECT id, \(Self.startedExpression) AS started, \(Self.endedExpression) AS ended, \(Self.messageCountExpression) AS message_count, scenario_id
             FROM sessions
             WHERE \(Self.startedExpression) >= ?1 AND id != 'archive'
             ORDER BY started DESC LIMIT ?2
@@ -728,7 +744,7 @@ public actor LearningDatabase {
     public func sessionSummary(id: UUID) throws -> SessionSummary? {
         let rows = try db.query(
             """
-            SELECT id, \(Self.startedExpression), \(Self.endedExpression), message_count, scenario_id
+            SELECT id, \(Self.startedExpression), \(Self.endedExpression), \(Self.messageCountExpression), scenario_id
             FROM sessions WHERE id = ?1
             """,
             [.text(id.uuidString)]

@@ -382,4 +382,75 @@ final class LearningDatabaseTests: XCTestCase {
         let stored = try await db.questProgress(scenarioID: "x")
         XCTAssertEqual(stored?.doneStepIDs, ["s1"])
     }
+
+    // MARK: - 复盘之后这个会话算「几条对话」（#1）
+    //
+    // 用户报障：记录页那条练习写着「时长 2 分 54 秒」，右边却是「0 条对话」，
+    // 而同屏展开的复盘里明明白白写着「1 轮对话」。
+    //
+    // 根因：复盘成功会把练习流水清掉（`purgeSessionMessages`），顺手把
+    // `sessions.message_count` 归零 —— 归零本身是对的（`hygiene()` 靠它判空会话），
+    // 但三处会话查询直接读这一列，于是「做过复盘的那一条」永远报 0。
+    // 修法是查询时用复盘行里存着的条数兜底（见 `messageCountExpression`）。
+
+    /// 复盘 + 清流水之后：三处查询都要报复盘时记下的条数，不能塌成 0。
+    func testReviewedSessionKeepsItsMessageCountAfterPurge() async throws {
+        let db = try makeDB()
+        let session = ChatSession(mode: .conversation)
+        try await db.createSession(session)
+        for content in ["hi", "hello", "good morning", "I like it"] {
+            try await db.appendMessage(ChatMessage(role: .user, content: content), sessionID: session.id)
+        }
+        try await db.saveReview(SessionReview(sessionID: session.id, messageCount: 4, headline: "这次不错"))
+
+        let purged = try await db.purgeSessionMessages(sessionID: session.id)
+        XCTAssertEqual(purged, 4, "流水照删（这是复盘的收尾动作，不变）")
+
+        let recent = try await db.recentSessions(limit: 20)
+        XCTAssertEqual(recent.first?.messageCount, 4, "「最近练习」要沿用复盘记下的条数，而不是被清空后的 0")
+        let summary = try await db.sessionSummary(id: session.id)
+        XCTAssertEqual(summary?.messageCount, 4, "单会话查询（时长/轮次那一行）同一个口径")
+        let windowed = try await db.sessions(since: .distantPast)
+        XCTAssertEqual(windowed.first?.messageCount, 4, "窗口查询（学习进度）也要一致 —— 三处共用同一个表达式")
+    }
+
+    /// 没复盘过的会话：条数照旧读实时流水，兜底不许把 0 变成别的数。
+    func testSessionWithoutReviewKeepsLiveMessageCount() async throws {
+        let db = try makeDB()
+        let session = ChatSession(mode: .conversation)
+        try await db.createSession(session)
+        try await db.appendMessage(ChatMessage(role: .user, content: "hi"), sessionID: session.id)
+        try await db.appendMessage(ChatMessage(role: .assistant, content: "hello"), sessionID: session.id)
+
+        let summariesWithOne = try await db.recentSessions(limit: 20)
+        XCTAssertEqual(summariesWithOne.first?.messageCount, 2)
+
+        // 一条消息都没有、也没复盘的会话：老实报 0（兜底不能凭空造数）。
+        let empty = ChatSession(mode: .conversation)
+        try await db.createSession(empty)
+        let summaries = try await db.recentSessions(limit: 20)
+        XCTAssertEqual(summaries.first(where: { $0.sessionID == empty.id })?.messageCount, 0)
+    }
+
+    /// 复盘之后又接着练（计数从 0 重新涨）：条数不能比复盘里那句缩水。
+    func testMessageCountDoesNotShrinkBelowTheReviewedSnapshot() async throws {
+        let db = try makeDB()
+        let session = ChatSession(mode: .conversation)
+        try await db.createSession(session)
+        for content in ["a", "b", "c"] {
+            try await db.appendMessage(ChatMessage(role: .user, content: content), sessionID: session.id)
+        }
+        try await db.saveReview(SessionReview(sessionID: session.id, messageCount: 3, headline: "不错"))
+        _ = try await db.purgeSessionMessages(sessionID: session.id)
+
+        // 复盘完又说了两句 —— 计数从 0 涨到 2，但那一段练习总共是 5 句。
+        try await db.appendMessage(ChatMessage(role: .user, content: "d"), sessionID: session.id)
+        try await db.appendMessage(ChatMessage(role: .assistant, content: "e"), sessionID: session.id)
+
+        let afterMoreTalking = try await db.recentSessions(limit: 20)
+        XCTAssertEqual(
+            afterMoreTalking.first?.messageCount, 3,
+            "取「现存条数」与「复盘快照」的较大值：既不能塌成 0，也不能比复盘里写的还少"
+        )
+    }
 }
