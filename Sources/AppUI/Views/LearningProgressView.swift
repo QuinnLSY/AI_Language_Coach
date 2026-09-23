@@ -131,57 +131,37 @@ public struct LearningProgressView: View {
 
     // MARK: - 本周小结 / 月环比（#228）
 
-    /// 一格小结数字。
-    private func statChip(value: String, label: String, tint: Color? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value)
-                .font(.system(size: 16, weight: .bold, design: .rounded))
-                .foregroundStyle(tint ?? theme.primaryText)
-                .monospacedDigit()
-            Text(label)
-                .font(.system(size: 10, design: .rounded))
-                .foregroundStyle(theme.secondaryText)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
     private var weeklyCard: some View {
         card(title: "本周小结", systemImage: "calendar") {
             if let insight = state.weeklyInsight {
+                // 数字格收进 `WeeklyStatGrid`（#4）：两行共用等宽 4 列、格内居中 ——
+                // 原来第二行只有两格 + Spacer，列宽是第一行的两倍，「同列」错位。
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .top, spacing: 14) {
-                        statChip(
-                            value: ProgressAggregator.durationText(insight.weekSeconds),
-                            label: "本周开口"
-                        )
-                        statChip(
-                            value: correctionChangeText(insight.correctionChange),
-                            label: insight.correctionChange == 0
-                                ? "批注与上周持平"
-                                : (insight.correctionChange > 0 ? "批注比上周多" : "批注比上周少"),
-                            tint: insight.correctionChange > 0 ? theme.warning : theme.success
-                        )
-                        statChip(
-                            value: "\(insight.weekNewWords) 词",
-                            label: "本周新增词汇"
-                        )
-                        statChip(
-                            value: "\(snapshot.streakDays) 天",
-                            label: "连续练习",
-                            tint: snapshot.streakDays > 0 ? theme.accent : theme.secondaryText
-                        )
-                    }
-                    HStack(alignment: .top, spacing: 14) {
-                        statChip(
-                            value: "\(insight.weekWriting) 篇",
-                            label: "本周写作"
-                        )
-                        statChip(
-                            value: "\(insight.weekReading) 篇",
-                            label: "本周阅读"
-                        )
-                        Spacer(minLength: 0)
-                    }
+                    WeeklyStatGrid(
+                        top: [
+                            .init(
+                                value: ProgressAggregator.durationText(insight.weekSeconds),
+                                label: "本周开口"
+                            ),
+                            .init(
+                                value: correctionChangeText(insight.correctionChange),
+                                label: insight.correctionChange == 0
+                                    ? "批注与上周持平"
+                                    : (insight.correctionChange > 0 ? "批注比上周多" : "批注比上周少"),
+                                tint: insight.correctionChange > 0 ? theme.warning : theme.success
+                            ),
+                            .init(value: "\(insight.weekNewWords) 词", label: "本周新增词汇"),
+                            .init(
+                                value: "\(snapshot.streakDays) 天",
+                                label: "连续练习",
+                                tint: snapshot.streakDays > 0 ? theme.accent : theme.secondaryText
+                            ),
+                        ],
+                        bottom: [
+                            .init(value: "\(insight.weekWriting) 篇", label: "本周写作"),
+                            .init(value: "\(insight.weekReading) 篇", label: "本周阅读"),
+                        ]
+                    )
                     Divider().overlay(theme.divider)
                     monthChangeRow(insight)
                 }
