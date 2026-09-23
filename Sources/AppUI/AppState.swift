@@ -976,6 +976,9 @@ public final class AppState {
     var lastTodayPanelRefreshAt: Date = .distantPast
     /// 后台开场任务（学员一开口就让它让位，见 `learnerEngagedThisLaunch`）。
     var openingTask: Task<Void, Never>?
+    /// 开屏时**后台预生成今天的短文阅读**（#330）。排在开场白之后跑，
+    /// 只落库不上屏；`openReading` 进页面时会**先等它**，免得生成出今天第二篇。
+    var readingPrefetchTask: Task<Void, Never>?
     /// 学员在本轮启动里已经开口 —— 后台开场**不许再动会话**（不能把人家刚说的话清掉）。
     var learnerEngagedThisLaunch = false
     /// 本轮启动里黑板已经自动展开过（收起后不许再自己弹开）。
@@ -1218,6 +1221,11 @@ public final class AppState {
         // 现在首屏由本地数据秒开，开场白生成完自己滑进对话区。
         openingTask?.cancel()
         openingTask = Task { [weak self] in await self?.openInBackground() }
+        // 开屏后台预生成今天的短文阅读（#330）：与开场白**并行发出、串行执行** ——
+        // 它自己在里面等开场白跑完（见 `prefetchTodaysReading`），
+        // 所以这里不必再排一次序，也不会把首屏拖住。
+        readingPrefetchTask?.cancel()
+        readingPrefetchTask = Task { [weak self] in await self?.prefetchTodaysReading() }
     }
 
     /// 后台开场：老师先开口 / 续做上一段（需求 6）。

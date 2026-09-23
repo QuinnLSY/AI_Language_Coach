@@ -214,7 +214,12 @@ final class ScenarioDraftFlowTests: XCTestCase {
 
     /// 一个只监听 `127.0.0.1` 的 OpenAI 兼容桩服务：`GET /v1/models` 回模型清单、
     /// `POST /v1/chat/completions` 回一份写死的 key-value 文本，并记录每一次请求。
-    private final class StubLLM {
+    ///
+    /// ⚠️ 跨文件复用（`ReadingPrefetchTests` 拿它验「开屏预生成」那一路）：
+    /// `firstPostDelayMilliseconds` 只把**第一个** POST 卡住，后面的立刻回。
+    /// 竞态用例要的正是这个**不对称** —— 固定延迟下两个请求永远按到达顺序先后完成，
+    /// 「后发的先回」那一刻就永远造不出来（实测：固定延迟时那条断言恒为 2 篇）。
+    final class StubLLM {
 
         struct Record {
             let method: String
@@ -236,7 +241,7 @@ final class ScenarioDraftFlowTests: XCTestCase {
         }
 
         /// python3 不可用时抛 skip（与 `RemoteCallE2ETests` 同款）。
-        static func start(reply: String) throws -> StubLLM {
+        static func start(reply: String, firstPostDelayMilliseconds: Int = 0) throws -> StubLLM {
             let python = "/usr/bin/python3"
             guard FileManager.default.isExecutableFile(atPath: python) else {
                 throw XCTSkip("本机没有 python3，跳过桩服务端到端测试")
@@ -251,7 +256,10 @@ final class ScenarioDraftFlowTests: XCTestCase {
             try Self.script.write(to: script, atomically: true, encoding: .utf8)
 
             stub.process.executableURL = URL(fileURLWithPath: python)
-            stub.process.arguments = [script.path, stub.portFile.path, stub.logFile.path, stub.replyFile.path]
+            stub.process.arguments = [
+                script.path, stub.portFile.path, stub.logFile.path, stub.replyFile.path,
+                String(firstPostDelayMilliseconds),
+            ]
             stub.process.standardOutput = FileHandle.nullDevice
             stub.process.standardError = FileHandle.nullDevice
             try stub.process.run()
@@ -291,10 +299,15 @@ final class ScenarioDraftFlowTests: XCTestCase {
         }
 
         private static let script = #"""
-        import json, sys
+        import json, sys, time
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
         port_file, log_file, reply_file = sys.argv[1], sys.argv[2], sys.argv[3]
+        # 第 4 个参数：**第一个** POST 响应前先睡这么久（毫秒），后面的立刻回。
+        # 用一次性的不对称延迟，把「后发的请求先回来」那一刻稳定造出来 ——
+        # 竞态用例不能靠运气，而固定延迟下两个请求只会按到达顺序先后完成。
+        first_post_delay = int(sys.argv[4]) if len(sys.argv) > 4 else 0
+        delay_state = {"seen": False}
 
         class Handler(BaseHTTPRequestHandler):
             def _reply(self, payload):
@@ -313,6 +326,11 @@ final class ScenarioDraftFlowTests: XCTestCase {
                 length = int(self.headers.get("Content-Length") or 0)
                 raw = self.rfile.read(length).decode("utf-8", "replace")
                 self._log("POST", raw)
+                # 只卡**第一个** POST，而且只卡生成请求（GET 是装配期的模型探测，
+                # 让它们也各睡一下只会把每个用例的夹具时间平白拖长）。
+                if first_post_delay > 0 and not delay_state["seen"]:
+                    delay_state["seen"] = True
+                    time.sleep(first_post_delay / 1000.0)
                 try:
                     with open(reply_file) as handle:
                         content = handle.read()

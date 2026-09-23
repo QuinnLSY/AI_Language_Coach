@@ -67,6 +67,19 @@ extension AppState {
         let dayKey = WritingTopicPicker.dayKey(for: Date())
         // 内存里已是今天这批（页内来回切换不重查库）。
         if !readingEntries.isEmpty, readingEntries.first?.passage.dayKey == dayKey { return }
+        // 开屏那次预生成**还在跑**：等它，别再发一次请求。
+        //
+        // ⚠️ 不等的话会生成出**今天第二篇** —— 两篇都要花一次请求，
+        // 用户还会在「1 / 2」的编号里看到内容跳变。等它的时候把加载态点亮，
+        // 界面因此显示的是正常的「在出题」，而不是一个空页面。
+        // ⚠️ 任务**不清空** —— 不是为了挡住什么（清空也一样对：清的是等待**之后**，
+        // 那时并发进来的第二个调用照样看得到它），只是 `await` 一个已经结束的任务是免费的，
+        // 少一处可变状态就少一个能对不上的地方。
+        if let prefetch = readingPrefetchTask {
+            isReadingLoading = true
+            await prefetch.value
+            isReadingLoading = false
+        }
         let stored = await services.todaysReadings(dayKey: dayKey)
         if !stored.isEmpty {
             readingEntries = stored
@@ -74,6 +87,50 @@ extension AppState {
             return
         }
         await loadReading()
+    }
+
+    // MARK: - 开屏后台预生成（#330）
+
+    /// 开屏时在**后台**把今天那篇短文先出出来 —— 用户点「阅读」时是秒开。
+    ///
+    /// 三条边界，少一条都会变成新的毛病：
+    /// ① **今天已经有了就绝不重出**。阅读是「一天一篇」的量，重出等于白花一次请求，
+    ///    还会让用户昨天做过的那篇凭空变样（`openReading` 靠 `todaysReadings` 取当天那批）。
+    /// ② **排在老师的开场白后面**。本机模型一次只伺候一个请求：抢在开场白前面，
+    ///    会把「老师先开口」拖慢，而那是用户开屏第一眼要看的东西 ——
+    ///    不能为了让他晚几秒点阅读，去动这半分钟。
+    ///    （顺序也顺带解决了「模型还没热」：开场白那次调用已经把模型拉起来了。）
+    /// ③ **只落库、不上屏**。预生成不该改任何界面状态 —— 用户还没进阅读页，
+    ///    这时往 `readingEntries` 里塞东西，等于替他决定了「今天看第几篇」。
+    ///    真进页面时 `openReading` 照旧从库里读、照旧决定展示哪一篇。
+    ///
+    /// ⚠️ 失败一律静默：这是**锦上添花**的后台活儿，用户并没有点任何东西，
+    /// 弹一句「短文没取到」只会让人莫名其妙。真需要就在他点开阅读页时由 `loadReading` 报。
+    func prefetchTodaysReading() async {
+        // ② 先等开场白那一轮跑完（它可能跑上大半分钟 —— 冷启动要拉模型）。
+        await openingTask?.value
+        guard !Task.isCancelled else { return }
+        // 模型被用户显式关掉了：预生成**不能**自己去把它拉起来
+        // （那是「我关了它怎么自己开了」这类投诉的来源）。
+        //
+        // ⚠️ 问的是**服务层真源**，不是 `AppState.modelRunStates` 那份界面快照 ——
+        // 快照会被资源巡检的挂起、设置页的开关改在后面（见 MEMORY.md 的同一条铁律：
+        // 使用处一律问真源）。快照在这里过期一次的后果是**背地里把用户关掉的模型拉起来**。
+        guard await services.isModelRunning(.llm) else { return }
+        // ① 等开场白的这段时间里用户可能已经自己打开过阅读页、或者今天早就有一篇了。
+        let dayKey = WritingTopicPicker.dayKey(for: Date())
+        guard await services.todaysReadings(dayKey: dayKey).isEmpty else { return }
+        // 用户此刻正在阅读页出题（翻页 / 换一篇）→ 别掺和，让他自己那一篇出完。
+        guard !isReadingLoading else { return }
+
+        guard let passage = await services.generateReading(level: effectivePlacementLevelText) else {
+            return
+        }
+        guard !Task.isCancelled else { return }
+        // 生成完再确认一次：这段时间里用户完全可能已经自己出了一篇（他在页面上等着，
+        // 而这次生成排在最后）。落下去就会变成今天第二篇。
+        guard await services.todaysReadings(dayKey: dayKey).isEmpty else { return }
+        await services.saveReading(StoredReading(passage: passage, createdAt: Date()))
     }
 
     /// 出一篇短文：**一次阅读 = 一次模型请求**（首篇自动出；之后只由「换一篇」触发）。
