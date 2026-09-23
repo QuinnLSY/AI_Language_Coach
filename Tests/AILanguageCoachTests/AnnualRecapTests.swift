@@ -401,4 +401,45 @@ final class AnnualRecapTests: XCTestCase {
         XCTAssertTrue(recap.summaryText.contains("当前连续 4 天"), recap.summaryText)
         XCTAssertFalse(recap.summaryText.contains("最长连续"), "与当前连续相同时不重复报一遍")
     }
+
+    // MARK: - ⑤ 明细逐条一行（#5 悬停浮卡）
+
+    func testDetailLinesStartWithTheDateAndListOneFactPerLine() throws {
+        let now = day(2026, 9, 15, 21, 0)
+        let recap = AnnualRecapBuilder.build(
+            days: [activity(daysAgo: 0, minutes: 12, messages: 4, shadowing: 2, reviewed: 3, now: now)],
+            goalMinutes: 10,
+            now: now,
+            calendar: calendar
+        )
+        let cell = recap.weeks.flatMap { $0 }.compactMap { $0 }.first { $0.isToday }
+
+        let lines = try XCTUnwrap(cell?.detailLines(calendar: calendar))
+        // 第一行是日期；之后一天里干过的每件事各占一行，一条不省。
+        XCTAssertTrue(lines[0].contains("9月15日"), "第一行要是日期，实际：\(lines[0])")
+        XCTAssertEqual(lines.count, 7, "日期 + 时长/对话/跟读/复习/目标/任务 共 7 行，实际：\(lines)")
+        XCTAssertTrue(lines.contains("12 分 0 秒"), lines.joined(separator: " | "))
+        XCTAssertTrue(lines.contains("4 轮对话"))
+        XCTAssertTrue(lines.contains("跟读 2 次"))
+        XCTAssertTrue(lines.contains("复习 3 词"))
+        XCTAssertTrue(lines.contains("目标达成"))
+
+        // 一行式出口与逐条出口是同一份事实（footer 继续用一行式）。
+        XCTAssertEqual(cell?.detailText(calendar: calendar), lines.joined(separator: " · "))
+    }
+
+    func testDetailLinesForAnEmptyDayIsJustTheDatePlusNoPractice() throws {
+        let now = day(2026, 9, 15, 21, 0)
+        let recap = AnnualRecapBuilder.build(
+            days: [activity(daysAgo: 3, now: now)],
+            goalMinutes: 15,
+            now: now,
+            calendar: calendar
+        )
+        let lines = try XCTUnwrap(
+            recap.weeks.flatMap { $0 }.compactMap { $0 }.first?.detailLines(calendar: calendar)
+        )
+        XCTAssertEqual(lines.count, 2, "没练的那天只有日期 + 「没有练习」两行")
+        XCTAssertTrue(lines[1] == "没有练习")
+    }
 }

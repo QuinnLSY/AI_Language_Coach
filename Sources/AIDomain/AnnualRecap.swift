@@ -87,7 +87,18 @@ public struct AnnualRecap: Sendable, Equatable {
         public var level: Int { intensity.rawValue }
 
         /// 悬停 / 点开时给人看的明细（「9月15日 · 12 分 30 秒 · 4 轮对话 · …」）。
+        ///
+        /// 内容逐条在 `detailLines` 里；这里只是把它折回一行
+        /// （记录页 footer 等一行式场合继续用它，两条出口共用一份事实）。
         public func detailText(calendar: Calendar = .current) -> String {
+            detailLines(calendar: calendar).joined(separator: " · ")
+        }
+
+        /// 明细**逐条**一行：第一行是日期，其后一天里干过的每件事各占一行。
+        ///
+        /// #5：压成一行的写法在长日子会被截断（`lineLimit(1)` + 中间省略），
+        /// 悬停浮卡按行展示 —— 有几行亮几行，一条都不省。
+        public func detailLines(calendar: Calendar = .current) -> [String] {
             var parts = [ProgressAggregator.longLabel(day, calendar: calendar)]
             if activity.seconds > 0 {
                 parts.append(ProgressAggregator.durationText(activity.seconds))
@@ -110,7 +121,7 @@ public struct AnnualRecap: Sendable, Equatable {
                 parts.append(goalReached ? "目标达成" : "未达目标")
                 parts.append("任务 \(tasksDone) / \(tasksTotal)")
             }
-            return parts.joined(separator: " · ")
+            return parts
         }
     }
 

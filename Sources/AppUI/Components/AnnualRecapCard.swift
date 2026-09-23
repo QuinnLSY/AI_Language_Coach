@@ -79,10 +79,14 @@ public struct AnnualRecapCard: View {
     @Environment(\.forestTheme) private var theme
     let recap: AnnualRecap
 
-    /// 鼠标悬停的那天（跟着走）。
-    @State private var hovered: Date?
+    /// 鼠标悬停的那天 + 落点（跟着走）。
+    private struct Focus: Equatable {
+        var day: Date
+        var point: CGPoint
+    }
+    @State private var hovered: Focus?
     /// 点住的那天（点一下把明细留在卡片上，不被鼠标移开冲掉）。
-    @State private var pinned: Date?
+    @State private var pinned: Focus?
 
     public init(recap: AnnualRecap) { self.recap = recap }
 
@@ -90,7 +94,12 @@ public struct AnnualRecapCard: View {
 
     /// 当前要解释的那一格：优先「点住的」，其次「悬停的」。
     private var focused: AnnualRecap.Cell? {
-        cell(on: pinned) ?? cell(on: hovered)
+        cell(on: pinned?.day) ?? cell(on: hovered?.day)
+    }
+
+    /// 浮卡该出现在哪：与 `focused` 同源（点住用点下时的落点，悬停用鼠标位置）。
+    private var anchorPoint: CGPoint? {
+        pinned?.point ?? hovered?.point
     }
 
     private func cell(on day: Date?) -> AnnualRecap.Cell? {
@@ -157,7 +166,9 @@ public struct AnnualRecapCard: View {
                     .onContinuousHover { phase in
                         switch phase {
                         case .active(let point):
-                            hovered = day(at: point, width: proxy.size.width)
+                            hovered = day(at: point, width: proxy.size.width).map {
+                                Focus(day: $0, point: point)
+                            }
                         case .ended:
                             hovered = nil
                         }
@@ -167,10 +178,35 @@ public struct AnnualRecapCard: View {
                         // 后者在 macOS 上不给点击位置，没法知道点的是哪一格。
                         DragGesture(minimumDistance: 0)
                             .onEnded { value in
-                                let tapped = day(at: value.location, width: proxy.size.width)
-                                pinned = (tapped != nil && tapped == pinned) ? nil : tapped
+                                if let tapped = day(at: value.location, width: proxy.size.width),
+                                   tapped == pinned?.day {
+                                    pinned = nil
+                                } else if let tapped = day(at: value.location, width: proxy.size.width) {
+                                    pinned = Focus(day: tapped, point: value.location)
+                                } else {
+                                    pinned = nil
+                                }
                             }
                     )
+                    // #5：当日明细浮卡 —— 列式、逐条展示，出现在鼠标旁、
+                    // 钳在卡片边界内。`allowsHitTesting(false)`：浮卡绝不抢命中，
+                    // 否则它会盖住下面的格子，鼠标一动悬停就断了。
+                    .overlay(alignment: .topLeading) {
+                        if let focused, let anchor = anchorPoint {
+                            let lines = focused.detailLines()
+                            let size = CGSize(
+                                width: AnnualDayDetailCard.width,
+                                height: AnnualDayDetailCard.estimatedHeight(lines: lines.count)
+                            )
+                            let origin = AnnualTooltipPlacement.origin(
+                                mouse: anchor, containerSize: proxy.size, tooltipSize: size
+                            )
+                            AnnualDayDetailCard(lines: lines)
+                                .offset(x: origin.x, y: origin.y)
+                                .allowsHitTesting(false)
+                                .transition(.opacity)
+                        }
+                    }
             }
         }
     }
@@ -282,11 +318,11 @@ public struct AnnualRecapCard: View {
 
             Spacer(minLength: 8)
 
-            // 有焦点就说那一天，没有就说这一年 —— 同一行位置切换，
-            // 不给卡片额外长高（鼠标一划整页跳一下是最糟的）。
-            Text(focused?.detailText() ?? recap.summaryText)
+            // #5 起当日明细改在悬停浮卡里逐条展示（一行式会被截断）；
+            // footer 恒定说这一年，不再跟着焦点切换。
+            Text(recap.summaryText)
                 .font(.system(size: 10, design: .rounded))
-                .foregroundStyle(focused == nil ? theme.secondaryText : theme.primaryText)
+                .foregroundStyle(theme.secondaryText)
                 .monospacedDigit()
                 .lineLimit(1)
                 .truncationMode(.middle)
