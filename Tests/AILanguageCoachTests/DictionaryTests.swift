@@ -280,13 +280,18 @@ final class DictionaryTests: XCTestCase {
 
     // MARK: - 词典库（删 / 恢复 / 优先级）
 
+    /// 造四本书（含词组书）—— 顺序刻意打乱，好让「排序」这条逻辑真的被考到。
     private func books() -> [DictionaryBook] {
         [
             DictionaryBook(id: "builtin.ielts", name: "雅思标准词", entryCount: 145, coverStyle: .forest),
             DictionaryBook(id: "builtin.cet6", name: "六级核心词汇", entryCount: 297, coverStyle: .ocean),
             DictionaryBook(id: "builtin.oxford", name: "牛津核心词", entryCount: 248, coverStyle: .sunset),
+            DictionaryBook(id: DictionaryCatalog.phraseBookID, name: "常用搭配", entryCount: 1032, coverStyle: .plum),
         ]
     }
+
+    /// 词组书 id 的便捷写法（测试里到处要传它）。
+    private var phraseBookID: String { DictionaryCatalog.phraseBookID }
 
     func testTogglingSourceAssignsAndRenumbersRanks() {
         var library = DictionaryLibrary.empty
@@ -308,7 +313,7 @@ final class DictionaryTests: XCTestCase {
         library = DictionaryLibrary.removing("builtin.ielts", from: library)
         XCTAssertNil(library.rank(of: "builtin.ielts"))
         XCTAssertEqual(library.rank(of: "builtin.cet6"), 1)
-        XCTAssertEqual(library.visibleBooks(builtIns: books()).count, 2)
+        XCTAssertEqual(library.visibleBooks(builtIns: books()).count, 3)
         XCTAssertEqual(library.restorableBuiltIns(builtIns: books()).map(\.id), ["builtin.ielts"])
     }
 
@@ -316,32 +321,71 @@ final class DictionaryTests: XCTestCase {
         var library = DictionaryLibrary.empty
         library = DictionaryLibrary.removing("builtin.ielts", from: library)
         library = DictionaryLibrary.removing("builtin.cet6", from: library)
-        XCTAssertEqual(library.visibleBooks(builtIns: books()).count, 1)
+        XCTAssertEqual(library.visibleBooks(builtIns: books()).count, 2)
         library = DictionaryLibrary.restoringBuiltIns(library)
-        XCTAssertEqual(library.visibleBooks(builtIns: books()).count, 3)
+        XCTAssertEqual(library.visibleBooks(builtIns: books()).count, 4)
         XCTAssertTrue(library.restorableBuiltIns(builtIns: books()).isEmpty)
     }
 
     func testSourceBookIDsFollowsPriorityThenFallsBackToAll() {
         var library = DictionaryLibrary.empty
-        // 一本都没勾：全部可见词典都参与（否则「没勾 → 每日推荐空了」会被当成坏掉）。
+        // 一本都没勾：全部可见词典都参与（否则「没勾 → 每日推荐空了」会被当成坏掉），
+        // 但**词组书排最前** —— 它只含词组档词条，排最前就等于「词组档由它供货」。
         XCTAssertEqual(
-            library.sourceBookIDs(builtIns: books()),
-            ["builtin.cet6", "builtin.oxford", "builtin.ielts"],
-            "兜底顺序用 localizedCompare 按名字排：六(liu) < 牛(niu) < 雅(ya)"
+            library.sourceBookIDs(builtIns: books(), phraseBookID: phraseBookID),
+            [phraseBookID, "builtin.cet6", "builtin.oxford", "builtin.ielts"],
+            "词组书排最前；其余兜底顺序按 localizedCompare 按名字排：六(liu) < 牛(niu) < 雅(ya)"
         )
+        // 显式勾选仍然压过那条兜底规则（用户的排序是他的意思表示）。
         library = DictionaryLibrary.togglingSource("builtin.oxford", in: library)
-        XCTAssertEqual(library.sourceBookIDs(builtIns: books()), ["builtin.oxford"])
+        XCTAssertEqual(
+            library.sourceBookIDs(builtIns: books(), phraseBookID: phraseBookID),
+            ["builtin.oxford"]
+        )
         library = DictionaryLibrary.togglingSource("builtin.cet6", in: library)
-        XCTAssertEqual(library.sourceBookIDs(builtIns: books()), ["builtin.oxford", "builtin.cet6"])
+        XCTAssertEqual(
+            library.sourceBookIDs(builtIns: books(), phraseBookID: phraseBookID),
+            ["builtin.oxford", "builtin.cet6"]
+        )
     }
 
-    func testSearchOrderPutsPriorityBooksFirst() {
+    func testSearchOrderPutsPriorityBooksFirstAndPhraseBookNext() {
         var library = DictionaryLibrary.empty
         library = DictionaryLibrary.togglingSource("builtin.cet6", in: library)
-        let ordered = library.searchOrder(builtIns: books()).map(\.id)
+        let ordered = library.searchOrder(builtIns: books(), phraseBookID: phraseBookID).map(\.id)
         XCTAssertEqual(ordered.first, "builtin.cet6", "被选作词源的词典排在最前，同名词优先归它")
+        XCTAssertEqual(ordered.dropFirst().first, phraseBookID, "其次才是词组书")
         XCTAssertEqual(Set(ordered), Set(books().map(\.id)))
+        // ⚠️ 「同优先级里词组书排最前」这条**不在这里**断言：真实书名「常用搭配」(chang)
+        // 本来就排在六/牛/雅前面，撤掉规则这条也会绿 —— 那是假绿。
+        // 规则本身由 `testPhraseBookHoistIsIndependentOfItsName` 用名字排最后的书单来钉。
+    }
+
+    /// 「词组书排最前」是一条**显式规则**，不是碰巧它的名字排在前面。
+    ///
+    /// 真实书名「常用搭配」（拼音 chang）恰好排在「六级」「牛津」「雅思」前面 ——
+    /// 光靠名字就分不清规则有没有生效，改个名更会静默失效。这条用一个
+    /// **名字排在最后**的假书单把规则单独钉住：给 id 就提上来，不给 id 就按名字沉底。
+    func testPhraseBookHoistIsIndependentOfItsName() {
+        let phraseBookSortsLast = [
+            DictionaryBook(id: "builtin.phrases", name: "自用词表", entryCount: 1),
+            DictionaryBook(id: "builtin.other", name: "常用词", entryCount: 1),
+        ]
+        let library = DictionaryLibrary.empty
+        XCTAssertEqual(
+            library.sourceBookIDs(builtIns: phraseBookSortsLast, phraseBookID: nil),
+            ["builtin.other", "builtin.phrases"],
+            "没有词组书概念时纯按名字排，它落在最后"
+        )
+        XCTAssertEqual(
+            library.sourceBookIDs(builtIns: phraseBookSortsLast, phraseBookID: "builtin.phrases"),
+            ["builtin.phrases", "builtin.other"],
+            "给了 id 就该把它提上来 —— 与名字无关"
+        )
+        XCTAssertEqual(
+            library.searchOrder(builtIns: phraseBookSortsLast, phraseBookID: "builtin.phrases").map(\.id),
+            ["builtin.phrases", "builtin.other"]
+        )
     }
 
     func testDroppingImportedBookRemovesItEntirely() {
@@ -414,6 +458,34 @@ final class DictionaryTests: XCTestCase {
 
     func testMatcherIgnoresEmptyQuery() {
         XCTAssertTrue(DictionaryMatcher.match("   ", in: words()).isEmpty)
+    }
+
+    /// 多词查询里**单词词条连候选都进不来** —— 这是匹配尺的结构性结果，不是排名里的一条规则。
+    ///
+    /// `FuzzyWordMatch.score` 比的是「词条的 word 是否全等 / 前缀 / 包含查询串」：
+    /// 查询串自身带空格时，不含空格的词条既不可能全等，也不可能前缀或子串命中 ——
+    /// 0/1/2 三档全都够不到，只剩「中文释义里含这串」那一档（3），天然排在词组后面。
+    /// 所以「多词查询优先多词词条」**不需要在 `rank` 里再加一条规则**（`DictionaryMatcher`
+    /// 的注释也是这么写的，这里把它变成可执行的证据）。
+    ///
+    /// 这条测试钉住的是这个结构：一旦有人把匹配尺改成「任一词元命中」
+    /// （听起来很合理的一次「优化」，例如让 `get` 也能搜到 `get up`），
+    /// `give` / `up` 会立刻作为候选冒出来，下面的断言变红。
+    func testMultiWordQueryKeepsPhrasesAheadOfSingleWords() {
+        let pool = [
+            DictionaryWord(word: "give", translation: "给", bookID: "w"),
+            DictionaryWord(word: "up", translation: "向上", bookID: "w"),
+            DictionaryWord(word: "give up", translation: "放弃；停止", difficulty: 4, bookID: phraseBookID),
+            DictionaryWord(word: "give up on", translation: "对…不再抱希望", difficulty: 4, bookID: phraseBookID),
+        ]
+        let matched = DictionaryMatcher.match("give up", in: pool)
+
+        XCTAssertEqual(matched.first?.word, "give up", "全等命中的词组必须排第一")
+        XCTAssertEqual(matched.map(\.word), ["give up", "give up on"], "同分数里短的在前")
+        XCTAssertFalse(
+            matched.contains { !$0.word.contains(" ") },
+            "多词查询不该把单词词条拉进候选：\(matched.map(\.word))"
+        )
     }
 
     // MARK: - 跳转历史
@@ -566,12 +638,12 @@ final class DictionaryTests: XCTestCase {
 
     func testBuiltInDictionariesArePresentAndFilled() {
         let books = DictionaryCatalog.builtInBooks
-        XCTAssertEqual(books.count, 3, "牛津 / 六级 / 雅思三本内置词典")
+        XCTAssertEqual(books.count, 4, "搭配 / 雅思 / 六级 / 牛津四本内置词典")
         for book in books {
             XCTAssertGreaterThan(book.entryCount, 100, "「\(book.name)」词条太少了")
             XCTAssertFalse(book.coverLabel.isEmpty, "封面上的书脊字不能空")
         }
-        XCTAssertEqual(Set(books.map(\.id)).count, 3, "id 必须唯一")
+        XCTAssertEqual(Set(books.map(\.id)).count, 4, "id 必须唯一")
 
         let words = DictionaryCatalog.allWords
         XCTAssertGreaterThan(words.count, 500)
@@ -586,6 +658,47 @@ final class DictionaryTests: XCTestCase {
         XCTAssertTrue(words.contains { $0.difficulty == 4 }, "词库里要有词组档")
     }
 
+    /// 词组书：**独立成册**，且里面只放词组。
+    ///
+    /// 这本书有两个身份：查词组时它是首选词源（`searchOrder` 排最前），
+    /// 每日推荐的字组档由它供货。所以它必须能被认出来（`kind == .phrases`），
+    /// 且不接受任何单字词条混进来 —— 混进来的单字会去挤别的档位的配额。
+    func testPhraseBookIsRegisteredAndHoldsOnlyPhrases() throws {
+        let specs = DictionaryCatalog.specs
+        let phraseSpecs = specs.filter { $0.kind == .phrases }
+        XCTAssertEqual(phraseSpecs.count, 1, "词组书只能有一本，否则排序规则会打架")
+        let spec = try XCTUnwrap(phraseSpecs.first)
+        XCTAssertEqual(spec.id, DictionaryCatalog.phraseBookID)
+        XCTAssertEqual(DictionaryCatalog.phraseBook?.id, spec.id)
+        XCTAssertEqual(Set(specs.map(\.id)).count, specs.count, "四本书的 id 不能重")
+
+        let words = DictionaryCatalog.words(bookID: spec.id)
+        XCTAssertGreaterThan(words.count, 800, "词组书只有 \(words.count) 条，撑不住每天 2 个的配额")
+        XCTAssertTrue(words.allSatisfy { $0.word.contains(" ") }, "词组书里混进了单字词条")
+        XCTAssertTrue(words.allSatisfy { $0.difficulty == 4 }, "词组书里混进了非词组档")
+        XCTAssertTrue(words.allSatisfy { !$0.translation.isEmpty }, "有条目没释义")
+        XCTAssertEqual(Set(words.map { $0.word.lowercased() }).count, words.count, "有重复词条")
+        XCTAssertTrue(
+            words.contains { $0.word == "give up" },
+            "最基础的短语动词都缺，说明资源没打进包里"
+        )
+        XCTAssertTrue(words.contains { $0.word == "of course" })
+    }
+
+    /// 词组档能撑多久：**每天 2 个**的配额不该在可见范围内见底。
+    ///
+    /// 这条是这次做词组书的**起因**：以前三本词书里 `difficulty == 4` 的去重后只有
+    /// 49 条，24 天见底，之后口径悄悄变成「说好每天 2 个词组，怎么变成别的词了」。
+    func testPhraseQuotaIsCoveredForAYear() {
+        let phrases = Set(
+            DictionaryCatalog.allWords
+                .filter { $0.difficulty == DailyWordPicker.phraseDifficulty }
+                .map { $0.word.lowercased() }
+        )
+        let days = phrases.count / (DailyWordPicker.quota[DailyWordPicker.phraseDifficulty] ?? 1)
+        XCTAssertGreaterThan(days, 365, "词组档只有 \(phrases.count) 条 ≈ \(days) 天，配额会见底")
+    }
+
     func testBuiltInWordsCarryPartOfSpeechAndChinese() throws {
         let entry = try XCTUnwrap(
             DictionaryCatalog.allWords.first { $0.word == "abandon" },
@@ -596,16 +709,20 @@ final class DictionaryTests: XCTestCase {
         XCTAssertEqual(entry.detailText, "\(entry.pos) \(entry.translation)")
     }
 
-    /// 词库要**真够大**：它是「每日推荐」的选词池，几百个示例词撑不起每天抽一组。
-    func testBuiltInDictionariesAreRealWordBanks() {
-        for book in DictionaryCatalog.builtInBooks {
-            XCTAssertGreaterThan(
-                book.entryCount, 1000,
-                "「\(book.name)」只有 \(book.entryCount) 条，达不到词典的规模"
-            )
+    /// 词书要**真够大**：它是「每日推荐」的选词池，几百个示例词撑不起每天抽一组。
+    ///
+    /// ⚠️ 只对**词书**（`.words`）要求这个规模：词组书另有一套判据
+    /// （见 `testPhraseBookIsRegisteredAndHoldsOnlyPhrases`），它的 1000 条
+    /// 是「固定搭配全集的规模」，与「词书该有多少词」不是同一把尺。
+    func testBuiltInWordBanksAreRealWordBanks() {
+        let wordBooks = DictionaryCatalog.specs.filter { $0.kind == .words }
+        XCTAssertEqual(wordBooks.count, 3)
+        for spec in wordBooks {
+            let count = DictionaryCatalog.words(bookID: spec.id).count
+            XCTAssertGreaterThan(count, 1000, "「\(spec.name)」只有 \(count) 条，达不到词典的规模")
         }
         let total = DictionaryCatalog.allWords.count
-        XCTAssertGreaterThan(total, 5000, "三本合计只有 \(total) 条")
+        XCTAssertGreaterThan(total, 5000, "四本合计只有 \(total) 条")
     }
 
     /// 词库里不收**虚词**（冠词 / 代词 / 助动词 / 基本介词 / 基本连词 / 数词）。
@@ -644,6 +761,96 @@ final class DictionaryTests: XCTestCase {
         XCTAssertEqual(phrase.difficulty, 4)
     }
 
+    // MARK: - 词组书接线（推荐 / 查找都优先）
+
+    /// 造一个用临时目录的词典库仓库（不碰用户真实数据）。
+    private func makeStore(_ label: String) throws -> (DictionaryBookStore, URL) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dict-\(label)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let store = DictionaryBookStore(
+            fileURL: directory.appendingPathComponent("dictionaries.json"),
+            booksDirectory: directory.appendingPathComponent("books", isDirectory: true)
+        )
+        return (store, directory)
+    }
+
+    /// 每日推荐的字组档**必须由词组书供货**。
+    ///
+    /// 走的是真实的 `DictionaryBookStore.recommendationPools()`（不是直接调领域层函数），
+    /// 所以链路上任何一环把词组书 id 漏传出去，这条都会红 —— 这正是要守的地方：
+    /// 漏传不会报错，只会让「词组」那一档悄悄回到词书里那几十条上。
+    func testPhraseQuotaIsSuppliedByThePhraseBook() async throws {
+        let (store, directory) = try makeStore("phrase-quota")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let phraseBookWords = Set(
+            DictionaryCatalog.words(bookID: DictionaryCatalog.phraseBookID).map(\.word)
+        )
+        XCTAssertFalse(phraseBookWords.isEmpty, "词组书资源没读出来")
+
+        let pools = await store.recommendationPools()
+        let first = try XCTUnwrap(pools.first, "第一本词源应当是词组书")
+        XCTAssertFalse(first.isEmpty)
+        XCTAssertTrue(
+            first.allSatisfy { $0.difficulty == DailyWordPicker.phraseDifficulty },
+            "排在最前的是词组书，它里面只能有词组档词条"
+        )
+        XCTAssertTrue(first.allSatisfy { phraseBookWords.contains($0.word) })
+
+        // 真抽一组：词组那 2 个名额必须落在词组书上。
+        let picked = DailyWordPicker.pick(fromSources: pools, seed: 42)
+        let want = try XCTUnwrap(DailyWordPicker.quota[DailyWordPicker.phraseDifficulty])
+        let phrasePicks = picked.filter { $0.difficulty == DailyWordPicker.phraseDifficulty }
+        XCTAssertEqual(phrasePicks.count, want)
+        XCTAssertTrue(
+            phrasePicks.allSatisfy { phraseBookWords.contains($0.word) },
+            "词组名额被词书里的旧词组占走了：\(phrasePicks.map(\.word))"
+        )
+    }
+
+    /// 查词组**优先命中词组书**：同一个词条同时长在导入词典与词组书里时，归词组书。
+    ///
+    /// 机制说明：`searchableWords()` 按 `searchOrder` 逐本去重，词组书排最前 ⇒
+    /// 搜索池里根本不会有第二份，所以不需要在匹配打分里再加一条「词组优先」。
+    ///
+    /// ⚠️ 这本对手词典**故意起名为「阿萨词典」**（拼音 a，排在「常用搭配」chang 之前）：
+    /// 若拿「对手词典」(dui) 这种排在后面的名字，就算词组书那条规则没生效，
+    /// 它也会因为名字靠前而恰好胜出 —— 测试会**假绿**（反证时实测过）。
+    func testLookupPrefersThePhraseBookForTheSamePhrase() async throws {
+        let (store, directory) = try makeStore("phrase-lookup")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        // 造一本「对手词典」，故意也收 `give up`，释义与词组书不同。
+        let rival = directory.appendingPathComponent("rival.json")
+        try Data(#"[{"word":"give up","pos":"v.","zh":"对手词典的释义"}]"#.utf8).write(to: rival)
+        let imported = try await store.importBook(from: rival, name: "阿萨词典")
+
+        let found = await store.searchableWords()
+        let hits = found.filter { $0.word.lowercased() == "give up" }
+        XCTAssertEqual(hits.count, 1, "同一个词条在搜索池里只该有一份")
+        XCTAssertEqual(
+            hits.first?.bookID, DictionaryCatalog.phraseBookID,
+            "同名词条要归词组书 —— 这就是「查词组优先从词组书匹配」"
+        )
+        XCTAssertNotEqual(hits.first?.bookID, imported.id)
+
+        // 再走一遍真正的搜索入口（不只看池子）。
+        let phraseBookGiveUp = DictionaryCatalog.words(bookID: DictionaryCatalog.phraseBookID)
+            .first { $0.word.lowercased() == "give up" }
+        let matched = DictionaryMatcher.match("give up", in: found)
+        XCTAssertEqual(matched.first?.word.lowercased(), "give up")
+        XCTAssertEqual(matched.first?.bookID, DictionaryCatalog.phraseBookID)
+        XCTAssertEqual(matched.first?.translation, phraseBookGiveUp?.translation)
+
+        // 反过来：把词组书删掉，这段结论就不成立了 —— 证明归一确实是词组书带来的，
+        // 不是碰巧排到了前面。
+        _ = try await store.removeBook(id: DictionaryCatalog.phraseBookID)
+        let withoutPhraseBook = await store.searchableWords()
+        let fallback = withoutPhraseBook.first { $0.word.lowercased() == "give up" }
+        XCTAssertEqual(fallback?.bookID, imported.id, "没有词组书时才会轮到导入的那本")
+    }
+
     // MARK: - 词典库仓库（落盘）
 
     func testBookStorePersistsLibraryStateAndImportedWords() async throws {
@@ -680,7 +887,7 @@ final class DictionaryTests: XCTestCase {
         let reopenedWords = await reopened.words(bookID: imported.id).map(\.word)
         let visibleCount = await reopened.visibleBooks.count
         XCTAssertEqual(reopenedWords, ["nominal", "diesel"])
-        XCTAssertEqual(visibleCount, 3, "三本内置去掉一本 + 一本导入")
+        XCTAssertEqual(visibleCount, 4, "四本内置去掉一本 + 一本导入")
 
         // 搜索能同时搜到内置与导入的词（且按优先级排序：导入那本被勾成词源，排最前）。
         let found = await reopened.searchableWords()
@@ -719,7 +926,7 @@ final class DictionaryTests: XCTestCase {
         let importedCount = await store.state.importedBooks.count
         let visibleCount = await store.visibleBooks.count
         XCTAssertEqual(importedCount, 0)
-        XCTAssertEqual(visibleCount, 3, "导入失败不该影响已有词典")
+        XCTAssertEqual(visibleCount, 4, "导入失败不该影响已有词典")
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -732,9 +939,11 @@ final class DictionaryTests: XCTestCase {
             booksDirectory: directory.appendingPathComponent("books", isDirectory: true)
         )
 
-        // 默认（一本都没勾）→ 三本都参与。
+        // 默认（一本都没勾）→ 四本都参与，且**词组书排最前**。
         let defaultPools = await store.recommendationPools()
-        XCTAssertEqual(defaultPools.count, 3)
+        XCTAssertEqual(defaultPools.count, 4)
+        let firstBookID = await store.searchOrder.first?.id
+        XCTAssertEqual(firstBookID, DictionaryCatalog.phraseBookID, "默认词源第一本是词组书")
         _ = try await store.toggleSource(id: "builtin.oxford")
         let pools = await store.recommendationPools()
         let oxfordWords = await store.words(bookID: "builtin.oxford")

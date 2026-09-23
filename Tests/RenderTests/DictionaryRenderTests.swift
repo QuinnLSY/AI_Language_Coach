@@ -435,7 +435,11 @@ final class DictionaryRenderTests: XCTestCase {
         // 否则两次抓图可能一次在加载前、一次在加载后，差分全是假的。
         await state.openDictionary()
         XCTAssertEqual(state.dictionaryMode, .search, "从侧边栏进来默认是「查单词」")
-        XCTAssertEqual(state.dictionaryBooks.count, 3, "三本内置词典应当就位")
+        XCTAssertEqual(state.dictionaryBooks.count, 4, "四本内置词典应当就位（含词组书）")
+        XCTAssertEqual(
+            state.dictionaryBooks.first?.id, DictionaryCatalog.phraseBookID,
+            "词组书排在最前（它是词组档的词源，查找也优先归它）"
+        )
 
         // 差分两边都用日间主题：否则「背景色变了」也会被算成「内容变了」。
         let search = try render(AnyView(DictionaryView(state: state)), day: true, width: 780)

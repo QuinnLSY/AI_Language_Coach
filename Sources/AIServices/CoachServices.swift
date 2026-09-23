@@ -1925,7 +1925,8 @@ public actor CoachServices {
     /// 抽一组每日推荐词（3 简单 / 5 中等 / 2 困难 / 2 词组；本地选词，不调模型）。
     ///
     /// **词源来自词典库**：按用户选定的优先级顺序取词（没勾选任何词典时 =
-    /// 全部可见词典按名字排，见 `DictionaryLibrary.sourceBookIDs`）。
+    /// 全部可见词典，**词组书排最前**，见 `DictionaryLibrary.sourceBookIDs`）——
+    /// 词组书只含词组档词条，所以「词组 2 个」这条配额默认由它供货。
     /// 词典库被清空（一本书都没有）时才退回随包词库 —— 单本入口的意义就在这里。
     ///
     /// - Parameter seed: 给了就**按天恒定**（`DailySeed.seed(dayKey:language:)`）：

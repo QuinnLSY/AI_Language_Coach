@@ -47,10 +47,13 @@ public actor DictionaryService {
 
     public func allBooks() async -> [DictionaryBook] { await store.allBooks }
 
-    /// 今日推荐词源（按优先级排序的词典 id）。
+    /// 今日推荐词源（按优先级排序的词典 id；词组书默认排最前）。
     public func sourceBookIDs() async -> [String] {
         let state = await store.state
-        return state.sourceBookIDs(builtIns: await store.builtInBooks)
+        return state.sourceBookIDs(
+            builtIns: await store.builtInBooks,
+            phraseBookID: DictionaryCatalog.phraseBookID
+        )
     }
 
     public func rank(of bookID: String) async -> Int? { await store.state.rank(of: bookID) }

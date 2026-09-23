@@ -4,12 +4,24 @@ import Foundation
 
 // MARK: - 内置词典目录
 
-/// 随包内置的三本词典（牛津核心 / 六级核心 / 雅思标准）。
+/// 随包内置的四本书（牛津核心 / 六级核心 / 雅思标准 / 常用搭配）。
 ///
 /// 词条**只从资源文件读**，代码零字面量：补词 / 改中文只改
 /// `Resources/Dictionaries/*.json`。生成脚本见 `Scripts/build_dictionaries.py`
-/// （音标由离线 IPA 词典统一生成，不手写）。
+/// （词书，音标由离线 IPA 词典统一生成，不手写）与 `Scripts/build_phrase_book.py`
+/// （词组书，多词短语不生成音标）。
 public enum DictionaryCatalog {
+
+    /// 一本书是**词书**还是**词组书**。
+    ///
+    /// ⚠️ 词组书不是「多了一本词书」：它只收多词搭配（`difficulty` 全是 4），
+    /// 每日推荐的字组档靠它供货、查词组也优先归它。UI 文案与测试都要能分辨这两类，
+    /// 所以做成**数据**而不是散落各处的字符串比较（那种写法会在改名时静默失效）。
+    /// 注意 `Spec` 不进 `UserDefaults`（只有 `DictionaryBook` 进），所以加字段零兼容风险。
+    public enum BookKind: Sendable, Equatable {
+        case words
+        case phrases
+    }
 
     /// 一本书的固定信息（词条数在加载后才知道）。
     public struct Spec: Sendable, Equatable {
@@ -19,9 +31,22 @@ public enum DictionaryCatalog {
         public var coverLabel: String
         public var subtitle: String
         public var coverStyle: DictionaryBook.CoverStyle
+        public var kind: BookKind = .words
     }
 
+    /// 词组书的 id（推荐兜底排序与查找去重都要用它，别再写字面量）。
+    public static let phraseBookID = "builtin.phrases"
+
     public static let specs: [Spec] = [
+        Spec(
+            id: phraseBookID,
+            file: "phrases",
+            name: "常用搭配",
+            coverLabel: "搭配",
+            subtitle: "固定搭配与常用词组",
+            coverStyle: .plum,
+            kind: .phrases
+        ),
         Spec(
             id: "builtin.ielts",
             file: "ielts",
@@ -47,6 +72,11 @@ public enum DictionaryCatalog {
             coverStyle: .sunset
         ),
     ]
+
+    /// 词组书（`kind == .phrases` 的那本）。
+    public static var phraseBook: Spec? {
+        specs.first { $0.kind == .phrases }
+    }
 
     /// 内置词典的元数据（词条数来自实际加载结果）。
     public static var builtInBooks: [DictionaryBook] {
@@ -162,9 +192,9 @@ public actor DictionaryBookStore {
         library.allBooks(builtIns: builtInBooks)
     }
 
-    /// 搜索用的书序（优先级高的在前）。
+    /// 搜索用的书序（优先级高的在前，词组书在同优先级里排最前）。
     public var searchOrder: [DictionaryBook] {
-        library.searchOrder(builtIns: builtInBooks)
+        library.searchOrder(builtIns: builtInBooks, phraseBookID: DictionaryCatalog.phraseBookID)
     }
 
     /// 某本书的词条（内置查资源 / 导入查文件，都走缓存）。
@@ -180,7 +210,12 @@ public actor DictionaryBookStore {
 
     /// 可见词典的全部词条，按搜索顺序拼接（同名词先出现的是优先级高的那本）。
     ///
-    /// 结果缓存：词库是几千条的规模，而搜索框**每敲一个键**都会走这里。
+    /// ⚠️ **这里是「查词组优先从词组书匹配」真正生效的地方**：词组书在 `searchOrder`
+    /// 的同优先级里排最前，而这里按该顺序**逐本去重**，于是同一个词条只会留下词组书
+    /// 那一份（内嵌在词书里的 `give up` 这类会被挡掉），查找与每日推荐就都落在词组书上。
+    /// 所以不需要在匹配打分里再加一条「词组优先」—— 池子里根本没有第二份可争。
+    ///
+    /// 结果缓存：词库是上万条的规模，而搜索框**每敲一个键**都会走这里。
     /// 缓存失效只有一条路 —— `persist()`（所有会改变可见书 / 优先级的写操作都经过它）。
     public func searchableWords() -> [DictionaryWord] {
         if let cached = searchableCache { return cached }
@@ -196,10 +231,10 @@ public actor DictionaryBookStore {
         return result
     }
 
-    /// 每日推荐的选词池（按优先级排序，一本一个池子）。
+    /// 每日推荐的选词池（按优先级排序，一本一个池子；词组书默认排最前）。
     public func recommendationPools() -> [[DailyWord]] {
         let books = visibleBooks
-        let ids = library.sourceBookIDs(builtIns: builtInBooks)
+        let ids = library.sourceBookIDs(builtIns: builtInBooks, phraseBookID: DictionaryCatalog.phraseBookID)
         return ids.compactMap { id in
             guard books.contains(where: { $0.id == id }) else { return nil }
             return words(bookID: id).map(\.dailyWord)

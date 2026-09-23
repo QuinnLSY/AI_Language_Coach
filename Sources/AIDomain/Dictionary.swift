@@ -209,26 +209,42 @@ public struct DictionaryLibrary: Sendable, Equatable, Codable {
 
     /// 搜索用的书序：被选作词源的按名次在前，其余按名字排。
     /// 同名词优先归到排名靠前的那本，让「优先级」在搜索结果里也生效。
-    public func searchOrder(builtIns: [DictionaryBook]) -> [DictionaryBook] {
+    ///
+    /// - Parameter phraseBookID: 词组书（只收多词搭配的那本）的 id，没有就传 nil。
+    ///   ⚠️ **刻意不给默认值**：这是「查词组优先从词组书匹配」这条口径的唯一接线点。
+    ///   之所以把词组书排前就能生效，是因为 `searchableWords()` 是**按这个顺序逐本去重**的
+    ///   —— 排在最前 ⇒ 同一个词条只有词组书那一份进搜索池，查找与推荐就都落在它身上。
+    ///   漏传不会报错，只会让词组悄悄回到旧词书那几十条上，所以宁可让调用点编译不过。
+    public func searchOrder(builtIns: [DictionaryBook], phraseBookID: String?) -> [DictionaryBook] {
         let books = visibleBooks(builtIns: builtIns)
         return books.sorted { lhs, rhs in
             let left = priority[lhs.id] ?? Int.max
             let right = priority[rhs.id] ?? Int.max
             if left != right { return left < right }
+            // 同优先级里词组书在前（用户显式排的名次仍然优先于这一条）。
+            if (lhs.id == phraseBookID) != (rhs.id == phraseBookID) { return lhs.id == phraseBookID }
             return lhs.name.localizedCompare(rhs.name) == .orderedAscending
         }
     }
 
     /// 每日推荐的词源（按优先级排序的词典 id）。
     ///
+    /// - Parameter phraseBookID: 词组书 id，没有传 nil（口径见 `searchOrder`）。
+    ///
     /// ⚠️ 一本都没勾选时**退化为全部可见词典**：否则「没勾 → 每日推荐空了」会被当成坏掉。
-    public func sourceBookIDs(builtIns: [DictionaryBook]) -> [String] {
+    /// 兜底顺序里**词组书排最前**：它只含词组档词条，排最前 = 词组档由它供货，
+    /// 其余档位一条都不受影响（它压根没有那些档的词）。排在后面的话，
+    /// 词组档会被旧词书里那几十条先占满 —— 那正是词组书要解决的问题。
+    public func sourceBookIDs(builtIns: [DictionaryBook], phraseBookID: String?) -> [String] {
         let books = visibleBooks(builtIns: builtIns)
         let selected = books
             .filter { priority[$0.id] != nil }
             .sorted { (priority[$0.id] ?? 0, $0.name) < (priority[$1.id] ?? 0, $1.name) }
         if !selected.isEmpty { return selected.map(\.id) }
-        return books.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }.map(\.id)
+        return books.sorted { lhs, rhs in
+            if (lhs.id == phraseBookID) != (rhs.id == phraseBookID) { return lhs.id == phraseBookID }
+            return lhs.name.localizedCompare(rhs.name) == .orderedAscending
+        }.map(\.id)
     }
 }
 

@@ -1,0 +1,7184 @@
+[
+  {
+    "word": "in front of",
+    "pos": "prep.",
+    "zh": "在…前面",
+    "difficulty": 4
+  },
+  {
+    "word": "in the middle of",
+    "pos": "prep.",
+    "zh": "在…中间",
+    "difficulty": 4
+  },
+  {
+    "word": "at the end of",
+    "pos": "prep.",
+    "zh": "在…结束时",
+    "difficulty": 4
+  },
+  {
+    "word": "at the beginning of",
+    "pos": "prep.",
+    "zh": "在…开始时",
+    "difficulty": 4
+  },
+  {
+    "word": "in the process of",
+    "pos": "prep.",
+    "zh": "在…过程中",
+    "difficulty": 4
+  },
+  {
+    "word": "on the basis of",
+    "pos": "prep.",
+    "zh": "在…基础上；基于",
+    "difficulty": 4
+  },
+  {
+    "word": "in case of",
+    "pos": "prep.",
+    "zh": "万一；如果发生",
+    "difficulty": 4
+  },
+  {
+    "word": "in charge of",
+    "pos": "prep.",
+    "zh": "负责；掌管",
+    "difficulty": 4
+  },
+  {
+    "word": "in need of",
+    "pos": "prep.",
+    "zh": "需要",
+    "difficulty": 4
+  },
+  {
+    "word": "in search of",
+    "pos": "prep.",
+    "zh": "寻找；寻求",
+    "difficulty": 4
+  },
+  {
+    "word": "in view of",
+    "pos": "prep.",
+    "zh": "鉴于；考虑到",
+    "difficulty": 4
+  },
+  {
+    "word": "with respect to",
+    "pos": "prep.",
+    "zh": "关于；就…而言",
+    "difficulty": 4
+  },
+  {
+    "word": "due to",
+    "pos": "prep.",
+    "zh": "由于；因为",
+    "difficulty": 4
+  },
+  {
+    "word": "thanks to",
+    "pos": "prep.",
+    "zh": "多亏；由于",
+    "difficulty": 4
+  },
+  {
+    "word": "regardless of",
+    "pos": "prep.",
+    "zh": "不管；不顾",
+    "difficulty": 4
+  },
+  {
+    "word": "apart from",
+    "pos": "prep.",
+    "zh": "除…之外",
+    "difficulty": 4
+  },
+  {
+    "word": "along with",
+    "pos": "prep.",
+    "zh": "连同；和…一起",
+    "difficulty": 4
+  },
+  {
+    "word": "for the sake of",
+    "pos": "prep.",
+    "zh": "为了…起见",
+    "difficulty": 4
+  },
+  {
+    "word": "by means of",
+    "pos": "prep.",
+    "zh": "通过…方式",
+    "difficulty": 4
+  },
+  {
+    "word": "in line with",
+    "pos": "prep.",
+    "zh": "与…一致；符合",
+    "difficulty": 4
+  },
+  {
+    "word": "in contrast to",
+    "pos": "prep.",
+    "zh": "与…形成对照",
+    "difficulty": 4
+  },
+  {
+    "word": "on account of",
+    "pos": "prep.",
+    "zh": "因为；由于",
+    "difficulty": 4
+  },
+  {
+    "word": "in place of",
+    "pos": "prep.",
+    "zh": "代替",
+    "difficulty": 4
+  },
+  {
+    "word": "in favour of",
+    "pos": "prep.",
+    "zh": "赞成；支持",
+    "difficulty": 4
+  },
+  {
+    "word": "in exchange for",
+    "pos": "prep.",
+    "zh": "交换；以…换取",
+    "difficulty": 4
+  },
+  {
+    "word": "in connection with",
+    "pos": "prep.",
+    "zh": "与…有关",
+    "difficulty": 4
+  },
+  {
+    "word": "in relation to",
+    "pos": "prep.",
+    "zh": "关于；涉及",
+    "difficulty": 4
+  },
+  {
+    "word": "in honour of",
+    "pos": "prep.",
+    "zh": "为纪念；为庆祝",
+    "difficulty": 4
+  },
+  {
+    "word": "with the help of",
+    "pos": "prep.",
+    "zh": "在…的帮助下",
+    "difficulty": 4
+  },
+  {
+    "word": "on behalf of",
+    "pos": "prep.",
+    "zh": "代表",
+    "difficulty": 4
+  },
+  {
+    "word": "at the top of",
+    "pos": "prep.",
+    "zh": "在…顶部",
+    "difficulty": 4
+  },
+  {
+    "word": "at the bottom of",
+    "pos": "prep.",
+    "zh": "在…底部",
+    "difficulty": 4
+  },
+  {
+    "word": "in the face of",
+    "pos": "prep.",
+    "zh": "面对；不顾",
+    "difficulty": 4
+  },
+  {
+    "word": "in the hope of",
+    "pos": "prep.",
+    "zh": "怀着…的希望",
+    "difficulty": 4
+  },
+  {
+    "word": "out of date",
+    "pos": "adj.",
+    "zh": "过时的；陈旧的",
+    "difficulty": 4
+  },
+  {
+    "word": "out of order",
+    "pos": "adj.",
+    "zh": "出故障的；混乱的",
+    "difficulty": 4
+  },
+  {
+    "word": "out of control",
+    "pos": "adj.",
+    "zh": "失去控制的",
+    "difficulty": 4
+  },
+  {
+    "word": "out of breath",
+    "pos": "adj.",
+    "zh": "上气不接下气的",
+    "difficulty": 4
+  },
+  {
+    "word": "out of reach",
+    "pos": "adj.",
+    "zh": "够不着的",
+    "difficulty": 4
+  },
+  {
+    "word": "up to date",
+    "pos": "adj.",
+    "zh": "最新的；跟上时代的",
+    "difficulty": 4
+  },
+  {
+    "word": "up to now",
+    "pos": "adv.",
+    "zh": "到目前为止",
+    "difficulty": 4
+  },
+  {
+    "word": "in advance",
+    "pos": "adv.",
+    "zh": "提前；预先",
+    "difficulty": 4
+  },
+  {
+    "word": "in common",
+    "pos": "adv.",
+    "zh": "共同；共有",
+    "difficulty": 4
+  },
+  {
+    "word": "in general",
+    "pos": "adv.",
+    "zh": "总的来说；大体上",
+    "difficulty": 4
+  },
+  {
+    "word": "in particular",
+    "pos": "adv.",
+    "zh": "尤其；特别是",
+    "difficulty": 4
+  },
+  {
+    "word": "in person",
+    "pos": "adv.",
+    "zh": "亲自；当面",
+    "difficulty": 4
+  },
+  {
+    "word": "in public",
+    "pos": "adv.",
+    "zh": "当众；公开地",
+    "difficulty": 4
+  },
+  {
+    "word": "in return",
+    "pos": "adv.",
+    "zh": "作为回报",
+    "difficulty": 4
+  },
+  {
+    "word": "in vain",
+    "pos": "adv.",
+    "zh": "徒劳；白费",
+    "difficulty": 4
+  },
+  {
+    "word": "in brief",
+    "pos": "adv.",
+    "zh": "简言之",
+    "difficulty": 4
+  },
+  {
+    "word": "in detail",
+    "pos": "adv.",
+    "zh": "详细地",
+    "difficulty": 4
+  },
+  {
+    "word": "in silence",
+    "pos": "adv.",
+    "zh": "沉默地",
+    "difficulty": 4
+  },
+  {
+    "word": "on purpose",
+    "pos": "adv.",
+    "zh": "故意地",
+    "difficulty": 4
+  },
+  {
+    "word": "on average",
+    "pos": "adv.",
+    "zh": "平均而言",
+    "difficulty": 4
+  },
+  {
+    "word": "on business",
+    "pos": "adv.",
+    "zh": "因公；出差",
+    "difficulty": 4
+  },
+  {
+    "word": "on duty",
+    "pos": "adv.",
+    "zh": "值班；当班",
+    "difficulty": 4
+  },
+  {
+    "word": "on sale",
+    "pos": "adv.",
+    "zh": "在售；打折",
+    "difficulty": 4
+  },
+  {
+    "word": "at last",
+    "pos": "adv.",
+    "zh": "终于；最后",
+    "difficulty": 4
+  },
+  {
+    "word": "at most",
+    "pos": "adv.",
+    "zh": "至多",
+    "difficulty": 4
+  },
+  {
+    "word": "at once",
+    "pos": "adv.",
+    "zh": "立刻；同时",
+    "difficulty": 4
+  },
+  {
+    "word": "at present",
+    "pos": "adv.",
+    "zh": "目前；现在",
+    "difficulty": 4
+  },
+  {
+    "word": "at random",
+    "pos": "adv.",
+    "zh": "随机地",
+    "difficulty": 4
+  },
+  {
+    "word": "by accident",
+    "pos": "adv.",
+    "zh": "偶然；意外地",
+    "difficulty": 4
+  },
+  {
+    "word": "by chance",
+    "pos": "adv.",
+    "zh": "碰巧",
+    "difficulty": 4
+  },
+  {
+    "word": "by mistake",
+    "pos": "adv.",
+    "zh": "错误地；无意中",
+    "difficulty": 4
+  },
+  {
+    "word": "by far",
+    "pos": "adv.",
+    "zh": "到目前为止；远为",
+    "difficulty": 4
+  },
+  {
+    "word": "by no means",
+    "pos": "adv.",
+    "zh": "决不",
+    "difficulty": 4
+  },
+  {
+    "word": "in no time",
+    "pos": "adv.",
+    "zh": "立刻；马上",
+    "difficulty": 4
+  },
+  {
+    "word": "for instance",
+    "pos": "adv.",
+    "zh": "例如",
+    "difficulty": 4
+  },
+  {
+    "word": "for good",
+    "pos": "adv.",
+    "zh": "永远；永久地",
+    "difficulty": 4
+  },
+  {
+    "word": "above all",
+    "pos": "adv.",
+    "zh": "最重要的是",
+    "difficulty": 4
+  },
+  {
+    "word": "after all",
+    "pos": "adv.",
+    "zh": "毕竟；终究",
+    "difficulty": 4
+  },
+  {
+    "word": "all in all",
+    "pos": "adv.",
+    "zh": "总的来说",
+    "difficulty": 4
+  },
+  {
+    "word": "first of all",
+    "pos": "adv.",
+    "zh": "首先",
+    "difficulty": 4
+  },
+  {
+    "word": "so far",
+    "pos": "adv.",
+    "zh": "到目前为止",
+    "difficulty": 4
+  },
+  {
+    "word": "as usual",
+    "pos": "adv.",
+    "zh": "像往常一样",
+    "difficulty": 4
+  },
+  {
+    "word": "as follows",
+    "pos": "adv.",
+    "zh": "如下",
+    "difficulty": 4
+  },
+  {
+    "word": "and so on",
+    "pos": "adv.",
+    "zh": "等等；诸如此类",
+    "difficulty": 4
+  },
+  {
+    "word": "or so",
+    "pos": "adv.",
+    "zh": "大约；左右",
+    "difficulty": 4
+  },
+  {
+    "word": "once again",
+    "pos": "adv.",
+    "zh": "再一次",
+    "difficulty": 4
+  },
+  {
+    "word": "over and over",
+    "pos": "adv.",
+    "zh": "一再；反复",
+    "difficulty": 4
+  },
+  {
+    "word": "again and again",
+    "pos": "adv.",
+    "zh": "反复地",
+    "difficulty": 4
+  },
+  {
+    "word": "little by little",
+    "pos": "adv.",
+    "zh": "一点一点地；逐渐",
+    "difficulty": 4
+  },
+  {
+    "word": "step by step",
+    "pos": "adv.",
+    "zh": "一步一步地",
+    "difficulty": 4
+  },
+  {
+    "word": "day by day",
+    "pos": "adv.",
+    "zh": "一天天；逐日",
+    "difficulty": 4
+  },
+  {
+    "word": "one by one",
+    "pos": "adv.",
+    "zh": "一个接一个地",
+    "difficulty": 4
+  },
+  {
+    "word": "side by side",
+    "pos": "adv.",
+    "zh": "并排；并肩",
+    "difficulty": 4
+  },
+  {
+    "word": "face to face",
+    "pos": "adv.",
+    "zh": "面对面",
+    "difficulty": 4
+  },
+  {
+    "word": "hand in hand",
+    "pos": "adv.",
+    "zh": "手拉手；密切关联",
+    "difficulty": 4
+  },
+  {
+    "word": "from time to time",
+    "pos": "adv.",
+    "zh": "不时；偶尔",
+    "difficulty": 4
+  },
+  {
+    "word": "now and then",
+    "pos": "adv.",
+    "zh": "偶尔；有时",
+    "difficulty": 4
+  },
+  {
+    "word": "sooner or later",
+    "pos": "adv.",
+    "zh": "迟早；早晚",
+    "difficulty": 4
+  },
+  {
+    "word": "more or less",
+    "pos": "adv.",
+    "zh": "或多或少；大约",
+    "difficulty": 4
+  },
+  {
+    "word": "more and more",
+    "pos": "adv.",
+    "zh": "越来越",
+    "difficulty": 4
+  },
+  {
+    "word": "all over the world",
+    "pos": "adv.",
+    "zh": "全世界",
+    "difficulty": 4
+  },
+  {
+    "word": "around the clock",
+    "pos": "adv.",
+    "zh": "夜以继日；全天候",
+    "difficulty": 4
+  },
+  {
+    "word": "as soon as possible",
+    "pos": "adv.",
+    "zh": "尽快",
+    "difficulty": 4
+  },
+  {
+    "word": "as a matter of fact",
+    "pos": "adv.",
+    "zh": "事实上",
+    "difficulty": 4
+  },
+  {
+    "word": "on the whole",
+    "pos": "adv.",
+    "zh": "总的来说",
+    "difficulty": 4
+  },
+  {
+    "word": "to some extent",
+    "pos": "adv.",
+    "zh": "在某种程度上",
+    "difficulty": 4
+  },
+  {
+    "word": "to a large extent",
+    "pos": "adv.",
+    "zh": "在很大程度上",
+    "difficulty": 4
+  },
+  {
+    "word": "in the short term",
+    "pos": "adv.",
+    "zh": "短期来看",
+    "difficulty": 4
+  },
+  {
+    "word": "in conclusion",
+    "pos": "adv.",
+    "zh": "总之；最后",
+    "difficulty": 4
+  },
+  {
+    "word": "in summary",
+    "pos": "adv.",
+    "zh": "总之；概括地说",
+    "difficulty": 4
+  },
+  {
+    "word": "last but not least",
+    "pos": "adv.",
+    "zh": "最后但同样重要",
+    "difficulty": 4
+  },
+  {
+    "word": "without doubt",
+    "pos": "adv.",
+    "zh": "毫无疑问",
+    "difficulty": 4
+  },
+  {
+    "word": "no doubt",
+    "pos": "adv.",
+    "zh": "无疑；确实",
+    "difficulty": 4
+  },
+  {
+    "word": "no longer",
+    "pos": "adv.",
+    "zh": "不再",
+    "difficulty": 4
+  },
+  {
+    "word": "no matter what",
+    "pos": "adv.",
+    "zh": "无论如何",
+    "difficulty": 4
+  },
+  {
+    "word": "at all costs",
+    "pos": "adv.",
+    "zh": "不惜任何代价",
+    "difficulty": 4
+  },
+  {
+    "word": "at any rate",
+    "pos": "adv.",
+    "zh": "无论如何；至少",
+    "difficulty": 4
+  },
+  {
+    "word": "under no circumstances",
+    "pos": "adv.",
+    "zh": "决不",
+    "difficulty": 4
+  },
+  {
+    "word": "give in",
+    "pos": "v.",
+    "zh": "屈服；让步",
+    "difficulty": 4
+  },
+  {
+    "word": "give out",
+    "pos": "v.",
+    "zh": "分发；用完",
+    "difficulty": 4
+  },
+  {
+    "word": "give away",
+    "pos": "v.",
+    "zh": "赠送；泄露",
+    "difficulty": 4
+  },
+  {
+    "word": "put off",
+    "pos": "v.",
+    "zh": "推迟；拖延",
+    "difficulty": 4
+  },
+  {
+    "word": "put on",
+    "pos": "v.",
+    "zh": "穿上；上演",
+    "difficulty": 4
+  },
+  {
+    "word": "put out",
+    "pos": "v.",
+    "zh": "熄灭；出版",
+    "difficulty": 4
+  },
+  {
+    "word": "take part in",
+    "pos": "v.",
+    "zh": "参加；参与",
+    "difficulty": 4
+  },
+  {
+    "word": "take place",
+    "pos": "v.",
+    "zh": "发生；举行",
+    "difficulty": 4
+  },
+  {
+    "word": "take over",
+    "pos": "v.",
+    "zh": "接管；接手",
+    "difficulty": 4
+  },
+  {
+    "word": "take up",
+    "pos": "v.",
+    "zh": "开始从事；占据",
+    "difficulty": 4
+  },
+  {
+    "word": "take on",
+    "pos": "v.",
+    "zh": "承担；呈现",
+    "difficulty": 4
+  },
+  {
+    "word": "take off",
+    "pos": "v.",
+    "zh": "起飞；脱下",
+    "difficulty": 4
+  },
+  {
+    "word": "take action",
+    "pos": "v.",
+    "zh": "采取行动",
+    "difficulty": 4
+  },
+  {
+    "word": "take measures",
+    "pos": "v.",
+    "zh": "采取措施",
+    "difficulty": 4
+  },
+  {
+    "word": "take notes",
+    "pos": "v.",
+    "zh": "记笔记",
+    "difficulty": 4
+  },
+  {
+    "word": "take responsibility",
+    "pos": "v.",
+    "zh": "承担责任",
+    "difficulty": 4
+  },
+  {
+    "word": "take a walk",
+    "pos": "v.",
+    "zh": "散步",
+    "difficulty": 4
+  },
+  {
+    "word": "take a shower",
+    "pos": "v.",
+    "zh": "洗澡",
+    "difficulty": 4
+  },
+  {
+    "word": "take medicine",
+    "pos": "v.",
+    "zh": "吃药",
+    "difficulty": 4
+  },
+  {
+    "word": "take it easy",
+    "pos": "v.",
+    "zh": "放轻松；别紧张",
+    "difficulty": 4
+  },
+  {
+    "word": "look after",
+    "pos": "v.",
+    "zh": "照顾；照料",
+    "difficulty": 4
+  },
+  {
+    "word": "look into",
+    "pos": "v.",
+    "zh": "调查；研究",
+    "difficulty": 4
+  },
+  {
+    "word": "look up",
+    "pos": "v.",
+    "zh": "查阅；抬头看",
+    "difficulty": 4
+  },
+  {
+    "word": "look down on",
+    "pos": "v.",
+    "zh": "看不起；轻视",
+    "difficulty": 4
+  },
+  {
+    "word": "look out",
+    "pos": "v.",
+    "zh": "当心；留神",
+    "difficulty": 4
+  },
+  {
+    "word": "come across",
+    "pos": "v.",
+    "zh": "偶然遇到；偶然发现",
+    "difficulty": 4
+  },
+  {
+    "word": "come true",
+    "pos": "v.",
+    "zh": "实现；成真",
+    "difficulty": 4
+  },
+  {
+    "word": "come up",
+    "pos": "v.",
+    "zh": "出现；被提出",
+    "difficulty": 4
+  },
+  {
+    "word": "come to an end",
+    "pos": "v.",
+    "zh": "结束；告终",
+    "difficulty": 4
+  },
+  {
+    "word": "get along with",
+    "pos": "v.",
+    "zh": "与…相处",
+    "difficulty": 4
+  },
+  {
+    "word": "get rid of",
+    "pos": "v.",
+    "zh": "摆脱；除去",
+    "difficulty": 4
+  },
+  {
+    "word": "get used to",
+    "pos": "v.",
+    "zh": "习惯于",
+    "difficulty": 4
+  },
+  {
+    "word": "get over",
+    "pos": "v.",
+    "zh": "克服；从…恢复",
+    "difficulty": 4
+  },
+  {
+    "word": "get through",
+    "pos": "v.",
+    "zh": "通过；熬过",
+    "difficulty": 4
+  },
+  {
+    "word": "get in touch with",
+    "pos": "v.",
+    "zh": "与…取得联系",
+    "difficulty": 4
+  },
+  {
+    "word": "go on",
+    "pos": "v.",
+    "zh": "继续；发生",
+    "difficulty": 4
+  },
+  {
+    "word": "go over",
+    "pos": "v.",
+    "zh": "复习；仔细检查",
+    "difficulty": 4
+  },
+  {
+    "word": "go through",
+    "pos": "v.",
+    "zh": "经历；仔细检查",
+    "difficulty": 4
+  },
+  {
+    "word": "go ahead",
+    "pos": "v.",
+    "zh": "前进；请便",
+    "difficulty": 4
+  },
+  {
+    "word": "go out",
+    "pos": "v.",
+    "zh": "外出；熄灭",
+    "difficulty": 4
+  },
+  {
+    "word": "make up",
+    "pos": "v.",
+    "zh": "组成；编造；化妆",
+    "difficulty": 4
+  },
+  {
+    "word": "make sense",
+    "pos": "v.",
+    "zh": "讲得通；有道理",
+    "difficulty": 4
+  },
+  {
+    "word": "make sure",
+    "pos": "v.",
+    "zh": "确保；查明",
+    "difficulty": 4
+  },
+  {
+    "word": "make progress",
+    "pos": "v.",
+    "zh": "取得进步",
+    "difficulty": 4
+  },
+  {
+    "word": "make friends",
+    "pos": "v.",
+    "zh": "交朋友",
+    "difficulty": 4
+  },
+  {
+    "word": "make a living",
+    "pos": "v.",
+    "zh": "谋生",
+    "difficulty": 4
+  },
+  {
+    "word": "make a decision",
+    "pos": "v.",
+    "zh": "做决定",
+    "difficulty": 4
+  },
+  {
+    "word": "make an effort",
+    "pos": "v.",
+    "zh": "付出努力",
+    "difficulty": 4
+  },
+  {
+    "word": "make a mistake",
+    "pos": "v.",
+    "zh": "犯错误",
+    "difficulty": 4
+  },
+  {
+    "word": "make ends meet",
+    "pos": "v.",
+    "zh": "收支相抵；勉强糊口",
+    "difficulty": 4
+  },
+  {
+    "word": "bring up",
+    "pos": "v.",
+    "zh": "抚养；提出",
+    "difficulty": 4
+  },
+  {
+    "word": "break down",
+    "pos": "v.",
+    "zh": "出故障；崩溃",
+    "difficulty": 4
+  },
+  {
+    "word": "break up",
+    "pos": "v.",
+    "zh": "分手；解散",
+    "difficulty": 4
+  },
+  {
+    "word": "break into",
+    "pos": "v.",
+    "zh": "闯入；打断",
+    "difficulty": 4
+  },
+  {
+    "word": "carry on",
+    "pos": "v.",
+    "zh": "继续；坚持",
+    "difficulty": 4
+  },
+  {
+    "word": "turn out",
+    "pos": "v.",
+    "zh": "结果是；生产",
+    "difficulty": 4
+  },
+  {
+    "word": "turn up",
+    "pos": "v.",
+    "zh": "出现；调高",
+    "difficulty": 4
+  },
+  {
+    "word": "turn down",
+    "pos": "v.",
+    "zh": "拒绝；调低",
+    "difficulty": 4
+  },
+  {
+    "word": "turn into",
+    "pos": "v.",
+    "zh": "变成；转化",
+    "difficulty": 4
+  },
+  {
+    "word": "turn on",
+    "pos": "v.",
+    "zh": "打开（开关）",
+    "difficulty": 4
+  },
+  {
+    "word": "turn off",
+    "pos": "v.",
+    "zh": "关掉（开关）",
+    "difficulty": 4
+  },
+  {
+    "word": "set up",
+    "pos": "v.",
+    "zh": "建立；设立",
+    "difficulty": 4
+  },
+  {
+    "word": "set off",
+    "pos": "v.",
+    "zh": "出发；引发",
+    "difficulty": 4
+  },
+  {
+    "word": "set out",
+    "pos": "v.",
+    "zh": "出发；着手",
+    "difficulty": 4
+  },
+  {
+    "word": "run into",
+    "pos": "v.",
+    "zh": "偶然遇到；撞上",
+    "difficulty": 4
+  },
+  {
+    "word": "run away",
+    "pos": "v.",
+    "zh": "逃跑；跑开",
+    "difficulty": 4
+  },
+  {
+    "word": "find out",
+    "pos": "v.",
+    "zh": "查明；弄清",
+    "difficulty": 4
+  },
+  {
+    "word": "figure out",
+    "pos": "v.",
+    "zh": "弄明白；算出",
+    "difficulty": 4
+  },
+  {
+    "word": "work out",
+    "pos": "v.",
+    "zh": "解决；锻炼；算出",
+    "difficulty": 4
+  },
+  {
+    "word": "point out",
+    "pos": "v.",
+    "zh": "指出",
+    "difficulty": 4
+  },
+  {
+    "word": "pick up",
+    "pos": "v.",
+    "zh": "捡起；学会；接人",
+    "difficulty": 4
+  },
+  {
+    "word": "end up",
+    "pos": "v.",
+    "zh": "最终成为；结果",
+    "difficulty": 4
+  },
+  {
+    "word": "hand in",
+    "pos": "v.",
+    "zh": "上交；提交",
+    "difficulty": 4
+  },
+  {
+    "word": "hold on",
+    "pos": "v.",
+    "zh": "稍等；坚持住",
+    "difficulty": 4
+  },
+  {
+    "word": "keep up with",
+    "pos": "v.",
+    "zh": "跟上；不落后",
+    "difficulty": 4
+  },
+  {
+    "word": "keep in mind",
+    "pos": "v.",
+    "zh": "记住",
+    "difficulty": 4
+  },
+  {
+    "word": "keep in touch",
+    "pos": "v.",
+    "zh": "保持联系",
+    "difficulty": 4
+  },
+  {
+    "word": "keep a promise",
+    "pos": "v.",
+    "zh": "遵守诺言",
+    "difficulty": 4
+  },
+  {
+    "word": "keep a diary",
+    "pos": "v.",
+    "zh": "记日记",
+    "difficulty": 4
+  },
+  {
+    "word": "leave out",
+    "pos": "v.",
+    "zh": "遗漏；省去",
+    "difficulty": 4
+  },
+  {
+    "word": "let down",
+    "pos": "v.",
+    "zh": "使失望",
+    "difficulty": 4
+  },
+  {
+    "word": "pay attention to",
+    "pos": "v.",
+    "zh": "注意；关注",
+    "difficulty": 4
+  },
+  {
+    "word": "pay a visit",
+    "pos": "v.",
+    "zh": "拜访；访问",
+    "difficulty": 4
+  },
+  {
+    "word": "rely on",
+    "pos": "v.",
+    "zh": "依赖；依靠",
+    "difficulty": 4
+  },
+  {
+    "word": "care about",
+    "pos": "v.",
+    "zh": "关心；在乎",
+    "difficulty": 4
+  },
+  {
+    "word": "belong to",
+    "pos": "v.",
+    "zh": "属于",
+    "difficulty": 4
+  },
+  {
+    "word": "consist of",
+    "pos": "v.",
+    "zh": "由…组成",
+    "difficulty": 4
+  },
+  {
+    "word": "lead to",
+    "pos": "v.",
+    "zh": "导致；通向",
+    "difficulty": 4
+  },
+  {
+    "word": "result in",
+    "pos": "v.",
+    "zh": "导致；结果是",
+    "difficulty": 4
+  },
+  {
+    "word": "result from",
+    "pos": "v.",
+    "zh": "由…引起",
+    "difficulty": 4
+  },
+  {
+    "word": "apply for",
+    "pos": "v.",
+    "zh": "申请",
+    "difficulty": 4
+  },
+  {
+    "word": "approve of",
+    "pos": "v.",
+    "zh": "赞成；认可",
+    "difficulty": 4
+  },
+  {
+    "word": "benefit from",
+    "pos": "v.",
+    "zh": "从…中受益",
+    "difficulty": 4
+  },
+  {
+    "word": "complain about",
+    "pos": "v.",
+    "zh": "抱怨；投诉",
+    "difficulty": 4
+  },
+  {
+    "word": "concentrate on",
+    "pos": "v.",
+    "zh": "专注于",
+    "difficulty": 4
+  },
+  {
+    "word": "cope with",
+    "pos": "v.",
+    "zh": "应付；处理",
+    "difficulty": 4
+  },
+  {
+    "word": "dream of",
+    "pos": "v.",
+    "zh": "梦想；渴望",
+    "difficulty": 4
+  },
+  {
+    "word": "insist on",
+    "pos": "v.",
+    "zh": "坚持",
+    "difficulty": 4
+  },
+  {
+    "word": "participate in",
+    "pos": "v.",
+    "zh": "参与；参加",
+    "difficulty": 4
+  },
+  {
+    "word": "prevent from",
+    "pos": "v.",
+    "zh": "阻止；防止",
+    "difficulty": 4
+  },
+  {
+    "word": "protect from",
+    "pos": "v.",
+    "zh": "保护…免受",
+    "difficulty": 4
+  },
+  {
+    "word": "recover from",
+    "pos": "v.",
+    "zh": "从…中恢复",
+    "difficulty": 4
+  },
+  {
+    "word": "refer to",
+    "pos": "v.",
+    "zh": "指的是；参考",
+    "difficulty": 4
+  },
+  {
+    "word": "succeed in",
+    "pos": "v.",
+    "zh": "成功做到",
+    "difficulty": 4
+  },
+  {
+    "word": "suffer from",
+    "pos": "v.",
+    "zh": "遭受；患…病",
+    "difficulty": 4
+  },
+  {
+    "word": "think of",
+    "pos": "v.",
+    "zh": "想到；考虑",
+    "difficulty": 4
+  },
+  {
+    "word": "worry about",
+    "pos": "v.",
+    "zh": "担心；担忧",
+    "difficulty": 4
+  },
+  {
+    "word": "catch up with",
+    "pos": "v.",
+    "zh": "赶上",
+    "difficulty": 4
+  },
+  {
+    "word": "catch a cold",
+    "pos": "v.",
+    "zh": "感冒",
+    "difficulty": 4
+  },
+  {
+    "word": "catch fire",
+    "pos": "v.",
+    "zh": "着火",
+    "difficulty": 4
+  },
+  {
+    "word": "do exercise",
+    "pos": "v.",
+    "zh": "做运动；锻炼",
+    "difficulty": 4
+  },
+  {
+    "word": "do homework",
+    "pos": "v.",
+    "zh": "做作业",
+    "difficulty": 4
+  },
+  {
+    "word": "do business",
+    "pos": "v.",
+    "zh": "做生意",
+    "difficulty": 4
+  },
+  {
+    "word": "have a fever",
+    "pos": "v.",
+    "zh": "发烧",
+    "difficulty": 4
+  },
+  {
+    "word": "have a look",
+    "pos": "v.",
+    "zh": "看一看",
+    "difficulty": 4
+  },
+  {
+    "word": "have a rest",
+    "pos": "v.",
+    "zh": "休息一下",
+    "difficulty": 4
+  },
+  {
+    "word": "have a good time",
+    "pos": "v.",
+    "zh": "玩得开心",
+    "difficulty": 4
+  },
+  {
+    "word": "have breakfast",
+    "pos": "v.",
+    "zh": "吃早餐",
+    "difficulty": 4
+  },
+  {
+    "word": "have access to",
+    "pos": "v.",
+    "zh": "有权使用；可以接触到",
+    "difficulty": 4
+  },
+  {
+    "word": "have an impact on",
+    "pos": "v.",
+    "zh": "对…有影响",
+    "difficulty": 4
+  },
+  {
+    "word": "have an effect on",
+    "pos": "v.",
+    "zh": "对…有影响",
+    "difficulty": 4
+  },
+  {
+    "word": "lose weight",
+    "pos": "v.",
+    "zh": "减肥",
+    "difficulty": 4
+  },
+  {
+    "word": "gain weight",
+    "pos": "v.",
+    "zh": "增重；发胖",
+    "difficulty": 4
+  },
+  {
+    "word": "earn money",
+    "pos": "v.",
+    "zh": "赚钱",
+    "difficulty": 4
+  },
+  {
+    "word": "save money",
+    "pos": "v.",
+    "zh": "省钱；存钱",
+    "difficulty": 4
+  },
+  {
+    "word": "waste time",
+    "pos": "v.",
+    "zh": "浪费时间",
+    "difficulty": 4
+  },
+  {
+    "word": "tell the truth",
+    "pos": "v.",
+    "zh": "说实话",
+    "difficulty": 4
+  },
+  {
+    "word": "tell a lie",
+    "pos": "v.",
+    "zh": "说谎",
+    "difficulty": 4
+  },
+  {
+    "word": "draw a conclusion",
+    "pos": "v.",
+    "zh": "得出结论",
+    "difficulty": 4
+  },
+  {
+    "word": "carry out a survey",
+    "pos": "v.",
+    "zh": "进行调查",
+    "difficulty": 4
+  },
+  {
+    "word": "play an important part in",
+    "pos": "v.",
+    "zh": "在…中起重要作用",
+    "difficulty": 4
+  },
+  {
+    "word": "be fond of",
+    "pos": "adj.",
+    "zh": "喜欢；爱好",
+    "difficulty": 4
+  },
+  {
+    "word": "be proud of",
+    "pos": "adj.",
+    "zh": "以…为荣",
+    "difficulty": 4
+  },
+  {
+    "word": "be responsible for",
+    "pos": "adj.",
+    "zh": "对…负责",
+    "difficulty": 4
+  },
+  {
+    "word": "be interested in",
+    "pos": "adj.",
+    "zh": "对…感兴趣",
+    "difficulty": 4
+  },
+  {
+    "word": "be good at",
+    "pos": "adj.",
+    "zh": "擅长",
+    "difficulty": 4
+  },
+  {
+    "word": "be bad at",
+    "pos": "adj.",
+    "zh": "不擅长",
+    "difficulty": 4
+  },
+  {
+    "word": "be made of",
+    "pos": "adj.",
+    "zh": "由…制成",
+    "difficulty": 4
+  },
+  {
+    "word": "be satisfied with",
+    "pos": "adj.",
+    "zh": "对…满意",
+    "difficulty": 4
+  },
+  {
+    "word": "be tired of",
+    "pos": "adj.",
+    "zh": "对…厌倦",
+    "difficulty": 4
+  },
+  {
+    "word": "be afraid of",
+    "pos": "adj.",
+    "zh": "害怕",
+    "difficulty": 4
+  },
+  {
+    "word": "be different from",
+    "pos": "adj.",
+    "zh": "与…不同",
+    "difficulty": 4
+  },
+  {
+    "word": "be similar to",
+    "pos": "adj.",
+    "zh": "与…相似",
+    "difficulty": 4
+  },
+  {
+    "word": "be famous for",
+    "pos": "adj.",
+    "zh": "因…而闻名",
+    "difficulty": 4
+  },
+  {
+    "word": "be full of",
+    "pos": "adj.",
+    "zh": "充满",
+    "difficulty": 4
+  },
+  {
+    "word": "be worth doing",
+    "pos": "adj.",
+    "zh": "值得做",
+    "difficulty": 4
+  },
+  {
+    "word": "be capable of",
+    "pos": "adj.",
+    "zh": "有能力做；能够",
+    "difficulty": 4
+  },
+  {
+    "word": "be keen on",
+    "pos": "adj.",
+    "zh": "热衷于；喜爱",
+    "difficulty": 4
+  },
+  {
+    "word": "be short of",
+    "pos": "adj.",
+    "zh": "缺少；不足",
+    "difficulty": 4
+  },
+  {
+    "word": "be busy with",
+    "pos": "adj.",
+    "zh": "忙于",
+    "difficulty": 4
+  },
+  {
+    "word": "be involved in",
+    "pos": "adj.",
+    "zh": "参与；卷入",
+    "difficulty": 4
+  },
+  {
+    "word": "a great deal of",
+    "pos": "det.",
+    "zh": "大量的",
+    "difficulty": 4
+  },
+  {
+    "word": "a large number of",
+    "pos": "det.",
+    "zh": "大量的；许多的",
+    "difficulty": 4
+  },
+  {
+    "word": "a variety of",
+    "pos": "det.",
+    "zh": "各种各样的",
+    "difficulty": 4
+  },
+  {
+    "word": "the majority of",
+    "pos": "det.",
+    "zh": "大多数",
+    "difficulty": 4
+  },
+  {
+    "word": "a great many",
+    "pos": "det.",
+    "zh": "许多；大量",
+    "difficulty": 4
+  },
+  {
+    "word": "a number of",
+    "pos": "det.",
+    "zh": "若干；一些",
+    "difficulty": 4
+  },
+  {
+    "word": "the rest of",
+    "pos": "det.",
+    "zh": "其余的",
+    "difficulty": 4
+  },
+  {
+    "word": "a couple of",
+    "pos": "det.",
+    "zh": "几个；一对",
+    "difficulty": 4
+  },
+  {
+    "word": "a great amount of",
+    "pos": "det.",
+    "zh": "大量的",
+    "difficulty": 4
+  },
+  {
+    "word": "a series of",
+    "pos": "det.",
+    "zh": "一系列",
+    "difficulty": 4
+  },
+  {
+    "word": "long time no see",
+    "pos": "int.",
+    "zh": "好久不见",
+    "difficulty": 4
+  },
+  {
+    "word": "never mind",
+    "pos": "int.",
+    "zh": "没关系；别介意",
+    "difficulty": 4
+  },
+  {
+    "word": "what's up",
+    "pos": "int.",
+    "zh": "怎么了；最近如何",
+    "difficulty": 4
+  },
+  {
+    "word": "thank goodness",
+    "pos": "int.",
+    "zh": "谢天谢地",
+    "difficulty": 4
+  },
+  {
+    "word": "my pleasure",
+    "pos": "int.",
+    "zh": "我的荣幸；不客气",
+    "difficulty": 4
+  },
+  {
+    "word": "you're welcome",
+    "pos": "int.",
+    "zh": "不客气",
+    "difficulty": 4
+  },
+  {
+    "word": "see you later",
+    "pos": "int.",
+    "zh": "回头见；再见",
+    "difficulty": 4
+  },
+  {
+    "word": "no problem",
+    "pos": "int.",
+    "zh": "没问题",
+    "difficulty": 4
+  },
+  {
+    "word": "it doesn't matter",
+    "pos": "int.",
+    "zh": "没关系",
+    "difficulty": 4
+  },
+  {
+    "word": "that's all right",
+    "pos": "int.",
+    "zh": "没关系；不用谢",
+    "difficulty": 4
+  },
+  {
+    "word": "I'm afraid so",
+    "pos": "int.",
+    "zh": "恐怕是这样",
+    "difficulty": 4
+  },
+  {
+    "word": "make yourself at home",
+    "pos": "int.",
+    "zh": "别拘束；当自己家",
+    "difficulty": 4
+  },
+  {
+    "word": "how are you doing",
+    "pos": "int.",
+    "zh": "你好吗；最近怎么样",
+    "difficulty": 4
+  },
+  {
+    "word": "in a hurry",
+    "pos": "adv.",
+    "zh": "匆忙；赶时间",
+    "difficulty": 4
+  },
+  {
+    "word": "on the way",
+    "pos": "adv.",
+    "zh": "在路上；在途中",
+    "difficulty": 4
+  },
+  {
+    "word": "in the way",
+    "pos": "adv.",
+    "zh": "挡道；妨碍",
+    "difficulty": 4
+  },
+  {
+    "word": "on the other hand",
+    "pos": "adv.",
+    "zh": "另一方面",
+    "difficulty": 4
+  },
+  {
+    "word": "even though",
+    "pos": "conj.",
+    "zh": "即使；虽然",
+    "difficulty": 4
+  },
+  {
+    "word": "as if",
+    "pos": "conj.",
+    "zh": "好像；似乎",
+    "difficulty": 4
+  },
+  {
+    "word": "as though",
+    "pos": "conj.",
+    "zh": "好像；仿佛",
+    "difficulty": 4
+  },
+  {
+    "word": "so that",
+    "pos": "conj.",
+    "zh": "以便；为了",
+    "difficulty": 4
+  },
+  {
+    "word": "such as",
+    "pos": "conj.",
+    "zh": "例如；诸如",
+    "difficulty": 4
+  },
+  {
+    "word": "in case",
+    "pos": "conj.",
+    "zh": "以防；万一",
+    "difficulty": 4
+  },
+  {
+    "word": "in order that",
+    "pos": "conj.",
+    "zh": "为了；以便",
+    "difficulty": 4
+  },
+  {
+    "word": "give up",
+    "pos": "",
+    "zh": "放弃；停止",
+    "difficulty": 4
+  },
+  {
+    "word": "take care of",
+    "pos": "",
+    "zh": "照顾",
+    "difficulty": 4
+  },
+  {
+    "word": "look forward to",
+    "pos": "",
+    "zh": "期望；盼望",
+    "difficulty": 4
+  },
+  {
+    "word": "put up with",
+    "pos": "",
+    "zh": "忍受；容忍",
+    "difficulty": 4
+  },
+  {
+    "word": "get up",
+    "pos": "",
+    "zh": "起床；起立",
+    "difficulty": 4
+  },
+  {
+    "word": "wake up",
+    "pos": "",
+    "zh": "醒来",
+    "difficulty": 4
+  },
+  {
+    "word": "turn to",
+    "pos": "",
+    "zh": "转向；变成",
+    "difficulty": 4
+  },
+  {
+    "word": "work on",
+    "pos": "",
+    "zh": "继续工作；设法说服",
+    "difficulty": 4
+  },
+  {
+    "word": "depend on",
+    "pos": "",
+    "zh": "依靠；依赖",
+    "difficulty": 4
+  },
+  {
+    "word": "agree with",
+    "pos": "",
+    "zh": "同意…；与…意见一致",
+    "difficulty": 4
+  },
+  {
+    "word": "deal with",
+    "pos": "",
+    "zh": "安排；处理",
+    "difficulty": 4
+  },
+  {
+    "word": "look for",
+    "pos": "",
+    "zh": "寻找；期待",
+    "difficulty": 4
+  },
+  {
+    "word": "wait for",
+    "pos": "",
+    "zh": "等待",
+    "difficulty": 4
+  },
+  {
+    "word": "listen to",
+    "pos": "",
+    "zh": "听",
+    "difficulty": 4
+  },
+  {
+    "word": "speak to",
+    "pos": "",
+    "zh": "对…说话；说到",
+    "difficulty": 4
+  },
+  {
+    "word": "think about",
+    "pos": "",
+    "zh": "考虑；回想",
+    "difficulty": 4
+  },
+  {
+    "word": "talk about",
+    "pos": "",
+    "zh": "讨论；谈论",
+    "difficulty": 4
+  },
+  {
+    "word": "ask for",
+    "pos": "",
+    "zh": "请求；找",
+    "difficulty": 4
+  },
+  {
+    "word": "arrive at",
+    "pos": "",
+    "zh": "到达；达到",
+    "difficulty": 4
+  },
+  {
+    "word": "arrive in",
+    "pos": "",
+    "zh": "到达；抵达",
+    "difficulty": 4
+  },
+  {
+    "word": "believe in",
+    "pos": "",
+    "zh": "信仰；信任",
+    "difficulty": 4
+  },
+  {
+    "word": "break out",
+    "pos": "",
+    "zh": "突发；爆发",
+    "difficulty": 4
+  },
+  {
+    "word": "bring about",
+    "pos": "",
+    "zh": "带来；使掉头",
+    "difficulty": 4
+  },
+  {
+    "word": "call off",
+    "pos": "",
+    "zh": "叫走；放弃",
+    "difficulty": 4
+  },
+  {
+    "word": "call on",
+    "pos": "",
+    "zh": "号召；呼吁",
+    "difficulty": 4
+  },
+  {
+    "word": "carry out",
+    "pos": "",
+    "zh": "进行；实现",
+    "difficulty": 4
+  },
+  {
+    "word": "catch up",
+    "pos": "",
+    "zh": "把…很快拾起；把…缠住",
+    "difficulty": 4
+  },
+  {
+    "word": "check in",
+    "pos": "",
+    "zh": "登记；报到",
+    "difficulty": 4
+  },
+  {
+    "word": "check out",
+    "pos": "",
+    "zh": "付帐后离开；检查",
+    "difficulty": 4
+  },
+  {
+    "word": "clear up",
+    "pos": "",
+    "zh": "整理；消除",
+    "difficulty": 4
+  },
+  {
+    "word": "come about",
+    "pos": "",
+    "zh": "发生；改变方向",
+    "difficulty": 4
+  },
+  {
+    "word": "come along",
+    "pos": "",
+    "zh": "出现；进步",
+    "difficulty": 4
+  },
+  {
+    "word": "come back",
+    "pos": "",
+    "zh": "回来；在记忆中重现",
+    "difficulty": 4
+  },
+  {
+    "word": "come down",
+    "pos": "",
+    "zh": "下来；下跌",
+    "difficulty": 4
+  },
+  {
+    "word": "come in",
+    "pos": "",
+    "zh": "进来；到达",
+    "difficulty": 4
+  },
+  {
+    "word": "come on",
+    "pos": "",
+    "zh": "偶遇；进步",
+    "difficulty": 4
+  },
+  {
+    "word": "come out",
+    "pos": "",
+    "zh": "到边远地区来；出现",
+    "difficulty": 4
+  },
+  {
+    "word": "cut down",
+    "pos": "",
+    "zh": "砍倒；胜过",
+    "difficulty": 4
+  },
+  {
+    "word": "cut off",
+    "pos": "",
+    "zh": "切掉；删去",
+    "difficulty": 4
+  },
+  {
+    "word": "die out",
+    "pos": "",
+    "zh": "熄灭；平息",
+    "difficulty": 4
+  },
+  {
+    "word": "dress up",
+    "pos": "",
+    "zh": "打扮；装饰",
+    "difficulty": 4
+  },
+  {
+    "word": "drop by",
+    "pos": "",
+    "zh": "随便访问",
+    "difficulty": 4
+  },
+  {
+    "word": "drop out",
+    "pos": "",
+    "zh": "掉出；退出",
+    "difficulty": 4
+  },
+  {
+    "word": "eat out",
+    "pos": "",
+    "zh": "上馆子吃饭；锈坏",
+    "difficulty": 4
+  },
+  {
+    "word": "fall asleep",
+    "pos": "",
+    "zh": "入睡；长眠",
+    "difficulty": 4
+  },
+  {
+    "word": "fall behind",
+    "pos": "",
+    "zh": "落在后面；拖欠",
+    "difficulty": 4
+  },
+  {
+    "word": "fall down",
+    "pos": "",
+    "zh": "倒塌；跌倒",
+    "difficulty": 4
+  },
+  {
+    "word": "fall in love",
+    "pos": "",
+    "zh": "陷入爱河；追爱总动员",
+    "difficulty": 4
+  },
+  {
+    "word": "fill in",
+    "pos": "",
+    "zh": "填充；填写",
+    "difficulty": 4
+  },
+  {
+    "word": "fill out",
+    "pos": "",
+    "zh": "填写；使长大",
+    "difficulty": 4
+  },
+  {
+    "word": "focus on",
+    "pos": "",
+    "zh": "致力于；使聚焦于",
+    "difficulty": 4
+  },
+  {
+    "word": "get along",
+    "pos": "",
+    "zh": "生活；融洽相处",
+    "difficulty": 4
+  },
+  {
+    "word": "get back",
+    "pos": "",
+    "zh": "回来；恢复",
+    "difficulty": 4
+  },
+  {
+    "word": "get down",
+    "pos": "",
+    "zh": "下来；吞下",
+    "difficulty": 4
+  },
+  {
+    "word": "get in",
+    "pos": "",
+    "zh": "进入；到达",
+    "difficulty": 4
+  },
+  {
+    "word": "get off",
+    "pos": "",
+    "zh": "下来；脱下",
+    "difficulty": 4
+  },
+  {
+    "word": "get on",
+    "pos": "",
+    "zh": "生活；融洽相处",
+    "difficulty": 4
+  },
+  {
+    "word": "get out",
+    "pos": "",
+    "zh": "出去；离开",
+    "difficulty": 4
+  },
+  {
+    "word": "get together",
+    "pos": "",
+    "zh": "聚集；收集",
+    "difficulty": 4
+  },
+  {
+    "word": "give back",
+    "pos": "",
+    "zh": "归还；恢复",
+    "difficulty": 4
+  },
+  {
+    "word": "go after",
+    "pos": "",
+    "zh": "追逐；追求",
+    "difficulty": 4
+  },
+  {
+    "word": "go away",
+    "pos": "",
+    "zh": "走开",
+    "difficulty": 4
+  },
+  {
+    "word": "go back",
+    "pos": "",
+    "zh": "回去；追溯",
+    "difficulty": 4
+  },
+  {
+    "word": "go down",
+    "pos": "",
+    "zh": "下去；下沉",
+    "difficulty": 4
+  },
+  {
+    "word": "go in",
+    "pos": "",
+    "zh": "走进；放得进",
+    "difficulty": 4
+  },
+  {
+    "word": "go off",
+    "pos": "",
+    "zh": "离开；去世",
+    "difficulty": 4
+  },
+  {
+    "word": "go up",
+    "pos": "",
+    "zh": "上升；兴建",
+    "difficulty": 4
+  },
+  {
+    "word": "grow up",
+    "pos": "",
+    "zh": "成熟；成年",
+    "difficulty": 4
+  },
+  {
+    "word": "hand out",
+    "pos": "",
+    "zh": "把…拿出来；分发",
+    "difficulty": 4
+  },
+  {
+    "word": "hang on",
+    "pos": "",
+    "zh": "坚持；不挂断",
+    "difficulty": 4
+  },
+  {
+    "word": "hang out",
+    "pos": "",
+    "zh": "挂出",
+    "difficulty": 4
+  },
+  {
+    "word": "hold back",
+    "pos": "",
+    "zh": "踌躇；阻止",
+    "difficulty": 4
+  },
+  {
+    "word": "hold up",
+    "pos": "",
+    "zh": "举起；支撑",
+    "difficulty": 4
+  },
+  {
+    "word": "hurry up",
+    "pos": "",
+    "zh": "赶快；匆匆完成",
+    "difficulty": 4
+  },
+  {
+    "word": "join in",
+    "pos": "",
+    "zh": "参加；加入",
+    "difficulty": 4
+  },
+  {
+    "word": "keep away",
+    "pos": "",
+    "zh": "防范",
+    "difficulty": 4
+  },
+  {
+    "word": "keep down",
+    "pos": "",
+    "zh": "卧下；镇压",
+    "difficulty": 4
+  },
+  {
+    "word": "keep on",
+    "pos": "",
+    "zh": "继续；穿着…不脱",
+    "difficulty": 4
+  },
+  {
+    "word": "keep out",
+    "pos": "",
+    "zh": "使在外",
+    "difficulty": 4
+  },
+  {
+    "word": "knock down",
+    "pos": "",
+    "zh": "击倒；拆卸",
+    "difficulty": 4
+  },
+  {
+    "word": "lay off",
+    "pos": "",
+    "zh": "把放在一边；解雇",
+    "difficulty": 4
+  },
+  {
+    "word": "let in",
+    "pos": "",
+    "zh": "放进；招致",
+    "difficulty": 4
+  },
+  {
+    "word": "let out",
+    "pos": "",
+    "zh": "放掉；泄露",
+    "difficulty": 4
+  },
+  {
+    "word": "live on",
+    "pos": "",
+    "zh": "继续生活；以…为主食",
+    "difficulty": 4
+  },
+  {
+    "word": "look around",
+    "pos": "",
+    "zh": "四下观望；进行调查",
+    "difficulty": 4
+  },
+  {
+    "word": "look back",
+    "pos": "",
+    "zh": "回顾；三心二意",
+    "difficulty": 4
+  },
+  {
+    "word": "look down",
+    "pos": "",
+    "zh": "向下看；俯视",
+    "difficulty": 4
+  },
+  {
+    "word": "look over",
+    "pos": "",
+    "zh": "从…上面看；察看",
+    "difficulty": 4
+  },
+  {
+    "word": "look through",
+    "pos": "",
+    "zh": "看穿；审核",
+    "difficulty": 4
+  },
+  {
+    "word": "make out",
+    "pos": "",
+    "zh": "书写；填写",
+    "difficulty": 4
+  },
+  {
+    "word": "make up for",
+    "pos": "",
+    "zh": "补偿；弥补",
+    "difficulty": 4
+  },
+  {
+    "word": "move on",
+    "pos": "",
+    "zh": "继续前进",
+    "difficulty": 4
+  },
+  {
+    "word": "pass away",
+    "pos": "",
+    "zh": "去世；停止",
+    "difficulty": 4
+  },
+  {
+    "word": "pass by",
+    "pos": "",
+    "zh": "经过；掠过",
+    "difficulty": 4
+  },
+  {
+    "word": "pass on",
+    "pos": "",
+    "zh": "传授；传递",
+    "difficulty": 4
+  },
+  {
+    "word": "pay back",
+    "pos": "",
+    "zh": "偿付；报答",
+    "difficulty": 4
+  },
+  {
+    "word": "pay off",
+    "pos": "",
+    "zh": "付清；报复",
+    "difficulty": 4
+  },
+  {
+    "word": "pick out",
+    "pos": "",
+    "zh": "挑选",
+    "difficulty": 4
+  },
+  {
+    "word": "point at",
+    "pos": "",
+    "zh": "对准；指向",
+    "difficulty": 4
+  },
+  {
+    "word": "pull over",
+    "pos": "",
+    "zh": "靠岸；开到路边",
+    "difficulty": 4
+  },
+  {
+    "word": "put away",
+    "pos": "",
+    "zh": "放好；储存…备用",
+    "difficulty": 4
+  },
+  {
+    "word": "put back",
+    "pos": "",
+    "zh": "放回原处；向后移",
+    "difficulty": 4
+  },
+  {
+    "word": "put down",
+    "pos": "",
+    "zh": "放下；不赞成",
+    "difficulty": 4
+  },
+  {
+    "word": "put forward",
+    "pos": "",
+    "zh": "放出；拿出",
+    "difficulty": 4
+  },
+  {
+    "word": "put together",
+    "pos": "",
+    "zh": "把…加起来；装配",
+    "difficulty": 4
+  },
+  {
+    "word": "put up",
+    "pos": "",
+    "zh": "举起；抬起",
+    "difficulty": 4
+  },
+  {
+    "word": "ring up",
+    "pos": "",
+    "zh": "打电话；把款项打在现金收入记录机上",
+    "difficulty": 4
+  },
+  {
+    "word": "run out of",
+    "pos": "",
+    "zh": "用完",
+    "difficulty": 4
+  },
+  {
+    "word": "run over",
+    "pos": "",
+    "zh": "跑过去；溢出",
+    "difficulty": 4
+  },
+  {
+    "word": "see off",
+    "pos": "",
+    "zh": "送行；送别",
+    "difficulty": 4
+  },
+  {
+    "word": "sell out",
+    "pos": "",
+    "zh": "卖完；出卖",
+    "difficulty": 4
+  },
+  {
+    "word": "send for",
+    "pos": "",
+    "zh": "召唤；派人去拿",
+    "difficulty": 4
+  },
+  {
+    "word": "set aside",
+    "pos": "",
+    "zh": "留出；不顾",
+    "difficulty": 4
+  },
+  {
+    "word": "set down",
+    "pos": "",
+    "zh": "放下；使下车",
+    "difficulty": 4
+  },
+  {
+    "word": "settle down",
+    "pos": "",
+    "zh": "使舒服地坐下；定居",
+    "difficulty": 4
+  },
+  {
+    "word": "show off",
+    "pos": "",
+    "zh": "炫耀；卖弄",
+    "difficulty": 4
+  },
+  {
+    "word": "show up",
+    "pos": "",
+    "zh": "揭露；露出",
+    "difficulty": 4
+  },
+  {
+    "word": "shut down",
+    "pos": "",
+    "zh": "关闭",
+    "difficulty": 4
+  },
+  {
+    "word": "shut up",
+    "pos": "",
+    "zh": "关闭；监禁",
+    "difficulty": 4
+  },
+  {
+    "word": "sit down",
+    "pos": "",
+    "zh": "坐下；占据",
+    "difficulty": 4
+  },
+  {
+    "word": "slow down",
+    "pos": "",
+    "zh": "慢下来",
+    "difficulty": 4
+  },
+  {
+    "word": "sort out",
+    "pos": "",
+    "zh": "挑选出",
+    "difficulty": 4
+  },
+  {
+    "word": "speak up",
+    "pos": "",
+    "zh": "更大声地说；大胆说出",
+    "difficulty": 4
+  },
+  {
+    "word": "stand by",
+    "pos": "",
+    "zh": "支持；遵守",
+    "difficulty": 4
+  },
+  {
+    "word": "stand for",
+    "pos": "",
+    "zh": "代表；代替",
+    "difficulty": 4
+  },
+  {
+    "word": "stand out",
+    "pos": "",
+    "zh": "突出；坚持抵抗",
+    "difficulty": 4
+  },
+  {
+    "word": "stand up",
+    "pos": "",
+    "zh": "站起来；竖立",
+    "difficulty": 4
+  },
+  {
+    "word": "stay up",
+    "pos": "",
+    "zh": "不睡觉",
+    "difficulty": 4
+  },
+  {
+    "word": "stick to",
+    "pos": "",
+    "zh": "粘住",
+    "difficulty": 4
+  },
+  {
+    "word": "switch off",
+    "pos": "",
+    "zh": "切断",
+    "difficulty": 4
+  },
+  {
+    "word": "switch on",
+    "pos": "",
+    "zh": "接通",
+    "difficulty": 4
+  },
+  {
+    "word": "take away",
+    "pos": "",
+    "zh": "取走",
+    "difficulty": 4
+  },
+  {
+    "word": "take back",
+    "pos": "",
+    "zh": "送还",
+    "difficulty": 4
+  },
+  {
+    "word": "take down",
+    "pos": "",
+    "zh": "拿下；记下",
+    "difficulty": 4
+  },
+  {
+    "word": "take in",
+    "pos": "",
+    "zh": "接受；接待",
+    "difficulty": 4
+  },
+  {
+    "word": "take out",
+    "pos": "",
+    "zh": "拿出；取出",
+    "difficulty": 4
+  },
+  {
+    "word": "take to",
+    "pos": "",
+    "zh": "开始；喜欢",
+    "difficulty": 4
+  },
+  {
+    "word": "talk over",
+    "pos": "",
+    "zh": "商量；讨论",
+    "difficulty": 4
+  },
+  {
+    "word": "tear down",
+    "pos": "",
+    "zh": "扯下；拆卸",
+    "difficulty": 4
+  },
+  {
+    "word": "tell off",
+    "pos": "",
+    "zh": "分派出；责备",
+    "difficulty": 4
+  },
+  {
+    "word": "throw away",
+    "pos": "",
+    "zh": "丢弃",
+    "difficulty": 4
+  },
+  {
+    "word": "throw up",
+    "pos": "",
+    "zh": "呕吐；猛地举起",
+    "difficulty": 4
+  },
+  {
+    "word": "try on",
+    "pos": "",
+    "zh": "试穿；试验",
+    "difficulty": 4
+  },
+  {
+    "word": "try out",
+    "pos": "",
+    "zh": "试验；提炼",
+    "difficulty": 4
+  },
+  {
+    "word": "turn around",
+    "pos": "",
+    "zh": "转身；好转",
+    "difficulty": 4
+  },
+  {
+    "word": "turn back",
+    "pos": "",
+    "zh": "往回走；翻回到",
+    "difficulty": 4
+  },
+  {
+    "word": "turn over",
+    "pos": "",
+    "zh": "打翻；营业额达到",
+    "difficulty": 4
+  },
+  {
+    "word": "turn round",
+    "pos": "",
+    "zh": "转身；转变",
+    "difficulty": 4
+  },
+  {
+    "word": "use up",
+    "pos": "",
+    "zh": "用完；耗尽",
+    "difficulty": 4
+  },
+  {
+    "word": "warm up",
+    "pos": "",
+    "zh": "热身；重新煮热",
+    "difficulty": 4
+  },
+  {
+    "word": "wash up",
+    "pos": "",
+    "zh": "洗手洗脸；洗餐具",
+    "difficulty": 4
+  },
+  {
+    "word": "watch out",
+    "pos": "",
+    "zh": "密切注意；当心",
+    "difficulty": 4
+  },
+  {
+    "word": "wear out",
+    "pos": "",
+    "zh": "穿破；用坏",
+    "difficulty": 4
+  },
+  {
+    "word": "write down",
+    "pos": "",
+    "zh": "写下；写文章贬低",
+    "difficulty": 4
+  },
+  {
+    "word": "write off",
+    "pos": "",
+    "zh": "一口气写成；写信索取",
+    "difficulty": 4
+  },
+  {
+    "word": "bring back",
+    "pos": "",
+    "zh": "拿回来；使回忆起来",
+    "difficulty": 4
+  },
+  {
+    "word": "bring down",
+    "pos": "",
+    "zh": "打倒；击落",
+    "difficulty": 4
+  },
+  {
+    "word": "bring in",
+    "pos": "",
+    "zh": "提出；挣得",
+    "difficulty": 4
+  },
+  {
+    "word": "break away",
+    "pos": "",
+    "zh": "突然离开；脱离",
+    "difficulty": 4
+  },
+  {
+    "word": "break in",
+    "pos": "",
+    "zh": "训练；使经使用逐渐合用",
+    "difficulty": 4
+  },
+  {
+    "word": "break off",
+    "pos": "",
+    "zh": "折断；突然停止",
+    "difficulty": 4
+  },
+  {
+    "word": "according to",
+    "pos": "",
+    "zh": "根据；按照",
+    "difficulty": 4
+  },
+  {
+    "word": "acid rain",
+    "pos": "",
+    "zh": "酸雨",
+    "difficulty": 4
+  },
+  {
+    "word": "ad hoc",
+    "pos": "",
+    "zh": "特别地",
+    "difficulty": 4
+  },
+  {
+    "word": "affirmative action",
+    "pos": "",
+    "zh": "肯定行动；平权行动",
+    "difficulty": 4
+  },
+  {
+    "word": "age group",
+    "pos": "",
+    "zh": "同年龄范围内的人",
+    "difficulty": 4
+  },
+  {
+    "word": "age of consent",
+    "pos": "",
+    "zh": "合法年龄；承诺年龄",
+    "difficulty": 4
+  },
+  {
+    "word": "ahead of",
+    "pos": "",
+    "zh": "在…之前",
+    "difficulty": 4
+  },
+  {
+    "word": "air base",
+    "pos": "",
+    "zh": "空军基地",
+    "difficulty": 4
+  },
+  {
+    "word": "air force",
+    "pos": "",
+    "zh": "空军；美国航空队",
+    "difficulty": 4
+  },
+  {
+    "word": "air power",
+    "pos": "",
+    "zh": "空军力量；空军实力",
+    "difficulty": 4
+  },
+  {
+    "word": "air raid",
+    "pos": "",
+    "zh": "空袭",
+    "difficulty": 4
+  },
+  {
+    "word": "air strike",
+    "pos": "",
+    "zh": "空中出击；空袭",
+    "difficulty": 4
+  },
+  {
+    "word": "air traffic controller",
+    "pos": "",
+    "zh": "空中交通指挥员",
+    "difficulty": 4
+  },
+  {
+    "word": "aircraft carrier",
+    "pos": "",
+    "zh": "航空母舰",
+    "difficulty": 4
+  },
+  {
+    "word": "all right",
+    "pos": "",
+    "zh": "好；顺利",
+    "difficulty": 4
+  },
+  {
+    "word": "alzheimer's disease",
+    "pos": "",
+    "zh": "早老性痴呆；阿耳滋海默氏病",
+    "difficulty": 4
+  },
+  {
+    "word": "american football",
+    "pos": "",
+    "zh": "美式足球；橄榄球",
+    "difficulty": 4
+  },
+  {
+    "word": "amino acid",
+    "pos": "",
+    "zh": "氨基酸",
+    "difficulty": 4
+  },
+  {
+    "word": "animal rights",
+    "pos": "",
+    "zh": "动物权利",
+    "difficulty": 4
+  },
+  {
+    "word": "answering machine",
+    "pos": "",
+    "zh": "答录机；录音电话",
+    "difficulty": 4
+  },
+  {
+    "word": "armed forces",
+    "pos": "",
+    "zh": "陆海空三军；武装",
+    "difficulty": 4
+  },
+  {
+    "word": "arms race",
+    "pos": "",
+    "zh": "军备竞赛",
+    "difficulty": 4
+  },
+  {
+    "word": "art form",
+    "pos": "",
+    "zh": "艺术形式",
+    "difficulty": 4
+  },
+  {
+    "word": "artificial intelligence",
+    "pos": "",
+    "zh": "人工智能",
+    "difficulty": 4
+  },
+  {
+    "word": "asking price",
+    "pos": "",
+    "zh": "要价；索价",
+    "difficulty": 4
+  },
+  {
+    "word": "assembly line",
+    "pos": "",
+    "zh": "装配线",
+    "difficulty": 4
+  },
+  {
+    "word": "attorney general",
+    "pos": "",
+    "zh": "首席检察官；司法部长",
+    "difficulty": 4
+  },
+  {
+    "word": "au pair",
+    "pos": "",
+    "zh": "<法>平等的；互惠的",
+    "difficulty": 4
+  },
+  {
+    "word": "back room",
+    "pos": "",
+    "zh": "里屋；密室",
+    "difficulty": 4
+  },
+  {
+    "word": "bad debt",
+    "pos": "",
+    "zh": "坏帐；呆帐",
+    "difficulty": 4
+  },
+  {
+    "word": "badly off",
+    "pos": "",
+    "zh": "穷的；缺少的",
+    "difficulty": 4
+  },
+  {
+    "word": "balance of payment",
+    "pos": "",
+    "zh": "收支平衡",
+    "difficulty": 4
+  },
+  {
+    "word": "balance of power",
+    "pos": "",
+    "zh": "均势；力量对比",
+    "difficulty": 4
+  },
+  {
+    "word": "balance sheet",
+    "pos": "",
+    "zh": "资产负债表",
+    "difficulty": 4
+  },
+  {
+    "word": "ball game",
+    "pos": "",
+    "zh": "球类运动；棒球",
+    "difficulty": 4
+  },
+  {
+    "word": "ballot box",
+    "pos": "",
+    "zh": "投票箱",
+    "difficulty": 4
+  },
+  {
+    "word": "bank account",
+    "pos": "",
+    "zh": "银行存款；银行往来帐户",
+    "difficulty": 4
+  },
+  {
+    "word": "bank holiday",
+    "pos": "",
+    "zh": "公共假期",
+    "difficulty": 4
+  },
+  {
+    "word": "barbed wire",
+    "pos": "",
+    "zh": "棘铁丝",
+    "difficulty": 4
+  },
+  {
+    "word": "base rate",
+    "pos": "",
+    "zh": "基本利率；基础比率",
+    "difficulty": 4
+  },
+  {
+    "word": "basis point",
+    "pos": "",
+    "zh": "基点",
+    "difficulty": 4
+  },
+  {
+    "word": "bay leaf",
+    "pos": "",
+    "zh": "月桂树叶",
+    "difficulty": 4
+  },
+  {
+    "word": "bed and breakfast",
+    "pos": "",
+    "zh": "欧洲的一种简易旅馆；住宿加早餐",
+    "difficulty": 4
+  },
+  {
+    "word": "best man",
+    "pos": "",
+    "zh": "男傧相",
+    "difficulty": 4
+  },
+  {
+    "word": "best seller",
+    "pos": "",
+    "zh": "畅销书；畅销书作者",
+    "difficulty": 4
+  },
+  {
+    "word": "betting shop",
+    "pos": "",
+    "zh": "<英>彩票销售点",
+    "difficulty": 4
+  },
+  {
+    "word": "big business",
+    "pos": "",
+    "zh": "大企业集团；大财阀",
+    "difficulty": 4
+  },
+  {
+    "word": "big city",
+    "pos": "",
+    "zh": "大城市；都",
+    "difficulty": 4
+  },
+  {
+    "word": "big deal",
+    "pos": "",
+    "zh": "名人；要人",
+    "difficulty": 4
+  },
+  {
+    "word": "big fish",
+    "pos": "",
+    "zh": "指公司里的重要人物",
+    "difficulty": 4
+  },
+  {
+    "word": "big money",
+    "pos": "",
+    "zh": "大笔的钱",
+    "difficulty": 4
+  },
+  {
+    "word": "big name",
+    "pos": "",
+    "zh": "知名人士；众所周知的事情",
+    "difficulty": 4
+  },
+  {
+    "word": "big time",
+    "pos": "",
+    "zh": "第一流；巨大成功",
+    "difficulty": 4
+  },
+  {
+    "word": "birth control",
+    "pos": "",
+    "zh": "节育",
+    "difficulty": 4
+  },
+  {
+    "word": "birth rate",
+    "pos": "",
+    "zh": "人口出生率",
+    "difficulty": 4
+  },
+  {
+    "word": "black and white",
+    "pos": "",
+    "zh": "白纸黑字；黑白照片",
+    "difficulty": 4
+  },
+  {
+    "word": "black hole",
+    "pos": "",
+    "zh": "黑洞",
+    "difficulty": 4
+  },
+  {
+    "word": "black market",
+    "pos": "",
+    "zh": "黑市",
+    "difficulty": 4
+  },
+  {
+    "word": "black pepper",
+    "pos": "",
+    "zh": "黑胡椒",
+    "difficulty": 4
+  },
+  {
+    "word": "blood pressure",
+    "pos": "",
+    "zh": "血压",
+    "difficulty": 4
+  },
+  {
+    "word": "blood test",
+    "pos": "",
+    "zh": "验血",
+    "difficulty": 4
+  },
+  {
+    "word": "blood vessel",
+    "pos": "",
+    "zh": "血管",
+    "difficulty": 4
+  },
+  {
+    "word": "blue chip",
+    "pos": "",
+    "zh": "蓝筹股；稳当可靠的财产",
+    "difficulty": 4
+  },
+  {
+    "word": "boarding school",
+    "pos": "",
+    "zh": "寄宿学校",
+    "difficulty": 4
+  },
+  {
+    "word": "boat people",
+    "pos": "",
+    "zh": "船民；乘船外逃的难民",
+    "difficulty": 4
+  },
+  {
+    "word": "body language",
+    "pos": "",
+    "zh": "身体语言；手势语言",
+    "difficulty": 4
+  },
+  {
+    "word": "bona fide",
+    "pos": "",
+    "zh": "真诚地；真实地",
+    "difficulty": 4
+  },
+  {
+    "word": "bone marrow",
+    "pos": "",
+    "zh": "骨髓",
+    "difficulty": 4
+  },
+  {
+    "word": "bottom line",
+    "pos": "",
+    "zh": "概要；账本底线",
+    "difficulty": 4
+  },
+  {
+    "word": "box office",
+    "pos": "",
+    "zh": "票房；票房收入",
+    "difficulty": 4
+  },
+  {
+    "word": "bread and butter",
+    "pos": "",
+    "zh": "涂黄油的面包；生计",
+    "difficulty": 4
+  },
+  {
+    "word": "breathing space",
+    "pos": "",
+    "zh": "休息时间",
+    "difficulty": 4
+  },
+  {
+    "word": "bronze medal",
+    "pos": "",
+    "zh": "铜奖章",
+    "difficulty": 4
+  },
+  {
+    "word": "building block",
+    "pos": "",
+    "zh": "积木；构件",
+    "difficulty": 4
+  },
+  {
+    "word": "building site",
+    "pos": "",
+    "zh": "建筑工地",
+    "difficulty": 4
+  },
+  {
+    "word": "building society",
+    "pos": "",
+    "zh": "<英> 房屋建筑会；建房互助协会",
+    "difficulty": 4
+  },
+  {
+    "word": "bus stop",
+    "pos": "",
+    "zh": "公共汽车站",
+    "difficulty": 4
+  },
+  {
+    "word": "capital gains",
+    "pos": "",
+    "zh": "资本收益",
+    "difficulty": 4
+  },
+  {
+    "word": "capital punishment",
+    "pos": "",
+    "zh": "死刑",
+    "difficulty": 4
+  },
+  {
+    "word": "car park",
+    "pos": "",
+    "zh": "停车场",
+    "difficulty": 4
+  },
+  {
+    "word": "carbon dioxide",
+    "pos": "",
+    "zh": "二氧化碳",
+    "difficulty": 4
+  },
+  {
+    "word": "carbon monoxide",
+    "pos": "",
+    "zh": "一氧化碳",
+    "difficulty": 4
+  },
+  {
+    "word": "case study",
+    "pos": "",
+    "zh": "实例研究；情况研究",
+    "difficulty": 4
+  },
+  {
+    "word": "cash flow",
+    "pos": "",
+    "zh": "现金流转",
+    "difficulty": 4
+  },
+  {
+    "word": "cast iron",
+    "pos": "",
+    "zh": "铸铁",
+    "difficulty": 4
+  },
+  {
+    "word": "caster sugar",
+    "pos": "",
+    "zh": "细白砂糖",
+    "difficulty": 4
+  },
+  {
+    "word": "central government",
+    "pos": "",
+    "zh": "中央政府",
+    "difficulty": 4
+  },
+  {
+    "word": "central heating",
+    "pos": "",
+    "zh": "集中采暖",
+    "difficulty": 4
+  },
+  {
+    "word": "centre stage",
+    "pos": "",
+    "zh": "重要位置；中心",
+    "difficulty": 4
+  },
+  {
+    "word": "chain reaction",
+    "pos": "",
+    "zh": "连锁反应",
+    "difficulty": 4
+  },
+  {
+    "word": "chamber of commerce",
+    "pos": "",
+    "zh": "商会",
+    "difficulty": 4
+  },
+  {
+    "word": "chat show",
+    "pos": "",
+    "zh": "访谈节目",
+    "difficulty": 4
+  },
+  {
+    "word": "chief constable",
+    "pos": "",
+    "zh": "郡警察局长",
+    "difficulty": 4
+  },
+  {
+    "word": "chief justice",
+    "pos": "",
+    "zh": "首席法官；法院院长",
+    "difficulty": 4
+  },
+  {
+    "word": "chief of staff",
+    "pos": "",
+    "zh": "参谋长；司令",
+    "difficulty": 4
+  },
+  {
+    "word": "child benefit",
+    "pos": "",
+    "zh": "儿童津贴",
+    "difficulty": 4
+  },
+  {
+    "word": "christmas card",
+    "pos": "",
+    "zh": "圣诞卡",
+    "difficulty": 4
+  },
+  {
+    "word": "christmas eve",
+    "pos": "",
+    "zh": "圣诞节前夕",
+    "difficulty": 4
+  },
+  {
+    "word": "christmas tree",
+    "pos": "",
+    "zh": "圣诞树",
+    "difficulty": 4
+  },
+  {
+    "word": "city hall",
+    "pos": "",
+    "zh": "市政厅",
+    "difficulty": 4
+  },
+  {
+    "word": "civil defence",
+    "pos": "",
+    "zh": "民间防卫；民防",
+    "difficulty": 4
+  },
+  {
+    "word": "civil liberties",
+    "pos": "",
+    "zh": "公民自由权；民权",
+    "difficulty": 4
+  },
+  {
+    "word": "civil rights",
+    "pos": "",
+    "zh": "民事权利；公民权利",
+    "difficulty": 4
+  },
+  {
+    "word": "civil servant",
+    "pos": "",
+    "zh": "文职人员；公务员",
+    "difficulty": 4
+  },
+  {
+    "word": "civil service",
+    "pos": "",
+    "zh": "文职部门；行政部门",
+    "difficulty": 4
+  },
+  {
+    "word": "civil war",
+    "pos": "",
+    "zh": "内战",
+    "difficulty": 4
+  },
+  {
+    "word": "close season",
+    "pos": "",
+    "zh": "禁猎季节",
+    "difficulty": 4
+  },
+  {
+    "word": "coal mine",
+    "pos": "",
+    "zh": "煤矿",
+    "difficulty": 4
+  },
+  {
+    "word": "code of conduct",
+    "pos": "",
+    "zh": "行动守则；管理法典",
+    "difficulty": 4
+  },
+  {
+    "word": "code of practice",
+    "pos": "",
+    "zh": "业务法规；业务守则",
+    "difficulty": 4
+  },
+  {
+    "word": "coffee shop",
+    "pos": "",
+    "zh": "咖啡店",
+    "difficulty": 4
+  },
+  {
+    "word": "coffee table",
+    "pos": "",
+    "zh": "矮茶几；咖啡桌",
+    "difficulty": 4
+  },
+  {
+    "word": "cold war",
+    "pos": "",
+    "zh": "冷战",
+    "difficulty": 4
+  },
+  {
+    "word": "colour scheme",
+    "pos": "",
+    "zh": "配色",
+    "difficulty": 4
+  },
+  {
+    "word": "comic book",
+    "pos": "",
+    "zh": "连环漫画册",
+    "difficulty": 4
+  },
+  {
+    "word": "commercial bank",
+    "pos": "",
+    "zh": "商业银行",
+    "difficulty": 4
+  },
+  {
+    "word": "common market",
+    "pos": "",
+    "zh": "西欧共同市场",
+    "difficulty": 4
+  },
+  {
+    "word": "common sense",
+    "pos": "",
+    "zh": "常识",
+    "difficulty": 4
+  },
+  {
+    "word": "community centre",
+    "pos": "",
+    "zh": "公共食堂；社区教育中心",
+    "difficulty": 4
+  },
+  {
+    "word": "community service",
+    "pos": "",
+    "zh": "感化；感化工作",
+    "difficulty": 4
+  },
+  {
+    "word": "compact disc",
+    "pos": "",
+    "zh": "镭射碟；镭射唱片",
+    "difficulty": 4
+  },
+  {
+    "word": "company car",
+    "pos": "",
+    "zh": "公司汽车",
+    "difficulty": 4
+  },
+  {
+    "word": "computer game",
+    "pos": "",
+    "zh": "计算机博弈；计算机游戏",
+    "difficulty": 4
+  },
+  {
+    "word": "concentration camp",
+    "pos": "",
+    "zh": "集中营",
+    "difficulty": 4
+  },
+  {
+    "word": "conservative party",
+    "pos": "",
+    "zh": "保守党",
+    "difficulty": 4
+  },
+  {
+    "word": "constituent assembly",
+    "pos": "",
+    "zh": "制定或修改宪法的国民代表大会",
+    "difficulty": 4
+  },
+  {
+    "word": "consumer goods",
+    "pos": "",
+    "zh": "生活消费品",
+    "difficulty": 4
+  },
+  {
+    "word": "contact lens",
+    "pos": "",
+    "zh": "接触镜；隐形镜",
+    "difficulty": 4
+  },
+  {
+    "word": "cost of living",
+    "pos": "",
+    "zh": "生活费；生活费用",
+    "difficulty": 4
+  },
+  {
+    "word": "cotton wool",
+    "pos": "",
+    "zh": "原棉；棉絮",
+    "difficulty": 4
+  },
+  {
+    "word": "council tax",
+    "pos": "",
+    "zh": "家庭税；议会税",
+    "difficulty": 4
+  },
+  {
+    "word": "county council",
+    "pos": "",
+    "zh": "郡议会",
+    "difficulty": 4
+  },
+  {
+    "word": "court of appeal",
+    "pos": "",
+    "zh": "上诉法庭",
+    "difficulty": 4
+  },
+  {
+    "word": "cover version",
+    "pos": "",
+    "zh": "翻唱版本",
+    "difficulty": 4
+  },
+  {
+    "word": "credit card",
+    "pos": "",
+    "zh": "信用卡；记帐卡",
+    "difficulty": 4
+  },
+  {
+    "word": "credit rating",
+    "pos": "",
+    "zh": "客户信贷分类",
+    "difficulty": 4
+  },
+  {
+    "word": "crown court",
+    "pos": "",
+    "zh": "英国刑事法庭；巡回刑事法庭",
+    "difficulty": 4
+  },
+  {
+    "word": "crown prince",
+    "pos": "",
+    "zh": "皇太子；皇储",
+    "difficulty": 4
+  },
+  {
+    "word": "crude oil",
+    "pos": "",
+    "zh": "原油",
+    "difficulty": 4
+  },
+  {
+    "word": "cruise missile",
+    "pos": "",
+    "zh": "巡航导弹",
+    "difficulty": 4
+  },
+  {
+    "word": "crystal clear",
+    "pos": "",
+    "zh": "完全透明的；<喻>极其明白",
+    "difficulty": 4
+  },
+  {
+    "word": "cup tie",
+    "pos": "",
+    "zh": "优胜杯决赛",
+    "difficulty": 4
+  },
+  {
+    "word": "current account",
+    "pos": "",
+    "zh": "往来帐户",
+    "difficulty": 4
+  },
+  {
+    "word": "current affairs",
+    "pos": "",
+    "zh": "时事；新闻",
+    "difficulty": 4
+  },
+  {
+    "word": "cutting edge",
+    "pos": "",
+    "zh": "尖端；最前沿",
+    "difficulty": 4
+  },
+  {
+    "word": "cystic fibrosis",
+    "pos": "",
+    "zh": "囊性纤维化",
+    "difficulty": 4
+  },
+  {
+    "word": "dance floor",
+    "pos": "",
+    "zh": "舞池",
+    "difficulty": 4
+  },
+  {
+    "word": "day care",
+    "pos": "",
+    "zh": "日托；日间护理",
+    "difficulty": 4
+  },
+  {
+    "word": "day off",
+    "pos": "",
+    "zh": "休假",
+    "difficulty": 4
+  },
+  {
+    "word": "day trip",
+    "pos": "",
+    "zh": "当日往返的短途旅行",
+    "difficulty": 4
+  },
+  {
+    "word": "de facto",
+    "pos": "",
+    "zh": "事实上的；实际的",
+    "difficulty": 4
+  },
+  {
+    "word": "dead end",
+    "pos": "",
+    "zh": "闭塞不通的一头；死胡同",
+    "difficulty": 4
+  },
+  {
+    "word": "death penalty",
+    "pos": "",
+    "zh": "死刑",
+    "difficulty": 4
+  },
+  {
+    "word": "death rate",
+    "pos": "",
+    "zh": "死亡率",
+    "difficulty": 4
+  },
+  {
+    "word": "death row",
+    "pos": "",
+    "zh": "死囚室",
+    "difficulty": 4
+  },
+  {
+    "word": "death sentence",
+    "pos": "",
+    "zh": "死刑",
+    "difficulty": 4
+  },
+  {
+    "word": "death squad",
+    "pos": "",
+    "zh": "暗杀小组",
+    "difficulty": 4
+  },
+  {
+    "word": "death toll",
+    "pos": "",
+    "zh": "死亡人数",
+    "difficulty": 4
+  },
+  {
+    "word": "department store",
+    "pos": "",
+    "zh": "百货公司",
+    "difficulty": 4
+  },
+  {
+    "word": "desert island",
+    "pos": "",
+    "zh": "荒岛",
+    "difficulty": 4
+  },
+  {
+    "word": "dining room",
+    "pos": "",
+    "zh": "饭厅",
+    "difficulty": 4
+  },
+  {
+    "word": "dining table",
+    "pos": "",
+    "zh": "餐桌",
+    "difficulty": 4
+  },
+  {
+    "word": "dinner party",
+    "pos": "",
+    "zh": "宴会",
+    "difficulty": 4
+  },
+  {
+    "word": "dinner table",
+    "pos": "",
+    "zh": "餐桌",
+    "difficulty": 4
+  },
+  {
+    "word": "director general",
+    "pos": "",
+    "zh": "局长；处长",
+    "difficulty": 4
+  },
+  {
+    "word": "dirty trick",
+    "pos": "",
+    "zh": "卑鄙手段",
+    "difficulty": 4
+  },
+  {
+    "word": "district attorney",
+    "pos": "",
+    "zh": "美国地方检察官",
+    "difficulty": 4
+  },
+  {
+    "word": "double cream",
+    "pos": "",
+    "zh": "高脂肪浓奶油",
+    "difficulty": 4
+  },
+  {
+    "word": "double standard",
+    "pos": "",
+    "zh": "双重标准；不同标准",
+    "difficulty": 4
+  },
+  {
+    "word": "down payment",
+    "pos": "",
+    "zh": "预付定金；分期付款的首次交款",
+    "difficulty": 4
+  },
+  {
+    "word": "downing street",
+    "pos": "",
+    "zh": "唐宁街；英国政府",
+    "difficulty": 4
+  },
+  {
+    "word": "drawing board",
+    "pos": "",
+    "zh": "制图板",
+    "difficulty": 4
+  },
+  {
+    "word": "drawing room",
+    "pos": "",
+    "zh": "客厅；休息室",
+    "difficulty": 4
+  },
+  {
+    "word": "dressing gown",
+    "pos": "",
+    "zh": "晨衣",
+    "difficulty": 4
+  },
+  {
+    "word": "dressing room",
+    "pos": "",
+    "zh": "更衣室；化妆室",
+    "difficulty": 4
+  },
+  {
+    "word": "dressing table",
+    "pos": "",
+    "zh": "梳妆台；镜架台",
+    "difficulty": 4
+  },
+  {
+    "word": "drinking water",
+    "pos": "",
+    "zh": "饮用水；饮水",
+    "difficulty": 4
+  },
+  {
+    "word": "driving licence",
+    "pos": "",
+    "zh": "驾驶执照",
+    "difficulty": 4
+  },
+  {
+    "word": "elementary school",
+    "pos": "",
+    "zh": "小学",
+    "difficulty": 4
+  },
+  {
+    "word": "emergency services",
+    "pos": "",
+    "zh": "紧急救援部门；应急服务机构",
+    "difficulty": 4
+  },
+  {
+    "word": "en masse",
+    "pos": "",
+    "zh": "全体地；一同地",
+    "difficulty": 4
+  },
+  {
+    "word": "end result",
+    "pos": "",
+    "zh": "最后结果；成品鉴定",
+    "difficulty": 4
+  },
+  {
+    "word": "ethnic cleansing",
+    "pos": "",
+    "zh": "种族清洗",
+    "difficulty": 4
+  },
+  {
+    "word": "exchange rate",
+    "pos": "",
+    "zh": "汇率；兑换率",
+    "difficulty": 4
+  },
+  {
+    "word": "exit visa",
+    "pos": "",
+    "zh": "出境签证",
+    "difficulty": 4
+  },
+  {
+    "word": "extended family",
+    "pos": "",
+    "zh": "大家庭；扩大的家庭",
+    "difficulty": 4
+  },
+  {
+    "word": "extra time",
+    "pos": "",
+    "zh": "加时赛；额外时间",
+    "difficulty": 4
+  },
+  {
+    "word": "face value",
+    "pos": "",
+    "zh": "票面价值；表面价值",
+    "difficulty": 4
+  },
+  {
+    "word": "fact of life",
+    "pos": "",
+    "zh": "无法更改的事实",
+    "difficulty": 4
+  },
+  {
+    "word": "fair play",
+    "pos": "",
+    "zh": "公平比赛；公平条件",
+    "difficulty": 4
+  },
+  {
+    "word": "fairy tale",
+    "pos": "",
+    "zh": "神话故事；童话",
+    "difficulty": 4
+  },
+  {
+    "word": "fallopian tube",
+    "pos": "",
+    "zh": "输卵管",
+    "difficulty": 4
+  },
+  {
+    "word": "false start",
+    "pos": "",
+    "zh": "失败的开端；抢跑",
+    "difficulty": 4
+  },
+  {
+    "word": "family doctor",
+    "pos": "",
+    "zh": "家庭医生",
+    "difficulty": 4
+  },
+  {
+    "word": "family planning",
+    "pos": "",
+    "zh": "计划生育",
+    "difficulty": 4
+  },
+  {
+    "word": "fan club",
+    "pos": "",
+    "zh": "追星族俱乐部；粉丝俱乐部",
+    "difficulty": 4
+  },
+  {
+    "word": "far east",
+    "pos": "",
+    "zh": "远东",
+    "difficulty": 4
+  },
+  {
+    "word": "far off",
+    "pos": "",
+    "zh": "远；在远处的",
+    "difficulty": 4
+  },
+  {
+    "word": "far out",
+    "pos": "",
+    "zh": "最新的；激进的",
+    "difficulty": 4
+  },
+  {
+    "word": "fast food",
+    "pos": "",
+    "zh": "速食；快餐",
+    "difficulty": 4
+  },
+  {
+    "word": "fast track",
+    "pos": "",
+    "zh": "快车道；快行道",
+    "difficulty": 4
+  },
+  {
+    "word": "feature film",
+    "pos": "",
+    "zh": "长片；故事片",
+    "difficulty": 4
+  },
+  {
+    "word": "field marshal",
+    "pos": "",
+    "zh": "陆军元帅",
+    "difficulty": 4
+  },
+  {
+    "word": "film star",
+    "pos": "",
+    "zh": "电影明星",
+    "difficulty": 4
+  },
+  {
+    "word": "financial year",
+    "pos": "",
+    "zh": "财政年度",
+    "difficulty": 4
+  },
+  {
+    "word": "fine art",
+    "pos": "",
+    "zh": "美术；美术品",
+    "difficulty": 4
+  },
+  {
+    "word": "fire brigade",
+    "pos": "",
+    "zh": "消防队",
+    "difficulty": 4
+  },
+  {
+    "word": "first aid",
+    "pos": "",
+    "zh": "急救",
+    "difficulty": 4
+  },
+  {
+    "word": "first floor",
+    "pos": "",
+    "zh": "第一层",
+    "difficulty": 4
+  },
+  {
+    "word": "first hand",
+    "pos": "",
+    "zh": "第一家",
+    "difficulty": 4
+  },
+  {
+    "word": "first lady",
+    "pos": "",
+    "zh": "第一夫人",
+    "difficulty": 4
+  },
+  {
+    "word": "first name",
+    "pos": "",
+    "zh": "名",
+    "difficulty": 4
+  },
+  {
+    "word": "first night",
+    "pos": "",
+    "zh": "首夜演出",
+    "difficulty": 4
+  },
+  {
+    "word": "first person",
+    "pos": "",
+    "zh": "第一人称",
+    "difficulty": 4
+  },
+  {
+    "word": "fiscal year",
+    "pos": "",
+    "zh": "<美>财政年度；会计年度",
+    "difficulty": 4
+  },
+  {
+    "word": "fleet street",
+    "pos": "",
+    "zh": "佛里特街；伦敦报业",
+    "difficulty": 4
+  },
+  {
+    "word": "focal point",
+    "pos": "",
+    "zh": "焦点",
+    "difficulty": 4
+  },
+  {
+    "word": "follow on",
+    "pos": "",
+    "zh": "继续下去",
+    "difficulty": 4
+  },
+  {
+    "word": "food chain",
+    "pos": "",
+    "zh": "食物链",
+    "difficulty": 4
+  },
+  {
+    "word": "food poisoning",
+    "pos": "",
+    "zh": "食物中毒",
+    "difficulty": 4
+  },
+  {
+    "word": "food processor",
+    "pos": "",
+    "zh": "食品加工机",
+    "difficulty": 4
+  },
+  {
+    "word": "food stamp",
+    "pos": "",
+    "zh": "食物券",
+    "difficulty": 4
+  },
+  {
+    "word": "foreign exchange",
+    "pos": "",
+    "zh": "国际汇兑；外汇",
+    "difficulty": 4
+  },
+  {
+    "word": "foreign office",
+    "pos": "",
+    "zh": "外交部",
+    "difficulty": 4
+  },
+  {
+    "word": "fossil fuel",
+    "pos": "",
+    "zh": "化石燃料",
+    "difficulty": 4
+  },
+  {
+    "word": "founder member",
+    "pos": "",
+    "zh": "创办人；发起者",
+    "difficulty": 4
+  },
+  {
+    "word": "founding father",
+    "pos": "",
+    "zh": "开国者；创立人",
+    "difficulty": 4
+  },
+  {
+    "word": "frame of mind",
+    "pos": "",
+    "zh": "心境",
+    "difficulty": 4
+  },
+  {
+    "word": "free enterprise",
+    "pos": "",
+    "zh": "自由企业",
+    "difficulty": 4
+  },
+  {
+    "word": "free kick",
+    "pos": "",
+    "zh": "任意球",
+    "difficulty": 4
+  },
+  {
+    "word": "free will",
+    "pos": "",
+    "zh": "自由意志",
+    "difficulty": 4
+  },
+  {
+    "word": "freedom fighter",
+    "pos": "",
+    "zh": "争取自由的战士",
+    "difficulty": 4
+  },
+  {
+    "word": "fresh air",
+    "pos": "",
+    "zh": "新鲜空气",
+    "difficulty": 4
+  },
+  {
+    "word": "front line",
+    "pos": "",
+    "zh": "前线；第一线",
+    "difficulty": 4
+  },
+  {
+    "word": "front page",
+    "pos": "",
+    "zh": "标题版；头版",
+    "difficulty": 4
+  },
+  {
+    "word": "frying pan",
+    "pos": "",
+    "zh": "煎锅；长柄平底锅",
+    "difficulty": 4
+  },
+  {
+    "word": "further education",
+    "pos": "",
+    "zh": "进修；继续教育",
+    "difficulty": 4
+  },
+  {
+    "word": "garden centre",
+    "pos": "",
+    "zh": "花卉商店；园艺商店",
+    "difficulty": 4
+  },
+  {
+    "word": "gas mask",
+    "pos": "",
+    "zh": "防毒面具",
+    "difficulty": 4
+  },
+  {
+    "word": "gas station",
+    "pos": "",
+    "zh": "加油站",
+    "difficulty": 4
+  },
+  {
+    "word": "gene therapy",
+    "pos": "",
+    "zh": "基因治疗",
+    "difficulty": 4
+  },
+  {
+    "word": "general election",
+    "pos": "",
+    "zh": "普选",
+    "difficulty": 4
+  },
+  {
+    "word": "general public",
+    "pos": "",
+    "zh": "公众",
+    "difficulty": 4
+  },
+  {
+    "word": "general strike",
+    "pos": "",
+    "zh": "总罢工",
+    "difficulty": 4
+  },
+  {
+    "word": "genetic engineering",
+    "pos": "",
+    "zh": "遗传工程",
+    "difficulty": 4
+  },
+  {
+    "word": "global warming",
+    "pos": "",
+    "zh": "全球变暖",
+    "difficulty": 4
+  },
+  {
+    "word": "gold medal",
+    "pos": "",
+    "zh": "金牌",
+    "difficulty": 4
+  },
+  {
+    "word": "golden age",
+    "pos": "",
+    "zh": "黄金时代",
+    "difficulty": 4
+  },
+  {
+    "word": "golf ball",
+    "pos": "",
+    "zh": "高尔夫球",
+    "difficulty": 4
+  },
+  {
+    "word": "golf club",
+    "pos": "",
+    "zh": "高尔夫球棍；高尔夫俱乐部",
+    "difficulty": 4
+  },
+  {
+    "word": "golf course",
+    "pos": "",
+    "zh": "高尔夫球场",
+    "difficulty": 4
+  },
+  {
+    "word": "grammar school",
+    "pos": "",
+    "zh": "小学或初级中学；文法学校",
+    "difficulty": 4
+  },
+  {
+    "word": "grand jury",
+    "pos": "",
+    "zh": "大陪审团",
+    "difficulty": 4
+  },
+  {
+    "word": "grand prix",
+    "pos": "",
+    "zh": "国际长途大赛车",
+    "difficulty": 4
+  },
+  {
+    "word": "grand slam",
+    "pos": "",
+    "zh": "大满贯；满垒时的全垒打",
+    "difficulty": 4
+  },
+  {
+    "word": "grass roots",
+    "pos": "",
+    "zh": "乡村地区；乡村民众",
+    "difficulty": 4
+  },
+  {
+    "word": "great britain",
+    "pos": "",
+    "zh": "大不列颠",
+    "difficulty": 4
+  },
+  {
+    "word": "green party",
+    "pos": "",
+    "zh": "绿党",
+    "difficulty": 4
+  },
+  {
+    "word": "greenhouse effect",
+    "pos": "",
+    "zh": "温室效应",
+    "difficulty": 4
+  },
+  {
+    "word": "greenhouse gas",
+    "pos": "",
+    "zh": "二氧化碳、甲烷等导致温室效应的气体",
+    "difficulty": 4
+  },
+  {
+    "word": "ground floor",
+    "pos": "",
+    "zh": "第一层",
+    "difficulty": 4
+  },
+  {
+    "word": "ground rule",
+    "pos": "",
+    "zh": "程序",
+    "difficulty": 4
+  },
+  {
+    "word": "ground work",
+    "pos": "",
+    "zh": "基础；地基",
+    "difficulty": 4
+  },
+  {
+    "word": "group therapy",
+    "pos": "",
+    "zh": "集体治疗",
+    "difficulty": 4
+  },
+  {
+    "word": "guinea pig",
+    "pos": "",
+    "zh": "天竺鼠",
+    "difficulty": 4
+  },
+  {
+    "word": "hand grenade",
+    "pos": "",
+    "zh": "手榴弹；灭火瓶",
+    "difficulty": 4
+  },
+  {
+    "word": "hard core",
+    "pos": "",
+    "zh": "核心硬件；硬核",
+    "difficulty": 4
+  },
+  {
+    "word": "hard currency",
+    "pos": "",
+    "zh": "硬通货",
+    "difficulty": 4
+  },
+  {
+    "word": "hat trick",
+    "pos": "",
+    "zh": "连中三柱；使对方三击球手退场",
+    "difficulty": 4
+  },
+  {
+    "word": "hay fever",
+    "pos": "",
+    "zh": "花粉热；干草热",
+    "difficulty": 4
+  },
+  {
+    "word": "head of state",
+    "pos": "",
+    "zh": "国家元首",
+    "difficulty": 4
+  },
+  {
+    "word": "head start",
+    "pos": "",
+    "zh": "领先",
+    "difficulty": 4
+  },
+  {
+    "word": "head teacher",
+    "pos": "",
+    "zh": "校长；班主任",
+    "difficulty": 4
+  },
+  {
+    "word": "health food",
+    "pos": "",
+    "zh": "保健食品",
+    "difficulty": 4
+  },
+  {
+    "word": "heart attack",
+    "pos": "",
+    "zh": "心脏病发作",
+    "difficulty": 4
+  },
+  {
+    "word": "heart failure",
+    "pos": "",
+    "zh": "心力衰竭",
+    "difficulty": 4
+  },
+  {
+    "word": "heavy industry",
+    "pos": "",
+    "zh": "重工业",
+    "difficulty": 4
+  },
+  {
+    "word": "heavy metal",
+    "pos": "",
+    "zh": "重金属；强敌",
+    "difficulty": 4
+  },
+  {
+    "word": "hiding place",
+    "pos": "",
+    "zh": "躲藏处",
+    "difficulty": 4
+  },
+  {
+    "word": "high command",
+    "pos": "",
+    "zh": "统帅部；最高指挥部",
+    "difficulty": 4
+  },
+  {
+    "word": "high commission",
+    "pos": "",
+    "zh": "高级专员公署或辖区；特派使节的职位",
+    "difficulty": 4
+  },
+  {
+    "word": "high commissioner",
+    "pos": "",
+    "zh": "高级专员",
+    "difficulty": 4
+  },
+  {
+    "word": "high court",
+    "pos": "",
+    "zh": "高等法院",
+    "difficulty": 4
+  },
+  {
+    "word": "high ground",
+    "pos": "",
+    "zh": "优势；有利地位",
+    "difficulty": 4
+  },
+  {
+    "word": "high heels",
+    "pos": "",
+    "zh": "高跟鞋",
+    "difficulty": 4
+  },
+  {
+    "word": "high point",
+    "pos": "",
+    "zh": "顶点；极限",
+    "difficulty": 4
+  },
+  {
+    "word": "high school",
+    "pos": "",
+    "zh": "中学",
+    "difficulty": 4
+  },
+  {
+    "word": "high street",
+    "pos": "",
+    "zh": "主干道；高街",
+    "difficulty": 4
+  },
+  {
+    "word": "high tech",
+    "pos": "",
+    "zh": "高技术",
+    "difficulty": 4
+  },
+  {
+    "word": "high technology",
+    "pos": "",
+    "zh": "高科技",
+    "difficulty": 4
+  },
+  {
+    "word": "high water",
+    "pos": "",
+    "zh": "高潮；高水位",
+    "difficulty": 4
+  },
+  {
+    "word": "higher education",
+    "pos": "",
+    "zh": "高等教育",
+    "difficulty": 4
+  },
+  {
+    "word": "hit list",
+    "pos": "",
+    "zh": "黑名单；暗杀名单",
+    "difficulty": 4
+  },
+  {
+    "word": "home counties",
+    "pos": "",
+    "zh": "伦敦周围各郡",
+    "difficulty": 4
+  },
+  {
+    "word": "home office",
+    "pos": "",
+    "zh": "总机构；总店",
+    "difficulty": 4
+  },
+  {
+    "word": "home owner",
+    "pos": "",
+    "zh": "业主",
+    "difficulty": 4
+  },
+  {
+    "word": "home secretary",
+    "pos": "",
+    "zh": "内政大臣",
+    "difficulty": 4
+  },
+  {
+    "word": "horse racing",
+    "pos": "",
+    "zh": "赛马",
+    "difficulty": 4
+  },
+  {
+    "word": "hot air",
+    "pos": "",
+    "zh": "吹牛",
+    "difficulty": 4
+  },
+  {
+    "word": "hot dog",
+    "pos": "",
+    "zh": "<口>热狗",
+    "difficulty": 4
+  },
+  {
+    "word": "hot spot",
+    "pos": "",
+    "zh": "热点",
+    "difficulty": 4
+  },
+  {
+    "word": "house arrest",
+    "pos": "",
+    "zh": "软禁；软禁于家中",
+    "difficulty": 4
+  },
+  {
+    "word": "house of commons",
+    "pos": "",
+    "zh": "下议院",
+    "difficulty": 4
+  },
+  {
+    "word": "house of lords",
+    "pos": "",
+    "zh": "上议院",
+    "difficulty": 4
+  },
+  {
+    "word": "house of representatives",
+    "pos": "",
+    "zh": "众议院",
+    "difficulty": 4
+  },
+  {
+    "word": "houses of parliament",
+    "pos": "",
+    "zh": "英国的国会大厦",
+    "difficulty": 4
+  },
+  {
+    "word": "housing association",
+    "pos": "",
+    "zh": "住房协会",
+    "difficulty": 4
+  },
+  {
+    "word": "housing benefit",
+    "pos": "",
+    "zh": "住房补助",
+    "difficulty": 4
+  },
+  {
+    "word": "housing estate",
+    "pos": "",
+    "zh": "居民村；居住区",
+    "difficulty": 4
+  },
+  {
+    "word": "housing project",
+    "pos": "",
+    "zh": "住房建造计划；住房计划",
+    "difficulty": 4
+  },
+  {
+    "word": "human being",
+    "pos": "",
+    "zh": "人类",
+    "difficulty": 4
+  },
+  {
+    "word": "human nature",
+    "pos": "",
+    "zh": "人性；人情",
+    "difficulty": 4
+  },
+  {
+    "word": "human race",
+    "pos": "",
+    "zh": "人种",
+    "difficulty": 4
+  },
+  {
+    "word": "human resources",
+    "pos": "",
+    "zh": "人力资源；人文资源",
+    "difficulty": 4
+  },
+  {
+    "word": "hunger strike",
+    "pos": "",
+    "zh": "表示抗议的绝食",
+    "difficulty": 4
+  },
+  {
+    "word": "ice age",
+    "pos": "",
+    "zh": "冰期；冰河时代",
+    "difficulty": 4
+  },
+  {
+    "word": "ice cream",
+    "pos": "",
+    "zh": "冰淇淋",
+    "difficulty": 4
+  },
+  {
+    "word": "ice hockey",
+    "pos": "",
+    "zh": "冰球；冰上曲棍球",
+    "difficulty": 4
+  },
+  {
+    "word": "icing sugar",
+    "pos": "",
+    "zh": "糖粉；糖霜",
+    "difficulty": 4
+  },
+  {
+    "word": "identity card",
+    "pos": "",
+    "zh": "身份证",
+    "difficulty": 4
+  },
+  {
+    "word": "ill health",
+    "pos": "",
+    "zh": "不健康",
+    "difficulty": 4
+  },
+  {
+    "word": "immune system",
+    "pos": "",
+    "zh": "免疫系统",
+    "difficulty": 4
+  },
+  {
+    "word": "income support",
+    "pos": "",
+    "zh": "收入保障津贴",
+    "difficulty": 4
+  },
+  {
+    "word": "income tax",
+    "pos": "",
+    "zh": "所得税",
+    "difficulty": 4
+  },
+  {
+    "word": "industrial action",
+    "pos": "",
+    "zh": "劳工行动",
+    "difficulty": 4
+  },
+  {
+    "word": "industrial estate",
+    "pos": "",
+    "zh": "<英>工业区",
+    "difficulty": 4
+  },
+  {
+    "word": "industrial relations",
+    "pos": "",
+    "zh": "劳资关系",
+    "difficulty": 4
+  },
+  {
+    "word": "information technology",
+    "pos": "",
+    "zh": "信息技术",
+    "difficulty": 4
+  },
+  {
+    "word": "inland revenue",
+    "pos": "",
+    "zh": "国内税收；税务局",
+    "difficulty": 4
+  },
+  {
+    "word": "inner circle",
+    "pos": "",
+    "zh": "核心集团",
+    "difficulty": 4
+  },
+  {
+    "word": "inner city",
+    "pos": "",
+    "zh": "市中心；市中心区",
+    "difficulty": 4
+  },
+  {
+    "word": "insofar as",
+    "pos": "",
+    "zh": "在…的限度内；在…的范围内",
+    "difficulty": 4
+  },
+  {
+    "word": "intensive care",
+    "pos": "",
+    "zh": "重病特别护理",
+    "difficulty": 4
+  },
+  {
+    "word": "interior design",
+    "pos": "",
+    "zh": "内部装饰业；室内设计",
+    "difficulty": 4
+  },
+  {
+    "word": "international relations",
+    "pos": "",
+    "zh": "国际关系",
+    "difficulty": 4
+  },
+  {
+    "word": "iron curtain",
+    "pos": "",
+    "zh": "铁幕；无形屏障",
+    "difficulty": 4
+  },
+  {
+    "word": "jet lag",
+    "pos": "",
+    "zh": "飞行时差反应；时差感",
+    "difficulty": 4
+  },
+  {
+    "word": "junk bond",
+    "pos": "",
+    "zh": "不值钱的债券；垃圾债券",
+    "difficulty": 4
+  },
+  {
+    "word": "labour force",
+    "pos": "",
+    "zh": "劳动力",
+    "difficulty": 4
+  },
+  {
+    "word": "labour market",
+    "pos": "",
+    "zh": "劳动力市场",
+    "difficulty": 4
+  },
+  {
+    "word": "law and order",
+    "pos": "",
+    "zh": "治安",
+    "difficulty": 4
+  },
+  {
+    "word": "lead singer",
+    "pos": "",
+    "zh": "主唱；领唱",
+    "difficulty": 4
+  },
+  {
+    "word": "leading article",
+    "pos": "",
+    "zh": "主要文章",
+    "difficulty": 4
+  },
+  {
+    "word": "legal aid",
+    "pos": "",
+    "zh": "法律援助",
+    "difficulty": 4
+  },
+  {
+    "word": "leisure centre",
+    "pos": "",
+    "zh": "娱乐中心",
+    "difficulty": 4
+  },
+  {
+    "word": "lending rate",
+    "pos": "",
+    "zh": "贷款利率；借款利率",
+    "difficulty": 4
+  },
+  {
+    "word": "liberal democrat",
+    "pos": "",
+    "zh": "自民党人；自由民主党",
+    "difficulty": 4
+  },
+  {
+    "word": "liberal party",
+    "pos": "",
+    "zh": "自由党",
+    "difficulty": 4
+  },
+  {
+    "word": "life assurance",
+    "pos": "",
+    "zh": "人寿保险；人寿保险金",
+    "difficulty": 4
+  },
+  {
+    "word": "life cycle",
+    "pos": "",
+    "zh": "生活周期",
+    "difficulty": 4
+  },
+  {
+    "word": "life expectancy",
+    "pos": "",
+    "zh": "估计寿命；预期使用寿命",
+    "difficulty": 4
+  },
+  {
+    "word": "life imprisonment",
+    "pos": "",
+    "zh": "无期徒刑",
+    "difficulty": 4
+  },
+  {
+    "word": "life insurance",
+    "pos": "",
+    "zh": "人寿保险",
+    "difficulty": 4
+  },
+  {
+    "word": "life sentence",
+    "pos": "",
+    "zh": "无期徒刑的判决",
+    "difficulty": 4
+  },
+  {
+    "word": "light bulb",
+    "pos": "",
+    "zh": "灯泡",
+    "difficulty": 4
+  },
+  {
+    "word": "light year",
+    "pos": "",
+    "zh": "光年",
+    "difficulty": 4
+  },
+  {
+    "word": "limited edition",
+    "pos": "",
+    "zh": "发行额有限的限定版",
+    "difficulty": 4
+  },
+  {
+    "word": "lion's share",
+    "pos": "",
+    "zh": "最大的份额",
+    "difficulty": 4
+  },
+  {
+    "word": "lip service",
+    "pos": "",
+    "zh": "口惠",
+    "difficulty": 4
+  },
+  {
+    "word": "little finger",
+    "pos": "",
+    "zh": "小指",
+    "difficulty": 4
+  },
+  {
+    "word": "living room",
+    "pos": "",
+    "zh": "客厅；起居室",
+    "difficulty": 4
+  },
+  {
+    "word": "living standard",
+    "pos": "",
+    "zh": "生活标准；生活水平",
+    "difficulty": 4
+  },
+  {
+    "word": "local authority",
+    "pos": "",
+    "zh": "地方当局；地方政权",
+    "difficulty": 4
+  },
+  {
+    "word": "local time",
+    "pos": "",
+    "zh": "当地时间",
+    "difficulty": 4
+  },
+  {
+    "word": "locker room",
+    "pos": "",
+    "zh": "衣帽间",
+    "difficulty": 4
+  },
+  {
+    "word": "loose end",
+    "pos": "",
+    "zh": "未了结的部分",
+    "difficulty": 4
+  },
+  {
+    "word": "love affair",
+    "pos": "",
+    "zh": "风流韵事；强烈爱好",
+    "difficulty": 4
+  },
+  {
+    "word": "love life",
+    "pos": "",
+    "zh": "爱情生活",
+    "difficulty": 4
+  },
+  {
+    "word": "love story",
+    "pos": "",
+    "zh": "爱情故事；恋爱小说",
+    "difficulty": 4
+  },
+  {
+    "word": "lump sum",
+    "pos": "",
+    "zh": "总额；总结算",
+    "difficulty": 4
+  },
+  {
+    "word": "luncheon meat",
+    "pos": "",
+    "zh": "午餐肉",
+    "difficulty": 4
+  },
+  {
+    "word": "machine gun",
+    "pos": "",
+    "zh": "机关枪",
+    "difficulty": 4
+  },
+  {
+    "word": "machine tool",
+    "pos": "",
+    "zh": "机床；工作母机",
+    "difficulty": 4
+  },
+  {
+    "word": "mad cow disease",
+    "pos": "",
+    "zh": "狂牛病；牛绵状脑病",
+    "difficulty": 4
+  },
+  {
+    "word": "magnetic field",
+    "pos": "",
+    "zh": "磁场",
+    "difficulty": 4
+  },
+  {
+    "word": "mail order",
+    "pos": "",
+    "zh": "邮购",
+    "difficulty": 4
+  },
+  {
+    "word": "main road",
+    "pos": "",
+    "zh": "干道；主要道路",
+    "difficulty": 4
+  },
+  {
+    "word": "managing director",
+    "pos": "",
+    "zh": "总经理；常务董事",
+    "difficulty": 4
+  },
+  {
+    "word": "manor house",
+    "pos": "",
+    "zh": "庄园主的住宅；领主之宅邸",
+    "difficulty": 4
+  },
+  {
+    "word": "market forces",
+    "pos": "",
+    "zh": "自由市场运行",
+    "difficulty": 4
+  },
+  {
+    "word": "market research",
+    "pos": "",
+    "zh": "市场调查",
+    "difficulty": 4
+  },
+  {
+    "word": "market share",
+    "pos": "",
+    "zh": "市场占有率",
+    "difficulty": 4
+  },
+  {
+    "word": "martial art",
+    "pos": "",
+    "zh": "武术；技击",
+    "difficulty": 4
+  },
+  {
+    "word": "martial law",
+    "pos": "",
+    "zh": "戒严法；戒严令",
+    "difficulty": 4
+  },
+  {
+    "word": "mass media",
+    "pos": "",
+    "zh": "大众传播媒体",
+    "difficulty": 4
+  },
+  {
+    "word": "meeting place",
+    "pos": "",
+    "zh": "会场；聚会地点",
+    "difficulty": 4
+  },
+  {
+    "word": "member of parliament",
+    "pos": "",
+    "zh": "国会议员；下院议员",
+    "difficulty": 4
+  },
+  {
+    "word": "merchant bank",
+    "pos": "",
+    "zh": "商业银行",
+    "difficulty": 4
+  },
+  {
+    "word": "metric ton",
+    "pos": "",
+    "zh": "公吨",
+    "difficulty": 4
+  },
+  {
+    "word": "mickey mouse",
+    "pos": "",
+    "zh": "米老鼠",
+    "difficulty": 4
+  },
+  {
+    "word": "middle age",
+    "pos": "",
+    "zh": "中年",
+    "difficulty": 4
+  },
+  {
+    "word": "middle ages",
+    "pos": "",
+    "zh": "中世纪",
+    "difficulty": 4
+  },
+  {
+    "word": "middle class",
+    "pos": "",
+    "zh": "中产阶级",
+    "difficulty": 4
+  },
+  {
+    "word": "military police",
+    "pos": "",
+    "zh": "宪兵队",
+    "difficulty": 4
+  },
+  {
+    "word": "military service",
+    "pos": "",
+    "zh": "兵役",
+    "difficulty": 4
+  },
+  {
+    "word": "milky way",
+    "pos": "",
+    "zh": "银河",
+    "difficulty": 4
+  },
+  {
+    "word": "mineral water",
+    "pos": "",
+    "zh": "矿泉水；矿质水",
+    "difficulty": 4
+  },
+  {
+    "word": "mirror image",
+    "pos": "",
+    "zh": "镜象",
+    "difficulty": 4
+  },
+  {
+    "word": "miscarriage of justice",
+    "pos": "",
+    "zh": "审判不公；误判",
+    "difficulty": 4
+  },
+  {
+    "word": "mobile home",
+    "pos": "",
+    "zh": "活动房屋",
+    "difficulty": 4
+  },
+  {
+    "word": "mobile phone",
+    "pos": "",
+    "zh": "移动电话",
+    "difficulty": 4
+  },
+  {
+    "word": "molecular biology",
+    "pos": "",
+    "zh": "分子生物学",
+    "difficulty": 4
+  },
+  {
+    "word": "money market",
+    "pos": "",
+    "zh": "金融市场",
+    "difficulty": 4
+  },
+  {
+    "word": "money supply",
+    "pos": "",
+    "zh": "货币供应量",
+    "difficulty": 4
+  },
+  {
+    "word": "motion picture",
+    "pos": "",
+    "zh": "电影",
+    "difficulty": 4
+  },
+  {
+    "word": "motor car",
+    "pos": "",
+    "zh": "摩托车",
+    "difficulty": 4
+  },
+  {
+    "word": "mountain bike",
+    "pos": "",
+    "zh": "山地车；山地自行车",
+    "difficulty": 4
+  },
+  {
+    "word": "multiple sclerosis",
+    "pos": "",
+    "zh": "多发性硬化",
+    "difficulty": 4
+  },
+  {
+    "word": "music hall",
+    "pos": "",
+    "zh": "杂耍戏院；杂耍",
+    "difficulty": 4
+  },
+  {
+    "word": "musical instrument",
+    "pos": "",
+    "zh": "乐器",
+    "difficulty": 4
+  },
+  {
+    "word": "mutual fund",
+    "pos": "",
+    "zh": "合股投资；共有基金",
+    "difficulty": 4
+  },
+  {
+    "word": "nation state",
+    "pos": "",
+    "zh": "单一民族国家",
+    "difficulty": 4
+  },
+  {
+    "word": "national anthem",
+    "pos": "",
+    "zh": "国歌",
+    "difficulty": 4
+  },
+  {
+    "word": "national curriculum",
+    "pos": "",
+    "zh": "国民教育课程",
+    "difficulty": 4
+  },
+  {
+    "word": "national government",
+    "pos": "",
+    "zh": "联合政府",
+    "difficulty": 4
+  },
+  {
+    "word": "national health service",
+    "pos": "",
+    "zh": "国家医疗保健机构",
+    "difficulty": 4
+  },
+  {
+    "word": "national insurance",
+    "pos": "",
+    "zh": "国民保险；国家保险",
+    "difficulty": 4
+  },
+  {
+    "word": "national park",
+    "pos": "",
+    "zh": "国家公园",
+    "difficulty": 4
+  },
+  {
+    "word": "national service",
+    "pos": "",
+    "zh": "兵役",
+    "difficulty": 4
+  },
+  {
+    "word": "native american",
+    "pos": "",
+    "zh": "印第安人；美洲原住民",
+    "difficulty": 4
+  },
+  {
+    "word": "natural gas",
+    "pos": "",
+    "zh": "天然气",
+    "difficulty": 4
+  },
+  {
+    "word": "natural history",
+    "pos": "",
+    "zh": "博物学；有关博物学的书",
+    "difficulty": 4
+  },
+  {
+    "word": "natural resources",
+    "pos": "",
+    "zh": "天然资源；自然资源",
+    "difficulty": 4
+  },
+  {
+    "word": "negotiating table",
+    "pos": "",
+    "zh": "谈判桌",
+    "difficulty": 4
+  },
+  {
+    "word": "nervous breakdown",
+    "pos": "",
+    "zh": "神经失常",
+    "difficulty": 4
+  },
+  {
+    "word": "nervous system",
+    "pos": "",
+    "zh": "神经系统",
+    "difficulty": 4
+  },
+  {
+    "word": "new age",
+    "pos": "",
+    "zh": "新时代；新世纪",
+    "difficulty": 4
+  },
+  {
+    "word": "new testament",
+    "pos": "",
+    "zh": "新约全书",
+    "difficulty": 4
+  },
+  {
+    "word": "new town",
+    "pos": "",
+    "zh": "<英>新市镇；新区",
+    "difficulty": 4
+  },
+  {
+    "word": "new wave",
+    "pos": "",
+    "zh": "新潮流；新风尚",
+    "difficulty": 4
+  },
+  {
+    "word": "new world",
+    "pos": "",
+    "zh": "新世界",
+    "difficulty": 4
+  },
+  {
+    "word": "new year",
+    "pos": "",
+    "zh": "新年",
+    "difficulty": 4
+  },
+  {
+    "word": "news conference",
+    "pos": "",
+    "zh": "记者招待会",
+    "difficulty": 4
+  },
+  {
+    "word": "next door",
+    "pos": "",
+    "zh": "隔壁",
+    "difficulty": 4
+  },
+  {
+    "word": "nuclear reactor",
+    "pos": "",
+    "zh": "核反应堆",
+    "difficulty": 4
+  },
+  {
+    "word": "number one",
+    "pos": "",
+    "zh": "自己；自己的利益",
+    "difficulty": 4
+  },
+  {
+    "word": "number plate",
+    "pos": "",
+    "zh": "牌照；号码牌",
+    "difficulty": 4
+  },
+  {
+    "word": "nursery school",
+    "pos": "",
+    "zh": "幼儿园",
+    "difficulty": 4
+  },
+  {
+    "word": "nursing home",
+    "pos": "",
+    "zh": "私人疗养院",
+    "difficulty": 4
+  },
+  {
+    "word": "o level",
+    "pos": "",
+    "zh": "普通程度；普通水平",
+    "difficulty": 4
+  },
+  {
+    "word": "of course",
+    "pos": "",
+    "zh": "当然",
+    "difficulty": 4
+  },
+  {
+    "word": "off duty",
+    "pos": "",
+    "zh": "下班的",
+    "difficulty": 4
+  },
+  {
+    "word": "oil slick",
+    "pos": "",
+    "zh": "浮油；漂浮在水面上的油膜",
+    "difficulty": 4
+  },
+  {
+    "word": "oil tanker",
+    "pos": "",
+    "zh": "油轮",
+    "difficulty": 4
+  },
+  {
+    "word": "oil well",
+    "pos": "",
+    "zh": "油井",
+    "difficulty": 4
+  },
+  {
+    "word": "old age",
+    "pos": "",
+    "zh": "晚年；白头",
+    "difficulty": 4
+  },
+  {
+    "word": "old boy",
+    "pos": "",
+    "zh": "校友；老同学",
+    "difficulty": 4
+  },
+  {
+    "word": "old girl",
+    "pos": "",
+    "zh": "女校友；老太婆",
+    "difficulty": 4
+  },
+  {
+    "word": "old guard",
+    "pos": "",
+    "zh": "保守派",
+    "difficulty": 4
+  },
+  {
+    "word": "old lady",
+    "pos": "",
+    "zh": "老妇人；母亲",
+    "difficulty": 4
+  },
+  {
+    "word": "old man",
+    "pos": "",
+    "zh": "非正式用语",
+    "difficulty": 4
+  },
+  {
+    "word": "old master",
+    "pos": "",
+    "zh": "绘画大师；早期绘画大师的作品",
+    "difficulty": 4
+  },
+  {
+    "word": "old testament",
+    "pos": "",
+    "zh": "基督教的《旧约全书》",
+    "difficulty": 4
+  },
+  {
+    "word": "olive oil",
+    "pos": "",
+    "zh": "橄榄油",
+    "difficulty": 4
+  },
+  {
+    "word": "olympic games",
+    "pos": "",
+    "zh": "奥运会",
+    "difficulty": 4
+  },
+  {
+    "word": "open letter",
+    "pos": "",
+    "zh": "公开信",
+    "difficulty": 4
+  },
+  {
+    "word": "open market",
+    "pos": "",
+    "zh": "公开市场",
+    "difficulty": 4
+  },
+  {
+    "word": "open university",
+    "pos": "",
+    "zh": "开发大学计算机系统",
+    "difficulty": 4
+  },
+  {
+    "word": "opening night",
+    "pos": "",
+    "zh": "上演的第一夜",
+    "difficulty": 4
+  },
+  {
+    "word": "opera house",
+    "pos": "",
+    "zh": "歌剧院",
+    "difficulty": 4
+  },
+  {
+    "word": "operating system",
+    "pos": "",
+    "zh": "操作系统",
+    "difficulty": 4
+  },
+  {
+    "word": "opinion poll",
+    "pos": "",
+    "zh": "选举投票；民意测验",
+    "difficulty": 4
+  },
+  {
+    "word": "opposite number",
+    "pos": "",
+    "zh": "对应的人；对应的物",
+    "difficulty": 4
+  },
+  {
+    "word": "opposite sex",
+    "pos": "",
+    "zh": "异性",
+    "difficulty": 4
+  },
+  {
+    "word": "organized crime",
+    "pos": "",
+    "zh": "有组织的罪行；犯罪集团",
+    "difficulty": 4
+  },
+  {
+    "word": "out of touch",
+    "pos": "",
+    "zh": "不联系；不接触",
+    "difficulty": 4
+  },
+  {
+    "word": "out of work",
+    "pos": "",
+    "zh": "失业；机器有毛病",
+    "difficulty": 4
+  },
+  {
+    "word": "outer space",
+    "pos": "",
+    "zh": "太空；外层空间",
+    "difficulty": 4
+  },
+  {
+    "word": "overall majority",
+    "pos": "",
+    "zh": "压倒性多数票；绝对多数票",
+    "difficulty": 4
+  },
+  {
+    "word": "own goal",
+    "pos": "",
+    "zh": "误中本队球门；影响本身利益的错误行为",
+    "difficulty": 4
+  },
+  {
+    "word": "ozone layer",
+    "pos": "",
+    "zh": "臭氧层",
+    "difficulty": 4
+  },
+  {
+    "word": "parking lot",
+    "pos": "",
+    "zh": "停车场",
+    "difficulty": 4
+  },
+  {
+    "word": "party line",
+    "pos": "",
+    "zh": "合用线",
+    "difficulty": 4
+  },
+  {
+    "word": "party political",
+    "pos": "",
+    "zh": "政党的；党派政治的",
+    "difficulty": 4
+  },
+  {
+    "word": "party politics",
+    "pos": "",
+    "zh": "党派政治",
+    "difficulty": 4
+  },
+  {
+    "word": "peace corps",
+    "pos": "",
+    "zh": "美国和平部队",
+    "difficulty": 4
+  },
+  {
+    "word": "peanut butter",
+    "pos": "",
+    "zh": "花生酱",
+    "difficulty": 4
+  },
+  {
+    "word": "pen pal",
+    "pos": "",
+    "zh": "笔友",
+    "difficulty": 4
+  },
+  {
+    "word": "penalty area",
+    "pos": "",
+    "zh": "罚球区",
+    "difficulty": 4
+  },
+  {
+    "word": "per annum",
+    "pos": "",
+    "zh": "每年",
+    "difficulty": 4
+  },
+  {
+    "word": "per capita",
+    "pos": "",
+    "zh": "每人；按人口",
+    "difficulty": 4
+  },
+  {
+    "word": "personal best",
+    "pos": "",
+    "zh": "个人最佳成绩",
+    "difficulty": 4
+  },
+  {
+    "word": "personal computer",
+    "pos": "",
+    "zh": "个人电脑",
+    "difficulty": 4
+  },
+  {
+    "word": "petrol bomb",
+    "pos": "",
+    "zh": "汽油弹",
+    "difficulty": 4
+  },
+  {
+    "word": "petrol station",
+    "pos": "",
+    "zh": "加油站",
+    "difficulty": 4
+  },
+  {
+    "word": "phone call",
+    "pos": "",
+    "zh": "电话",
+    "difficulty": 4
+  },
+  {
+    "word": "picket line",
+    "pos": "",
+    "zh": "纠察线；哨兵线",
+    "difficulty": 4
+  },
+  {
+    "word": "playing field",
+    "pos": "",
+    "zh": "运动场；比赛场地",
+    "difficulty": 4
+  },
+  {
+    "word": "pocket money",
+    "pos": "",
+    "zh": "零用钱",
+    "difficulty": 4
+  },
+  {
+    "word": "point of view",
+    "pos": "",
+    "zh": "观点",
+    "difficulty": 4
+  },
+  {
+    "word": "pole position",
+    "pos": "",
+    "zh": "跑道内圈；有利地位",
+    "difficulty": 4
+  },
+  {
+    "word": "police force",
+    "pos": "",
+    "zh": "警察部门；警察机关",
+    "difficulty": 4
+  },
+  {
+    "word": "police officer",
+    "pos": "",
+    "zh": "警察",
+    "difficulty": 4
+  },
+  {
+    "word": "police station",
+    "pos": "",
+    "zh": "警察分局",
+    "difficulty": 4
+  },
+  {
+    "word": "political asylum",
+    "pos": "",
+    "zh": "政治避难；政治庇护",
+    "difficulty": 4
+  },
+  {
+    "word": "political correctness",
+    "pos": "",
+    "zh": "政治正确性",
+    "difficulty": 4
+  },
+  {
+    "word": "political prisoner",
+    "pos": "",
+    "zh": "政治犯",
+    "difficulty": 4
+  },
+  {
+    "word": "political science",
+    "pos": "",
+    "zh": "政治学",
+    "difficulty": 4
+  },
+  {
+    "word": "poll tax",
+    "pos": "",
+    "zh": "人头税",
+    "difficulty": 4
+  },
+  {
+    "word": "polling station",
+    "pos": "",
+    "zh": "投票站；投票所",
+    "difficulty": 4
+  },
+  {
+    "word": "post office",
+    "pos": "",
+    "zh": "邮局",
+    "difficulty": 4
+  },
+  {
+    "word": "power base",
+    "pos": "",
+    "zh": "权力基础",
+    "difficulty": 4
+  },
+  {
+    "word": "power line",
+    "pos": "",
+    "zh": "电源线；电力线",
+    "difficulty": 4
+  },
+  {
+    "word": "power plant",
+    "pos": "",
+    "zh": "发电厂",
+    "difficulty": 4
+  },
+  {
+    "word": "power station",
+    "pos": "",
+    "zh": "发电所；电站",
+    "difficulty": 4
+  },
+  {
+    "word": "precious metal",
+    "pos": "",
+    "zh": "贵金属",
+    "difficulty": 4
+  },
+  {
+    "word": "prep school",
+    "pos": "",
+    "zh": "<非正>预科学校",
+    "difficulty": 4
+  },
+  {
+    "word": "press conference",
+    "pos": "",
+    "zh": "记者招待会",
+    "difficulty": 4
+  },
+  {
+    "word": "press officer",
+    "pos": "",
+    "zh": "新闻发布官；新闻发言人",
+    "difficulty": 4
+  },
+  {
+    "word": "press release",
+    "pos": "",
+    "zh": "新闻稿",
+    "difficulty": 4
+  },
+  {
+    "word": "pressure group",
+    "pos": "",
+    "zh": "施压集团",
+    "difficulty": 4
+  },
+  {
+    "word": "price tag",
+    "pos": "",
+    "zh": "价格标签",
+    "difficulty": 4
+  },
+  {
+    "word": "price war",
+    "pos": "",
+    "zh": "价格战",
+    "difficulty": 4
+  },
+  {
+    "word": "prime rate",
+    "pos": "",
+    "zh": "最优惠贷款利率",
+    "difficulty": 4
+  },
+  {
+    "word": "prime time",
+    "pos": "",
+    "zh": "黄金时间",
+    "difficulty": 4
+  },
+  {
+    "word": "prisoner of war",
+    "pos": "",
+    "zh": "战俘",
+    "difficulty": 4
+  },
+  {
+    "word": "private enterprise",
+    "pos": "",
+    "zh": "私人企业；民营企业",
+    "difficulty": 4
+  },
+  {
+    "word": "private eye",
+    "pos": "",
+    "zh": "私家侦探",
+    "difficulty": 4
+  },
+  {
+    "word": "private school",
+    "pos": "",
+    "zh": "私立中小学",
+    "difficulty": 4
+  },
+  {
+    "word": "private sector",
+    "pos": "",
+    "zh": "私营成分；私营部门",
+    "difficulty": 4
+  },
+  {
+    "word": "probation officer",
+    "pos": "",
+    "zh": "缓刑监督官",
+    "difficulty": 4
+  },
+  {
+    "word": "production line",
+    "pos": "",
+    "zh": "生产线",
+    "difficulty": 4
+  },
+  {
+    "word": "profit margin",
+    "pos": "",
+    "zh": "利润率",
+    "difficulty": 4
+  },
+  {
+    "word": "proportional representation",
+    "pos": "",
+    "zh": "比例代表制",
+    "difficulty": 4
+  },
+  {
+    "word": "public company",
+    "pos": "",
+    "zh": "上市公司",
+    "difficulty": 4
+  },
+  {
+    "word": "public opinion",
+    "pos": "",
+    "zh": "舆论；民意",
+    "difficulty": 4
+  },
+  {
+    "word": "public relations",
+    "pos": "",
+    "zh": "公共关系",
+    "difficulty": 4
+  },
+  {
+    "word": "public school",
+    "pos": "",
+    "zh": "公立中小学",
+    "difficulty": 4
+  },
+  {
+    "word": "public sector",
+    "pos": "",
+    "zh": "公共部门；公共成分",
+    "difficulty": 4
+  },
+  {
+    "word": "public service",
+    "pos": "",
+    "zh": "公用事业；公职",
+    "difficulty": 4
+  },
+  {
+    "word": "public works",
+    "pos": "",
+    "zh": "公共建筑；市政工程",
+    "difficulty": 4
+  },
+  {
+    "word": "publishing house",
+    "pos": "",
+    "zh": "出版社；出版公司",
+    "difficulty": 4
+  },
+  {
+    "word": "quality control",
+    "pos": "",
+    "zh": "质量控制；质量管理",
+    "difficulty": 4
+  },
+  {
+    "word": "question mark",
+    "pos": "",
+    "zh": "问号",
+    "difficulty": 4
+  },
+  {
+    "word": "race relations",
+    "pos": "",
+    "zh": "种族关系",
+    "difficulty": 4
+  },
+  {
+    "word": "rank and file",
+    "pos": "",
+    "zh": "普通成员；士兵",
+    "difficulty": 4
+  },
+  {
+    "word": "real estate",
+    "pos": "",
+    "zh": "不动产",
+    "difficulty": 4
+  },
+  {
+    "word": "real life",
+    "pos": "",
+    "zh": "现实社会",
+    "difficulty": 4
+  },
+  {
+    "word": "real world",
+    "pos": "",
+    "zh": "真实世界",
+    "difficulty": 4
+  },
+  {
+    "word": "red cross",
+    "pos": "",
+    "zh": "红十字；红十字会",
+    "difficulty": 4
+  },
+  {
+    "word": "red light",
+    "pos": "",
+    "zh": "红灯；危险信号",
+    "difficulty": 4
+  },
+  {
+    "word": "red pepper",
+    "pos": "",
+    "zh": "辣椒",
+    "difficulty": 4
+  },
+  {
+    "word": "red tape",
+    "pos": "",
+    "zh": "官样文章",
+    "difficulty": 4
+  },
+  {
+    "word": "remote control",
+    "pos": "",
+    "zh": "遥控",
+    "difficulty": 4
+  },
+  {
+    "word": "rheumatoid arthritis",
+    "pos": "",
+    "zh": "类风湿性关节炎",
+    "difficulty": 4
+  },
+  {
+    "word": "richter scale",
+    "pos": "",
+    "zh": "里氏震级",
+    "difficulty": 4
+  },
+  {
+    "word": "right angle",
+    "pos": "",
+    "zh": "直角",
+    "difficulty": 4
+  },
+  {
+    "word": "riot police",
+    "pos": "",
+    "zh": "防暴警察",
+    "difficulty": 4
+  },
+  {
+    "word": "rock and roll",
+    "pos": "",
+    "zh": "摇滚乐",
+    "difficulty": 4
+  },
+  {
+    "word": "rock bottom",
+    "pos": "",
+    "zh": "最低点",
+    "difficulty": 4
+  },
+  {
+    "word": "rock garden",
+    "pos": "",
+    "zh": "假山；有假山的园林",
+    "difficulty": 4
+  },
+  {
+    "word": "role model",
+    "pos": "",
+    "zh": "榜样；模范",
+    "difficulty": 4
+  },
+  {
+    "word": "role play",
+    "pos": "",
+    "zh": "角色扮演",
+    "difficulty": 4
+  },
+  {
+    "word": "roman catholic",
+    "pos": "",
+    "zh": "天主教徒；天主教会的",
+    "difficulty": 4
+  },
+  {
+    "word": "round table",
+    "pos": "",
+    "zh": "圆桌会议",
+    "difficulty": 4
+  },
+  {
+    "word": "round trip",
+    "pos": "",
+    "zh": "往返旅行",
+    "difficulty": 4
+  },
+  {
+    "word": "royal family",
+    "pos": "",
+    "zh": "王室",
+    "difficulty": 4
+  },
+  {
+    "word": "royal highness",
+    "pos": "",
+    "zh": "英皇族亲属间的称呼",
+    "difficulty": 4
+  },
+  {
+    "word": "rubber stamp",
+    "pos": "",
+    "zh": "橡皮图章；无主见的人",
+    "difficulty": 4
+  },
+  {
+    "word": "rule of law",
+    "pos": "",
+    "zh": "法规；法治",
+    "difficulty": 4
+  },
+  {
+    "word": "running mate",
+    "pos": "",
+    "zh": "<美>竞选伙伴；竞选搭档",
+    "difficulty": 4
+  },
+  {
+    "word": "rush hour",
+    "pos": "",
+    "zh": "高峰期",
+    "difficulty": 4
+  },
+  {
+    "word": "safe area",
+    "pos": "",
+    "zh": "安全区；有效区",
+    "difficulty": 4
+  },
+  {
+    "word": "safe haven",
+    "pos": "",
+    "zh": "安全港；容许幅度标准",
+    "difficulty": 4
+  },
+  {
+    "word": "safe sex",
+    "pos": "",
+    "zh": "安全性交",
+    "difficulty": 4
+  },
+  {
+    "word": "safety net",
+    "pos": "",
+    "zh": "安全网；安全保障",
+    "difficulty": 4
+  },
+  {
+    "word": "sales tax",
+    "pos": "",
+    "zh": "营业税",
+    "difficulty": 4
+  },
+  {
+    "word": "santa claus",
+    "pos": "",
+    "zh": "圣诞老人",
+    "difficulty": 4
+  },
+  {
+    "word": "school board",
+    "pos": "",
+    "zh": "教育委员会；学校董事会",
+    "difficulty": 4
+  },
+  {
+    "word": "school boy",
+    "pos": "",
+    "zh": "男学生；学童",
+    "difficulty": 4
+  },
+  {
+    "word": "school leaver",
+    "pos": "",
+    "zh": "毕业生；应届生",
+    "difficulty": 4
+  },
+  {
+    "word": "science fiction",
+    "pos": "",
+    "zh": "科幻；科学幻想小说",
+    "difficulty": 4
+  },
+  {
+    "word": "sea level",
+    "pos": "",
+    "zh": "海平面",
+    "difficulty": 4
+  },
+  {
+    "word": "season ticket",
+    "pos": "",
+    "zh": "季票；长期票",
+    "difficulty": 4
+  },
+  {
+    "word": "seat belt",
+    "pos": "",
+    "zh": "安全带",
+    "difficulty": 4
+  },
+  {
+    "word": "second best",
+    "pos": "",
+    "zh": "第二好",
+    "difficulty": 4
+  },
+  {
+    "word": "second thought",
+    "pos": "",
+    "zh": "重新考虑",
+    "difficulty": 4
+  },
+  {
+    "word": "second world war",
+    "pos": "",
+    "zh": "第二次世界大战",
+    "difficulty": 4
+  },
+  {
+    "word": "secondary school",
+    "pos": "",
+    "zh": "中学",
+    "difficulty": 4
+  },
+  {
+    "word": "secret police",
+    "pos": "",
+    "zh": "秘密警察",
+    "difficulty": 4
+  },
+  {
+    "word": "secret service",
+    "pos": "",
+    "zh": "特务机关；秘密情报工作",
+    "difficulty": 4
+  },
+  {
+    "word": "security guard",
+    "pos": "",
+    "zh": "安全保护",
+    "difficulty": 4
+  },
+  {
+    "word": "select committee",
+    "pos": "",
+    "zh": "为某一特案组成的特别委员会",
+    "difficulty": 4
+  },
+  {
+    "word": "sense of humour",
+    "pos": "",
+    "zh": "幽默感",
+    "difficulty": 4
+  },
+  {
+    "word": "service industry",
+    "pos": "",
+    "zh": "服务行业",
+    "difficulty": 4
+  },
+  {
+    "word": "set piece",
+    "pos": "",
+    "zh": "具有众所周知的固定形式",
+    "difficulty": 4
+  },
+  {
+    "word": "sewing machine",
+    "pos": "",
+    "zh": "缝纫机",
+    "difficulty": 4
+  },
+  {
+    "word": "sex appeal",
+    "pos": "",
+    "zh": "性感；吸引力",
+    "difficulty": 4
+  },
+  {
+    "word": "sex education",
+    "pos": "",
+    "zh": "性教育",
+    "difficulty": 4
+  },
+  {
+    "word": "sexual harassment",
+    "pos": "",
+    "zh": "性骚扰",
+    "difficulty": 4
+  },
+  {
+    "word": "sexual intercourse",
+    "pos": "",
+    "zh": "性交；性关系",
+    "difficulty": 4
+  },
+  {
+    "word": "share index",
+    "pos": "",
+    "zh": "股票指数",
+    "difficulty": 4
+  },
+  {
+    "word": "shock wave",
+    "pos": "",
+    "zh": "冲击波",
+    "difficulty": 4
+  },
+  {
+    "word": "shop assistant",
+    "pos": "",
+    "zh": "店员",
+    "difficulty": 4
+  },
+  {
+    "word": "shopping centre",
+    "pos": "",
+    "zh": "商业区；购物中心",
+    "difficulty": 4
+  },
+  {
+    "word": "shopping list",
+    "pos": "",
+    "zh": "购物清单",
+    "difficulty": 4
+  },
+  {
+    "word": "shopping mall",
+    "pos": "",
+    "zh": "大型购物中心",
+    "difficulty": 4
+  },
+  {
+    "word": "short cut",
+    "pos": "",
+    "zh": "近路；捷径",
+    "difficulty": 4
+  },
+  {
+    "word": "short story",
+    "pos": "",
+    "zh": "短篇小说",
+    "difficulty": 4
+  },
+  {
+    "word": "show business",
+    "pos": "",
+    "zh": "娱乐业",
+    "difficulty": 4
+  },
+  {
+    "word": "show jumping",
+    "pos": "",
+    "zh": "超越障碍比赛",
+    "difficulty": 4
+  },
+  {
+    "word": "silver medal",
+    "pos": "",
+    "zh": "银牌",
+    "difficulty": 4
+  },
+  {
+    "word": "single parent",
+    "pos": "",
+    "zh": "单亲；单身父亲",
+    "difficulty": 4
+  },
+  {
+    "word": "sixth form",
+    "pos": "",
+    "zh": "六年级",
+    "difficulty": 4
+  },
+  {
+    "word": "sleeping bag",
+    "pos": "",
+    "zh": "睡袋",
+    "difficulty": 4
+  },
+  {
+    "word": "sleeping pill",
+    "pos": "",
+    "zh": "安眠药片",
+    "difficulty": 4
+  },
+  {
+    "word": "slow motion",
+    "pos": "",
+    "zh": "慢动作",
+    "difficulty": 4
+  },
+  {
+    "word": "small print",
+    "pos": "",
+    "zh": "难懂的条文；附属细则",
+    "difficulty": 4
+  },
+  {
+    "word": "smoked salmon",
+    "pos": "",
+    "zh": "熏鲑鱼",
+    "difficulty": 4
+  },
+  {
+    "word": "soap opera",
+    "pos": "",
+    "zh": "肥皂剧",
+    "difficulty": 4
+  },
+  {
+    "word": "social democratic",
+    "pos": "",
+    "zh": "社会民主主义的；社会民主党的",
+    "difficulty": 4
+  },
+  {
+    "word": "social life",
+    "pos": "",
+    "zh": "社会生活；社交生活",
+    "difficulty": 4
+  },
+  {
+    "word": "social order",
+    "pos": "",
+    "zh": "社会秩序",
+    "difficulty": 4
+  },
+  {
+    "word": "social science",
+    "pos": "",
+    "zh": "社会科学",
+    "difficulty": 4
+  },
+  {
+    "word": "social security",
+    "pos": "",
+    "zh": "社会保障；社会保险",
+    "difficulty": 4
+  },
+  {
+    "word": "social services",
+    "pos": "",
+    "zh": "社会服务；社会福利事业",
+    "difficulty": 4
+  },
+  {
+    "word": "social work",
+    "pos": "",
+    "zh": "社会服务；社会福利工作",
+    "difficulty": 4
+  },
+  {
+    "word": "social worker",
+    "pos": "",
+    "zh": "社会工作者",
+    "difficulty": 4
+  },
+  {
+    "word": "soft drink",
+    "pos": "",
+    "zh": "不含酒精的饮料",
+    "difficulty": 4
+  },
+  {
+    "word": "some day",
+    "pos": "",
+    "zh": "来日",
+    "difficulty": 4
+  },
+  {
+    "word": "sound system",
+    "pos": "",
+    "zh": "音响系统",
+    "difficulty": 4
+  },
+  {
+    "word": "space shuttle",
+    "pos": "",
+    "zh": "航天飞机",
+    "difficulty": 4
+  },
+  {
+    "word": "space station",
+    "pos": "",
+    "zh": "空间站",
+    "difficulty": 4
+  },
+  {
+    "word": "spare part",
+    "pos": "",
+    "zh": "备件",
+    "difficulty": 4
+  },
+  {
+    "word": "spare time",
+    "pos": "",
+    "zh": "消遣时间；闲空",
+    "difficulty": 4
+  },
+  {
+    "word": "special branch",
+    "pos": "",
+    "zh": "政治保安处",
+    "difficulty": 4
+  },
+  {
+    "word": "special effect",
+    "pos": "",
+    "zh": "特殊效果",
+    "difficulty": 4
+  },
+  {
+    "word": "special needs",
+    "pos": "",
+    "zh": "特殊需求",
+    "difficulty": 4
+  },
+  {
+    "word": "special offer",
+    "pos": "",
+    "zh": "特殊报价；特价优待",
+    "difficulty": 4
+  },
+  {
+    "word": "speed limit",
+    "pos": "",
+    "zh": "速度限制",
+    "difficulty": 4
+  },
+  {
+    "word": "spending money",
+    "pos": "",
+    "zh": "零用钱",
+    "difficulty": 4
+  },
+  {
+    "word": "split second",
+    "pos": "",
+    "zh": "瞬间",
+    "difficulty": 4
+  },
+  {
+    "word": "sports car",
+    "pos": "",
+    "zh": "跑车",
+    "difficulty": 4
+  },
+  {
+    "word": "spring onion",
+    "pos": "",
+    "zh": "生吃的小洋葱；葱",
+    "difficulty": 4
+  },
+  {
+    "word": "stained glass",
+    "pos": "",
+    "zh": "彩色的玻璃",
+    "difficulty": 4
+  },
+  {
+    "word": "stainless steel",
+    "pos": "",
+    "zh": "不锈钢",
+    "difficulty": 4
+  },
+  {
+    "word": "stamp duty",
+    "pos": "",
+    "zh": "印花税",
+    "difficulty": 4
+  },
+  {
+    "word": "stamped addressed envelope",
+    "pos": "",
+    "zh": "<英>写上自己姓名地址的回邮信封",
+    "difficulty": 4
+  },
+  {
+    "word": "standard of living",
+    "pos": "",
+    "zh": "生活标准；生活水平",
+    "difficulty": 4
+  },
+  {
+    "word": "standing ovation",
+    "pos": "",
+    "zh": "长时间起立鼓掌",
+    "difficulty": 4
+  },
+  {
+    "word": "starting point",
+    "pos": "",
+    "zh": "出发点；起始点",
+    "difficulty": 4
+  },
+  {
+    "word": "state of affairs",
+    "pos": "",
+    "zh": "事态；情势",
+    "difficulty": 4
+  },
+  {
+    "word": "state of mind",
+    "pos": "",
+    "zh": "心境；心情",
+    "difficulty": 4
+  },
+  {
+    "word": "state school",
+    "pos": "",
+    "zh": "公立学校；国立学校",
+    "difficulty": 4
+  },
+  {
+    "word": "stately home",
+    "pos": "",
+    "zh": "豪华古宅",
+    "difficulty": 4
+  },
+  {
+    "word": "status quo",
+    "pos": "",
+    "zh": "现状",
+    "difficulty": 4
+  },
+  {
+    "word": "steering wheel",
+    "pos": "",
+    "zh": "轮船舵轮；驾驶盘",
+    "difficulty": 4
+  },
+  {
+    "word": "stepping stone",
+    "pos": "",
+    "zh": "垫脚石；跳板",
+    "difficulty": 4
+  },
+  {
+    "word": "sticking point",
+    "pos": "",
+    "zh": "顶住点；关键",
+    "difficulty": 4
+  },
+  {
+    "word": "still life",
+    "pos": "",
+    "zh": "静物",
+    "difficulty": 4
+  },
+  {
+    "word": "stock exchange",
+    "pos": "",
+    "zh": "证券交易",
+    "difficulty": 4
+  },
+  {
+    "word": "stock market",
+    "pos": "",
+    "zh": "股票市场",
+    "difficulty": 4
+  },
+  {
+    "word": "straight away",
+    "pos": "",
+    "zh": "立即；马上",
+    "difficulty": 4
+  },
+  {
+    "word": "stumbling block",
+    "pos": "",
+    "zh": "障碍物；绊脚石",
+    "difficulty": 4
+  },
+  {
+    "word": "subject matter",
+    "pos": "",
+    "zh": "主题；论题",
+    "difficulty": 4
+  },
+  {
+    "word": "success story",
+    "pos": "",
+    "zh": "一个人的成名史；发迹史",
+    "difficulty": 4
+  },
+  {
+    "word": "sudden death",
+    "pos": "",
+    "zh": "暴死；突然死亡法",
+    "difficulty": 4
+  },
+  {
+    "word": "summer time",
+    "pos": "",
+    "zh": "夏令时；暑季",
+    "difficulty": 4
+  },
+  {
+    "word": "sunday school",
+    "pos": "",
+    "zh": "主日学校；主日学校的师生",
+    "difficulty": 4
+  },
+  {
+    "word": "sweet corn",
+    "pos": "",
+    "zh": "甜玉米；甜玉米穗",
+    "difficulty": 4
+  },
+  {
+    "word": "swimming pool",
+    "pos": "",
+    "zh": "游泳池",
+    "difficulty": 4
+  },
+  {
+    "word": "symphony orchestra",
+    "pos": "",
+    "zh": "交响乐团",
+    "difficulty": 4
+  },
+  {
+    "word": "table tennis",
+    "pos": "",
+    "zh": "乒乓球",
+    "difficulty": 4
+  },
+  {
+    "word": "talk show",
+    "pos": "",
+    "zh": "访谈节目",
+    "difficulty": 4
+  },
+  {
+    "word": "tape recorder",
+    "pos": "",
+    "zh": "磁带录音机",
+    "difficulty": 4
+  },
+  {
+    "word": "task force",
+    "pos": "",
+    "zh": "特遣部队",
+    "difficulty": 4
+  },
+  {
+    "word": "tax break",
+    "pos": "",
+    "zh": "减税优惠",
+    "difficulty": 4
+  },
+  {
+    "word": "tax evasion",
+    "pos": "",
+    "zh": "逃税",
+    "difficulty": 4
+  },
+  {
+    "word": "tax relief",
+    "pos": "",
+    "zh": "税收减除；免税",
+    "difficulty": 4
+  },
+  {
+    "word": "tax return",
+    "pos": "",
+    "zh": "纳税申报单",
+    "difficulty": 4
+  },
+  {
+    "word": "telephone number",
+    "pos": "",
+    "zh": "电话号码",
+    "difficulty": 4
+  },
+  {
+    "word": "test case",
+    "pos": "",
+    "zh": "检查实例",
+    "difficulty": 4
+  },
+  {
+    "word": "test match",
+    "pos": "",
+    "zh": "国际板球锦标赛",
+    "difficulty": 4
+  },
+  {
+    "word": "test pilot",
+    "pos": "",
+    "zh": "试飞员",
+    "difficulty": 4
+  },
+  {
+    "word": "test tube",
+    "pos": "",
+    "zh": "试管",
+    "difficulty": 4
+  },
+  {
+    "word": "theme park",
+    "pos": "",
+    "zh": "主题乐园；主题公园",
+    "difficulty": 4
+  },
+  {
+    "word": "third party",
+    "pos": "",
+    "zh": "第三方",
+    "difficulty": 4
+  },
+  {
+    "word": "third world",
+    "pos": "",
+    "zh": "第三世界",
+    "difficulty": 4
+  },
+  {
+    "word": "tidal wave",
+    "pos": "",
+    "zh": "潮汐波；浪潮",
+    "difficulty": 4
+  },
+  {
+    "word": "time limit",
+    "pos": "",
+    "zh": "期限",
+    "difficulty": 4
+  },
+  {
+    "word": "time out",
+    "pos": "",
+    "zh": "暂停比赛时间；超时",
+    "difficulty": 4
+  },
+  {
+    "word": "time trial",
+    "pos": "",
+    "zh": "计时赛",
+    "difficulty": 4
+  },
+  {
+    "word": "time zone",
+    "pos": "",
+    "zh": "时区",
+    "difficulty": 4
+  },
+  {
+    "word": "title track",
+    "pos": "",
+    "zh": "主打曲目；主打歌",
+    "difficulty": 4
+  },
+  {
+    "word": "top secret",
+    "pos": "",
+    "zh": "绝密",
+    "difficulty": 4
+  },
+  {
+    "word": "tour operator",
+    "pos": "",
+    "zh": "旅游经营者",
+    "difficulty": 4
+  },
+  {
+    "word": "tower block",
+    "pos": "",
+    "zh": "塔式大楼",
+    "difficulty": 4
+  },
+  {
+    "word": "town hall",
+    "pos": "",
+    "zh": "市政厅",
+    "difficulty": 4
+  },
+  {
+    "word": "track record",
+    "pos": "",
+    "zh": "径赛成绩记录",
+    "difficulty": 4
+  },
+  {
+    "word": "track suit",
+    "pos": "",
+    "zh": "径赛服",
+    "difficulty": 4
+  },
+  {
+    "word": "trade union",
+    "pos": "",
+    "zh": "工会",
+    "difficulty": 4
+  },
+  {
+    "word": "trade unionist",
+    "pos": "",
+    "zh": "工团主义者",
+    "difficulty": 4
+  },
+  {
+    "word": "traffic jam",
+    "pos": "",
+    "zh": "塞车；交通阻塞",
+    "difficulty": 4
+  },
+  {
+    "word": "traffic light",
+    "pos": "",
+    "zh": "红绿灯",
+    "difficulty": 4
+  },
+  {
+    "word": "training camp",
+    "pos": "",
+    "zh": "训练营地；集训营",
+    "difficulty": 4
+  },
+  {
+    "word": "travel agent",
+    "pos": "",
+    "zh": "旅行代理人",
+    "difficulty": 4
+  },
+  {
+    "word": "trust fund",
+    "pos": "",
+    "zh": "信托基金；托管基金",
+    "difficulty": 4
+  },
+  {
+    "word": "turning point",
+    "pos": "",
+    "zh": "转折点",
+    "difficulty": 4
+  },
+  {
+    "word": "unheard of",
+    "pos": "",
+    "zh": "没发生过的；令人震惊的",
+    "difficulty": 4
+  },
+  {
+    "word": "union jack",
+    "pos": "",
+    "zh": "英国国旗",
+    "difficulty": 4
+  },
+  {
+    "word": "unit trust",
+    "pos": "",
+    "zh": "联合托拉斯；信托公司",
+    "difficulty": 4
+  },
+  {
+    "word": "united kingdom",
+    "pos": "",
+    "zh": "联合王国",
+    "difficulty": 4
+  },
+  {
+    "word": "up front",
+    "pos": "",
+    "zh": "在最前面；预先",
+    "difficulty": 4
+  },
+  {
+    "word": "upper class",
+    "pos": "",
+    "zh": "上层社会；贵族阶层",
+    "difficulty": 4
+  },
+  {
+    "word": "upper house",
+    "pos": "",
+    "zh": "上议院",
+    "difficulty": 4
+  },
+  {
+    "word": "upper lip",
+    "pos": "",
+    "zh": "上唇",
+    "difficulty": 4
+  },
+  {
+    "word": "upside down",
+    "pos": "",
+    "zh": "颠倒着；混乱",
+    "difficulty": 4
+  },
+  {
+    "word": "vacuum cleaner",
+    "pos": "",
+    "zh": "真空吸尘器",
+    "difficulty": 4
+  },
+  {
+    "word": "vantage point",
+    "pos": "",
+    "zh": "有利位置；优越地位",
+    "difficulty": 4
+  },
+  {
+    "word": "venture capital",
+    "pos": "",
+    "zh": "<美>风险资本",
+    "difficulty": 4
+  },
+  {
+    "word": "vested interest",
+    "pos": "",
+    "zh": "特权阶级；既得权利",
+    "difficulty": 4
+  },
+  {
+    "word": "vice versa",
+    "pos": "",
+    "zh": "反之亦然",
+    "difficulty": 4
+  },
+  {
+    "word": "vicious circle",
+    "pos": "",
+    "zh": "恶性循环；循环论证",
+    "difficulty": 4
+  },
+  {
+    "word": "video recorder",
+    "pos": "",
+    "zh": "录象机",
+    "difficulty": 4
+  },
+  {
+    "word": "virtual reality",
+    "pos": "",
+    "zh": "虚拟现实",
+    "difficulty": 4
+  },
+  {
+    "word": "vote of confidence",
+    "pos": "",
+    "zh": "信任投票；赞同",
+    "difficulty": 4
+  },
+  {
+    "word": "vote of no confidence",
+    "pos": "",
+    "zh": "不信任票",
+    "difficulty": 4
+  },
+  {
+    "word": "waiting list",
+    "pos": "",
+    "zh": "待任名者的名单；候选人名单",
+    "difficulty": 4
+  },
+  {
+    "word": "waiting room",
+    "pos": "",
+    "zh": "候车室；等候室",
+    "difficulty": 4
+  },
+  {
+    "word": "walk of life",
+    "pos": "",
+    "zh": "行业；…类的人",
+    "difficulty": 4
+  },
+  {
+    "word": "washing machine",
+    "pos": "",
+    "zh": "洗衣机",
+    "difficulty": 4
+  },
+  {
+    "word": "water supply",
+    "pos": "",
+    "zh": "水源；给水",
+    "difficulty": 4
+  },
+  {
+    "word": "way of life",
+    "pos": "",
+    "zh": "生活方式",
+    "difficulty": 4
+  },
+  {
+    "word": "welfare state",
+    "pos": "",
+    "zh": "福利国家",
+    "difficulty": 4
+  },
+  {
+    "word": "well done",
+    "pos": "",
+    "zh": "做得不错",
+    "difficulty": 4
+  },
+  {
+    "word": "white paper",
+    "pos": "",
+    "zh": "白皮书；白纸",
+    "difficulty": 4
+  },
+  {
+    "word": "wild flower",
+    "pos": "",
+    "zh": "野花",
+    "difficulty": 4
+  },
+  {
+    "word": "wine bar",
+    "pos": "",
+    "zh": "酒吧",
+    "difficulty": 4
+  },
+  {
+    "word": "wishful thinking",
+    "pos": "",
+    "zh": "如意算盘；痴心妄想",
+    "difficulty": 4
+  },
+  {
+    "word": "woman's liberation",
+    "pos": "",
+    "zh": "妇女解放",
+    "difficulty": 4
+  },
+  {
+    "word": "word processor",
+    "pos": "",
+    "zh": "文字处理软件",
+    "difficulty": 4
+  },
+  {
+    "word": "work of art",
+    "pos": "",
+    "zh": "艺术作品",
+    "difficulty": 4
+  },
+  {
+    "word": "working capital",
+    "pos": "",
+    "zh": "营运资本",
+    "difficulty": 4
+  },
+  {
+    "word": "working class",
+    "pos": "",
+    "zh": "工人阶级",
+    "difficulty": 4
+  },
+  {
+    "word": "working group",
+    "pos": "",
+    "zh": "工作组；作业级",
+    "difficulty": 4
+  },
+  {
+    "word": "working party",
+    "pos": "",
+    "zh": "工作组；工作班子",
+    "difficulty": 4
+  },
+  {
+    "word": "world view",
+    "pos": "",
+    "zh": "世界观",
+    "difficulty": 4
+  },
+  {
+    "word": "world war",
+    "pos": "",
+    "zh": "世界大战",
+    "difficulty": 4
+  },
+  {
+    "word": "wrought iron",
+    "pos": "",
+    "zh": "锻铁",
+    "difficulty": 4
+  }
+]
