@@ -100,7 +100,9 @@ final class SessionDurationTests: XCTestCase {
 
         let loaded = try await db.sessionSummary(id: id)
         let summary = try XCTUnwrap(loaded)
-        XCTAssertEqual(summary.messageCount, 0, "流水删干净了")
+        // 任务#1 起条数兜底到复盘快照：库里现存 0、复盘里记着 2 ⇒ 展示 2。
+        // （用户报障的正是这里显示 0 ——「已复盘却写 0 条对话」。）
+        XCTAssertEqual(summary.messageCount, 2, "流水删了，但复盘快照里的条数要兜底")
         XCTAssertEqual(
             summary.endedAt.timeIntervalSince(summary.startedAt), 2255.4, accuracy: 1,
             "删流水不能把时长一起删掉 —— 卡片与复盘卡必须说同一件事"
