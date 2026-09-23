@@ -167,6 +167,9 @@ extension AppState {
         attachmentNotice = nil
         // 学员开口了：这一轮会话归他 —— 后台那句开场白不许再动会话（见 `openInBackground`）。
         learnerEngagedThisLaunch = true
+        // 复盘回执是「你不在的时候我把上一段收好了」，说给**还没开口**的人听。
+        // 学员一开始说下一句，它就过期了 —— 留在屏幕上只会挡住对话。
+        practiceNotice = nil
         // 抢在老师前面说话：那句还在后台生成的开场白立刻让位。
         // ⚠️ `ChatService.send` 只在 `isGreeting` 时主动撤招呼，而后台开场期间
         // `isGenerating` 也可能是 true —— 不主动撤，这句话会被 `guard !isGenerating`

@@ -86,7 +86,8 @@ public struct ChatView: View {
     /// 当前任务的前情提要（情景模式下的引导卡；nil = 不显示）。
     var briefing: ScenarioBriefing? = nil
     /// 上一段练习自动复盘的结果提示（nil = 不显示）。
-    var practiceNotice: String? = nil
+    /// ⚠️ 文案与动作是**一个值**（`AppNotice`）：「去看复盘」跳到哪一条不能另外存一份。
+    var practiceNotice: AppNotice? = nil
     var onDismissPracticeNotice: (() -> Void)? = nil
 
     // MARK: 考试模式（雅思口语 / 面试问答）
@@ -220,7 +221,7 @@ public struct ChatView: View {
                 practiceMode: PracticeMode = .conversation,
                 onStartFreeTalk: (() async -> Void)? = nil,
                 briefing: ScenarioBriefing? = nil,
-                practiceNotice: String? = nil,
+                practiceNotice: AppNotice? = nil,
                 onDismissPracticeNotice: (() -> Void)? = nil,
                 exam: ExamBarModel? = nil,
                 onExamTimeout: (() -> Void)? = nil,
@@ -547,6 +548,10 @@ public struct ChatView: View {
     }
 
     /// 上一段练习自动复盘的结果（需求 5：复盘变成自动，所以必须给一句回执）。
+    ///
+    /// 复盘的正文在学习记录页里，学员看到「已收进学习记录」之后**第一件想做的事就是去看它** ——
+    /// 所以这条回执自带一个「去看复盘」：跳过去、并顺手展开**那一条**的复盘。
+    /// 目标会话跟着 `AppNotice` 的值一起走，界面上没有第二处需要同步的状态。
     @ViewBuilder
     private var practiceNoticeBanner: some View {
         if let practiceNotice {
@@ -554,10 +559,17 @@ public struct ChatView: View {
                 Image(systemName: "checkmark.seal.fill")
                     .font(.system(size: 11))
                     .foregroundStyle(theme.accent)
-                Text(practiceNotice)
+                Text(practiceNotice.text)
                     .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
                 Spacer(minLength: 0)
+                if let action = practiceNotice.action {
+                    NoticeActionButton(
+                        action: action,
+                        helpText: "\(action.title)：到学习记录里看这一段的复盘内容",
+                        context: practiceNotice.text
+                    )
+                }
                 Button { onDismissPracticeNotice?() } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 9, weight: .semibold))

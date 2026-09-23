@@ -271,8 +271,10 @@ public struct MainView: View {
                     await state.startExam(blueprint)
                 } else {
                     // 没找到就说清楚是哪一套没找到，别静默什么都不发生。
-                    state.practiceNotice = "没有找到考卷 \(wanted)（可用："
-                        + state.examBlueprints.map(\.id).joined(separator: "、") + "）"
+                    state.practiceNotice = AppNotice(
+                        text: "没有找到考卷 \(wanted)（可用："
+                            + state.examBlueprints.map(\.id).joined(separator: "、") + "）"
+                    )
                 }
             }
             // 端到端验证辅助：--auto-finish-exam-after <秒> 等 N 秒后自动交卷（观察结算卡）

@@ -25,18 +25,11 @@ struct NoticeBanner: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             if let action = notice.action {
-                Button(action: action.run) {
-                    Text(action.title)
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(theme.onAccentFill)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(theme.accentFill))
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .help("\(action.title)：把刚才失败的这一步再做一次")
-                .accessibilityLabel("\(action.title)：\(notice.text)")
+                NoticeActionButton(
+                    action: action,
+                    helpText: "\(action.title)：把刚才失败的这一步再做一次",
+                    context: notice.text
+                )
             }
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
@@ -55,4 +48,34 @@ struct NoticeBanner: View {
     }
 
     private var hasAction: Bool { notice.action != nil }
+}
+
+/// 提示条右端那颗胶囊按钮（「重试」/「去看复盘」）。
+///
+/// 抽出来是为了**一处样式**：对话区的复盘回执有自己的一圈外框（横贯整条、上下分隔线），
+/// 不想套 `NoticeBanner` 的圆角卡片，但胶囊本身必须长得一模一样 ——
+/// 复制一份的话，改配色时就一定会漏掉其中一处。
+struct NoticeActionButton: View {
+
+    @Environment(\.forestTheme) private var theme
+
+    let action: NoticeAction
+    var helpText: String
+    /// 供读屏把动作和它的来龙去脉念在一起（「去看复盘：上一段练习已自动复盘…」）。
+    var context: String = ""
+
+    var body: some View {
+        Button(action: action.run) {
+            Text(action.title)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(theme.onAccentFill)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 3)
+                .background(Capsule().fill(theme.accentFill))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(helpText)
+        .accessibilityLabel(context.isEmpty ? action.title : "\(action.title)：\(context)")
+    }
 }

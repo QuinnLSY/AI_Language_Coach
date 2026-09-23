@@ -351,4 +351,159 @@ final class AnnualRecapRenderTests: XCTestCase {
         XCTAssertNil(state.recordsFocus, "学习记录页消费掉跳转意图后必须清空")
         XCTAssertEqual(RecordsFocus.mistakes.anchorID, "records-mistakes")
     }
+
+    // MARK: - ⑦ 复盘回执的「去看复盘」：落在那一条上，且复盘已经展开
+
+    /// 播一段带复盘的练习（会话行 + 复盘行留下来，流水被清掉 —— 与真实路径一致）。
+    ///
+    /// 不配 provider：复盘走规则兜底（`SessionReviewService` 的 catch 分支），零网络请求。
+    private func makeStateWithReview() async throws -> (state: AppState, sessionID: UUID, configURL: URL) {
+        let configURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("records-expand-\(UUID().uuidString).json")
+        let services = CoachServices(
+            config: ConfigStore(fileURL: configURL), databasePath: ":memory:"
+        )
+        let state = AppState(services: services)
+        let sessionID = UUID()
+        let start = Date(timeIntervalSince1970: 1_789_000_000)
+        let learner = ChatMessage(
+            role: .user, content: "Hi teacher, I would like to talk about my weekend.", createdAt: start
+        )
+        let teacher = ChatMessage(
+            role: .assistant, content: "Sure! Tell me what you did.", createdAt: start.addingTimeInterval(120)
+        )
+        await services.persistSession(
+            ChatSession(id: sessionID, startedAt: start, mode: .conversation, scenarioID: nil)
+        )
+        await services.persistMessage(learner, sessionID: sessionID)
+        await services.persistMessage(teacher, sessionID: sessionID)
+        _ = await state.concludeCurrentPractice(session: sessionID, messages: [learner, teacher])
+        await state.loadRecords()
+        return (state, sessionID, configURL)
+    }
+
+    /// 出图：学习记录页在给定跳转意图下的样子。
+    private func renderRecords(state: AppState, focus: RecordsFocus?) async throws -> Render {
+        state.recordsFocus = focus
+        let theme = ForestThemeResolver.resolve(mode: .day, systemIsDark: false)
+        let host = NSHostingView(rootView: AnyView(RecordsView(state: state).forestTheme(theme)))
+        // 画布给得比内容高：ScrollView 一旦开始裁剪，展开的那一截就跑到视口外，量不到了。
+        host.frame = NSRect(x: 0, y: 0, width: 760, height: 2400)
+        let window = NSWindow(
+            contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = host
+        self.window = window
+        host.layoutSubtreeIfNeeded()
+        window.layoutIfNeeded()
+        // 跳转里有一段等布局的 sleep，还有 0.35s 的滚动动画。
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        host.layoutSubtreeIfNeeded()
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return Render(rep: rep, size: host.bounds.size)
+    }
+
+    /// 点了「去看复盘」：跳到那一条记录上，并且它的复盘**已经展开**。
+    ///
+    /// 判定走**逐像素**（离屏没有鼠标、也没有可用的 AX，点击合成不了）：
+    /// 展开与不展开两张图之间，除了那一段复盘正文之外没有别的差别。
+    ///
+    /// 反证：删掉 `jumpToPendingCard` 里 `expandedSessionID = focus.expandingSession` 那一行
+    /// → 两张图逐像素相同 → 变红。
+    func testReviewJumpLandsWithTheReviewAlreadyExpanded() async throws {
+        let fixture = try await makeStateWithReview()
+        defer { try? FileManager.default.removeItem(at: fixture.configURL) }
+
+        // ⚠️ 预热：`MarkdownText` 的头一次排版要付一次性开销，
+        // 「同一份输入渲染两次」在进程的头两次能差 300+ 像素（见 BubbleActionsRenderTests）。
+        _ = try await renderRecords(state: fixture.state, focus: nil)
+
+        let collapsed = try await renderRecords(state: fixture.state, focus: nil)
+        let collapsedAgain = try await renderRecords(state: fixture.state, focus: nil)
+        let expanded = try await renderRecords(state: fixture.state, focus: .sessionReview(fixture.sessionID))
+
+        // ⚠️ 「渲染两次逐像素相同」在这台机器上**不完全成立**：页头偶发有几处散点会动
+        // （实测同一份输入两次之间差 80 像素，换一次又是 0 —— 与 BubbleActionsRenderTests
+        // 记的是同一个现象）。所以这里钉的是「噪声有个量级上限」，而不是「必须为 0」：
+        // 下面那个信号是 48 万像素，比噪声大三个数量级，归因依旧干净。
+        let noise = rowDiff(collapsed, collapsedAgain).count
+        XCTAssertLessThan(
+            noise, 500,
+            "同一份输入的两次渲染之间只该有零星散点；实测 \(noise) 像素，噪声这么大就不能把差异归因到「展开」上"
+        )
+
+        let change = rowDiff(collapsed, expanded)
+        XCTAssertGreaterThan(
+            change.count, 20_000,
+            "点了「去看复盘」画面必须有实质变化（复盘正文真的画出来了）；实测 \(change.count) 像素"
+        )
+        XCTAssertGreaterThan(
+            change.tallestRowRunPt, 90,
+            "变化要有一整段复盘正文那么高，不能只是边框换了颜色；实测最高连续带 \(change.tallestRowRunPt)pt"
+        )
+        try dump(collapsed.rep, name: "round34-records-before-review-jump.png")
+        try dump(expanded.rep, name: "round34-records-after-review-jump.png")
+    }
+
+    // MARK: - 逐像素辅助
+
+    // MARK: - 逐像素
+
+    private struct Diff {
+        var count: Int
+        /// 最高的那一段「连续有差异」的行带（点）。取连续段而不是整体包围盒：
+        /// 页头偶发的几个散点会把包围盒拉成整页高，那时这条断言就永远成立（=没钉住）。
+        var tallestRowRunPt: CGFloat
+    }
+
+    /// 差异像素数 + 最高连续差异行带。
+    private func rowDiff(_ a: Render, _ b: Render) -> Diff {
+        guard let left = rgba(a.rep), let right = rgba(b.rep),
+              left.width == right.width, left.height == right.height
+        else { return Diff(count: Int.max, tallestRowRunPt: 0) }
+        let scale = CGFloat(left.height) / max(a.size.height, 1)
+        let width = left.width, height = left.height
+        var count = 0
+        var rowHits = [Int](repeating: 0, count: height)
+        for y in 0..<height {
+            var hits = 0
+            for x in 0..<width {
+                let offset = (y * width + x) * 4
+                var changed = false
+                for channel in 0..<3 where abs(
+                    Int(left.bytes[offset + channel]) - Int(right.bytes[offset + channel])
+                ) > 8 {
+                    changed = true
+                    break
+                }
+                guard changed else { continue }
+                hits += 1
+                count += 1
+            }
+            rowHits[y] = hits
+        }
+        // 一行至少 8 个像素才算「这一带真有东西」，零星散点不算。
+        var longest = 0, current = 0
+        for hits in rowHits {
+            current = hits >= 8 ? current + 1 : 0
+            longest = max(longest, current)
+        }
+        return Diff(count: count, tallestRowRunPt: CGFloat(longest) / max(scale, 1))
+    }
+
+    private func rgba(_ rep: NSBitmapImageRep) -> (bytes: [UInt8], width: Int, height: Int)? {
+        let width = rep.pixelsWide, height = rep.pixelsHigh
+        guard let out = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: width * 4, bitsPerPixel: 32
+        ) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: out)
+        rep.draw(in: NSRect(x: 0, y: 0, width: width, height: height))
+        NSGraphicsContext.restoreGraphicsState()
+        guard let data = out.bitmapData else { return nil }
+        return (Array(UnsafeBufferPointer(start: data, count: width * height * 4)), width, height)
+    }
 }

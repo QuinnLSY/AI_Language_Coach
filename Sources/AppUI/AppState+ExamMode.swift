@@ -46,7 +46,7 @@ extension AppState {
         guard let context = runner.turnContext else {
             // 一题都没有的考卷：说清楚，不进考试 —— 进去了只是卡在空白上。
             examRunner = nil
-            practiceNotice = "这套考卷里没有题目，换一套试试。"
+            practiceNotice = AppNotice(text: "这套考卷里没有题目，换一套试试。")
             return
         }
         examRunner = runner
@@ -256,7 +256,7 @@ extension AppState {
         await services.importVocabularyFromReviews()
 
         guard PracticeReviewPolicy.canPurgeSource(review) else {
-            practiceNotice = "这次复盘没生成出来，练习内容先给你留着，稍后再试。"
+            practiceNotice = AppNotice(text: "这次复盘没生成出来，练习内容先给你留着，稍后再试。")
             await loadReviews()
             return review
         }
@@ -265,8 +265,15 @@ extension AppState {
         let purged = await services.purgePracticeMessages(
             sessionID: target, expectedMessageCount: messages.count
         )
+        // 回执带「去看复盘」：把目标**那一条**一起写进这个值里（跳转 + 自动展开），
+        // 提示条上就没有第二处需要同步的状态了。学员开口说下一句时它会自己消失（见 `sendChat`）。
         practiceNotice = purged > 0
-            ? "上一段练习已自动复盘，内容已收进学习记录。"
+            ? AppNotice(
+                text: "上一段练习已自动复盘，内容已收进学习记录。",
+                action: NoticeAction(title: "去看复盘") { [weak self] in
+                    Task { await self?.openRecords(focus: .sessionReview(target)) }
+                }
+            )
             : nil
         await loadRecords()
         return review

@@ -5,13 +5,35 @@ import SwiftUI
 
 /// 学习记录页里可以被别的页面**指定跳过来**的锚点。
 ///
-/// 目前只有错题本一处需要（学习进度页的「最近错题」卡片点进来要落在它上面）。
+/// 两处需要它：
+/// 1. 学习进度页的「最近错题」→ 落在错题本卡片上（`.mistakes`）；
+/// 2. 复盘回执里的「去看复盘」→ 落在**那一条**练习记录上、并把它的复盘展开（`.sessionReview`）。
+///
 /// 加一个锚点 = 加一个 case + 给对应卡片挂上 `.id(focus.anchorID)`。
-public enum RecordsFocus: String, Sendable, CaseIterable {
+///
+/// ⚠️ 「跳哪一条」和「要不要展开」必须是**同一个值**：拆成 `focus` + `expandSessionID`
+/// 两个状态，就会出现「点了 A 的去看复盘，跳到 B 那条却展开了 A 的复盘」——
+/// 与提示条「文案与动作绑成一个值」是同一个道理。
+public enum RecordsFocus: Sendable, Equatable {
     case mistakes
+    /// 某一条练习记录（跳过去时顺手展开它的复盘）。
+    case sessionReview(UUID)
 
     /// `ScrollViewReader` 用的 id（带上前缀，免得和别处的 id 撞）。
-    public var anchorID: String { "records-\(rawValue)" }
+    public var anchorID: String {
+        switch self {
+        case .mistakes: "records-mistakes"
+        case .sessionReview(let sessionID): "records-session-\(sessionID.uuidString)"
+        }
+    }
+
+    /// 落地后要展开哪一条的复盘（nil = 只滚过去）。
+    public var expandingSession: UUID? {
+        switch self {
+        case .mistakes: nil
+        case .sessionReview(let sessionID): sessionID
+        }
+    }
 }
 
 /// 学习记录页：最近练习（会话总结）+ 错题本（老师批注的纠错）。
@@ -121,6 +143,11 @@ public struct RecordsView: View {
         // 先消费掉：跳转是「这一次点击」的意图，不该变成本页的默认行为。
         state.recordsFocus = nil
         highlighted = focus
+        // 「去看复盘」还要把那条的复盘**展开**：只滚过去的话，用户看到的是一行摘要，
+        // 还得自己再点一下才看得到他刚被告知「已经生成好了」的那篇复盘。
+        if let sessionID = focus.expandingSession {
+            expandedSessionID = sessionID
+        }
         // 等一帧让刚加载出来的卡片真正落位，否则 `scrollTo` 会滚到旧的内容高度上。
         try? await Task.sleep(nanoseconds: 160_000_000)
         withAnimation(.easeInOut(duration: 0.35)) {
@@ -503,6 +530,8 @@ public struct RecordsView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(isExpanded ? theme.accent.opacity(0.5) : .clear, lineWidth: 1)
         )
+        // 复盘回执的「去看复盘」要落在这**一条**上（见 `RecordsFocus.sessionReview`）。
+        .id(RecordsFocus.sessionReview(record.sessionID).anchorID)
     }
 
     private func durationText(_ record: SessionSummary) -> String {

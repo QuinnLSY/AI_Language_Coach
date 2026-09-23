@@ -208,6 +208,11 @@ final class ModelControlTests: XCTestCase {
             maxTurns: 8
         )
         let briefing = ScenarioBriefingBuilder.build(scenario: scenario)
+        // 复盘回执：文案与动作是**一个值**（跳转目标不许另存一份）。
+        let notice = AppNotice(
+            text: "上一段练习已自动复盘",
+            action: NoticeAction(title: "去看复盘") { }
+        )
         let view = ChatView(
             chat: chat,
             modelName: "qwen3:8b",
@@ -215,12 +220,16 @@ final class ModelControlTests: XCTestCase {
             practiceMode: .freeTalk,
             onStartFreeTalk: { },
             briefing: briefing,
-            practiceNotice: "上一段练习已自动复盘"
+            practiceNotice: notice
         )
         XCTAssertEqual(view.practiceMode, .freeTalk, "练习模式漏赋值 → 头部按钮文案就错了")
         XCTAssertNotNil(view.onStartFreeTalk, "开启新练习回调漏赋值 → 按钮点了没反应")
         XCTAssertEqual(view.briefing?.scenarioID, "restaurant", "前情提要漏赋值 → 学员看不到「上次练到哪」")
-        XCTAssertEqual(view.practiceNotice, "上一段练习已自动复盘")
+        XCTAssertEqual(view.practiceNotice?.text, "上一段练习已自动复盘")
+        XCTAssertEqual(
+            view.practiceNotice?.action?.title, "去看复盘",
+            "复盘回执必须自带跳转，否则学员只知道「收进学习记录了」，还得自己去记录页里翻"
+        )
     }
 
     // MARK: - 今日 token 分档（0–2000 督促 / 2000–20000 鼓励 / ≥20000 休息）

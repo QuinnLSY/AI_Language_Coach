@@ -468,7 +468,11 @@ public final class AppState {
     /// **展开不等于进练习**：进练习要点卡片里的「开始任务」（需求 3）。
     public var expandedScenarioID: String?
     /// 上一段练习自动复盘的结果提示（nil = 不显示）。
-    public var practiceNotice: String?
+    ///
+    /// ⚠️ 是 `AppNotice`（文案 + 动作绑成一个值）而不是裸 `String?`：
+    /// 「上一段练习已自动复盘」这条**必须**带一个「去看复盘」，
+    /// 文案与动作拆成两个属性就一定会出现「这条只是告知，却挂着上一条留下的跳转」。
+    public var practiceNotice: AppNotice?
 
     /// 关闭「自动复盘」回执提示。
     public func dismissPracticeNotice() { practiceNotice = nil }
