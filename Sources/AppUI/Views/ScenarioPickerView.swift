@@ -78,12 +78,32 @@ public struct ScenarioPickerView: View {
                 Text("情景对话")
                     .font(.system(size: 16, weight: .bold, design: .rounded))
                     .foregroundStyle(theme.primaryText)
-                Text("点卡片看这一关的任务与重点，再按「开始任务」")
+                Text("点卡片看任务与重点；想练的没有，就自己描述一个")
                     .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
             }
 
             Spacer()
+
+            // 描述场景（⑦）：与「上传材料」同为头部常驻入口，且排在它前面 ——
+            // 「一句话生成」是零素材门槛的入口，比「先找一篇文章」用得多。
+            Button {
+                Task { await state.openScenarioComposer() }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "sparkles").font(.system(size: 10, weight: .semibold))
+                    Text("描述场景")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                }
+                .foregroundStyle(theme.accent)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Capsule().strokeBorder(theme.accent.opacity(0.5), lineWidth: 1))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("用一句话描述你想练的场景，让老师把它搭出来")
+            .accessibilityLabel("描述场景，一句话生成一个情景对话")
 
             // 上传材料（#208）：与关闭按钮同为头部常驻入口。
             Button {
@@ -425,7 +445,30 @@ public struct ScenarioPickerView: View {
             focusSection(scenario)
             levelSection(scenario, level: level)
             HStack(spacing: 10) {
-                Text("展开只是先看清楚；准备好就按右边开始。")
+                // 自建情景才给删除入口（内置素材删不掉，它们随包发布）。
+                // 判断走 `origin` 这个**数据**，不拿分组名或 id 前缀比较 ——
+                // 那两样一改字，「这是不是用户自建的」就会静默失效，而它决定的是删除入口。
+                if scenario.origin == .custom {
+                    Button {
+                        Task { await state.deleteCustomScenario(id: scenario.id) }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "trash").font(.system(size: 9, weight: .semibold))
+                            Text("删除")
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundStyle(theme.secondaryText)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Capsule().strokeBorder(theme.divider, lineWidth: 1))
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("删掉这个自建情景；已经收进词汇本的词不回收")
+                }
+                Text(scenario.origin == .custom
+                    ? "删除只影响这个情景，词汇本里的词留着。"
+                    : "展开只是先看清楚；准备好就按右边开始。")
                     .font(.system(size: 10, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
                 Spacer(minLength: 0)

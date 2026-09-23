@@ -38,6 +38,18 @@ public enum ScenarioCorrectionMode: String, Codable, Sendable, CaseIterable {
 /// 字段全部来自 `Resources/Scenarios/*.json`，**代码里不得出现场景字面量**。
 public struct Scenario: Codable, Sendable, Equatable, Identifiable {
 
+    /// 这个情景从哪来。
+    ///
+    /// ⚠️ 用**数据**而不是「拿 id 前缀或分组名比较」：分组名（category）是给人看的、
+    /// 随时可能改字，id 前缀是约定；两者一旦变动，「这是不是用户自建的」就会静默失效 ——
+    /// 而它决定的是「卡片上有没有删除入口」这类会丢数据的操作。
+    public enum Origin: String, Codable, Sendable {
+        /// 随包发布的内置素材（`Resources/Scenarios/*.json`）。
+        case builtIn
+        /// 用户自建（一句话生成 / 材料拆解）。
+        case custom
+    }
+
     /// 稳定标识（如 `airport_checkin`）。
     public let id: String
     /// 学习语言标题（展示 + 注入 Prompt）。
@@ -80,6 +92,11 @@ public struct Scenario: Codable, Sendable, Equatable, Identifiable {
     public var correctionMode: ScenarioCorrectionMode
     /// UI 图标（SF Symbol 名称）。
     public var icon: String
+    /// 数据来源（内置素材 / 用户自建）。见 `Origin`。
+    ///
+    /// ⚠️ 老的内置 JSON 里没有这个键 → 解码默认 `.builtIn`，
+    /// 所以加它不会让任何既有素材失效（`ScenarioCatalog` 那份容错解码的用意就在这）。
+    public var origin: Origin
 
     public init(
         id: String,
@@ -99,7 +116,8 @@ public struct Scenario: Codable, Sendable, Equatable, Identifiable {
         questSteps: [QuestStep] = [],
         maxTurns: Int = 12,
         correctionMode: ScenarioCorrectionMode = .balanced,
-        icon: String = "bubble.left.and.bubble.right.fill"
+        icon: String = "bubble.left.and.bubble.right.fill",
+        origin: Origin = .builtIn
     ) {
         self.id = id
         self.title = title
@@ -119,6 +137,7 @@ public struct Scenario: Codable, Sendable, Equatable, Identifiable {
         self.maxTurns = max(maxTurns, 1)
         self.correctionMode = correctionMode
         self.icon = icon
+        self.origin = origin
     }
 
     /// 难度圆点（UI 展示用）：`●●●○○`。
@@ -163,7 +182,7 @@ public struct Scenario: Codable, Sendable, Equatable, Identifiable {
         case id, title, titleZh, category, difficulty, level, objective
         case aiRole, learnerRole, opening, targetVocabulary, targetGrammar, targetSentences
         case mainQuest, questSteps
-        case maxTurns, correctionMode, icon
+        case maxTurns, correctionMode, icon, origin
     }
 
     public init(from decoder: Decoder) throws {
@@ -187,6 +206,7 @@ public struct Scenario: Codable, Sendable, Equatable, Identifiable {
         maxTurns = max(turns, 1)
         correctionMode = try container.decodeIfPresent(ScenarioCorrectionMode.self, forKey: .correctionMode) ?? .balanced
         icon = try container.decodeIfPresent(String.self, forKey: .icon) ?? "bubble.left.and.bubble.right.fill"
+        origin = try container.decodeIfPresent(Origin.self, forKey: .origin) ?? .builtIn
     }
 }
 

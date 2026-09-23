@@ -151,7 +151,7 @@ public final class AppState {
     /// 当前有没有整块面板 / 页面盖在聊天区之上（面板一开，划词气泡就该立刻收掉）。
     public var isContentCovered: Bool {
         showingSettings || showingRecords || showingScenarios
-            || showingMaterialUpload || showingVocabulary
+            || showingMaterialUpload || showingVocabulary || showingScenarioComposer
             || showingDictionary || showingProgress || showingWriting || showingReading
     }
     // MARK: 模型 Provider（本地 + 云端并存）
@@ -357,6 +357,22 @@ public final class AppState {
     public var materialResult: String?
     /// 最近一次生成成功的材料（浮层里展示「拆出了什么」）。
     public internal(set) var lastGeneratedKit: MaterialKit?
+    // MARK: 一句话生成情景（⑦）
+    /// 已生成的自建情景草稿（按生成时间倒序）。
+    ///
+    /// ⚠️ 与下面的 `scenarioPromptText` 差一个 s：那个是**输入框里的那句描述**，
+    /// 这个是**已经生成好的成品列表**。命名上刻意区分，免得两处状态互相覆盖。
+    public internal(set) var customScenarioDrafts: [ScenarioDraft] = []
+    /// 「描述场景」浮层开关。
+    public var showingScenarioComposer = false
+    /// 一句话描述草稿（输入框内容）。
+    public var scenarioPromptText = ""
+    /// 是否正在生成（按钮 loading；一次生成 = 一次模型请求）。
+    public internal(set) var isGeneratingScenario = false
+    /// 生成结果回执（成功 / 失败都给，UI 展示后由 `dismissScenarioResult` 清掉）。
+    public var scenarioResult: String?
+    /// 最近一次生成成功的情景（浮层里展示「生成了什么」）。
+    public internal(set) var lastGeneratedScenarioDraft: ScenarioDraft?
     /// 学习记录数据（进入页面时加载）。
     public internal(set) var records: [SessionSummary] = []
     public internal(set) var mistakes: [GrammarCorrection] = []

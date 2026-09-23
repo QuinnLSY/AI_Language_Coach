@@ -109,16 +109,11 @@ public enum MaterialKitRule {
 
     /// 材料指纹：FNV-1a（跨进程稳定 —— `Hasher` 是每进程随机种子的，绝不能用它生成持久 id）。
     /// 指纹取「标题 + 原文前 2000 字」：同一份材料重复生成同一个 id；改了内容才算新材料。
+    ///
+    /// 实现搬到 `StableFingerprint`（情景生成也要用同一套）：这里只负责**取哪几个字**
+    /// 参与指纹 —— 那个决定材料身份的取舍留在本类型里。
     public static func stableID(title: String, text: String) -> String {
-        var hash: UInt64 = 0xcbf29ce484222325
-        func feed(_ byte: UInt8) {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x100000001b3
-        }
-        for byte in (title + "\u{1}" + String(text.prefix(2000))).utf8 {
-            feed(byte)
-        }
-        return String(format: "material-%08x", UInt32(truncatingIfNeeded: hash))
+        StableFingerprint.hex(prefix: "material", of: title + "\u{1}" + String(text.prefix(2000)))
     }
 
     // MARK: 模型输出解析（与 material_kit.txt 模板是一对，改一处必须改另一处）
@@ -278,27 +273,14 @@ public enum MaterialKitRule {
     }
 
     /// 按 `|` 切子字段：去首尾空白、丢空段（词典 / 跟读同一把尺）。
+    /// 实现见 `KeyValueLine.fields` —— 情景生成走的是同一把尺，别在这里另写一份。
     private static func splitFields(_ value: String) -> [String] {
-        value
-            .components(separatedBy: "|")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        KeyValueLine.fields(value)
     }
 
     /// 剥掉模型在子字段里自带的标签（实测会写 `Learner Role: xxx`、`Goal: xxx`）。
-    /// 只剥「冒号前是已知字段标签」的情况，正文里的冒号不受影响。
+    /// 实现见 `KeyValueLine.stripLabel`。
     private static func stripEmbeddedLabel(_ field: String) -> String {
-        guard let separator = field.firstIndex(where: { $0 == ":" || $0 == "：" }) else { return field }
-        let head = field[..<separator]
-            .trimmingCharacters(in: .whitespaces)
-            .replacingOccurrences(of: "_", with: "")
-            .replacingOccurrences(of: " ", with: "")
-            .lowercased()
-        let labels: Set<String> = [
-            "airole", "ai", "role", "learnerrole", "learner", "studentrole", "student",
-            "goal", "objective", "角色", "学员角色", "学生角色", "目标", "学习目标",
-        ]
-        guard labels.contains(head) else { return field }
-        return String(field[field.index(after: separator)...]).trimmingCharacters(in: .whitespaces)
+        KeyValueLine.stripLabel(field)
     }
 }

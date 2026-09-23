@@ -61,10 +61,17 @@ public actor CoachServices {
     private let attachmentStore: AttachmentStore
     /// 上传材料的落盘仓库（材料 → 情景 + 跟读句 + 生词表，#208）。
     private let materialStore: MaterialStore
+    /// 用户自建情景的落盘仓库（一句话生成，⑦）。
+    private let customScenarioStore: CustomScenarioStore
     private let config: ConfigStore
     private var llmProvider: (any LLMProvider)?
     /// 场景目录缓存（资源文件，进程内读一次即可）。
     private var scenarioCache: [Scenario]?
+    /// 用户自建情景（进程内缓存，由 `reloadCustomScenarios()` 刷）。
+    ///
+    /// ⚠️ 与 `scenarioCache` 分开存：内置那份读一次就永不变化，
+    /// 这一份会随「生成 / 删除」变 —— 合在一起就得每次生成都重读一遍资源包。
+    private var customScenarioCache: [Scenario] = []
     /// 考卷目录缓存（同上）。
     private var examCache: [ExamBlueprint]?
     /// 进行中的 LLM 装配任务：并发调用只装配一次（见 `ensureLLMReady`）。
@@ -86,7 +93,8 @@ public actor CoachServices {
         attachmentStore: AttachmentStore = .shared,
         dictionaryStore: DictionaryBookStore = .shared,
         shadowingDailyStore: ShadowingDailyStore = .shared,
-        materialStore: MaterialStore = MaterialStore()
+        materialStore: MaterialStore = MaterialStore(),
+        customScenarioStore: CustomScenarioStore = CustomScenarioStore()
     ) {
         self.config = config
         self.llm = llm
@@ -121,6 +129,7 @@ public actor CoachServices {
         // 入学定级（进阶 ⑤）：题库随包发布，出卷 / 判分全在本地（零请求）。
         self.placement = PlacementService()
         self.materialStore = materialStore
+        self.customScenarioStore = customScenarioStore
         self.vocabulary = VocabularyService(llm: self.llm, learning: database)
         self.dictionary = DictionaryService(llm: self.llm, store: dictionaryStore)
         self.progress = ProgressService(learning: database)
@@ -2247,13 +2256,94 @@ public actor CoachServices {
 
     // MARK: - 情景对话（Role Play，第 21 步）
 
-    /// 全部内置场景（数据驱动，来自 `Resources/Scenarios/*.json`）。
+    /// 全部可用情景 = **内置**（`Resources/Scenarios/*.json`）+ **用户自建**（「我的情景」，⑦）。
+    ///
     /// 资源缺失时返回空数组，由 UI 给出可操作提示（不崩、不静默、不内置兜底场景）。
+    ///
+    /// ⚠️ 自建情景必须走这一条：它要能被分组展示、被关卡绑定、被今日跟读轮换选中，
+    /// 还要能按 id 查回来（进行中的会话恢复靠 `scenario(id:)`）——
+    /// 每多一个「只认内置」的入口，自建情景就会在那里凭空消失一次。
     public func availableScenarios() -> [Scenario] {
-        if let scenarioCache { return scenarioCache }
-        let loaded = ScenarioCatalog.bundled()
-        scenarioCache = loaded
-        return loaded
+        if scenarioCache == nil { scenarioCache = ScenarioCatalog.bundled() }
+        return ScenarioCatalog.deduplicated((scenarioCache ?? []) + customScenarioCache)
+    }
+
+    /// 重新读盘，把用户自建情景并进目录。
+    ///
+    /// 调用点：开情景面板 / 生成成功 / 删除之后。**不是**每次 `availableScenarios()` 都读盘 ——
+    /// 那个函数在同步上下文里被调得很频繁（今日跟读轮换、关卡绑定都走它）。
+    public func reloadCustomScenarios() async {
+        customScenarioCache = await customScenarioStore.all().map(\.scenario)
+    }
+
+    /// 全部自建情景草稿（按生成时间倒序）。UI 用它回显「你要练的是什么」那句话。
+    public func availableScenarioDrafts() async -> [ScenarioDraft] {
+        await customScenarioStore.all()
+    }
+
+    /// 删除一份自建情景（对应卡片与练习入口立即消失；已进词汇本的词**不回收** ——
+    /// 那已经是学员自己的词了）。
+    public func deleteScenarioDraft(id: String) async {
+        await customScenarioStore.delete(id: id)
+        await reloadCustomScenarios()
+    }
+
+    /// 一句话生成一个情景：**一次请求**产出一个完整可练的场景（开场白 / 目标句 / 目标词）。
+    ///
+    /// 失败一律抛错、**不落盘**：宁可让用户改一句话重试，也不能在「我的情景」里留一份
+    /// 缺胳膊少腿的半成品 —— 它会长期占着列表，比一次失败难收拾得多。
+    ///
+    /// 目标词顺带进词汇本（`source: .scenario`）：这既是「自动出题」的一半，
+    /// 也让这些词被每日推荐的**生词档**接住（生词档从词汇本取词）——
+    /// 练过的词第二天在推荐里再露一面，两个功能才算真正闭上环。
+    public func generateScenarioDraft(from raw: String) async throws -> ScenarioDraft {
+        if let issue = ScenarioDraftRule.inputIssue(for: raw) {
+            switch issue {
+            case .empty:
+                throw AppError.unknown("先写一句你想练的场景（比如「在咖啡店点一杯拿铁」）。")
+            case .tooShort(let actual):
+                throw AppError.unknown(
+                    "描述太短（\(actual) 字，至少 \(ScenarioDraftRule.minimumLength) 字），"
+                        + "补一句「你是谁、在哪、要做什么」。"
+                )
+            case .tooLong(let actual):
+                throw AppError.unknown(
+                    "描述太长（\(actual) 字，最多 \(ScenarioDraftRule.maximumLength) 字），一句话说清就好。"
+                )
+            }
+        }
+        guard isModelRunning(.llm) else { throw AIProviderError.notInitialized }
+        try await ensureLLMReady()
+
+        let configuration = await config.current
+        let prompt = ScenarioDraftRule.sanitized(raw)
+        let provider = await config.current.resolvedProvider(for: .llm)
+        let request = LLMRequest(
+            messages: [LLMMessage(role: .system, content: PromptBuilder.scenarioDraftPrompt(
+                prompt: prompt,
+                learningLanguage: configuration.product.learningLanguage,
+                nativeLanguage: configuration.product.nativeLanguage
+            ))],
+            model: await currentLLMModel(),
+            // 创作任务：要一点温度（同一句描述不该永远生成一模一样的情景），但不能飘 ——
+            // 生成出来的东西要能直接拿去练。
+            temperature: 0.6,
+            maxTokens: min(provider?.maxTokens ?? 1536, 1536),
+            streaming: false,
+            reasoningEffort: LLMRequest.noThinkingEffort
+        )
+        let response = try await llm.generate(request)
+        guard let draft = ScenarioDraftRule.parse(response.text, prompt: prompt) else {
+            throw AppError.unknown(
+                "没能生成一个完整的情景（缺标题 / 场景 / 开场白，或目标句不够两句）——换个说法再试一次。"
+            )
+        }
+        try await customScenarioStore.save(draft)
+        await reloadCustomScenarios()
+        for word in draft.words {
+            _ = await vocabulary.add(word: word.word, meaning: word.meaning, source: .scenario)
+        }
+        return draft
     }
 
     /// 按 id 取场景（不存在返回 nil）。

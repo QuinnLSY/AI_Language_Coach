@@ -78,6 +78,11 @@ public struct MainView: View {
                     materialUploadOverlay
                 }
 
+                // 描述场景浮层（⑦）：同上 —— 也是从情景面板头部竖起来的，与它同层。
+                if state.showingScenarioComposer {
+                    scenarioComposerOverlay
+                }
+
                 // 入学定级浮层：从学习进度页进来，与上传材料同一层。
                 if state.isPlacementShowing {
                     placementOverlay
@@ -137,6 +142,7 @@ public struct MainView: View {
         .animation(.easeOut(duration: 0.22), value: state.showingSettings)
         .animation(.easeOut(duration: 0.22), value: state.showingScenarios)
         .animation(.easeOut(duration: 0.22), value: state.showingMaterialUpload)
+        .animation(.easeOut(duration: 0.22), value: state.showingScenarioComposer)
         .task {
             state.systemIsDark = (colorScheme == .dark)
             // ⚠️ 界面开关要在 `start()` **前后各压一次**：
@@ -708,6 +714,32 @@ public struct MainView: View {
             PlacementSheet(state: state) { state.closePlacement() }
                 .frame(width: 520)
                 .frame(maxHeight: 600)
+                .background(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(state.theme.panel)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .strokeBorder(state.theme.divider, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .shadow(color: state.theme.shadow, radius: 30, x: 0, y: 14)
+                .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
+        }
+        .zIndex(20)
+    }
+
+    // MARK: - 描述场景浮层（⑦，与上传材料同层）
+
+    private var scenarioComposerOverlay: some View {
+        ZStack {
+            state.theme.scrim
+                .contentShape(Rectangle())
+                .onTapGesture { state.closeScenarioComposer() }
+
+            ScenarioComposerSheet(state: state) { state.closeScenarioComposer() }
+                .frame(width: 560)
+                .frame(maxHeight: 560)
                 .background(
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
                         .fill(state.theme.panel)

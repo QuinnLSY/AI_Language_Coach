@@ -111,10 +111,76 @@ extension AppState {
     /// 加载内置场景（只读资源文件；失败时保持空列表，由 UI 提示）。
     public func loadScenarios() async {
         guard !didLoadScenarios else { return }
+        // 先把自建情景并进服务目录，再取列表 —— 反过来的话首次进页面看不到「我的情景」。
+        await services.reloadCustomScenarios()
         scenarios = await services.availableScenarios()
         // 绑定表与情景一起加载：课程阶梯要把关卡挂到档上，缺了它只能显示「未挂关」。
         levelBindings = await services.levelBindings()
         didLoadScenarios = true
+    }
+
+    /// 重新取一遍情景目录（生成 / 删除自建情景之后调用）。
+    ///
+    /// ⚠️ 不能复用 `loadScenarios()`：它有 `didLoadScenarios` 守卫，第二次调用直接返回 ——
+    /// 刚生成完新情景再调它，列表纹丝不动，用户只会得出「生成没成功」这个结论。
+    public func reloadScenarios() async {
+        await services.reloadCustomScenarios()
+        scenarios = await services.availableScenarios()
+        didLoadScenarios = true
+    }
+
+    // MARK: - 一句话生成情景（⑦）
+
+    /// 加载自建情景草稿（开面板 / 生成 / 删除之后刷新）。
+    public func loadCustomScenarios() async {
+        customScenarioDrafts = await services.availableScenarioDrafts()
+    }
+
+    /// 打开「描述场景」浮层（顺手刷新自建情景列表）。
+    public func openScenarioComposer() async {
+        await loadCustomScenarios()
+        scenarioResult = nil
+        lastGeneratedScenarioDraft = nil
+        showingScenarioComposer = true
+    }
+
+    public func closeScenarioComposer() {
+        showingScenarioComposer = false
+        scenarioResult = nil
+        lastGeneratedScenarioDraft = nil
+    }
+
+    public func dismissScenarioResult() {
+        scenarioResult = nil
+    }
+
+    /// 一句话生成情景：一次生成 = 一次模型请求；成功后新情景立即出现在「我的情景」分区。
+    public func generateScenarioFromPrompt() async {
+        guard !isGeneratingScenario else { return }
+        scenarioResult = nil
+        lastGeneratedScenarioDraft = nil
+        isGeneratingScenario = true
+        defer { isGeneratingScenario = false }
+        do {
+            let draft = try await services.generateScenarioDraft(from: scenarioPromptText)
+            lastGeneratedScenarioDraft = draft
+            await loadCustomScenarios()
+            await reloadScenarios()
+            let sentences = draft.scenario.targetSentences.count
+            let words = draft.words.count
+            scenarioResult = "生成好了：「\(draft.scenario.titleZh)」＋ \(sentences) 句目标句"
+                + (words > 0 ? " ＋ \(words) 个目标词（已收进词汇本）" : "")
+        } catch {
+            let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            scenarioResult = reason
+        }
+    }
+
+    /// 删除一份自建情景（已进词汇本的词不回收 —— 那已经是学员自己的词了）。
+    public func deleteCustomScenario(id: String) async {
+        await services.deleteScenarioDraft(id: id)
+        await loadCustomScenarios()
+        await reloadScenarios()
     }
 
     // MARK: - 练习生命周期（需求 3 / 4 / 5 / 6）
