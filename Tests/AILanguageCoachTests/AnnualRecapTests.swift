@@ -442,4 +442,40 @@ final class AnnualRecapTests: XCTestCase {
         XCTAssertEqual(lines.count, 2, "没练的那天只有日期 + 「没有练习」两行")
         XCTAssertTrue(lines[1] == "没有练习")
     }
+
+    /// #5 二轮：浮卡每行前面要画板块图标 —— 明细必须带板块归属。
+    func testDetailItemsTagEveryLineWithItsSection() throws {
+        let now = day(2026, 9, 15, 21, 0)
+        let recap = AnnualRecapBuilder.build(
+            days: [activity(daysAgo: 0, minutes: 12, messages: 4, shadowing: 2, reviewed: 3, now: now)],
+            goalMinutes: 10,
+            now: now,
+            calendar: calendar
+        )
+        let cell = recap.weeks.flatMap { $0 }.compactMap { $0 }.first { $0.isToday }
+
+        let items = try XCTUnwrap(cell?.detailItems(calendar: calendar))
+        XCTAssertEqual(
+            items.map(\.kind),
+            [.date, .duration, .conversation, .shadowing, .vocabulary, .goal, .tasks],
+            "每行都要标上所属板块，实际：\(items.map(\.kind))"
+        )
+
+        // 一行式出口从结构化明细派生 —— 两份事实不许各说各的。
+        XCTAssertEqual(cell?.detailLines(calendar: calendar), items.map(\.text))
+    }
+
+    func testDetailItemsForAnEmptyDayTagTheIdleRow() throws {
+        let now = day(2026, 9, 15, 21, 0)
+        let recap = AnnualRecapBuilder.build(
+            days: [activity(daysAgo: 3, now: now)],
+            goalMinutes: 15,
+            now: now,
+            calendar: calendar
+        )
+        let items = try XCTUnwrap(
+            recap.weeks.flatMap { $0 }.compactMap { $0 }.first?.detailItems(calendar: calendar)
+        )
+        XCTAssertEqual(items.map(\.kind), [.date, .idle], "空日子只有日期 + 「没有练习」两条")
+    }
 }

@@ -13,6 +13,43 @@ import Foundation
 //
 // 本文件只有结构 + 纯函数：不 import UI、不碰 IO、不看系统时间以外的状态。
 
+// MARK: - 明细条目（带板块归属）
+
+/// 一条明细属于哪个板块 —— 悬停浮卡靠它在每行前面画对应的板块图标。
+public enum RecapDetailKind: Sendable, Equatable, CaseIterable {
+    /// 日期行。
+    case date
+    /// 练习时长。
+    case duration
+    /// 对话轮次。
+    case conversation
+    /// 跟读。
+    case shadowing
+    /// 复习单词。
+    case vocabulary
+    /// 写作。
+    case writing
+    /// 阅读。
+    case reading
+    /// 每日目标。
+    case goal
+    /// 今日任务。
+    case tasks
+    /// 没练（空日子）。
+    case idle
+}
+
+/// 一条明细：内容 + 它所属的板块。
+public struct RecapDetailItem: Sendable, Equatable {
+    public let kind: RecapDetailKind
+    public let text: String
+
+    public init(kind: RecapDetailKind, text: String) {
+        self.kind = kind
+        self.text = text
+    }
+}
+
 // MARK: - 深浅（四档）
 
 /// 一个格子的深浅。
@@ -99,29 +136,48 @@ public struct AnnualRecap: Sendable, Equatable {
         /// #5：压成一行的写法在长日子会被截断（`lineLimit(1)` + 中间省略），
         /// 悬停浮卡按行展示 —— 有几行亮几行，一条都不省。
         public func detailLines(calendar: Calendar = .current) -> [String] {
-            var parts = [ProgressAggregator.longLabel(day, calendar: calendar)]
+            detailItems(calendar: calendar).map(\.text)
+        }
+
+        /// 结构化明细：每条带板块归属，浮卡在行首画对应图标用。
+        public func detailItems(calendar: Calendar = .current) -> [RecapDetailItem] {
+            var items = [RecapDetailItem(
+                kind: .date, text: ProgressAggregator.longLabel(day, calendar: calendar)
+            )]
             if activity.seconds > 0 {
-                parts.append(ProgressAggregator.durationText(activity.seconds))
+                items.append(RecapDetailItem(kind: .duration, text: ProgressAggregator.durationText(activity.seconds)))
             }
-            if activity.messages > 0 { parts.append("\(activity.messages) 轮对话") }
-            if activity.shadowingAttempts > 0 { parts.append("跟读 \(activity.shadowingAttempts) 次") }
-            if activity.vocabularyReviewed > 0 { parts.append("复习 \(activity.vocabularyReviewed) 词") }
+            if activity.messages > 0 {
+                items.append(RecapDetailItem(kind: .conversation, text: "\(activity.messages) 轮对话"))
+            }
+            if activity.shadowingAttempts > 0 {
+                items.append(RecapDetailItem(kind: .shadowing, text: "跟读 \(activity.shadowingAttempts) 次"))
+            }
+            if activity.vocabularyReviewed > 0 {
+                items.append(RecapDetailItem(kind: .vocabulary, text: "复习 \(activity.vocabularyReviewed) 词"))
+            }
             if activity.writings > 0 {
-                parts.append(activity.writingScore.map { "写作 \(activity.writings) 篇（均分 \(Int($0.rounded()))）" }
-                    ?? "写作 \(activity.writings) 篇")
+                items.append(RecapDetailItem(
+                    kind: .writing,
+                    text: activity.writingScore.map { "写作 \(activity.writings) 篇（均分 \(Int($0.rounded()))）" }
+                        ?? "写作 \(activity.writings) 篇"
+                ))
             }
             if activity.readings > 0 {
-                parts.append(activity.readingQuestions > 0
-                    ? "阅读 \(activity.readings) 篇（答对 \(activity.readingCorrect)/\(activity.readingQuestions)）"
-                    : "阅读 \(activity.readings) 篇")
+                items.append(RecapDetailItem(
+                    kind: .reading,
+                    text: activity.readingQuestions > 0
+                        ? "阅读 \(activity.readings) 篇（答对 \(activity.readingCorrect)/\(activity.readingQuestions)）"
+                        : "阅读 \(activity.readings) 篇"
+                ))
             }
             if intensity == .none {
-                parts.append("没有练习")
+                items.append(RecapDetailItem(kind: .idle, text: "没有练习"))
             } else {
-                parts.append(goalReached ? "目标达成" : "未达目标")
-                parts.append("任务 \(tasksDone) / \(tasksTotal)")
+                items.append(RecapDetailItem(kind: .goal, text: goalReached ? "目标达成" : "未达目标"))
+                items.append(RecapDetailItem(kind: .tasks, text: "任务 \(tasksDone) / \(tasksTotal)"))
             }
-            return parts
+            return items
         }
     }
 

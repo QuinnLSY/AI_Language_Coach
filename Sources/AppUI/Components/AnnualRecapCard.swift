@@ -80,26 +80,49 @@ public struct AnnualRecapCard: View {
     let recap: AnnualRecap
 
     /// 鼠标悬停的那天 + 落点（跟着走）。
-    private struct Focus: Equatable {
+    ///
+    /// internal：离屏渲染驱动不了鼠标，回归测试靠 `previewFocus` 注入同款值出图。
+    struct Focus: Equatable {
         var day: Date
         var point: CGPoint
     }
     @State private var hovered: Focus?
     /// 点住的那天（点一下把明细留在卡片上，不被鼠标移开冲掉）。
     @State private var pinned: Focus?
+    /// 测试钩子：注入的焦点优先于 hover 状态（正常使用恒为 nil）。
+    private let previewFocus: Focus?
 
-    public init(recap: AnnualRecap) { self.recap = recap }
+    /// 热图画布在**整卡**坐标系里的位置（浮卡挂在整卡层，要把热图里的
+    /// 鼠标点换算过去）。经 `PreferenceKey` 从热图的 `GeometryReader` 传上来。
+    private struct HeatmapFrameKey: PreferenceKey {
+        static var defaultValue: CGRect { .zero }
+        static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+    }
+    @State private var heatmapFrame: CGRect = .zero
+
+    public init(recap: AnnualRecap) {
+        self.init(recap: recap, previewFocus: nil)
+    }
+
+    init(recap: AnnualRecap, previewFocus: Focus?) {
+        self.recap = recap
+        self.previewFocus = previewFocus
+    }
 
     private var columns: Int { recap.weeks.count }
 
-    /// 当前要解释的那一格：优先「点住的」，其次「悬停的」。
-    private var focused: AnnualRecap.Cell? {
-        cell(on: pinned?.day) ?? cell(on: hovered?.day)
+    /// 当前要解释的那一格：优先「测试注入的」，其次「点住的」，再次「悬停的」。
+    private var focusedFocus: Focus? {
+        previewFocus ?? pinned ?? hovered
     }
 
-    /// 浮卡该出现在哪：与 `focused` 同源（点住用点下时的落点，悬停用鼠标位置）。
+    private var focused: AnnualRecap.Cell? {
+        cell(on: focusedFocus?.day)
+    }
+
+    /// 浮卡该出现在哪：与焦点同源（点住用点下时的落点，悬停用鼠标位置）。
     private var anchorPoint: CGPoint? {
-        pinned?.point ?? hovered?.point
+        focusedFocus?.point
     }
 
     private func cell(on day: Date?) -> AnnualRecap.Cell? {
@@ -130,6 +153,47 @@ public struct AnnualRecapCard: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(theme.surface)
                 .shadow(color: theme.shadow, radius: 8, x: 0, y: 3)
+        )
+        .onPreferenceChange(HeatmapFrameKey.self) { heatmapFrame = $0 }
+        // 浮卡挂在**整卡层**而不是热图层：footer/footnote 是热图的晚兄弟，
+        // 挂在热图层会被它们画在头上（#5 二轮报障）。挂在这里 = 最后画 = 悬浮最上；
+        // 落点也钳在整卡内，不会再伸到下一张卡底下。
+        .overlay(alignment: .topLeading) {
+            GeometryReader { cardProxy in
+                tooltipOverlay(containerSize: cardProxy.size)
+            }
+        }
+        .coordinateSpace(name: Self.coordinateSpaceName)
+    }
+
+    static let coordinateSpaceName = "annualRecapCard"
+
+    @ViewBuilder
+    private func tooltipOverlay(containerSize: CGSize) -> some View {
+        if let focused, let anchor = anchorPoint {
+            let items = focused.detailItems()
+            let size = CGSize(
+                width: AnnualDayDetailCard.measuredWidth(items: items),
+                height: AnnualDayDetailCard.estimatedHeight(items: items)
+            )
+            // 鼠标点记录在热图坐标里，换算到整卡坐标再钳制。
+            // 测试钩子（previewFocus）注入的落点**直接按整卡坐标解释**：
+            // 离屏环境里 preference 的传播时序不可控，钩子不该依赖它。
+            let mouse = tooltipMouse(anchor: anchor)
+            let origin = AnnualTooltipPlacement.origin(
+                mouse: mouse, containerSize: containerSize, tooltipSize: size
+            )
+            AnnualTooltipFollower(items: items, target: origin)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+        }
+    }
+
+    private func tooltipMouse(anchor: CGPoint) -> CGPoint {
+        if previewFocus != nil { return anchor }
+        return CGPoint(
+            x: anchor.x + heatmapFrame.minX,
+            y: anchor.y + heatmapFrame.minY
         )
     }
 
@@ -188,24 +252,18 @@ public struct AnnualRecapCard: View {
                                 }
                             }
                     )
-                    // #5：当日明细浮卡 —— 列式、逐条展示，出现在鼠标旁、
-                    // 钳在卡片边界内。`allowsHitTesting(false)`：浮卡绝不抢命中，
+                    // #5 二轮：热图画布在整卡坐标里的位置经 preference 传上去 ——
+                    // 浮卡挂在整卡层（见 body），鼠标点要从热图坐标换算过去。
+                    // `allowsHitTesting(false)`：浮卡绝不抢命中，
                     // 否则它会盖住下面的格子，鼠标一动悬停就断了。
+                    .preference(
+                        key: HeatmapFrameKey.self,
+                        value: proxy.frame(in: .named(Self.coordinateSpaceName))
+                    )
+                    // 反证：浮卡挂回热图层（旧结构）—— footer/footnote 是晚兄弟，
+                    // 会画在浮卡头上。
                     .overlay(alignment: .topLeading) {
-                        if let focused, let anchor = anchorPoint {
-                            let lines = focused.detailLines()
-                            let size = CGSize(
-                                width: AnnualDayDetailCard.width,
-                                height: AnnualDayDetailCard.estimatedHeight(lines: lines.count)
-                            )
-                            let origin = AnnualTooltipPlacement.origin(
-                                mouse: anchor, containerSize: proxy.size, tooltipSize: size
-                            )
-                            AnnualDayDetailCard(lines: lines)
-                                .offset(x: origin.x, y: origin.y)
-                                .allowsHitTesting(false)
-                                .transition(.opacity)
-                        }
+                        tooltipOverlay(containerSize: proxy.size)
                     }
             }
         }

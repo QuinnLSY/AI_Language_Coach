@@ -1,4 +1,5 @@
 import AIDomain
+import AppKit
 import SwiftUI
 
 // MARK: - 年度记录的悬停浮卡（#5）
@@ -7,39 +8,95 @@ import SwiftUI
 // 练得多的日子后半截全被「…」吃掉。
 // 改法：鼠标旁浮出一张**列式**卡片，一天里干过的每件事各占一行，
 // 有几行亮几行 —— 高度随内容自适应。
+//
+// 二轮（#5 后续）：
+// ① 宽度也随内容自适应（原来写死 216，两三行的日子右边一大片空）；
+// ② 每行前面画该板块的图标，一眼看出做的是什么学习内容。
 
-/// 当日明细浮卡：第一行日期（加重），其后逐条一行（次级色）。
+/// 板块 → SF Symbol 的映射（UI 层的事：领域层不该认得图标名）。
+extension RecapDetailKind {
+    var symbolName: String {
+        switch self {
+        case .date: "calendar"
+        case .duration: "clock"
+        case .conversation: "ellipsis.bubble"
+        case .shadowing: "waveform"
+        case .vocabulary: "text.book.closed"
+        case .writing: "pencil"
+        case .reading: "book"
+        case .goal: "flag.checkered"
+        case .tasks: "checkmark.circle"
+        case .idle: "moon.zzz"
+        }
+    }
+}
+
+/// 当日明细浮卡：第一行日期（加重），其后逐条一行（次级色），每行带板块图标。
 struct AnnualDayDetailCard: View {
 
-    let lines: [String]
+    let items: [RecapDetailItem]
 
     @Environment(\.forestTheme) private var theme
 
-    /// 固定宽度：一年里最长的那条（「阅读 3 篇（答对 28/30）」）也放得下。
-    static let width: CGFloat = 216
+    /// 图标列宽 + 图标与文字的间距。
+    static let iconColumn: CGFloat = 11
+    static let iconGap: CGFloat = 5
+
+    /// 内容自适应宽度：量出最长一行的自然宽，加图标列与内边距。
+    ///
+    /// 用 `NSAttributedString` 量而不是交给 SwiftUI 自己 hug：落点钳制要在
+    /// 布局前拿到宽度，渲染与钳制必须用**同一个数**，否则要么截字、要么右边露缝。
+    /// ⚠️ 必须按 **rounded 设计**的字体量：拿系统字体量出来的宽度偏窄，
+    /// 最长一行会被挤到换行（实测 8 行量成 9 条墨带）。
+    static func measuredWidth(items: [RecapDetailItem]) -> CGFloat {
+        guard !items.isEmpty else { return 90 }
+        let titleFont = Self.roundedFont(ofSize: 11, weight: .semibold)
+        let bodyFont = Self.roundedFont(ofSize: 10, weight: .regular)
+        var longest: CGFloat = 0
+        for (index, item) in items.enumerated() {
+            let font = index == 0 ? titleFont : bodyFont
+            let size = (item.text as NSString).size(withAttributes: [.font: font])
+            longest = max(longest, ceil(size.width))
+        }
+        return min(max(longest + iconColumn + iconGap + 20 + 6, 90), 260)
+    }
+
+    /// SwiftUI `.rounded` 设计对应的 AppKit 字体（量宽用）。
+    private static func roundedFont(ofSize size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        let base = NSFont.systemFont(ofSize: size, weight: weight)
+        guard let descriptor = base.fontDescriptor.withDesign(.rounded) else { return base }
+        return NSFont(descriptor: descriptor, size: size) ?? base
+    }
 
     /// 高度估算（落点钳制要在布局前拿到尺寸用）：
     /// 首行 13pt、其余 12pt、行距 5、内边距 10。与真实渲染的偏差由钳制的余量吸收。
-    static func estimatedHeight(lines: Int) -> CGFloat {
-        guard lines > 0 else { return 0 }
-        return 20 + CGFloat(lines) * 13 + CGFloat(lines - 1) * 5
+    static func estimatedHeight(items: [RecapDetailItem]) -> CGFloat {
+        guard !items.isEmpty else { return 0 }
+        let lines = CGFloat(items.count)
+        return 20 + lines * 13 + (lines - 1) * 5
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                Text(line)
-                    .font(.system(
-                        size: index == 0 ? 11 : 10,
-                        weight: index == 0 ? .semibold : .regular,
-                        design: .rounded
-                    ))
-                    .foregroundStyle(index == 0 ? theme.primaryText : theme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                HStack(spacing: Self.iconGap) {
+                    Image(systemName: item.kind.symbolName)
+                        .font(.system(size: index == 0 ? 10 : 9, weight: .medium))
+                        .foregroundStyle(theme.secondaryText)
+                        .frame(width: Self.iconColumn)
+                    Text(item.text)
+                        .font(.system(
+                            size: index == 0 ? 11 : 10,
+                            weight: index == 0 ? .semibold : .regular,
+                            design: .rounded
+                        ))
+                        .foregroundStyle(index == 0 ? theme.primaryText : theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .padding(10)
-        .frame(width: Self.width, alignment: .leading)
+        .frame(width: Self.measuredWidth(items: items), alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(theme.surface)
@@ -48,12 +105,45 @@ struct AnnualDayDetailCard: View {
     }
 }
 
+/// 浮卡跟随层（#5.3）：目标点变化时用弹簧动画逼近，而不是瞬间跳过去 —— 拖拽感。
+///
+/// 抽成独立组件的原因：离屏渲染驱动不了鼠标（`onContinuousHover` 不触发），
+/// 只有独立组件才能在回归测试里直接驱动 `target` 抓中途帧。
+/// 首次出现不拖拽（`smoothed` 还是 nil，直接落在目标上）；之后每次目标移动，
+/// `onChange` 里自建弹簧事务逼近新目标 —— ⚠️ 动画必须由组件**自己**的
+/// `withAnimation` 创建：测试里裸改状态不吃外部事务（见 `RecordsDisclosureRenderTests`）。
+struct AnnualTooltipFollower: View {
+
+    let items: [RecapDetailItem]
+    /// 跟随目标（已经是钳制后的落点）。
+    let target: CGPoint
+
+    @State private var smoothed: CGPoint?
+
+    var body: some View {
+        AnnualDayDetailCard(items: items)
+            .offset(x: smoothed?.x ?? target.x, y: smoothed?.y ?? target.y)
+            // 首帧后就位，之后 offset **只**走 smoothed —— 兜底 `?? target` 若一直参与，
+            // 目标一变就会先把卡瞬移过去（实测弹簧从未有机会生效），onChange 里
+            // 的动画就成了空转。
+            .onAppear {
+                if smoothed == nil { smoothed = target }
+            }
+            .onChange(of: target) { _, newValue in
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    smoothed = newValue
+                }
+            }
+    }
+}
+
 /// 浮卡落点（纯函数）：优先出现在鼠标**右下**；右边放不下翻到左边，
 /// 下面放不下翻到上边，最后钳在容器边界内。
 ///
-/// 钳到「卡片边界」而不是窗口：这张卡几乎通栏，横向钳到卡片 ≈ 钳到窗口；
-/// 纵向浮卡始终出现在鼠标附近（鼠标必须悬在年历上浮卡才在），
-/// 卡片边界钳制足以保证看得见。纯函数，四条边各有一条单测。
+/// 二轮起容器是**整张卡**（不再是热图画布）：热图装不下浮卡时浮卡会纵向
+/// 伸出去压住 footer/footnote，而 footer 是更晚的兄弟节点会反过来画在浮卡上面
+/// —— 既难看又挡字。钳在整卡内 + 浮卡挂在整卡层，两个问题一起消失。
+/// 纯函数，四条边各有一条单测。
 enum AnnualTooltipPlacement {
 
     static func origin(
@@ -71,7 +161,6 @@ enum AnnualTooltipPlacement {
         if y + tooltipSize.height > containerSize.height - margin {
             y = mouse.y - margin - tooltipSize.height
         }
-        // 最后钳进边界（浮卡比容器还宽/高时，前面的翻转逻辑会翻过头 —— 这里兜底）。
         // 最后钳进边界（浮卡比容器还宽/高时，前面的翻转逻辑会翻过头 —— 这里兜底）。
         x = min(max(x, margin), max(containerSize.width - tooltipSize.width - margin, margin))
         y = min(max(y, margin), max(containerSize.height - tooltipSize.height - margin, margin))
