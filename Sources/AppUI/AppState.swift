@@ -1013,6 +1013,11 @@ public final class AppState {
     /// 节流跳过后的**收尾补刷**：完成最后一项任务的那一轮若被 15s 节流吞掉，
     /// 最多 15s 后补一次 —— 庆祝仪式不许因为节流而缺席。
     var trailingRefreshTask: Task<Void, Never>?
+    /// 跨天监察（2026-09-24 报障）：常量轮询「今天是哪天」，一变就自动刷新今日面板。
+    var dayRolloverTask: Task<Void, Never>?
+    /// 上一次见到的日子键（`ShadowingDailyRule.dayKey`）。**只在内存里** ——
+    /// 它描述的是「这个进程见过哪一天」，不该跨启动恢复。
+    var lastSeenDayKey: String = ShadowingDailyRule.dayKey()
 
     /// 注入外部装配好的服务（**测试专用**：真实 `CoachServices` 会去启停本机模型服务，
     /// 单测必须换掉它，否则会误杀用户正在运行的 TTS/ASR 进程）。
@@ -1226,6 +1231,31 @@ public final class AppState {
         // 所以这里不必再排一次序，也不会把首屏拖住。
         readingPrefetchTask?.cancel()
         readingPrefetchTask = Task { [weak self] in await self?.prefetchTodaysReading() }
+        // 跨天监察（2026-09-24 报障）：应用开着跨过零点，每日任务 / 打卡也要自动换天，
+        // 不许等用户点一下徽章才刷新（那次点击还会撞上换天瞬间的旧快照）。
+        startDayRolloverWatch()
+    }
+
+    /// 跨天监察：常驻低频轮询「今天是哪天」，一变就强刷今日面板。
+    ///
+    /// ⚠️ 用轮询不用「睡到零点」：睡大觉对系统休眠 / 时钟调整没有抵抗力，
+    /// 醒来一觉睡过头就又回到「不自动刷新」的老病。30s 一次的 `dayKey` 字符串
+    /// 比较（三次取整）是纳秒级开销，换来对任何时钟跳变的即时收敛。
+    /// 任务持有 `weak self`：AppState 析构后循环自然退出，不需要谁来取消。
+    func startDayRolloverWatch() {
+        dayRolloverTask?.cancel()
+        dayRolloverTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                guard let self, !Task.isCancelled else { return }
+                let key = ShadowingDailyRule.dayKey()
+                guard key != self.lastSeenDayKey else { continue }
+                self.lastSeenDayKey = key
+                await self.refreshTodayPanel(force: true)
+                self.refreshTodayTokens()
+                await self.refreshQuestRecords()
+            }
+        }
     }
 
     /// 后台开场：老师先开口 / 续做上一段（需求 6）。

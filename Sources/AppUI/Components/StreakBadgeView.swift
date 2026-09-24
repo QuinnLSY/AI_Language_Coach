@@ -19,6 +19,11 @@ import SwiftUI
 /// 「连续 N 天」这个数字的上下文全在**年度学习记录卡**上（整年的练习热力图 + 达成天数），
 /// 点它就该直接看到那一年。做法上只是外面套一层 `Button`，**尺寸与配色一律不动**：
 /// 它跟「语林」标题同处一行，多一个内边距就会把标题挤歪。
+///
+/// ⚠️ 2026-09-24（用户报障「点了徽章之后悬浮气泡不显示了」）：原生 `.help` 的气泡
+/// 由 AppKit 的悬浮状态机管理 —— **点击之后鼠标不移出再移回，气泡就不再弹出**。
+/// 自绘悬浮卡不依赖那台状态机：鼠标在就显示、离开就收，点击前后行为一致。
+/// 面板底走 `panel`、描边走 `columnDivider`（浮层语义色，日夜切换不漏）。
 struct StreakBadgeView: View {
 
     @Environment(\.forestTheme) private var theme
@@ -26,6 +31,12 @@ struct StreakBadgeView: View {
     let badge: TodayPanel.StreakBadge
     /// 点一下去哪儿（侧栏传 `AppState.openAnnualRecapInProgress`）。
     var onTap: () -> Void = {}
+
+    /// 自绘悬浮卡开关。`.onHover` 直接驱动 —— 不经过 AppKit 的 tooltip 状态机。
+    @State private var showsTip = false
+    /// 测试钩子（**只在离屏渲染用例里置 true**）：hover 路径离屏搭不出来，
+    /// 出图要直接把悬浮卡点亮，量它的墨。
+    var previewShowsTip = false
 
     private var tint: Color { badge.isAtRisk ? theme.warning : theme.streak }
 
@@ -48,10 +59,48 @@ struct StreakBadgeView: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        // 提示里两件事都要说：断签保护那句（悬停给的是「怎么保住 N 天」）+ 点它能去哪。
-        .help(TodayPanel.streakGuardLine(badge) + "\n点一下看整年的学习记录")
+        .onHover { hovering in
+            showsTip = hovering
+        }
+        // 悬浮卡挂在胶囊**下方**（徽章在侧栏最顶上，往上放会出窗）。
+        // overlay 允许画出自身边界之外，压在导航列表上；不参与命中，不抢点击。
+        .overlay(alignment: .bottom) {
+            if showsTip || previewShowsTip {
+                tipCard
+                    .fixedSize()
+                    .offset(y: tipCardEstimatedHeight)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+                    .zIndex(10)
+            }
+        }
         .accessibilityLabel(
             "\(TodayPanel.streakGuardLine(badge))，点按查看年度学习记录"
         )
     }
+
+    /// 悬浮卡说两件事：断签保护那句 + 点它能去哪（与旧 `.help` 文案一致）。
+    private var tipCard: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(TodayPanel.streakGuardLine(badge))
+                .foregroundStyle(theme.primaryText)
+            Text("点一下看整年的学习记录")
+                .foregroundStyle(theme.secondaryText)
+        }
+        .font(.system(size: 11))
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(theme.panel)
+                .shadow(color: .black.opacity(theme.isNight ? 0.4 : 0.14), radius: 5, y: 2)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .strokeBorder(theme.columnDivider, lineWidth: 1)
+        )
+    }
+
+    /// 徽章胶囊高（约 21）+ 间隙：把悬浮卡从胶囊底边挪下去一点。
+    private var tipCardEstimatedHeight: CGFloat { 27 }
 }

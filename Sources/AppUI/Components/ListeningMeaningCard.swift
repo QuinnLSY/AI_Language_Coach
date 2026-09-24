@@ -31,6 +31,9 @@ public struct ListeningMeaningCard: View {
     private let onChoose: (Int) -> Void
     private let onAdvance: () -> Void
     private let onCancel: () -> Void
+    /// 划词上下文（页面从 `AppState.wordLookupContext` 递进来；nil = 不可划词）。
+    /// **只用于判完后的原文**：答题前这张卡没有英文 —— 不变量不因划词而破。
+    var wordLookup: WordLookupContext?
 
     private var chrome: ListeningRule.ListeningChrome {
         ListeningRule.chrome(
@@ -48,6 +51,7 @@ public struct ListeningMeaningCard: View {
         isPlaying: Bool,
         isSlow: Bool,
         isLast: Bool,
+        wordLookup: WordLookupContext? = nil,
         onPlay: @escaping () -> Void,
         onToggleSlow: @escaping () -> Void,
         onChoose: @escaping (Int) -> Void,
@@ -68,6 +72,7 @@ public struct ListeningMeaningCard: View {
         self.onChoose = onChoose
         self.onAdvance = onAdvance
         self.onCancel = onCancel
+        self.wordLookup = wordLookup
     }
 
     public var body: some View {
@@ -231,11 +236,15 @@ public struct ListeningMeaningCard: View {
     /// 未作答的卡上不该出现任何 ≥4 个字母的英文单词。
     private var reveal: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(reference)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                .foregroundStyle(theme.primaryText)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
+            // 判完亮出的原文走 `LookupText`：有划词上下文就能悬停 / 拖选出气泡
+            // （与默写对照屏同一套划词链路），没有就退回普通 `Text`。
+            LookupText(
+                text: reference,
+                fontSize: 14,
+                weight: .semibold,
+                color: theme.primaryText,
+                context: wordLookup
+            )
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)

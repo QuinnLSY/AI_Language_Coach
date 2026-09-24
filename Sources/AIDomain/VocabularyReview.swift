@@ -116,10 +116,13 @@ public struct VocabularyReviewSession: Sendable, Equatable {
 
     // MARK: - 队列
 
-    /// 到期队列：按「**最不熟 → 最久没碰 → 字母序**」排。
+    /// 到期队列：按「**到期时刻 → 字母序**」排（2026-09-24 用户口径）。
     ///
-    /// 掌握度低的先复习（这是复习最该花时间的地方）；同样不熟时先照顾最久没见的；
-    /// 最后用字母序兜底，保证同一批词的顺序是确定的（不然测试与复现都无从谈起）。
+    /// ⚠️ 老口径是「最不熟（mastery 低）先」—— 新词 mastery 恒 0，于是整批新词
+    /// 永远霸着队首，把真正到期的词挤到队尾；结果就是用户遇到的「复习了很多词，
+    /// 每日任务里『复习到期单词』却迟迟完不成」。改成按 `ReviewScheduler.dueTime`
+    /// 升序：欠得最久的排最前，今天刚收的新词排最后 —— 每日任务的到期积压
+    /// 永远先清。字母序兜底保证同一批词顺序确定（测试与复现都靠它）。
     public static func queue(
         from entries: [VocabularyEntry],
         now: Date = Date(),
@@ -128,9 +131,8 @@ public struct VocabularyReviewSession: Sendable, Equatable {
         guard limit > 0 else { return [] }
         let due = ReviewScheduler.dueEntries(entries, now: now)
         let sorted = due.sorted { lhs, rhs in
-            if lhs.mastery != rhs.mastery { return lhs.mastery < rhs.mastery }
-            let left = lhs.lastReviewedAt ?? .distantPast
-            let right = rhs.lastReviewedAt ?? .distantPast
+            let left = ReviewScheduler.dueTime(for: lhs)
+            let right = ReviewScheduler.dueTime(for: rhs)
             if left != right { return left < right }
             return lhs.word.lowercased() < rhs.word.lowercased()
         }

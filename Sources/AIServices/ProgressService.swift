@@ -34,9 +34,13 @@ public actor ProgressService {
             return ProgressSnapshot.empty(now: now, days: days, goalMinutes: goalMinutes)
         }
         let window = max(days, 1)
-        // 窗口起点往前多取一天：本地时区换算可能让「窗口前一天的深夜」落进第一天。
+        // ⚠️ 取数窗口 = **连续天数那个更长的窗口**，不是统计窗口。
+        // 连续天数由 `ProgressAggregator.snapshot` 单独铺一份（见 `streakWindowDays`），
+        // 它要看的原始记录比窗口早得多；这里只放宽 `since`，查询条数一条不多。
+        let fetchDays = max(ProgressAggregator.streakWindowDays, window)
+        // 起点往前多取一天：本地时区换算可能让「窗口前一天的深夜」落进第一天。
         let start = calendar.startOfDay(for: now)
-            .addingTimeInterval(-Double(window + 1) * 86_400)
+            .addingTimeInterval(-Double(fetchDays + 1) * 86_400)
 
         let sessions = (try? await learning.sessions(since: start)) ?? []
         let messages = (try? await learning.messageTimestamps(since: start)) ?? []
@@ -47,6 +51,11 @@ public actor ProgressService {
         // 写作 / 阅读（#233）：阅读只认交卷的（口径见 `ReadingStamp`）。
         let writings = (try? await learning.writingStamps(since: start)) ?? []
         let readings = (try? await learning.readingStamps(since: start)) ?? []
+        // ⚠️ 词汇复习流水**必须传**：`hasPractice` 认它，而打卡 / 连续天数正是看 `hasPractice`。
+        // 以前这里没取（`snapshot` 的 `reviews:` 默认空数组），于是「今天只复习了词汇、
+        // 没开对话」的那一天**在打卡口径里算没练**，而年度记录（它取了 reviews）算练了 ——
+        // 同一件事两个答案。2026-09-24 报障里「打卡与年度记录对不上」就是这一类。
+        let reviews = (try? await learning.vocabularyReviewStamps(since: start)) ?? []
 
         return ProgressAggregator.snapshot(
             days: window,
@@ -59,6 +68,7 @@ public actor ProgressService {
             vocabulary: vocabulary,
             totalStars: totalStars,
             goalMinutes: goalMinutes,
+            reviews: reviews,
             writings: writings,
             readings: readings
         )

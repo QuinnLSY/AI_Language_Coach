@@ -36,6 +36,10 @@ public struct ListeningDrillCard: View {
     private let onSubmit: () -> Void
     private let onAdvance: () -> Void
     private let onCancel: () -> Void
+    /// 划词上下文（页面从 `AppState.wordLookupContext` 递进来；nil = 不可划词，
+    /// 离屏渲染与单测走这条退路）。**只影响对照屏**：作答之前这张卡里没有原文，
+    /// 没什么可划 —— 「不给原文」的不变量不因划词而破。
+    var wordLookup: WordLookupContext?
 
     @State private var inputHeight: CGFloat = 0
     @State private var isInputFocused = false
@@ -62,6 +66,7 @@ public struct ListeningDrillCard: View {
         isSlow: Bool,
         isLast: Bool,
         typed: Binding<String>,
+        wordLookup: WordLookupContext? = nil,
         onPlay: @escaping () -> Void,
         onToggleSlow: @escaping () -> Void,
         onSubmit: @escaping () -> Void,
@@ -83,6 +88,7 @@ public struct ListeningDrillCard: View {
         self.onSubmit = onSubmit
         self.onAdvance = onAdvance
         self.onCancel = onCancel
+        self.wordLookup = wordLookup
     }
 
     public var body: some View {
@@ -378,13 +384,17 @@ public struct ListeningDrillCard: View {
     /// 「原文 + 译文 + 我写的」那一块（两种写作答的形式共用）。
     ///
     /// ⚠️ 这是全文里**唯一**读参考句的地方：作答之前谁都不许调它。
+    /// 原文一行走 `LookupText`：有划词上下文就是可划词的（悬停 / 拖选出气泡），
+    /// 没有就退回普通 `Text` —— 排版与旧实现一致。
     private func revealCard(reference: String, translation: String, typed: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(reference)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                .foregroundStyle(theme.primaryText)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
+            LookupText(
+                text: reference,
+                fontSize: 14,
+                weight: .semibold,
+                color: theme.primaryText,
+                context: wordLookup
+            )
             if !translation.isEmpty {
                 Text(translation)
                     .font(.system(size: 12, design: .rounded))

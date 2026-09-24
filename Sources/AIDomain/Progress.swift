@@ -376,6 +376,19 @@ public enum ProgressAggregator {
 
     /// 默认统计窗口。
     public static let defaultDays = 14
+
+    /// **连续练习天数**自己的窗口（天）。
+    ///
+    /// ⚠️ 连续天数**绝不能**拿统计窗口（`defaultDays` = 14）来数：那样它会被**截断到窗口长度**，
+    /// 而且窗口每向前滑一天，最老的那一天就掉出数组 —— 于是「什么都没做」的跨天瞬间，
+    /// 连续天数自己从 14 掉到 13、14 天以上的纪录永远显示不出来。
+    /// 2026-09-24 用户报障的「跨天后打卡徽章由 14 倒退成 13」正是这个：
+    /// 09-23 那天窗口 09-10…09-23 全绿 → 14；跨到 09-24 后窗口变 09-11…09-24，
+    /// 09-24 还没练被摘掉、09-11 又掉了出去 → 只剩 13。
+    /// 年度记录一直是对的，因为它自己铺了整整一年（`AnnualRecapBuilder.daySlots`）。
+    ///
+    /// 取一年：与年度记录同一把尺，且「连续一年以上」本身已超出这个数的意义。
+    public static let streakWindowDays = 366
     /// 默认每日目标（分钟）。
     public static let defaultGoalMinutes = 15
     /// 单次会话的时长上限（秒）。会话不一定会被显式结束，敞口会话按「最后一条消息」算，
@@ -426,24 +439,45 @@ public enum ProgressAggregator {
         let dayList = daySlots(count: window, endingAt: today, calendar: calendar)
         let windowStart = dayList.first ?? today
 
-        let windowActivity = dailyActivity(
-            days: dayList,
-            calendar: calendar,
-            messages: messages,
-            corrections: corrections,
-            shadowing: shadowing.map {
-                ShadowingStamp(referenceText: $0.referenceText, createdAt: $0.createdAt)
-            },
-            pronunciationByDay: group(
-                shadowing.filter { $0.pronunciation != nil },
-                by: { calendar.startOfDay(for: $0.createdAt) },
-                calendar: calendar
-            ).mapValues { attempts in attempts.compactMap { $0.pronunciation?.overall } },
-            vocabulary: vocabulary,
-            reviews: reviews,
-            writings: writings,
-            readings: readings
-        )
+        let shadowingStamps = shadowing.map {
+            ShadowingStamp(referenceText: $0.referenceText, createdAt: $0.createdAt)
+        }
+        let pronunciationByDay = group(
+            shadowing.filter { $0.pronunciation != nil },
+            by: { calendar.startOfDay(for: $0.createdAt) },
+            calendar: calendar
+        ).mapValues { attempts in attempts.compactMap { $0.pronunciation?.overall } }
+
+        /// 按给定的日子铺一份逐日记录。
+        ///
+        /// ⚠️ 窗口与连续天数**共用这一份函数与同一批原始输入**：各铺各的日子，但折叠口径
+        /// 不许分叉 —— 两处各写一遍 `dailyActivity(...)` 的实参，迟早有一处漏传
+        /// （`reviews:` 就在 `ProgressService` 里漏过一次，导致「只复习了词汇的那一天」
+        /// 在打卡口径里算没练）。
+        func activity(_ slots: [Date], pronunciation: [Date: [Double]]) -> [DailyActivity] {
+            dailyActivity(
+                days: slots,
+                calendar: calendar,
+                messages: messages,
+                corrections: corrections,
+                shadowing: shadowingStamps,
+                pronunciationByDay: pronunciation,
+                vocabulary: vocabulary,
+                reviews: reviews,
+                writings: writings,
+                readings: readings
+            )
+        }
+
+        let windowActivity = activity(dayList, pronunciation: pronunciationByDay)
+        // 连续天数自成一份、用更长的窗口（见 `streakWindowDays`）。
+        // 发音打分只有窗口趋势要看，这一份不传 —— 省一趟按天分组。
+        let streakActivity = streakWindowDays > window
+            ? activity(
+                daySlots(count: streakWindowDays, endingAt: today, calendar: calendar),
+                pronunciation: [:]
+            )
+            : windowActivity
         let todayActivity = windowActivity.last ?? DailyActivity(day: today)
 
         // 累计口径：窗口起点之前的存量也要算进「起始高度」，否则曲线从 0 开始跳。
@@ -498,7 +532,7 @@ public enum ProgressAggregator {
             grammarTrend: grammarTrend,
             skills: skills,
             today: todayActivity,
-            streakDays: streak(windowActivity),
+            streakDays: streak(streakActivity),
             activeDays: windowActivity.filter(\.hasPractice).count,
             totalSeconds: sessions.reduce(0) { $0 + sessionSeconds($1) } + shadowingSessionSeconds(shadowing),
             totalMessages: sessions.reduce(0) { $0 + $1.messageCount },

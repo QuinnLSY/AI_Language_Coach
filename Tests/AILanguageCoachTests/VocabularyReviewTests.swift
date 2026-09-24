@@ -38,7 +38,9 @@ final class VocabularyReviewTests: XCTestCase {
         let overdue = entry("overdue", mastery: 3, reviewedDaysAgo: 5)
 
         let session = VocabularyReviewSession(entries: [farAway, fresh, overdue], now: now)
-        XCTAssertEqual(session.queue.map(\.word), ["fresh", "overdue"], "不到期的词绝不能进队列")
+        // 顺序按到期时刻：overdue 的到期时刻 = 5 天前 + 4 天间隔 = 昨天；
+        // fresh 是新词，到期时刻 = 收录时刻（最晚）→ 排后面。
+        XCTAssertEqual(session.queue.map(\.word), ["overdue", "fresh"], "不到期的词绝不能进队列")
         XCTAssertEqual(session.total, 2)
     }
 
@@ -62,7 +64,9 @@ final class VocabularyReviewTests: XCTestCase {
 
     // MARK: - ② 队列顺序与上限
 
-    func testQueueOrdersByMasteryThenOldestThenAlphabetical() {
+    func testQueueOrdersByDueTimeThenAlphabetical() {
+        // banana / apple：mastery 2 → 间隔 2 天，10 天前复习 → 到期时刻 = 8 天前。
+        // cherry：mastery 1 → 间隔 1 天，1 天前复习 → 到期时刻 = 刚刚到期（最晚）。
         let entries = [
             entry("banana", mastery: 2, reviewedDaysAgo: 10),
             entry("apple", mastery: 2, reviewedDaysAgo: 10),
@@ -70,9 +74,54 @@ final class VocabularyReviewTests: XCTestCase {
         ]
         let queue = VocabularyReviewSession.queue(from: entries, now: now)
         XCTAssertEqual(
-            queue.map(\.word), ["cherry", "apple", "banana"],
-            "最不熟的先复习；同样不熟时最久没碰的先来；最后按字母序兜底（顺序必须确定）"
+            queue.map(\.word), ["apple", "banana", "cherry"],
+            "按到期时刻升序：欠得最久的先来，同样到期时刻按字母序兜底（顺序必须确定）"
         )
+    }
+
+    /// 2026-09-24 用户报障的本体：**新词不许再霸占队首**。
+    ///
+    /// 老口径按 mastery 升序，新词 mastery 恒 0 → 整批新词永远排最前，
+    /// 把每日任务要清的「到期单词」积压挤到队尾 —— 复习了很多词，
+    /// 「复习到期单词」却迟迟完不成。新口径下今天刚收的新词必须排在
+    /// 所有此前就已到期的词后面。
+    func testNewlyAddedWordsQueueBehindTheOverdueBacklog() {
+        // 三个老词：不同掌握度、不同复习时间，但全部在今天就到期之前就已欠着。
+        let backlog = [
+            entry("stale1", mastery: 3, reviewedDaysAgo: 5),  // 到期时刻 = 1 天前
+            entry("stale2", mastery: 1, reviewedDaysAgo: 2),  // 到期时刻 = 1 天前
+            entry("stale3", mastery: 4, reviewedDaysAgo: 9)   // 到期时刻 = 2 天前
+        ]
+        // 三个今天刚收的新词（createdAt 取实际现在，比测试的 now 还晚 → 排最后）。
+        let newcomers = [entry("new-a"), entry("new-b"), entry("new-c")]
+        let entry1 = backlog[0]
+        let entry2 = backlog[1]
+        let entry3 = backlog[2]
+        let new1 = newcomers[0]
+        let new2 = newcomers[1]
+        let new3 = newcomers[2]
+
+        let queue = VocabularyReviewSession.queue(
+            from: [new1, entry1, new2, entry2, new3, entry3], now: now
+        )
+        let words = queue.map(\.word)
+        // 前三位全是到期积压（stale3 欠得最久 → 最前；stale1/stale2 同时刻 → 字母序）。
+        XCTAssertEqual(Array(words.prefix(3)), ["stale3", "stale1", "stale2"],
+                       "到期积压必须先清：\(words)")
+        // 新词一个都不许混进积压前面。
+        XCTAssertEqual(Set(words.suffix(3)), Set(["new-a", "new-b", "new-c"]),
+                       "新词排在所有到期词后面：\(words)")
+    }
+
+    /// 「到期时刻」这把尺要和 `isDue` 同源：间隔没到 = 排不到期积压里。
+    func testDueTimeMatchesIsDueSemantics() {
+        let notYet = entry("later", mastery: 3, reviewedDaysAgo: 1) // 间隔 4 天 → 3 天后才到期
+        XCTAssertTrue(ReviewScheduler.dueTime(for: notYet) > now, "没到期的词，到期时刻在未来")
+        let overdue = entry("early", mastery: 3, reviewedDaysAgo: 5)
+        XCTAssertTrue(ReviewScheduler.dueTime(for: overdue) < now, "欠着的词，到期时刻在过去")
+        let fresh = entry("fresh")
+        XCTAssertEqual(ReviewScheduler.dueTime(for: fresh), fresh.createdAt,
+                       "新词的到期时刻就是收录时刻")
     }
 
     func testQueueIsCappedAtMaxCards() {

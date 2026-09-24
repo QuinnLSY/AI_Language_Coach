@@ -106,7 +106,8 @@ public struct ListeningView: View {
                 isPlaying: state.listeningIsPlaying,
                 isSlow: state.listeningSlowPlayback,
                 isLast: isLast,
-                typed: draftBinding
+                typed: draftBinding,
+                wordLookup: state.wordLookupContext
             ) {
                 Task { await togglePlayback() }
             } onToggleSlow: {
@@ -139,7 +140,8 @@ public struct ListeningView: View {
                     playCount: state.listeningPlayCount,
                     isPlaying: state.listeningIsPlaying,
                     isSlow: state.listeningSlowPlayback,
-                    isLast: isLast
+                    isLast: isLast,
+                    wordLookup: state.wordLookupContext
                 ) {
                     Task { await togglePlayback() }
                 } onToggleSlow: {

@@ -146,6 +146,101 @@ final class ProgressTests: XCTestCase {
         XCTAssertEqual(ProgressAggregator.streak([]), 0)
     }
 
+    /// 2026-09-24 用户报障（打卡天数跨天倒退 14 → 13）的本体：
+    /// **连续天数绝不能拿统计窗口（14 天）来数** —— 窗口每向前滑一天，
+    /// 最老的那天就掉出去，「什么都没做」的跨天瞬间连续天数自己掉 1。
+    /// 连续天数现在用自己那份 366 天的窗口，超过统计窗口的纪录必须原样显出来。
+    func testStreakIsNotTruncatedByTheStatsWindow() {
+        // 09-01…09-20 每天都有消息（连练 20 天），现在 09-21 早上、今天还没开口；
+        // 统计窗口 14 天。老口径：窗口内只剩 13 个练过的天 → 显 13（正是用户看到的倒退）。
+        var messages: [Date] = []
+        for d in 1...20 { messages.append(day(2026, 9, d, 12, 0)) }
+        let snapshot = ProgressAggregator.snapshot(
+            days: 14, now: day(2026, 9, 21, 8, 0), calendar: calendar,
+            sessions: [], messages: messages, corrections: [], shadowing: [], vocabulary: [],
+            totalStars: 0, goalMinutes: 15
+        )
+        XCTAssertEqual(snapshot.streakDays, 20, "连续 20 天的纪录不许被 14 天窗口截断")
+        // 窗口 09-08…09-21：窗口内练过的只有 09-08…09-20 = 13 天（09-21 还没开口）。
+        XCTAssertEqual(snapshot.activeDays, 13, "活跃天数仍按统计窗口数")
+        // 今天还没练 → 活动表最后一个格子是空的，但连续天数按昨天往前数。
+        XCTAssertEqual(snapshot.activity.last?.hasPractice, false)
+    }
+
+    /// 换天瞬间（00:00 刚过、今天什么都没有）连续天数**原地不动**：
+    /// 窗口滑动不许偷走最老的那一天。
+    func testStreakStaysPutAcrossMidnight() {
+        // 09-09…09-23 连练 15 天；比较 09-23 深夜与 09-24 凌晨两个「现在」。
+        var messages: [Date] = []
+        for d in 9...23 { messages.append(day(2026, 9, d, 12, 0)) }
+        let before = ProgressAggregator.snapshot(
+            days: 14, now: day(2026, 9, 23, 23, 50), calendar: calendar,
+            sessions: [], messages: messages, corrections: [], shadowing: [], vocabulary: [],
+            totalStars: 0, goalMinutes: 15
+        )
+        let after = ProgressAggregator.snapshot(
+            days: 14, now: day(2026, 9, 24, 0, 5), calendar: calendar,
+            sessions: [], messages: messages, corrections: [], shadowing: [], vocabulary: [],
+            totalStars: 0, goalMinutes: 15
+        )
+        XCTAssertEqual(before.streakDays, 15)
+        XCTAssertEqual(after.streakDays, 15, "跨过零点连续天数不许倒退")
+    }
+
+    /// 「只复习了词汇、没开对话」的那一天在**打卡口径里也算练过**
+    /// （2026-09-24 报障：打卡与年度记录对不上的用户场景本体）。
+    func testVocabularyReviewAloneCountsAsPractice() async throws {
+        let db = try LearningDatabase.inMemory()
+        let service = ProgressService(learning: db)
+        let now = calendar.date(byAdding: .hour, value: 12, to: calendar.startOfDay(for: Date())) ?? Date()
+        // 复习流水挂着 vocabulary_items 的外键：先把词条立起来再记复习。
+        // ⚠️ createdAt 挪到 10 天前：否则「收录新词」本身就落在今天，
+        // `vocabularyAdded` 会把 hasPractice 顶成 true，这条用例就什么也钉不住了。
+        var entry = VocabularyEntry(word: "persistence", createdAt: now.addingTimeInterval(-10 * 86_400))
+        try await db.upsertVocabulary(entry)
+        entry.lastReviewedAt = now
+        try await db.recordVocabularyReview(entry, remembered: true)
+
+        let snapshot = await service.snapshot(days: 7, now: now, calendar: calendar, totalStars: 0, goalMinutes: 10)
+        XCTAssertEqual(snapshot.today.vocabularyReviewed, 1)
+        XCTAssertEqual(snapshot.today.vocabularyAdded, 0, "收录是 10 天前的事，不许算进今天")
+        XCTAssertTrue(snapshot.today.hasPractice, "只复习了词汇的那天必须算练过")
+        XCTAssertEqual(snapshot.streakDays, 1)
+    }
+
+    /// 复习流水是 `vocabularyReviewed` 的**唯一真源**：词条与流水打架时认流水。
+    ///
+    /// 这是 `ProgressService` 必须把 `vocabularyReviewStamps` 喂给聚合器的理由：
+    /// 流水为空时聚合器会退回 `lastReviewedAt` 口径（老数据兼容），
+    /// 两条路在「词被删了 / 时间戳没同步」时答案不同。
+    func testReviewStampsAreTheSourceOfTruthForReviewedCounts() {
+        let now = day(2026, 9, 22, 20, 0)
+        let entryID = UUID()
+        // 词条自己说「3 天前复习过」，但今天的复习流水里明明白白有一条。
+        let entry = VocabularyEntry(
+            word: "shadow", lastReviewedAt: now.addingTimeInterval(-3 * 86_400),
+            createdAt: now.addingTimeInterval(-30 * 86_400)
+        )
+        var stamped = entry
+        stamped.id = entryID
+        let snapshot = ProgressAggregator.snapshot(
+            days: 7, now: now, calendar: calendar,
+            sessions: [], messages: [], corrections: [], shadowing: [],
+            vocabulary: [stamped], totalStars: 0, goalMinutes: 15,
+            reviews: [VocabularyReviewStamp(itemID: entryID, reviewedAt: now)]
+        )
+        XCTAssertEqual(snapshot.today.vocabularyReviewed, 1, "流水说今天复习过，就是复习过")
+        XCTAssertTrue(snapshot.today.hasPractice)
+
+        // 反证对照：同一条数据、不喂流水 → 退回 lastReviewedAt 口径 → 今天是 0。
+        let withoutStamps = ProgressAggregator.snapshot(
+            days: 7, now: now, calendar: calendar,
+            sessions: [], messages: [], corrections: [], shadowing: [],
+            vocabulary: [stamped], totalStars: 0, goalMinutes: 15
+        )
+        XCTAssertEqual(withoutStamps.today.vocabularyReviewed, 0, "lastReviewedAt 在 3 天前，今天不该有数")
+    }
+
     func testCorrectionsAndPronunciationAndVocabularyLandOnTheirOwnDays() {
         let now = day(2026, 9, 12, 20, 0)
         let correction = GrammarCorrection(original: "I go", corrected: "I went", explanation: "过去时")

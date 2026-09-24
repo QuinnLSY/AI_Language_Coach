@@ -135,6 +135,15 @@ public enum ReviewScheduler {
         return now.timeIntervalSince(last) >= days * 86_400
     }
 
+    /// 这个词的**到期时刻**：上次复习 + 间隔；从没复习过的新词 = 收录进本子的时刻
+    /// （`isDue` 对新词恒真 —— 从进本子那一刻起就该复习）。
+    ///
+    /// 给复习队列排序用（2026-09-24 用户口径：按到期时间依次向后）。
+    public static func dueTime(for entry: VocabularyEntry) -> Date {
+        guard let last = entry.lastReviewedAt else { return entry.createdAt }
+        return last.addingTimeInterval(reviewIntervalDays(for: entry) * 86_400)
+    }
+
     /// 待复习的词（保持传入顺序）。
     public static func dueEntries(_ entries: [VocabularyEntry], now: Date = Date()) -> [VocabularyEntry] {
         entries.filter { isDue($0, now: now) }
