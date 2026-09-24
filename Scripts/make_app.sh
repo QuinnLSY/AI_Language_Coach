@@ -1,7 +1,8 @@
 #!/bin/zsh
 # AI Language Coach — .app 打包脚本
 # 用法: Scripts/make_app.sh                  → 构建并输出 dist/AI_Language_Coach.app
-#       Scripts/make_app.sh --no-build       → 只重新组装（用现有 release 产物）
+#       Scripts/make_app.sh --no-build       → 只重新组装（用现有 release 产物；源码比产物新会被拦下，
+#                                                确知产物最新时设 ALC_ALLOW_STALE=1 放行）
 #       Scripts/make_app.sh --universal      → 同时出 arm64 + x86_64（产物约翻倍，慢一倍）
 #       Scripts/make_app.sh --optimize-size  → 加 -Osize（换体积，略微牺牲峰值性能）
 # 环境变量 ALC_DIST_DIR 可改输出目录（默认 dist/，验证多架构时用它别覆盖现成的产物）。
@@ -97,6 +98,21 @@ else
 fi
 [[ -n "$RELEASE_DIR" ]] || { echo "✗ 找不到 release 产物（先执行构建，或去掉 --no-build）"; exit 1; }
 BIN="$RELEASE_DIR/$EXEC_NAME"
+
+# ⚠️ 陈旧产物守卫：--no-build 直接复用磁盘上现成的 release 二进制，
+# 而 swift build（debug）/ swift test 都不会更新它 —— 于是「源码改了、包没变」，
+# 界面看起来完全没生效，且**不报错**，是最难查的一类事故（2026-09-24 实测踩到：
+# 只跑了 debug 构建就 --no-build，打出来的是当天早上 08:35 的旧二进制）。
+# 所以这里拿最新源码 mtime 和二进制比，源码更新就当场拒绝。
+if [[ "$NO_BUILD" == 1 && -z "${ALC_ALLOW_STALE:-}" ]]; then
+  STALE_SRC="$(find "$ROOT/Sources" -name '*.swift' -newer "$BIN" -print -quit 2>/dev/null)"
+  if [[ -n "$STALE_SRC" ]]; then
+    echo "✗ --no-build 会复用旧二进制：$BIN 比源码旧（例：$STALE_SRC）"
+    echo "  先跑 swift build -c release --disable-sandbox，或去掉 --no-build 让它自己编；"
+    echo "  确知产物已是最新的话，设 ALC_ALLOW_STALE=1 跳过这道检查。"
+    exit 1
+  fi
+fi
 
 echo "▸ 组装 $APP"
 rm -rf "$APP"
