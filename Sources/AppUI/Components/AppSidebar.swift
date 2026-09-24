@@ -25,16 +25,32 @@ public struct AppSidebar: View {
     @Environment(\.forestTheme) private var theme
     @Bindable var state: AppState
 
+    /// 测试钩子（**只在离屏渲染用例里置 true**，产品行为零改动）：点亮打卡悬浮卡。
+    ///
+    /// hover 那台状态机在离屏环境里搭不出来，不点亮就只拍得到一张没有浮卡的图 ——
+    /// 而「浮卡到底画在导航条目之上还是之下」恰恰只有出图能证（源码哨兵证不了绘制顺序）。
+    public var previewShowsStreakTip = false
+
     public static let expandedWidth: CGFloat = 220
     public static let collapsedWidth: CGFloat = 76
 
-    public init(state: AppState) { self.state = state }
+    public init(state: AppState, previewShowsStreakTip: Bool = false) {
+        self.state = state
+        self.previewShowsStreakTip = previewShowsStreakTip
+    }
 
     public var body: some View {
         VStack(spacing: 0) {
             // 头部：与其他两栏同高的 64pt 顶栏，保证顶部分界线对齐
+            //
+            // ⚠️ 必须 `.zIndex(1)` 抬一层（2026-09-24 第二轮报障：徽章浮卡的下半截
+            // 被「练习」等导航条目的圆角底色盖住了）。方向与 `MainView` 里
+            // `AppSidebar` 那次抬层**同源**：浮卡从 64pt 头栏里**溢出**到 navList 的地盘，
+            // 而同一 `VStack` 里**更晚的兄弟节点**会画在更早兄弟溢出的浮层之上 ——
+            // 侧栏整体抬到中间栏之上只解决了「出侧栏那半截」，侧栏内部还得再抬一层。
             header
                 .frame(height: 64)
+                .zIndex(1)
 
             Divider().overlay(theme.divider)
 
@@ -90,9 +106,11 @@ public struct AppSidebar: View {
                         streakDays: state.progressSnapshot.streakDays,
                         hasPracticeToday: state.progressSnapshot.today.hasPractice
                     ) {
-                        StreakBadgeView(badge: streak) {
-                            Task { await state.openAnnualRecapInProgress() }
-                        }
+                        StreakBadgeView(
+                            badge: streak,
+                            onTap: { Task { await state.openAnnualRecapInProgress() } },
+                            previewShowsTip: previewShowsStreakTip
+                        )
                     }
                 }
                 .padding(.horizontal, 6)
