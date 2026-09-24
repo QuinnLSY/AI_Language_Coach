@@ -59,7 +59,7 @@ struct EntrancePlacementCard: View {
                         Capsule(style: .continuous).strokeBorder(theme.accent.opacity(0.5), lineWidth: 1)
                     )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("\(EntrancePlacementRule.questionsPerLevel) 题一档、一共十来道选择题，几分钟能做完")
             .accessibilityLabel(result == nil ? "开始摸底" : "重新摸底")
         }

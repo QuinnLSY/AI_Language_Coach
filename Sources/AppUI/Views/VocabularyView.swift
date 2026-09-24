@@ -109,7 +109,7 @@ public struct VocabularyView: View {
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("刷新词表")
         }
         .padding(.horizontal, 18)
@@ -166,7 +166,7 @@ public struct VocabularyView: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(theme.accent)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .help("换一批雅思词（你自己的生词保留不动）")
                 }
 
@@ -310,7 +310,7 @@ public struct VocabularyView: View {
                 )
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .disabled(!enabled)
         .help(systemImage == "chevron.up" ? "上一页（上 4 个）" : "下一页（下 4 个）")
     }
@@ -318,7 +318,7 @@ public struct VocabularyView: View {
     /// 下框线正中的下拉 / 收起按钮（互相切换）。
     private var dailyExpandToggle: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.18)) { dailyExpanded.toggle() }
+            withAnimation(.app(.reveal)) { dailyExpanded.toggle() }
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: dailyExpanded ? "chevron.up" : "chevron.down")
@@ -333,7 +333,7 @@ public struct VocabularyView: View {
                 Capsule().strokeBorder(theme.accent.opacity(0.35), lineWidth: 1)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .offset(y: 10)
         .help(dailyExpanded ? "收起为四个卡片" : "展开全部推荐词")
     }
@@ -393,7 +393,7 @@ public struct VocabularyView: View {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(theme.accent)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .help("加入词汇本复习列表")
                 }
             }
@@ -608,7 +608,7 @@ public struct VocabularyView: View {
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(acknowledged ? theme.secondaryText : Color.green)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help(acknowledged ? "撤销：刚才点错了" : "我认识这个词（累计 3 次后不再推荐）")
     }
 
@@ -649,7 +649,7 @@ public struct VocabularyView: View {
             .font(.system(size: 10, weight: .medium))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .foregroundStyle(theme.accent)
         .disabled(state.isDefiningDaily.contains(daily.word))
         .help(title)
@@ -736,7 +736,7 @@ public struct VocabularyView: View {
                     )
                     .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .disabled(due == 0)
                 .help(due > 0 ? "开始一轮复习（最多 \(VocabularyReviewSession.maxCards) 个词）" : "今天没有到期的词")
             }
@@ -828,7 +828,7 @@ public struct VocabularyView: View {
                 .overlay(Capsule().strokeBorder(theme.accent.opacity(0.3), lineWidth: 1))
                 .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("打开词典页查词")
         }
         .padding(12)
@@ -883,7 +883,7 @@ public struct VocabularyView: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Color.red.opacity(0.85))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("从词表删除")
             }
 
@@ -923,7 +923,7 @@ public struct VocabularyView: View {
                         }
                         .font(.system(size: 11, weight: .medium))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .foregroundStyle(theme.secondaryText)
                     .disabled(state.isDefiningVocabulary.contains(entry.id))
                     .help("旧版数据没有音标 / 词性 / 例句翻译，重新查一次升级格式")
@@ -944,7 +944,7 @@ public struct VocabularyView: View {
                     }
                     .font(.system(size: 11, weight: .medium))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .foregroundStyle(theme.accent)
                 .disabled(state.isDefiningVocabulary.contains(entry.id))
                 if ReviewScheduler.isDue(entry) {
@@ -976,7 +976,7 @@ public struct VocabularyView: View {
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(color)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help(remembered ? "记住了：掌握度 +1" : "忘了：掌握度 -1，今天再来一遍")
     }
 

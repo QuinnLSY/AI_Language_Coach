@@ -251,7 +251,7 @@ private struct Canopy: View {
             Circle().fill(theme.foliage.opacity(0.9)).frame(width: 150, height: 130).offset(x: -84, y: -14)
         }
         .rotationEffect(.degrees(sway ? 1.6 : -1.6), anchor: .bottom)
-        .animation(.easeInOut(duration: 5.5).repeatForever(autoreverses: true), value: sway)
+        .loopAnimation(.easeInOut(duration: 5.5).repeatForever(autoreverses: true), value: sway)
         .onAppear { sway = true }
     }
 }
@@ -544,7 +544,7 @@ struct ForestGroundBand: View {
                          groundLine: groundLine,
                          seed: i)
                         .opacity(i < bushCount ? 1 : 0)
-                        .animation(.easeOut(duration: 0.2), value: bushCount)
+                        .appAnimation(.reveal, value: bushCount)
                 }
 
                 // 小花（错落 + 三种花色）
@@ -553,7 +553,7 @@ struct ForestGroundBand: View {
                            groundLine: groundLine,
                            palette: i % 3)
                         .opacity(i < flowerCount ? 1 : 0)
-                        .animation(.easeOut(duration: 0.2), value: flowerCount)
+                        .appAnimation(.reveal, value: flowerCount)
                 }
 
                 // 树干底部的两根枝桠栖木（鸟类专用；画在树干透出区域的中心两侧）
@@ -592,7 +592,7 @@ struct ForestGroundBand: View {
             }
             .frame(width: width, height: height, alignment: .bottomLeading)
             // 档位切换时让位置/大小平滑过渡，而不是瞬移
-            .animation(.easeOut(duration: 0.18), value: qw)
+            .appAnimation(.reveal, value: qw)
             // 初始化物种/朝向状态（轮换的基础）
             .onAppear { ensureResidents(order: order) }
             .onChange(of: count) { _, _ in ensureResidents(order: order) }
@@ -615,7 +615,7 @@ struct ForestGroundBand: View {
                     sendEveryoneHome()
                 } else {
                     // 天亮了：把「它们在睡觉」的气泡收掉
-                    withAnimation(.easeOut(duration: 0.25)) { sleepLine = nil }
+                    withAnimation(.app(.reveal)) { sleepLine = nil }
                 }
             }
             // 今日任务全部完成：全体跳一下 + 冒一句庆祝（外部一天只推一次）
@@ -641,7 +641,7 @@ struct ForestGroundBand: View {
             guard sleepLine != nil else { return }
             try? await Task.sleep(for: .seconds(3))
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.25)) { sleepLine = nil }
+            withAnimation(.app(.reveal)) { sleepLine = nil }
         }
         // 验证钩子：--sleep-bubble 时持续冒泡（真实行为由点击触发），便于截图确认气泡不越界
         .task(id: "\(previewSleepBubble)-\(theme.isNight)") {
@@ -926,7 +926,7 @@ struct ForestGroundBand: View {
         .opacity(visible ? 1 : 0)
         .scaleEffect(visible ? 1 : 0.6, anchor: .bottom)
         .allowsHitTesting(visible)
-        .animation(.easeOut(duration: 0.2), value: visibleCount)
+        .appAnimation(.reveal, value: visibleCount)
     }
 
     // MARK: 物种轮换（随机离开 → 新邻居进入）
@@ -1021,12 +1021,12 @@ struct ForestGroundBand: View {
             let x = start.width + (target.width - start.width) * t
             let y = start.height + (target.height - start.height) * t
             // 起跳：横移一段 + 向上抬起
-            withAnimation(.spring(response: 0.20, dampingFraction: 0.6)) {
+            withAnimation(.app(.press)) {
                 offsets[index] = CGSize(width: x, height: y - hopHeight)
             }
             try? await Task.sleep(for: .seconds(0.17))
             // 落地
-            withAnimation(.spring(response: 0.16, dampingFraction: 0.7)) {
+            withAnimation(.app(.press)) {
                 offsets[index] = CGSize(width: x, height: y)
             }
             try? await Task.sleep(for: .seconds(0.13))
@@ -1040,7 +1040,7 @@ struct ForestGroundBand: View {
         guard !pool.isEmpty, bubbleTexts.indices.contains(index) else { return }
         bubbleCounter += 1
         let stamp = bubbleCounter
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+        withAnimation(.app(.panel)) {
             bubbleStamps[index] = stamp
             bubbleTexts[index] = pool.randomElement()
         }
@@ -1048,7 +1048,7 @@ struct ForestGroundBand: View {
             try? await Task.sleep(for: .seconds(3))
             // 期间这只小动物又说了新话（或全体收声）→ 本次收起作废
             guard bubbleStamps.indices.contains(index), bubbleStamps[index] == stamp else { return }
-            withAnimation(.easeOut(duration: 0.25)) { bubbleTexts[index] = nil }
+            withAnimation(.app(.reveal)) { bubbleTexts[index] = nil }
         }
     }
 
@@ -1073,7 +1073,7 @@ struct ForestGroundBand: View {
                 .background(Circle().fill(theme.surface.opacity(0.9)))
                 .overlay(Circle().strokeBorder(theme.divider, lineWidth: 1))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help(activityHelp)
     }
 
@@ -1085,7 +1085,7 @@ struct ForestGroundBand: View {
         }
         let pool = Self.sleepPhrases.filter { $0 != sleepLine }
         let next = pool.randomElement() ?? Self.sleepPhrases[0]
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { sleepLine = next }
+        withAnimation(.app(.panel)) { sleepLine = next }
         sleepTick += 1
     }
 

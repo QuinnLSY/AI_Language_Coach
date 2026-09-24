@@ -118,7 +118,7 @@ public struct PhonemeWeaknessCard: View {
                         .strokeBorder(hasPairs ? theme.accentCool.opacity(0.5) : theme.divider, lineWidth: 1)
                 )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         // ⚠️ 词表里没有对应词对的音素不给点：点了没反应比不给点更让人困惑，
         // 而硬凑一对（比如拿毫不相干的两个音）练的就不是最小对立对了。
         .disabled(!hasPairs)
@@ -142,7 +142,7 @@ public struct PhonemeWeaknessCard: View {
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.accent)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
         }
         .padding(.top, 2)
     }

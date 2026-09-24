@@ -239,7 +239,7 @@ public struct WordLookupBubble: View {
                 .frame(width: Self.iconSide, height: Self.iconSide)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help(help)
     }
 }

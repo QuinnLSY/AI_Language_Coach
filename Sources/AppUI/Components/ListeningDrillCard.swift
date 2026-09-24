@@ -140,7 +140,7 @@ public struct ListeningDrillCard: View {
                     .frame(width: 20, height: 20)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help(chrome.cancelHelp)
             .accessibilityLabel("退出听写")
         }
@@ -185,7 +185,7 @@ public struct ListeningDrillCard: View {
                     )
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .disabled(typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .opacity(typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.55 : 1)
                 .help(chrome.submitHelp)
@@ -452,7 +452,7 @@ public struct ListeningDrillCard: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .accessibilityLabel(isLast ? "看总结" : "下一句")
     }
 

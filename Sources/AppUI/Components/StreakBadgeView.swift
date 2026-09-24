@@ -58,7 +58,7 @@ struct StreakBadgeView: View {
             // 少了这一句就变成「点在边上没反应」。
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .onHover { hovering in
             showsTip = hovering
         }

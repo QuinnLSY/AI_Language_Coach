@@ -52,7 +52,7 @@ public struct SpeakButton: View {
             .frame(width: size, height: size)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help(isActive ? "停止朗读" : accessibilityLabel)
         .accessibilityLabel(accessibilityLabel)
     }

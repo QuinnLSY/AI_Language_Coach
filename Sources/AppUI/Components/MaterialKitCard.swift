@@ -68,7 +68,7 @@ struct MaterialKitCard: View {
                             .font(.system(size: 11, weight: .semibold, design: .rounded))
                             .foregroundStyle(theme.warning)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .help("删除这份材料（已加入词汇本的词不受影响）")
                     Button {
                         confirmingDelete = false
@@ -77,7 +77,7 @@ struct MaterialKitCard: View {
                             .font(.system(size: 11, design: .rounded))
                             .foregroundStyle(theme.secondaryText)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                 } else {
                     Button {
                         confirmingDelete = true
@@ -86,7 +86,7 @@ struct MaterialKitCard: View {
                             .font(.system(size: 10))
                             .foregroundStyle(theme.secondaryText)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .help("删除这份材料")
                     .accessibilityLabel("删除材料 \(title)")
                 }
@@ -105,7 +105,7 @@ struct MaterialKitCard: View {
                         .background(Capsule().fill(theme.accentFill))
                         .contentShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .help("用这个情景和老师对练")
                 }
                 Button {
@@ -122,7 +122,7 @@ struct MaterialKitCard: View {
                     .background(Capsule().strokeBorder(theme.accent.opacity(0.5), lineWidth: 1))
                     .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("去跟读页逐句磨这 \(kit.drills.count) 句")
             }
         }

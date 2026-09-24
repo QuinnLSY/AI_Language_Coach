@@ -146,7 +146,7 @@ struct DictionarySampleWordsRow: View {
                     hoveredWord = nil
                 }
             }
-            .animation(.easeOut(duration: 0.12), value: hovered)
+            .appAnimation(.press, value: hovered)
             .help("查「\(word)」")
     }
 
@@ -218,7 +218,7 @@ struct SampleWordChip: View {
                 )
                 .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help("查「\(word)」")
     }
 }

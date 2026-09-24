@@ -368,7 +368,7 @@ public struct ChatView: View {
         // 预设提问轮换：只在输入框为空、且没有正在等回复时滚动。
         .onReceive(Timer.publish(every: rotationInterval, on: .main, in: .common).autoconnect()) { _ in
             guard input.isEmpty, starterQuestions.count > 1, !chat.isGenerating else { return }
-            withAnimation(.easeOut(duration: 0.45)) {
+            withAnimation(.app(.panel)) {
                 questionIndex = (questionIndex + 1) % starterQuestions.count
             }
         }
@@ -484,7 +484,7 @@ public struct ChatView: View {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 11))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .help("结束情景对话")
                 }
                 .foregroundStyle(theme.accent)
@@ -506,7 +506,7 @@ public struct ChatView: View {
                     .padding(.vertical, 4)
                     .background(Capsule().fill(theme.hover))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("选择情景对话场景")
             }
 
@@ -537,7 +537,7 @@ public struct ChatView: View {
                 .background(Capsule().fill(theme.accentFill))
                 .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .disabled(onStartFreeTalk == nil)
             .help("换一段自由练习：你定话题、老师跟着你聊，多给建议与纠错（上一段会自动复盘收进学习记录）")
         }
@@ -616,7 +616,7 @@ public struct ChatView: View {
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(theme.secondaryText)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 6)
@@ -794,7 +794,7 @@ public struct ChatView: View {
                     .overlay(Circle().strokeBorder(theme.divider, lineWidth: 1))
                     .shadow(color: Color.black.opacity(0.14), radius: 4, y: 2)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("回到最新消息")
             .padding(.bottom, 10)
             .transition(.opacity.combined(with: .scale(scale: 0.85)))
@@ -829,7 +829,7 @@ public struct ChatView: View {
                 )
                 .opacity(isScrolledUp ? 1 : 0)
             }
-            .animation(.easeOut(duration: 0.2), value: isScrolledUp)
+            .appAnimation(.reveal, value: isScrolledUp)
         }
     }
 
@@ -878,7 +878,7 @@ public struct ChatView: View {
         let target: String? = chat.isGenerating ? "streaming" : chat.visibleMessages.last?.id.uuidString
         guard let target else { return }
         if animated {
-            withAnimation(.easeOut(duration: 0.2)) {
+            withAnimation(.app(.reveal)) {
                 proxy.scrollTo(target, anchor: .bottom)
             }
         } else {
@@ -1090,7 +1090,7 @@ public struct ChatView: View {
                         onEdit: { beginEditing(message) }
                     )
                     .opacity(isHovered ? 1 : Self.learnerActionIdleOpacity)
-                    .animation(.easeOut(duration: 0.12), value: isHovered)
+                    .appAnimation(.press, value: isHovered)
                 }
             }
             // ⚠️ 判定区就是**这一整块**（气泡 + 三颗图标 + 译文 + 纠错）：
@@ -1240,7 +1240,7 @@ public struct ChatView: View {
                 .frame(width: 20, height: 20)
                 .background(Circle().fill(isOn ? theme.accent.opacity(0.16) : Color.clear))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .disabled(isLoading)
             .help(isOn ? "收起翻译" : "翻译成中文")
         }
@@ -1337,14 +1337,14 @@ public struct ChatView: View {
                 )
                 .scaleEffect(isPressing ? 0.94 : 1)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             // 按住期间即高亮（simultaneous 不吞掉点击）
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { _ in withAnimation(.easeOut(duration: 0.1)) { isPressing = true } }
-                    .onEnded { _ in withAnimation(.easeOut(duration: 0.12)) { isPressing = false } }
+                    .onChanged { _ in withAnimation(.app(.press)) { isPressing = true } }
+                    .onEnded { _ in withAnimation(.app(.press)) { isPressing = false } }
             )
-            .animation(.easeOut(duration: 0.18), value: isHighlighted)
+            .appAnimation(.reveal, value: isHighlighted)
             .help(isActive ? "点击停止朗读" : "听老师朗读这句")
         }
 
@@ -1367,10 +1367,10 @@ public struct ChatView: View {
         }
 
         private func flash() {
-            withAnimation(.easeOut(duration: 0.1)) { didFlash = true }
+            withAnimation(.app(.press)) { didFlash = true }
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(0.6))
-                withAnimation(.easeOut(duration: 0.25)) { didFlash = false }
+                withAnimation(.app(.reveal)) { didFlash = false }
             }
         }
     }
@@ -1454,7 +1454,7 @@ public struct ChatView: View {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(theme.secondaryText)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("关闭提示")
             }
             .padding(.horizontal, 12)
@@ -1493,7 +1493,7 @@ public struct ChatView: View {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(theme.secondaryText)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("关闭提示")
             }
             .padding(.horizontal, 12)
@@ -1532,7 +1532,7 @@ public struct ChatView: View {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(theme.secondaryText)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("关闭提示")
             }
             .padding(.horizontal, 12)
@@ -1593,7 +1593,7 @@ public struct ChatView: View {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(theme.secondaryText)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("关闭回执")
             }
             .padding(.horizontal, 12)
@@ -1726,7 +1726,7 @@ public struct ChatView: View {
                         .overlay(Capsule().strokeBorder(theme.divider, lineWidth: 1))
                         .contentShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .help("把 \(pendingAttachments.count) 个待发附件全部移除")
                 }
             }
@@ -1795,7 +1795,7 @@ public struct ChatView: View {
                     border: .clear
                 ))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .disabled(chat.isGenerating ? false : !canSend)
         // ⌘↩ 发送。
         // ⚠️ 生成中**不给**快捷键：此时这颗按钮是「停止」，把 ⌘↩ 绑成中止只是让人误触
@@ -1971,7 +1971,7 @@ public struct ChatView: View {
                     .allowsHitTesting(false)
             }
         }
-        .animation(.easeOut(duration: 0.45), value: questionIndex)
+        .appAnimation(.panel, value: questionIndex)
     }
 
     /// 上下滚动的预设提问：新的一条从下方滚上来，旧的一条往上滚出去。
@@ -2017,7 +2017,7 @@ public struct ChatView: View {
                     border: theme.divider
                 ))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help("取消这次录音（不识别、不填入输入框）")
         .accessibilityLabel("取消语音输入")
     }
@@ -2058,7 +2058,7 @@ public struct ChatView: View {
                 border: isRecording ? Color.red.opacity(0.5) : theme.divider
             ))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help(isRecording ? "停止并识别" : "点击说话")
         .accessibilityLabel(isRecording ? "停止录音并识别" : "语音输入")
     }
@@ -2162,7 +2162,7 @@ struct ThinkingPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(.easeOut(duration: 0.18)) { isExpanded.toggle() }
+                withAnimation(.app(.reveal)) { isExpanded.toggle() }
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "chevron.right")
@@ -2177,7 +2177,7 @@ struct ThinkingPanel: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
 
             if isExpanded {
                 ScrollViewReader { proxy in
@@ -2266,7 +2266,7 @@ struct ContextGauge: View {
         }
         .contentShape(Circle().inset(by: -8))
         .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.15)) { isHovering = hovering }
+            withAnimation(.app(.press)) { isHovering = hovering }
         }
         .help(tooltip)
     }
@@ -2275,6 +2275,8 @@ struct ContextGauge: View {
 struct TypingDots: View {
     let color: Color
     @State private var phase = 0
+
+    @Environment(\.appMotion) private var motion
 
     var body: some View {
         HStack(spacing: 5) {
@@ -2289,6 +2291,10 @@ struct TypingDots: View {
         .padding(.vertical, 12)
         .background(RoundedRectangle(cornerRadius: 16).fill(color.opacity(0.10)))
         .onAppear {
+            // 「减弱动态效果」下三点**静止**：这一排点本身已经把「正在等待」说清楚了，
+            // 反复跳动只是修饰 —— 而它偏偏是等待期间唯一一直动的东西（最刺眼的一个），
+            // 还顺带每 0.35s 叫醒一次主线程。静止不等于没画出来，三个点仍在原位。
+            guard !motion.reduceMotion else { return }
             Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { _ in
                 DispatchQueue.main.async { withAnimation(.easeInOut(duration: 0.25)) { phase = (phase + 1) % 3 } }
             }

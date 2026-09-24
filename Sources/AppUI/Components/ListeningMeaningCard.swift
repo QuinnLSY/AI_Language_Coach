@@ -114,7 +114,7 @@ public struct ListeningMeaningCard: View {
                         )
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .accessibilityLabel(isLast ? "看总结" : "下一句")
                 }
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -151,7 +151,7 @@ public struct ListeningMeaningCard: View {
                     .frame(width: 20, height: 20)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help(chrome.cancelHelp)
             .accessibilityLabel("退出这一轮")
         }
@@ -221,7 +221,7 @@ public struct ListeningMeaningCard: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         // ⚠️ 判完之后整排锁死：还能点的话就变成「一路点到对为止」，正确率没有意义了。
         .disabled(answered)
         .opacity(answered && !isCorrect && !isPicked ? 0.55 : 1)

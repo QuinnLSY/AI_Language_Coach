@@ -38,7 +38,7 @@ struct RewardToast: View {
                         .foregroundStyle(theme.secondaryText)
                         .frame(width: 24, height: 24)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
             }
         }
         .padding(.horizontal, 14)

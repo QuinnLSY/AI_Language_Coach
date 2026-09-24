@@ -83,7 +83,7 @@ struct ShortcutCenterCard: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     Button("知道了") { state.dismissShortcutNotice() }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.appPressable)
                         .font(.system(size: 11, design: .rounded))
                         .foregroundStyle(theme.accent)
                 }
@@ -96,7 +96,7 @@ struct ShortcutCenterCard: View {
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("把每一个动作都改回它出厂时的按键")
         }
     }
@@ -145,7 +145,7 @@ struct ShortcutCenterCard: View {
                     .background(Capsule().fill(isCapturing ? theme.accentFill : theme.surfaceAlt))
                     .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help(isCapturing ? "再点一次取消（或按 Esc）" : "点一下，然后按下新的组合键")
             .accessibilityLabel("\(action.title) 的按键：\(binding.displayString)")
             Button {
@@ -157,7 +157,7 @@ struct ShortcutCenterCard: View {
                     .frame(width: 16, height: 16)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("恢复出厂键（\(action.defaultBinding.displayString)）")
             .accessibilityLabel("把「\(action.title)」恢复成出厂键 \(action.defaultBinding.displayString)")
         }

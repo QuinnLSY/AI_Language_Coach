@@ -63,7 +63,7 @@ public struct AppSidebar: View {
         .padding(.horizontal, isExpanded ? 12 : 10)
         .frame(width: isExpanded ? Self.expandedWidth : Self.collapsedWidth)
         .background(theme.surfaceAlt.opacity(0.94))
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: isExpanded)
+        .appAnimation(.panel, value: isExpanded)
         // 每次老师回复后刷新黑板上的今日 token 用量
         .onChange(of: state.chat.messages.count) { _, _ in
             state.refreshTodayTokens()
@@ -252,14 +252,14 @@ public struct AppSidebar: View {
 
     /// 收起态点老师：先拉侧栏，等弹簧动画走完再开板。
     private func openBoardFromCollapsedSidebar() {
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+        withAnimation(.app(.panel)) {
             state.isSidebarExpanded = true
         }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 360_000_000)
             // 这中间用户可能又收回去了 —— 那就别开了（开了也看不见）。
             guard state.isSidebarExpanded else { return }
-            withAnimation(.spring(response: 0.36, dampingFraction: 0.82)) {
+            withAnimation(.app(.panel)) {
                 state.isBlackboardExpanded = true
             }
         }
@@ -325,7 +325,7 @@ public struct AppSidebar: View {
                 }
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .disabled(!isEnabled)
         // 提示里带上快捷键：不写出来的快捷键等于不存在（这是全项目唯一一处能看见它们的地方）。
         .help(helpText(title: title, isEnabled: isEnabled, shortcutDigit: shortcutDigit))
@@ -345,7 +345,7 @@ public struct AppSidebar: View {
 
     private var collapseButton: some View {
         Button {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+            withAnimation(.app(.panel)) {
                 // ⚠️ 收起侧栏要**连黑板一起收**：黑板只在展开态侧栏里存在，
                 // 留着 `isBlackboardExpanded == true` 的话，下次展开侧栏它会自己弹开 ——
                 // 用户没点过它，它会显得「自己动了」。
@@ -371,7 +371,7 @@ public struct AppSidebar: View {
                     .fill(theme.hover)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help(isExpanded ? "收起侧边栏" : "展开侧边栏")
     }
 }

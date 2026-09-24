@@ -116,7 +116,7 @@ public struct ReadingView: View {
                                         )
                                     )
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.appPressable)
                             .help("第 \(index + 1) 篇")
                         }
                     }
@@ -132,7 +132,7 @@ public struct ReadingView: View {
                     .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.accentCool)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .disabled(state.isReadingLoading)
                 .help("让老师另写一篇（一次阅读 = 一次模型请求）；今天的旧篇仍可回看")
             }
@@ -230,7 +230,7 @@ public struct ReadingView: View {
                     // 少了这一句「空白处点了没反应」，用户只会觉得判定区小（实测反馈）。
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .disabled(!reviewed)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .help(reviewed ? "点按收起 / 展开解析" : "")
@@ -347,7 +347,7 @@ public struct ReadingView: View {
                     )
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .disabled(reviewed)
     }
 
@@ -468,7 +468,7 @@ public struct ReadingView: View {
                     .padding(.vertical, 8)
                     .background(Capsule().fill(theme.accentFill))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .disabled(!state.readingAllAnswered)
                 .help("判分在本地完成，不花模型请求；交卷后逐题展开原文溯源与讲解")
                 Text("已答 \(state.readingChoices.count) / \(passage.questions.count) 题")
@@ -538,7 +538,7 @@ public struct ReadingView: View {
                     .padding(.vertical, 7)
                     .background(Capsule().fill(theme.accentFill))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("一次阅读 = 一次模型请求，请确保老师的大脑已就绪")
         }
         .padding(24)

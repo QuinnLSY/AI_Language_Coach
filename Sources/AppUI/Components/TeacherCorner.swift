@@ -126,7 +126,7 @@ public struct TeacherCorner: View {
             guard nudge != nil else { return }
             try? await Task.sleep(nanoseconds: 3_600_000_000)
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.25)) { nudge = nil }
+            withAnimation(.app(.reveal)) { nudge = nil }
         }
         .onReceive(nudgeTimer) { _ in showRandomBubble() }
     }
@@ -207,7 +207,7 @@ public struct TeacherCorner: View {
         .rotationEffect(.degrees(tilt))
         .scaleEffect(isHovering ? 1.04 : 1)
         // 摆正要快（0.18s）：这是「可以点了」的手感，不是动画表演。
-        .animation(.easeOut(duration: 0.18), value: isHovering)
+        .appAnimation(.reveal, value: isHovering)
         .opacity(isExpanded ? 0 : 1)
         .animation(.easeOut(duration: 0.14).delay(isExpanded ? 0 : 0.18), value: isExpanded)
     }
@@ -303,14 +303,14 @@ public struct TeacherCorner: View {
 
     private func toggle() {
         // 用弹簧收放，别用 `.animation` 硬套：突然出现/突然消失最劝退。
-        withAnimation(.spring(response: 0.36, dampingFraction: 0.82)) {
+        withAnimation(.app(.panel)) {
             isExpanded.toggle()
         }
     }
 
     private func collapse() {
         guard isExpanded else { return }
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+        withAnimation(.app(.panel)) {
             isExpanded = false
         }
     }
@@ -539,6 +539,6 @@ struct TaskDot: View {
             }
         }
         .frame(width: 14, height: 14)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isDone)
+        .appAnimation(.panel, value: isDone)
     }
 }

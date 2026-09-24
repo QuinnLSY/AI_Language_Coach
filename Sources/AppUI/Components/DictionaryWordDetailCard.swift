@@ -141,7 +141,7 @@ public struct DictionaryWordDetailCard: View {
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .disabled(isLoading)
                 .help("忽略缓存，重新查一次")
             }
@@ -166,7 +166,7 @@ public struct DictionaryWordDetailCard: View {
             .overlay(Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 1))
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help(title)
     }
 
@@ -493,7 +493,7 @@ public struct DictionaryWordDetailCard: View {
                                 .underline(hoveredWord == item.word, color: tint.opacity(0.65))
                                 .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.appPressable)
                         .onHover { hovering in
                             hoveredWord = hovering ? item.word : (hoveredWord == item.word ? nil : hoveredWord)
                         }

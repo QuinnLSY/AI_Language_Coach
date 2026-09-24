@@ -247,7 +247,7 @@ public struct CuteAnimalView: View {
         }
         .frame(width: size, height: size)
         .offset(y: isSleeping ? size * 0.02 : (isHopping ? -size * 0.045 : 0))
-        .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: isHopping)
+        .loopAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: isHopping)
         .onAppear {
             guard bobbing, !isSleeping, Self.animationsEnabled else { isHopping = false; return }
             isHopping = true
@@ -792,6 +792,8 @@ public struct ZzzView: View {
     @State private var offset: CGFloat = 0
     @State private var opacity: Double = 0.25
 
+    @Environment(\.appMotion) private var motion
+
     public init(size: CGFloat) { self.size = size }
 
     public var body: some View {
@@ -806,6 +808,10 @@ public struct ZzzView: View {
         .offset(y: offset)
         .opacity(opacity)
         .onAppear {
+            // 开了「减弱动态效果」就让 zzz 静静留在原地：这一路 floating 纯粹是装饰
+            // （睡觉气氛），动起来既干扰又白白占一次渲染。三个 z 会有一丁点 opacity，
+            // 静止时看得出这是「睡了」，不会变成看不见。
+            guard !motion.reduceMotion else { return }
             withAnimation(.easeOut(duration: 2.6).repeatForever(autoreverses: false)) {
                 offset = -size * 0.9
                 opacity = 0

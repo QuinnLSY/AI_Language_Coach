@@ -235,7 +235,7 @@ private struct WordLookupBubbleOverlay: ViewModifier {
                anchor.sentenceID == request.sentenceID {
                 bubble(request: request, anchor: anchor)
                     .transition(.opacity)
-                    .animation(.easeOut(duration: 0.12), value: anchor.sentenceID)
+                    .appAnimation(.press, value: anchor.sentenceID)
             }
         }
     }

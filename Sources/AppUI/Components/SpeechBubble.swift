@@ -58,7 +58,7 @@ public struct TalkingAnimal: View {
             // 关键：被新的点击取消时（连点）必须直接返回，
             // 否则会立刻把气泡关掉——这正是「连点时气泡一闪就收」的根源。
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.25)) { bubble = nil }
+            withAnimation(.app(.reveal)) { bubble = nil }
             onBubbleChange?(false)
         }
         .accessibilityLabel("\(kind.displayName)（点击听它说话）")
@@ -70,7 +70,7 @@ public struct TalkingAnimal: View {
         let pool = phrases.filter { $0 != bubble }
         let next = pool.randomElement() ?? phrases[0]
         let isNewBubble = bubble == nil
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { bubble = next }
+        withAnimation(.app(.panel)) { bubble = next }
         if isNewBubble { onBubbleChange?(true) }
         clickTick += 1
     }

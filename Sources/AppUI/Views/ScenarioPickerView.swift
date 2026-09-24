@@ -101,7 +101,7 @@ public struct ScenarioPickerView: View {
                 .background(Capsule().strokeBorder(theme.accent.opacity(0.5), lineWidth: 1))
                 .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("用一句话描述你想练的场景，让老师把它搭出来")
             .accessibilityLabel("描述场景，一句话生成一个情景对话")
 
@@ -120,7 +120,7 @@ public struct ScenarioPickerView: View {
                 .background(Capsule().strokeBorder(theme.accent.opacity(0.5), lineWidth: 1))
                 .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("把一篇文章拆成情景 + 跟读句 + 生词表")
             .accessibilityLabel("上传材料，自动生成情景对话、跟读句和生词表")
 
@@ -131,7 +131,7 @@ public struct ScenarioPickerView: View {
                     .frame(width: 28, height: 28)
                     .background(Circle().fill(theme.hover))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("关闭")
         }
         .padding(.horizontal, 20)
@@ -206,14 +206,14 @@ public struct ScenarioPickerView: View {
             // ⚠️ 与情景卡片同款：展开只能用真 `Button`（`.onTapGesture` 键盘与读屏都走不到，
             //    而「开始考试」正长在展开区里）。
             Button {
-                withAnimation(.easeInOut(duration: 0.18)) {
+                withAnimation(.app(.reveal)) {
                     expandedExamID = isExpanded ? nil : blueprint.id
                 }
             } label: {
                 examHeader(blueprint, isActive: isActive, isExpanded: isExpanded)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help(isExpanded ? "收起这套考卷的环节" : "展开看考哪些环节")
             .accessibilityHint(isExpanded ? "收起考卷详情" : "展开考卷详情")
 
@@ -317,7 +317,7 @@ public struct ScenarioPickerView: View {
                     .background(Capsule().fill(theme.accentFill))
                     .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("开始「\(blueprint.title)」")
             }
         }
@@ -345,7 +345,7 @@ public struct ScenarioPickerView: View {
                 cardHeader(scenario, isActive: isActive, isExpanded: isExpanded)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help(isExpanded ? "收起这一关的详情" : "展开看主线任务与教学重点")
             .accessibilityHint(isExpanded ? "收起详情" : "展开详情")
 
@@ -368,7 +368,7 @@ public struct ScenarioPickerView: View {
                     lineWidth: 1
                 )
         )
-        .animation(.easeInOut(duration: 0.18), value: isExpanded)
+        .appAnimation(.reveal, value: isExpanded)
     }
 
     private func cardHeader(_ scenario: Scenario, isActive: Bool, isExpanded: Bool) -> some View {
@@ -463,7 +463,7 @@ public struct ScenarioPickerView: View {
                         .background(Capsule().strokeBorder(theme.divider, lineWidth: 1))
                         .contentShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .help("删掉这个自建情景；已经收进词汇本的词不回收")
                 }
                 Text(scenario.origin == .custom
@@ -486,7 +486,7 @@ public struct ScenarioPickerView: View {
                     .background(Capsule().fill(theme.accentFill))
                     .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("进入「\(scenario.titleZh)」")
             }
         }

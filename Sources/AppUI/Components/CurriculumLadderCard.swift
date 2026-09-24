@@ -178,7 +178,7 @@ struct CurriculumLadderCard: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .disabled(onOpen == nil)
         .help(stageA11yHint(stage))
     }

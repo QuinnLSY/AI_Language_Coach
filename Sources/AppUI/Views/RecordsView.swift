@@ -64,7 +64,7 @@ public struct RecordsView: View {
                         .frame(height: 24)
                         .background(Capsule().fill(theme.surfaceAlt))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
             }
             Text(summary.headline)
                 .font(.system(size: 13, weight: .medium, design: .rounded))
@@ -150,11 +150,11 @@ public struct RecordsView: View {
         }
         // 等一帧让刚加载出来的卡片真正落位，否则 `scrollTo` 会滚到旧的内容高度上。
         try? await Task.sleep(nanoseconds: 160_000_000)
-        withAnimation(.easeInOut(duration: 0.35)) {
+        withAnimation(.app(.panel)) {
             proxy.scrollTo(focus.anchorID, anchor: .top)
         }
         try? await Task.sleep(nanoseconds: 2_000_000_000)
-        withAnimation(.easeOut(duration: 0.5)) { highlighted = nil }
+        withAnimation(.app(.emphasis)) { highlighted = nil }
     }
 
     // MARK: - 头部（64pt 顶栏对齐）
@@ -176,7 +176,7 @@ public struct RecordsView: View {
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("刷新")
         }
         .padding(.horizontal, 18)
@@ -294,7 +294,7 @@ public struct RecordsView: View {
             .frame(height: 26)
             .background(Capsule().fill(tint))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
     }
 
     private func reviewBody(_ review: SessionReview) -> some View {
@@ -504,7 +504,7 @@ public struct RecordsView: View {
             .padding(.vertical, 8)
             .contentShape(Rectangle())
             .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.18)) {
+                withAnimation(.app(.reveal)) {
                     expandedSessionID = isExpanded ? nil : record.sessionID
                 }
             }

@@ -40,7 +40,7 @@ extension AppState {
     /// 失败文案更长，多留一点时间让人读完。
     public func showModelToast(_ message: String, isSuccess: Bool) {
         toastDismissTask?.cancel()
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+        withAnimation(.app(.panel)) {
             modelToast = ModelToast(message: message, isSuccess: isSuccess)
         }
         let duration: ContinuousClock.Duration = isSuccess ? .seconds(2) : .seconds(4)
@@ -56,7 +56,7 @@ extension AppState {
     public func dismissModelToast() {
         toastDismissTask?.cancel()
         toastDismissTask = nil
-        withAnimation(.easeOut(duration: 0.24)) { modelToast = nil }
+        withAnimation(.app(.reveal)) { modelToast = nil }
     }
 
     /// 对话模型跑在哪儿：本地 = local，云端 = cloud（设置页卡片右上角的状态前缀）。

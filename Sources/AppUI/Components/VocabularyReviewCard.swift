@@ -180,7 +180,7 @@ struct VocabularyReviewCard: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(theme.accent)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .help("翻开看释义（先自己想一遍再翻，效果差很多）")
                 }
             }
@@ -325,7 +325,7 @@ struct VocabularyReviewCard: View {
                     }
                     .font(.system(size: 11, weight: .semibold))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .foregroundStyle(isRecording ? Color.red : theme.accentCool)
                 .disabled(isBusy)
                 .help("读出这个词，系统会把发音逐音素量给你看")
@@ -339,7 +339,7 @@ struct VocabularyReviewCard: View {
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(theme.secondaryText)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .disabled(isBusy)
                     .help("回放刚才读的那一遍，和示范对着听")
                 }
@@ -488,7 +488,7 @@ struct VocabularyReviewCard: View {
             .background(Capsule().fill(color.opacity(0.12)))
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help(gradeHint(remembered))
         // VoiceOver：光读「认识 / 忘了」两个词说明不了后果（会不会当天再见到它、
         // 掌握度往哪边走），把 tooltip 那套话原样报出来 —— 两处同源，不会各自漂。
@@ -527,7 +527,7 @@ struct VocabularyReviewCard: View {
                     .background(Capsule().fill(theme.accentFill))
                     .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("收起这一轮，回到词表")
             }
 
@@ -594,7 +594,7 @@ struct VocabularyReviewCard: View {
             .frame(width: 16, height: 16)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help(isSpeaking ? "停止朗读" : "听这个词怎么读")
     }
 
@@ -661,7 +661,7 @@ struct VocabularyReviewExitButton: View {
             .overlay(Capsule().strokeBorder(theme.divider, lineWidth: 1))
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help("退出复习，回到词表（已经判过的词都记下了）")
     }
 }
@@ -700,7 +700,7 @@ struct VocabularyReviewDefineButton: View {
             .overlay(Capsule().strokeBorder(theme.accent.opacity(0.35), lineWidth: 1))
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .disabled(isDefining)
         .help("就地查一次释义：查完直接显示在这张卡上，词表里也会同步（不用退出复习）")
     }

@@ -215,7 +215,7 @@ public struct WritingView: View {
                 .background(Capsule().fill(theme.accentFill))
                 .opacity(state.isWritingReviewing ? 0.7 : 1)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .disabled(state.isWritingReviewing || state.writingWordCount < 30)
             .help("一次批改 = 一次模型请求，请确保老师的大脑已就绪")
 
@@ -230,7 +230,7 @@ public struct WritingView: View {
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(theme.accentCool)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("收起这份批改，改完再交一次")
             }
             Spacer(minLength: 0)
@@ -422,7 +422,7 @@ public struct WritingView: View {
                                     Capsule().strokeBorder(theme.accent.opacity(0.7), lineWidth: 1)
                                 )
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.appPressable)
                         .help("加入词汇本，之后可以在词汇本里复习")
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)

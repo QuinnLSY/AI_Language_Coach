@@ -147,7 +147,7 @@ public struct ListeningSummaryCard: View {
                                 .strokeBorder(theme.accentCool.opacity(0.5), lineWidth: 1)
                         )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("把这一轮没听出来的词一次加进词汇本（不加释义，零请求）")
             }
             FlowRow(spacing: 6, lineSpacing: 6) {
@@ -190,7 +190,7 @@ public struct ListeningSummaryCard: View {
                 )
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("从第 1 句重新开始（今天已写对的成绩保留在账本里）")
 
             Button(action: onClose) {
@@ -211,7 +211,7 @@ public struct ListeningSummaryCard: View {
                     )
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("结束这一轮（今天练过的成绩留在账本里，随时可以从这一页再开一轮）")
 
             Spacer(minLength: 0)

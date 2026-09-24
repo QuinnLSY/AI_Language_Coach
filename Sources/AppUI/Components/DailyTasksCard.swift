@@ -134,7 +134,7 @@ struct DailyTasksCard: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .disabled(onOpen == nil)
         .help(task.isDone ? "已经完成：\(task.reason)" : "去做：\(task.title)")
     }

@@ -130,7 +130,7 @@ struct AnnualTooltipFollower: View {
                 if smoothed == nil { smoothed = target }
             }
             .onChange(of: target) { _, newValue in
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                withAnimation(.app(.panel)) {
                     smoothed = newValue
                 }
             }

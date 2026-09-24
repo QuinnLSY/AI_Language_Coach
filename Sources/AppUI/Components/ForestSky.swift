@@ -83,9 +83,9 @@ public struct CelestialToggle: View {
             .scaleEffect(hovering ? 1.06 : 1)
             .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.18), value: hovering)
+        .appAnimation(.reveal, value: hovering)
         .help(theme.isNight ? "点击回到白天" : "点击进入夜晚")
         .accessibilityLabel(theme.isNight ? "切换到白天" : "切换到夜晚")
     }
@@ -120,7 +120,7 @@ private struct SunView: View {
                     .rotationEffect(.degrees(Double(index) * 30))
             }
             .rotationEffect(.degrees(spin ? 360 : 0))
-            .animation(.linear(duration: 60).repeatForever(autoreverses: false), value: spin)
+            .loopAnimation(.linear(duration: 60).repeatForever(autoreverses: false), value: spin)
         }
         .onAppear { spin = true }
     }
@@ -136,7 +136,7 @@ private struct Clouds: View {
             Cloud(scale: 0.55, opacity: 0.7).offset(x: drift ? 40 : -30, y: -170).padding(.leading, 520)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .animation(.easeInOut(duration: 26).repeatForever(autoreverses: true), value: drift)
+        .loopAnimation(.easeInOut(duration: 26).repeatForever(autoreverses: true), value: drift)
         .onAppear { drift = true }
     }
 
@@ -193,7 +193,7 @@ private struct StarsField: View {
                     .opacity(twinkle ? (index % 3 == 0 ? 0.35 : 0.9) : (index % 3 == 0 ? 0.95 : 0.55))
             }
         }
-        .animation(.easeInOut(duration: 3.2).repeatForever(autoreverses: true), value: twinkle)
+        .loopAnimation(.easeInOut(duration: 3.2).repeatForever(autoreverses: true), value: twinkle)
         .onAppear { twinkle = true }
     }
 }

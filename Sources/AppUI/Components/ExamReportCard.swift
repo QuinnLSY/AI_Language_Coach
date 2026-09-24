@@ -255,7 +255,7 @@ struct ExamReportCard: View {
                                 .background(Capsule().fill(theme.hover))
                                 .contentShape(Capsule())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.appPressable)
                         .help("再让老师写一次示范答案")
                     }
                 }
@@ -293,7 +293,7 @@ struct ExamReportCard: View {
                             .frame(width: 22, height: 22)
                             .background(Circle().fill(theme.hover))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .help("朗读这条示范答案")
                     .accessibilityLabel("朗读第 \(target.questionNumber) 问的示范答案")
                 }
@@ -339,7 +339,7 @@ struct ExamReportCard: View {
                     .background(Capsule().fill(theme.hover))
                     .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("用同一套考卷再考一次")
 
             Button(action: onClose) {
@@ -351,7 +351,7 @@ struct ExamReportCard: View {
                     .background(Capsule().fill(theme.accentFill))
                     .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("收下报告")
         }
         .padding(.horizontal, 18)

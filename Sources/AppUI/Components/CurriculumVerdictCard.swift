@@ -117,7 +117,7 @@ struct CurriculumVerdictCard: View {
                         .frame(width: 20, height: 20)
                         .background(Circle().fill(theme.hover))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("收起")
             }
         }

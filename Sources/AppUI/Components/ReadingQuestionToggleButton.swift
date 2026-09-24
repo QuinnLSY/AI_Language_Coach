@@ -55,7 +55,7 @@ public struct ReadingQuestionToggleButton: View {
                 )
                 .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .onHover { isHovering = $0 }
         .help(isExpanded ? Self.collapseHelp : Self.expandHelp)
         .accessibilityLabel(isExpanded ? Self.collapseHelp : Self.expandHelp)

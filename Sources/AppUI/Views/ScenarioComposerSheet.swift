@@ -68,7 +68,7 @@ struct ScenarioComposerSheet: View {
                     .frame(width: 28, height: 28)
                     .background(Circle().fill(theme.hover))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("关闭")
         }
         .padding(.horizontal, 20)
@@ -128,7 +128,7 @@ struct ScenarioComposerSheet: View {
                             .background(Capsule().fill(theme.accent.opacity(0.10)))
                             .contentShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .help("用这个描述")
                 }
             }
@@ -164,7 +164,7 @@ struct ScenarioComposerSheet: View {
                 .background(Capsule().fill(theme.accentFill))
                 .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .disabled(
                 state.isGeneratingScenario
                     || ScenarioDraftRule.inputIssue(for: state.scenarioPromptText) != nil
@@ -191,7 +191,7 @@ struct ScenarioComposerSheet: View {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(theme.secondaryText)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .accessibilityLabel("关闭提示")
         }
         .padding(12)

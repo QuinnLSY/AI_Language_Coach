@@ -121,7 +121,7 @@ public struct LearningProgressView: View {
     private func jumpToFocus(_ proxy: ScrollViewProxy) async {
         guard let target = state.consumeProgressFocus() else { return }
         try? await Task.sleep(nanoseconds: 200_000_000)
-        withAnimation(.easeOut(duration: 0.32)) {
+        withAnimation(.app(.reveal)) {
             proxy.scrollTo(
                 target == .dailyTasks ? Self.dailyTasksAnchorID : Self.annualRecapAnchorID,
                 anchor: .top
@@ -289,7 +289,7 @@ public struct LearningProgressView: View {
                     }
                     .foregroundStyle(theme.secondaryText)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("把年度学习记录导出成 PNG 图片")
             }
             AnnualRecapCard(recap: state.annualRecap)
@@ -353,7 +353,7 @@ public struct LearningProgressView: View {
                                 Capsule().fill(state.progressWindowDays == days ? theme.accent : theme.hover)
                             )
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .help("统计最近 \(days) 天")
                 }
             }
@@ -367,7 +367,7 @@ public struct LearningProgressView: View {
                     Image(systemName: "arrow.clockwise")
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("重新汇总")
         }
         .padding(.horizontal, 18)
@@ -462,7 +462,7 @@ public struct LearningProgressView: View {
                             )
                         )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help(mode == .baseline
                       ? "保底档：5 分钟内做完即算今日完成，保住连续"
                       : "进阶档：按每日目标分钟数排计划")
@@ -490,7 +490,7 @@ public struct LearningProgressView: View {
                 .frame(width: 20, height: 20)
                 .background(Circle().fill(theme.hover))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .disabled(!enabled)
         .help(systemImage == "plus" ? "调高每日目标 5 分钟" : "调低每日目标 5 分钟")
     }
@@ -529,7 +529,7 @@ public struct LearningProgressView: View {
                         .frame(height: 22)
                         .background(Capsule().fill(rhythmMode == mode ? theme.accent : theme.hover))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
             }
         }
     }
@@ -756,7 +756,7 @@ public struct LearningProgressView: View {
             .frame(height: 26)
             .background(Capsule().fill(theme.accentCool))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .disabled(snapshot.recentMistakes.isEmpty)
         .opacity(snapshot.recentMistakes.isEmpty ? 0.5 : 1)
         .help(snapshot.recentMistakes.isEmpty ? "还没有错题，先去说几句" : "跳到学习记录的错题本，逐条过一遍")

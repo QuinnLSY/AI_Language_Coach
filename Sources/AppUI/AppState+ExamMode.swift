@@ -606,7 +606,7 @@ extension AppState {
         assessmentDismissTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(12))
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.25)) { self?.lastAssessment = nil }
+            withAnimation(.app(.reveal)) { self?.lastAssessment = nil }
         }
     }
 
@@ -636,7 +636,7 @@ extension AppState {
         rewardDismissTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(5))
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.25)) { self?.lastReward = nil }
+            withAnimation(.app(.reveal)) { self?.lastReward = nil }
             // 自动收起同样要给被盖住的庆祝一个补放机会。
             if self?.rewardCelebrationPending == true {
                 await self?.refreshTodayPanel(force: true)

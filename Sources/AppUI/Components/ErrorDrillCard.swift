@@ -78,7 +78,7 @@ public struct ErrorDrillCard: View {
                     .frame(width: 20, height: 20)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("收起（已经判过的题会记进练习进度）")
         }
     }
@@ -180,7 +180,7 @@ public struct ErrorDrillCard: View {
                     Capsule().fill(isDisabled ? theme.surfaceAlt : theme.accent)
                 )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .disabled(isDisabled)
     }
 

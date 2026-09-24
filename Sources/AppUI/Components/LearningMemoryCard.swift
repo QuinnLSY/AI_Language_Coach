@@ -92,7 +92,7 @@ public struct LearningMemoryCard: View {
                 Capsule().fill(confirmingClear ? theme.danger : theme.danger.opacity(0.12))
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .disabled(memory.isEmpty)
         .opacity(memory.isEmpty ? 0.45 : 1)
         .help("清除后无法恢复：会删掉纠错记录、练习复盘、跟读记录与复习流水（单词本和对话记录保留）")
@@ -250,7 +250,7 @@ public struct LearningMemoryCard: View {
                     )
                     .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("什么都不删，退回原来的样子")
             }
         }
@@ -308,7 +308,7 @@ public struct LearningMemoryCard: View {
             .frame(height: 20)
             .background(Capsule().fill(theme.accent.opacity(0.12)))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help("把这几次反复犯的错拿出来改一遍（不消耗模型请求）")
     }
 

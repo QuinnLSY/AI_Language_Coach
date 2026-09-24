@@ -36,7 +36,7 @@ struct AttachmentChip: View {
                     .font(.system(size: 11))
                     .foregroundStyle(theme.secondaryText)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("移除这个附件")
         }
         .padding(.horizontal, 8)
@@ -195,7 +195,7 @@ struct MessageAttachmentView: View {
                 .symbolRenderingMode(.palette)
                 .foregroundStyle(.white, Color.black.opacity(0.45))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .disabled(fileURL == nil)
         .opacity(fileURL == nil ? 0.4 : 1)
         .padding(7)

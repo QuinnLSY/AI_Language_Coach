@@ -80,7 +80,7 @@ struct PlacementSheet: View {
                     .frame(width: 22, height: 22)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help(state.placementPaper.isEmpty ? "关掉" : "先放一放（进度留着，回来接着答）")
             .accessibilityLabel("关闭入学定级")
         }
@@ -118,7 +118,7 @@ struct PlacementSheet: View {
                         )
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .disabled(state.isPlacementLoading)
                 .opacity(state.isPlacementLoading ? 0.6 : 1)
                 .accessibilityLabel("开始摸底")
@@ -219,7 +219,7 @@ struct PlacementSheet: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .accessibilityLabel("\(letter(index)). \(option)")
         // 词汇题是「词 → 义」，语法题是「句子 → 形式」，两个题型都只有一个正确答案。
         .help("选它进入下一题")
@@ -303,7 +303,7 @@ struct PlacementSheet: View {
                         )
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
 
                 Button {
                     Task { await state.startPlacement() }
@@ -319,7 +319,7 @@ struct PlacementSheet: View {
                         )
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("换一批题再摸一次底")
 
                 Button {
@@ -340,7 +340,7 @@ struct PlacementSheet: View {
                         )
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
 
                 Spacer(minLength: 0)
             }
@@ -375,7 +375,7 @@ struct PlacementSheet: View {
                     .frame(width: 16, height: 16)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)

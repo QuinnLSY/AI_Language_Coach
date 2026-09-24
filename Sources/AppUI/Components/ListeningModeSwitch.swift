@@ -48,7 +48,7 @@ struct ListeningModeSwitch: View {
             )
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help(mode.blurb)
         .accessibilityLabel(mode.title)
     }

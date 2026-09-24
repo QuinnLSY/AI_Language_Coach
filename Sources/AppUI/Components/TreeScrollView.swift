@@ -75,7 +75,7 @@ struct TreeScrollView: View {
         guard viewportHeight > 0 else { return }
         let anchor = UnitPoint(x: 0.5, y: TreeViewport.anchorY(viewportHeight: viewportHeight))
         if animated {
-            withAnimation(.easeInOut(duration: 0.45)) {
+            withAnimation(.app(.panel)) {
                 proxy.scrollTo(TreeCanvas.learnerAnchorID, anchor: anchor)
             }
         } else {

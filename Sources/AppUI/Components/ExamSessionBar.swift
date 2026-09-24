@@ -141,7 +141,7 @@ struct ExamSessionBar: View {
                     .background(Capsule().fill(theme.hover))
                     .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("跳过这一题，直接进入下一问")
             .accessibilityLabel("跳过这一题")
 
@@ -154,7 +154,7 @@ struct ExamSessionBar: View {
                     .background(Capsule().fill(theme.accentFill))
                     .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("提前交卷并看参考分")
             .accessibilityLabel("结束考试并查看报告")
         }

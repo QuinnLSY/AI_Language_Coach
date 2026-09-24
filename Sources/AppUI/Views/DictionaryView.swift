@@ -128,7 +128,7 @@ public struct DictionaryView: View {
             .overlay(Capsule().strokeBorder(theme.accent.opacity(0.35), lineWidth: 1))
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help(state.dictionaryMode.switchTitle)
     }
 
@@ -181,7 +181,7 @@ public struct DictionaryView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(theme.secondaryText.opacity(0.7))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("清空")
                 .padding(.trailing, 6)
             }
@@ -198,7 +198,7 @@ public struct DictionaryView: View {
                     .frame(maxHeight: .infinity)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .disabled(!canSubmit)
             .help("查这个词（回车同样可以）")
         }
@@ -240,7 +240,7 @@ public struct DictionaryView: View {
                         .font(.system(size: 10, design: .rounded))
                         .foregroundStyle(theme.secondaryText)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("清掉这一排（只是这一排，词典与词汇本不受影响）")
             }
             JustifiedRow(spacing: 8) {
@@ -298,7 +298,7 @@ public struct DictionaryView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("查「\(match.word)」")
                 if match.id != state.dictionaryMatches.last?.id {
                     Divider().overlay(theme.divider)
@@ -467,7 +467,7 @@ public struct DictionaryView: View {
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .foregroundStyle(theme.accent)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("把内置的三本词典都放回书架")
             }
             FlowRow(spacing: 8, lineSpacing: 8, wrapsLongItems: false) {
@@ -486,7 +486,7 @@ public struct DictionaryView: View {
                         .background(Capsule().fill(theme.accent.opacity(0.12)))
                         .contentShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .help("把「\(book.name)」放回书架")
                 }
             }

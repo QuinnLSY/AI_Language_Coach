@@ -128,7 +128,7 @@ public struct DictionaryBookCard: View {
                 .strokeBorder(isHovered ? theme.accent : Color.clear, lineWidth: 2)
         )
         .shadow(color: theme.shadow, radius: isHovered ? 8 : 4, x: 0, y: isHovered ? 4 : 2)
-        .animation(.easeOut(duration: 0.16), value: isHovered)
+        .appAnimation(.press, value: isHovered)
         .help("\(book.name)（\(book.entryCount) 词）")
     }
 
@@ -152,7 +152,7 @@ public struct DictionaryBookCard: View {
                     )
                     .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help(deleteHelp)
 
                 // 确认态的退路。两段式删除给的第二次点击是**不可逆**的，
@@ -167,7 +167,7 @@ public struct DictionaryBookCard: View {
                             .overlay(Circle().strokeBorder(Color.white.opacity(0.55), lineWidth: 1))
                             .contentShape(Circle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .help("取消，不删了")
                 }
             }
@@ -217,7 +217,7 @@ public struct DictionaryBookCard: View {
                 .overlay(Capsule().strokeBorder(Color.white.opacity(0.5), lineWidth: 1))
                 .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .padding(6)
             .help(rank == nil
                   ? "打勾：让这本词典参与每日推荐的选词"
@@ -276,7 +276,7 @@ public struct DictionaryImportTile: View {
             }
             .aspectRatio(DictionaryBookCard.coverAspect, contentMode: .fit)
             .scaleEffect(isHovered ? 1.04 : 1)
-            .animation(.easeOut(duration: 0.16), value: isHovered)
+            .appAnimation(.press, value: isHovered)
 
             VStack(spacing: 1) {
                 Text("导入新词典")

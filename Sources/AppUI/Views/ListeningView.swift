@@ -237,7 +237,7 @@ public struct ListeningView: View {
                 )
                 .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help(hasMaterial ? "重新开一轮（今天的成绩已经记在账本里）" : "听力与跟读共用今天的素材")
         }
         .padding(16)
@@ -326,7 +326,7 @@ public struct ListeningView: View {
                     .frame(width: 18, height: 18)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("知道了")
         }
         .padding(12)

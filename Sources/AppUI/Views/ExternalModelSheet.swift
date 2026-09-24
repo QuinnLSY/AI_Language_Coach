@@ -150,7 +150,7 @@ struct ExternalModelSheet: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(theme.secondaryText)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("关闭")
         }
         .padding(.horizontal, 20)
@@ -210,7 +210,7 @@ struct ExternalModelSheet: View {
                 }
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help(inUse ? "\(vendor.name)：当前正在使用" : "选择 \(vendor.name)")
     }
 
@@ -230,7 +230,7 @@ struct ExternalModelSheet: View {
                         } label: {
                             fetchLabel
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.appPressable)
                         .disabled(state.isFetchingExternal)
                         Text("免密钥公共服务，无需 API Key")
                             .font(.system(size: 11, design: .rounded))
@@ -255,7 +255,7 @@ struct ExternalModelSheet: View {
                                 state.setKeyDraft("", providerID: selectedVendor, kind: kind)
                             }
                             .font(.system(size: 11, design: .rounded))
-                            .buttonStyle(.plain)
+                            .buttonStyle(.appPressable)
                             .foregroundStyle(theme.secondaryText)
                             .help("清空输入框（同时清除已保存的旧密钥），然后重新粘贴一把完整的 Key")
                         }
@@ -266,7 +266,7 @@ struct ExternalModelSheet: View {
                         } label: {
                             fetchLabel
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.appPressable)
                         .disabled(state.isFetchingExternal)
                     }
                     // 输入框是 SecureField，里面全是圆点 —— 用户看不到到底是旧 Key
@@ -440,7 +440,7 @@ struct ExternalModelSheet: View {
 
             Button("关闭") { onClose() }
                 .font(.system(size: 12, design: .rounded))
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .foregroundStyle(theme.secondaryText)
 
             Button {
@@ -456,7 +456,7 @@ struct ExternalModelSheet: View {
                             .fill(canApply ? theme.accent : theme.divider)
                     )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .disabled(!canApply)
             .help(canApply ? "保存并启用（面板不会自动关闭，可继续调整）" : "先选好厂商、填好 Key 并拉到模型")
         }

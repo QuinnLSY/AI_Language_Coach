@@ -51,7 +51,7 @@ struct ListeningPlaybackControls: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help("放这一句（作答之前屏幕上不会出现文字）")
         .accessibilityLabel(isPlaying ? "停止播放" : "听这一句")
     }
@@ -80,7 +80,7 @@ struct ListeningPlaybackControls: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help("降到 0.7 倍速 —— 听不出连读时先用它把语流拆开")
         .accessibilityLabel(chrome.fastLabel)
     }

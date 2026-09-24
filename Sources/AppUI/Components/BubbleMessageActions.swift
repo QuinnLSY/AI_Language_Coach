@@ -60,7 +60,7 @@ struct BubbleIconButton: View {
                 .background(Circle().fill(isLit ? litColor.opacity(0.14) : Color.clear))
                 .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.3)
         .onHover { isHovering = $0 }
@@ -324,7 +324,7 @@ struct MessageEditBox: View {
                 .background(Capsule().fill(theme.surface))
                 .overlay(Capsule().strokeBorder(theme.divider, lineWidth: 1))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help("放弃这次修改，保留原来的那句话")
     }
 
@@ -340,7 +340,7 @@ struct MessageEditBox: View {
                 .padding(.vertical, 5)
                 .background(Capsule().fill(canSend ? theme.accentFill : theme.accentFill.opacity(0.45)))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .disabled(!canSend)
         .help(canSend ? "用改过的这句话重新问老师" : "先写点什么再发")
     }

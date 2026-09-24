@@ -37,7 +37,7 @@ struct MaterialUploadSheet: View {
                             .background(Capsule().strokeBorder(theme.accent.opacity(0.5), lineWidth: 1))
                             .contentShape(Capsule())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.appPressable)
                         .help("从文件导入材料正文")
 
                         Spacer(minLength: 0)
@@ -66,7 +66,7 @@ struct MaterialUploadSheet: View {
                             .background(Capsule().fill(theme.accentFill))
                             .contentShape(Capsule())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.appPressable)
                         .disabled(state.isGeneratingMaterial || MaterialKitRule.inputIssue(for: state.materialDraft) != nil)
                         .help("一次生成 = 一次模型请求")
                     }
@@ -111,7 +111,7 @@ struct MaterialUploadSheet: View {
                     .frame(width: 28, height: 28)
                     .background(Circle().fill(theme.hover))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("关闭")
         }
         .padding(.horizontal, 20)
@@ -169,7 +169,7 @@ struct MaterialUploadSheet: View {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(theme.secondaryText)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .accessibilityLabel("关闭提示")
         }
         .padding(12)

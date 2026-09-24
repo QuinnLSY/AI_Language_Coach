@@ -120,7 +120,7 @@ public struct WordFamilyCard: View {
             // ⚠️ 这是**纯文字按钮**（没有底色，与右侧的胶囊按钮区分）：
             // 展开/收起是一次视图内的动作，不产生新内容，做成实心按钮会跟「添加复习」抢注意力。
             Button {
-                withAnimation(.easeInOut(duration: 0.18)) { expansion.wrappedValue.toggle() }
+                withAnimation(.app(.reveal)) { expansion.wrappedValue.toggle() }
             } label: {
                 HStack(spacing: 3) {
                     Text(expansion.wrappedValue ? "收起关联词" : "展开关联词")
@@ -131,7 +131,7 @@ public struct WordFamilyCard: View {
                 .foregroundStyle(theme.accentCool)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help(expansion.wrappedValue ? "收起这一层的关联词" : "展开每个分支下的关联词")
         }
     }
@@ -209,7 +209,7 @@ public struct WordFamilyCard: View {
                         .underline(hoveredWord == node.word, color: tint.opacity(0.65))
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .onHover { hovering in
                     hoveredWord = hovering ? node.word : (hoveredWord == node.word ? nil : hoveredWord)
                 }

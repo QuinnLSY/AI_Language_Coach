@@ -104,7 +104,7 @@ struct BlackboardPanel: View {
         }
         .frame(width: Self.frameWidth, height: panelHeight + 10)
         .shadow(color: theme.shadow, radius: 10, x: 0, y: 4)
-        .animation(.spring(response: 0.34, dampingFraction: 0.85), value: panelHeight)
+        .appAnimation(.panel, value: panelHeight)
         // 板自己的矩形整块吃掉点击：板挡住的东西（侧栏入口）不该被点到，
         // 圆角外那几个像素和行与行之间的空隙也一样（板外才是穿透区）。
         .contentShape(Rectangle())
@@ -168,7 +168,7 @@ struct BlackboardPanel: View {
                     .frame(width: 18, height: 18)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help(Self.jumpHelp)
             .accessibilityLabel(Self.jumpHelp)
             Button {
@@ -180,7 +180,7 @@ struct BlackboardPanel: View {
                     .frame(width: 16, height: 18)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help(Self.collapseHelp)
             .accessibilityLabel(Self.collapseHelp)
         }
@@ -244,7 +244,7 @@ struct BlackboardPanel: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .disabled(onOpenTask == nil)
         .help(done ? "已经完成：\(task.reason)" : "去做：\(task.title)")
     }

@@ -41,7 +41,7 @@ struct LookupDictionaryButton: View {
                 .frame(width: side, height: side)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help(help)
         .accessibilityLabel(accessibilityLabel ?? help)
     }

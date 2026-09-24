@@ -47,7 +47,7 @@ struct ModelToastView: View {
                         .foregroundStyle(.white.opacity(0.85))
                         .frame(width: 20, height: 20)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("关闭提示")
             }
         }

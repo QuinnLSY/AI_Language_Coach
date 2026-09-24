@@ -36,7 +36,7 @@ struct NoticeBanner: View {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(theme.secondaryText)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("关掉这条提示")
         }
         .padding(.horizontal, 12)
@@ -74,7 +74,7 @@ struct NoticeActionButton: View {
                 .background(Capsule().fill(theme.accentFill))
                 .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help(helpText)
         .accessibilityLabel(context.isEmpty ? action.title : "\(action.title)：\(context)")
     }

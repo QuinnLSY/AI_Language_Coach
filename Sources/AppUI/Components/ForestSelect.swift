@@ -150,7 +150,7 @@ struct ForestSelect<Value: Hashable>: View {
             .onHover { hovering in
                 isHovering = hovering && isEnabled
             }
-            .animation(.easeOut(duration: 0.12), value: isHovering)
+            .appAnimation(.press, value: isHovering)
             .help(help ?? currentTitle)
     }
 

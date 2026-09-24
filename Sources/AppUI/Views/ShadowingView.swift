@@ -147,7 +147,7 @@ public struct ShadowingView: View {
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundStyle(theme.accentCool)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .disabled(state.isShadowingLoading)
             .help("忽略今天的缓存，按情景重新生成 20 句")
             Button {
@@ -155,7 +155,7 @@ public struct ShadowingView: View {
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("刷新统计")
         }
         .padding(.horizontal, 18)
@@ -205,7 +205,7 @@ public struct ShadowingView: View {
                             .strokeBorder(theme.accentCool.opacity(0.5), lineWidth: 1)
                     )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("听力与跟读共用今天的素材（⌘\(AppSection.listening.shortcutDigit)）")
             .accessibilityLabel("去听力")
         }
@@ -252,7 +252,7 @@ public struct ShadowingView: View {
                     )
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help(mode.help)
                 .accessibilityLabel(mode.displayName)
             }
@@ -286,7 +286,7 @@ public struct ShadowingView: View {
                     .font(.system(size: 12, design: .rounded))
                     .foregroundStyle(theme.accent)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
             } else {
                 Text("第 \(state.shadowingIndex + 1) / \(state.shadowingDrills.count) 句")
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
@@ -500,7 +500,7 @@ public struct ShadowingView: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         // VoiceOver：三颗按钮的可见内容全是图标，`title` 才是它们此刻**实际**要做的事
         // （「开始跟读」/「停止并评分」/「听示范」），必须显式读出来。
         .accessibilityLabel(title)
@@ -856,7 +856,7 @@ public struct ShadowingView: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(theme.secondaryText)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
         }
         .padding(12)
         .background(
@@ -900,14 +900,14 @@ struct ShadowingSentenceNavButtons: View {
                 Button(action: onPrevious) {
                     label("arrow.left.circle.fill", text: "上一句", color: theme.secondaryText)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("回到上一句（那一句的分析还在）")
                 .accessibilityLabel("上一句")
             }
             Button(action: onNext) {
                 label("arrow.right.circle.fill", text: "换一句", color: theme.accent)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help("换下一句")
             .accessibilityLabel("换一句")
         }

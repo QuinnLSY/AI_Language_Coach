@@ -175,7 +175,7 @@ public struct SettingsView: View {
                     .frame(width: 30, height: 30)
                     .background(Circle().fill(theme.surfaceAlt))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .keyboardShortcut(.escape, modifiers: [])
             .help("关闭设置 (Esc)")
         }
@@ -215,7 +215,7 @@ public struct SettingsView: View {
                 HStack(spacing: 8) {
                     ForEach(PartnerRole.allCases) { role in
                         Button {
-                            withAnimation(.easeOut(duration: 0.2)) { partnerRole = role }
+                            withAnimation(.app(.reveal)) { partnerRole = role }
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: role.icon)
@@ -231,7 +231,7 @@ public struct SettingsView: View {
                                     .fill(partnerRole == role ? theme.accentFill : theme.surfaceAlt)
                             )
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.appPressable)
                     }
                     Spacer()
                 }
@@ -311,7 +311,7 @@ public struct SettingsView: View {
                 }
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help("设为\(partnerRole.title)：\(kind.displayName)")
     }
 
@@ -486,7 +486,7 @@ public struct SettingsView: View {
                     .fill(selected ? theme.accentFill : theme.surfaceAlt)
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
     }
 
     /// 卡片右上角：`local.llm · qwen3:8b 已就绪 【关闭】`。
@@ -514,7 +514,7 @@ public struct SettingsView: View {
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .disabled(isRefreshing)
                 .help("重新检测本地模型")
             }
@@ -571,7 +571,7 @@ public struct SettingsView: View {
             .background(Capsule().fill(tint.opacity(0.10)))
             .overlay(Capsule().strokeBorder(tint, lineWidth: 1.2))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .disabled(switching)
         .help(active
               ? "关闭该模型：本地模型会真正停掉后台服务"
@@ -702,7 +702,7 @@ public struct SettingsView: View {
                             .strokeBorder(theme.accent.opacity(0.5), lineWidth: 1)
                     )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("接入 OpenAI / AgnesAI / DeepSeek 等外部模型")
             }
 
@@ -781,11 +781,11 @@ public struct SettingsView: View {
                 Spacer()
                 Button("刷新") { Task { await state.refreshRemoteCalls() } }
                     .font(.system(size: 11, design: .rounded))
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .foregroundStyle(theme.accent)
                 Button("清空") { Task { await state.clearRemoteCalls() } }
                     .font(.system(size: 11, design: .rounded))
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .foregroundStyle(theme.secondaryText)
             }
 
@@ -938,7 +938,7 @@ public struct SettingsView: View {
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .help("重新检测可用模型（本地 Ollama / 目录）")
                 }
             }
@@ -1003,7 +1003,7 @@ public struct SettingsView: View {
                         .background(Capsule().fill(theme.surfaceAlt))
                         .overlay(Capsule().strokeBorder(theme.accent.opacity(0.45), lineWidth: 1))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("接入这一能力的外部模型")
             }
             if !usingRemote, kind == .vad {
@@ -1065,7 +1065,7 @@ public struct SettingsView: View {
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("重新检测语音服务")
             }
 
@@ -1129,7 +1129,7 @@ public struct SettingsView: View {
                         .foregroundStyle(theme.primaryText)
                     Spacer(minLength: 4)
                     Button("切回内置") { Task { await state.deactivateClonedVoice() } }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.appPressable)
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .foregroundStyle(theme.accent)
                 }
@@ -1157,7 +1157,7 @@ public struct SettingsView: View {
                     Label("从本地音频新建…", systemImage: "plus.circle")
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .foregroundStyle(theme.accent)
             }
 
@@ -1176,7 +1176,7 @@ public struct SettingsView: View {
                     } label: {
                         Image(systemName: "xmark").font(.system(size: 9))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .foregroundStyle(theme.secondaryText)
                 }
             }
@@ -1210,7 +1210,7 @@ public struct SettingsView: View {
                     }
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .font(.system(size: 11, weight: .semibold, design: .rounded))
             .foregroundStyle(isActive ? theme.secondaryText : theme.accent)
 
@@ -1219,7 +1219,7 @@ public struct SettingsView: View {
             } label: {
                 Image(systemName: "trash").font(.system(size: 10))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .foregroundStyle(theme.secondaryText)
             .help("删除这个音色档案")
         }
@@ -1262,7 +1262,7 @@ public struct SettingsView: View {
                     pendingVoiceName = ""
                     pendingConsent = ""
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .font(.system(size: 11, design: .rounded))
                 .foregroundStyle(theme.secondaryText)
             }
@@ -1329,7 +1329,7 @@ public struct SettingsView: View {
                         .background(Circle().fill(theme.surfaceAlt))
                         .overlay(Circle().strokeBorder(state.voicePreviewEnabled ? theme.accent.opacity(0.4) : theme.divider, lineWidth: 1))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help(state.voicePreviewEnabled ? "自动试听已开启：切换音色即朗读示例（点此关闭）" : "自动试听已关闭（点此开启，切换音色即朗读示例）")
 
                 // 立即试听
@@ -1340,7 +1340,7 @@ public struct SettingsView: View {
                         .font(.system(size: 14))
                         .foregroundStyle(theme.accent)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("立即试听当前音色")
             }
 
@@ -1369,7 +1369,7 @@ public struct SettingsView: View {
                                     )
                                 )
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.appPressable)
                         .help("以 \(option.label) 语速朗读")
                     }
                 }
@@ -1589,7 +1589,7 @@ public struct SettingsView: View {
                 .frame(width: 20, height: 20)
                 .background(Circle().fill(theme.hover))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
     }
 
     // MARK: - 词汇本（每日推荐学习进度）
@@ -1628,7 +1628,7 @@ public struct SettingsView: View {
                     )
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.appPressable)
                 .help("清空「认识」记录，每日推荐重新从简单档开始")
 
                 Text(vocabularyResetSummary)
@@ -1789,17 +1789,17 @@ public struct SettingsView: View {
                 .scaleEffect(isPressing ? 0.94 : 1)
                 .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.appPressable)
             .help(path)
             // simultaneous 而非 gesture：保留 Button 自身的点击语义。
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { _ in withAnimation(.easeOut(duration: 0.1)) { isPressing = true } }
+                    .onChanged { _ in withAnimation(.app(.press)) { isPressing = true } }
                     .onEnded { _ in
-                        withAnimation(.spring(response: 0.24, dampingFraction: 0.6)) { isPressing = false }
+                        withAnimation(.app(.press)) { isPressing = false }
                     }
             )
-            .animation(.easeOut(duration: 0.2), value: didOpen)
+            .appAnimation(.reveal, value: didOpen)
         }
 
         private func reveal() {
@@ -1808,7 +1808,7 @@ public struct SettingsView: View {
             revertTask?.cancel()
             revertTask = Task { @MainActor in
                 try? await Task.sleep(for: .seconds(1.6))
-                withAnimation(.easeOut(duration: 0.25)) { didOpen = false }
+                withAnimation(.app(.reveal)) { didOpen = false }
             }
         }
     }
@@ -1872,7 +1872,7 @@ public struct SettingsView: View {
                         .background(Capsule().fill(theme.surfaceAlt))
                         .contentShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .help("按磁盘上的 config.json 重新载入，并把各能力的模型重接一遍（不必重启）")
 
                     if !state.configLocationPath.isEmpty {
@@ -1895,7 +1895,7 @@ public struct SettingsView: View {
                                 .font(.system(size: 9, weight: .semibold))
                                 .foregroundStyle(theme.secondaryText)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.appPressable)
                         .help("收起回执")
                     }
                 }
@@ -2020,7 +2020,7 @@ public struct SettingsView: View {
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .help("重新统计")
                 }
 
@@ -2078,7 +2078,7 @@ public struct SettingsView: View {
                         .frame(height: 30)
                         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(theme.accentFill))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .disabled(isClearingCache || snapshot.items.isEmpty)
                     .help("清理过期对话流水并回收磁盘空间")
                 }
@@ -2137,7 +2137,7 @@ public struct SettingsView: View {
                         .frame(height: 30)
                         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(theme.accentFill))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .disabled(state.isExportingBackup)
                     .help("把学习库、配置和调用留痕打包成一个带时间戳的 zip")
 
@@ -2161,7 +2161,7 @@ public struct SettingsView: View {
                                 )
                         )
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .disabled(state.isExportingBackup)
                     .help("从备份 zip 恢复学习库与配置（重启后生效，恢复前会自动留底当前数据）")
 
@@ -2224,7 +2224,7 @@ public struct SettingsView: View {
                                 .font(.system(size: 9, weight: .semibold))
                                 .foregroundStyle(theme.secondaryText)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.appPressable)
                         .help("知道了，收起这条回执")
                     }
                 }
@@ -2334,7 +2334,7 @@ public struct SettingsView: View {
                         .background(Capsule().fill(theme.surfaceAlt))
                         .contentShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.appPressable)
                     .help("清空设置页展示的日志（系统日志里的历史清不掉）")
                 }
 
@@ -2418,7 +2418,7 @@ public struct SettingsView: View {
                 )
                 .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.appPressable)
         .help(level == .debug ? "全收（默认）：连调试信息一起留着" : "只看 \(level.rawValue) 及以上")
     }
 
