@@ -9,7 +9,7 @@ import XCTest
 /// 为什么必须用源码扫描而不是渲染回归：
 /// - 两份浮卡的落点由**各自的钳制容器**决定。测试钩子 `previewFocus`
 ///   直接注入整卡坐标时，两处算出的 origin 会重合，图上只看得见一份（假绿）；
-///   而真实 hover 走「热图坐标 + heatmapFrame 偏移」的路径，两份才会错开。
+///   而真实 hover 走「热图坐标 + 卡片已知偏移」的路径，两份才会错开。
 ///   离屏环境下 preference 传播时序不可控，搭不出稳定的 hover 路径。
 /// - 这类缺陷的本质是**视图树上多接了一根线**，源码即事实，扫描最准。
 final class AnnualTooltipWiringTests: XCTestCase {

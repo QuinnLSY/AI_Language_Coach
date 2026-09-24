@@ -61,8 +61,8 @@ final class AnnualTooltipLayerRenderTests: XCTestCase {
         self.window = window
         host.layoutSubtreeIfNeeded()
         window.layoutIfNeeded()
-        // 热图 frame 经 preference 传上来 —— ⚠️ 必须**让出主线程**它才会落地
-        // （Thread.sleep 阻塞主线程的话 onPreferenceChange 永远不来，实测坐标差 30pt）。
+        // 让 RunLoop 转一会儿再出图（布局稳定；浮卡落点已不再依赖 preference，
+        // 这里只是保险）。
         try await Task.sleep(nanoseconds: 100_000_000)
         host.layoutSubtreeIfNeeded()
         window.layoutIfNeeded()
@@ -136,10 +136,11 @@ final class AnnualTooltipLayerRenderTests: XCTestCase {
 
         let baseline = try await renderCard(previewFocus: nil)
         let covered = try await renderCard(
-            // previewFocus 的落点按**整卡坐标**解释（见实现的钩子注释）。
-            // 卡高 ≈ 220pt：鼠标放 y=140，浮卡（两行高 ≈ 51pt）落在
-            // (378, 152)–(468, 203)，正好盖住 footnote 第一行又不会高到触发翻转。
-            previewFocus: AnnualRecapCard.Focus(day: today, point: CGPoint(x: 366, y: 140))
+            // previewFocus 的落点按**热图坐标**解释（与真实 hover 同一套），
+            // 卡片自己加「卡内边距 16 + 表头 18 + 间距 10」的偏移。
+            // 卡高 ≈ 220pt：鼠标放热图坐标 y=96（= 整卡 y 140），浮卡（两行高 ≈ 51pt）
+            // 落在整卡 (378, 152)–(468, 203)，正好盖住 footnote 第一行又不会高到触发翻转。
+            previewFocus: AnnualRecapCard.Focus(day: today, point: CGPoint(x: 350, y: 96))
         )
 
         // 夹具自检：下半部确实有 footer/footnote 文字可遮。

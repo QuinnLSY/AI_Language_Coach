@@ -71,6 +71,20 @@ struct AnnualHeatmapMetrics {
         guard column >= 0, row >= 0 else { return nil }
         return (column, row)
     }
+
+    /// 某一列（一周）的**整列条带**：从第一行到第七行，含行间距。
+    ///
+    /// 给浮卡的禁入区用（见 `AnnualTooltipPlacement.origin(…avoiding:)`）。
+    /// 为什么是整列而不是被查看那一格：鼠标沿列上下移动时浮卡会跟着上下走，
+    /// 只躲一格的话它立刻又压住上面/下面那格 —— 用户要「看同列其他方格」就看不成了。
+    func columnStrip(column: Int) -> CGRect {
+        CGRect(
+            x: origin(column: column, row: 0).x,
+            y: monthRowHeight,
+            width: cell,
+            height: CGFloat(Self.rows) * cell + CGFloat(Self.rows - 1) * spacing
+        )
+    }
 }
 
 /// 年度学习记录卡。
@@ -93,12 +107,24 @@ public struct AnnualRecapCard: View {
     private let previewFocus: Focus?
 
     /// 热图画布在**整卡**坐标系里的位置（浮卡挂在整卡层，要把热图里的
-    /// 鼠标点换算过去）。经 `PreferenceKey` 从热图的 `GeometryReader` 传上来。
-    private struct HeatmapFrameKey: PreferenceKey {
-        static var defaultValue: CGRect { .zero }
-        static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+    /// 鼠标点换算过去）。
+    ///
+    /// ⚠️ 曾经用 `PreferenceKey` 从热图的 `GeometryReader` 传上来 —— **那是错的**：
+    /// preference 要等一次 SwiftUI 更新回合才回灌，而落点每一帧都要用。
+    /// 实测它在本机**从来没到过**（探针读数恒为 `.zero`，离屏与实机都一样），
+    /// 于是浮卡少掉这一截偏移，被画到鼠标的**左上方**（横 −16 / 纵 −43）——
+    /// 2026-09-24 报障「浮卡压住了要看的方格和同列上下其他格子」正是这么来的：
+    /// 它其实偏到了被查看的那一列上。
+    ///
+    /// 现在改成**按已知布局解析算**：卡内边距 + 表头固定高 + 间距，宽度 = 卡宽 − 两侧内边距。
+    /// 三个常量都用在布局自身（见 `body` / `header`），改布局时不会与这里脱节。
+    private struct Layout {
+        static let cardPadding: CGFloat = 16
+        static let sectionSpacing: CGFloat = 10
+        /// 表头固定高。**必须固定**：热图的纵坐标由它推出来，跟着字高浮动就等于
+        /// 让浮卡落点跟着字体版本漂。
+        static let headerHeight: CGFloat = 18
     }
-    @State private var heatmapFrame: CGRect = .zero
 
     public init(recap: AnnualRecap) {
         self.init(recap: recap, previewFocus: nil)
@@ -110,6 +136,18 @@ public struct AnnualRecapCard: View {
     }
 
     private var columns: Int { recap.weeks.count }
+
+    /// 热图在整卡坐标里的位置（纯推算，不依赖任何时序）。
+    private func heatmapFrame(in containerSize: CGSize) -> CGRect {
+        let width = max(containerSize.width - Layout.cardPadding * 2, 1)
+        let height = width / AnnualHeatmapMetrics.aspectRatio(columns: columns)
+        return CGRect(
+            x: Layout.cardPadding,
+            y: Layout.cardPadding + Layout.headerHeight + Layout.sectionSpacing,
+            width: width,
+            height: height
+        )
+    }
 
     /// 当前要解释的那一格：优先「测试注入的」，其次「点住的」，再次「悬停的」。
     private var focusedFocus: Focus? {
@@ -123,6 +161,24 @@ public struct AnnualRecapCard: View {
     /// 浮卡该出现在哪：与焦点同源（点住用点下时的落点，悬停用鼠标位置）。
     private var anchorPoint: CGPoint? {
         focusedFocus?.point
+    }
+
+    /// 被查看的那**一整列**在整卡坐标里的条带 = 浮卡的禁入区（2026-09-24 报障：
+    /// 浮卡压住了要看的方格和同列上下其他格子）。
+    private func focusedColumnStrip(in containerSize: CGSize) -> CGRect? {
+        guard let focused, let column = columnIndex(of: focused.day) else { return nil }
+        let frame = heatmapFrame(in: containerSize)
+        let metrics = AnnualHeatmapMetrics(width: frame.width, columns: columns)
+        return metrics.columnStrip(column: column)
+            .offsetBy(dx: frame.minX, dy: frame.minY)
+    }
+
+    /// 某天落在第几列（第几周）。
+    private func columnIndex(of day: Date) -> Int? {
+        let target = Calendar.current.startOfDay(for: day)
+        return recap.weeks.firstIndex { week in
+            week.contains { $0?.day == target }
+        }
     }
 
     private func cell(on day: Date?) -> AnnualRecap.Cell? {
@@ -141,20 +197,19 @@ public struct AnnualRecapCard: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
             header
             heatmap
             footer
             footnote
         }
-        .padding(16)
+        .padding(Layout.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(theme.surface)
                 .shadow(color: theme.shadow, radius: 8, x: 0, y: 3)
         )
-        .onPreferenceChange(HeatmapFrameKey.self) { heatmapFrame = $0 }
         // 浮卡挂在**整卡层**而不是热图层：footer/footnote 是热图的晚兄弟，
         // 挂在热图层会被它们画在头上（#5 二轮报障）。挂在这里 = 最后画 = 悬浮最上；
         // 落点也钳在整卡内，不会再伸到下一张卡底下。
@@ -163,10 +218,7 @@ public struct AnnualRecapCard: View {
                 tooltipOverlay(containerSize: cardProxy.size)
             }
         }
-        .coordinateSpace(name: Self.coordinateSpaceName)
     }
-
-    static let coordinateSpaceName = "annualRecapCard"
 
     @ViewBuilder
     private func tooltipOverlay(containerSize: CGSize) -> some View {
@@ -176,25 +228,19 @@ public struct AnnualRecapCard: View {
                 width: AnnualDayDetailCard.measuredWidth(items: items),
                 height: AnnualDayDetailCard.estimatedHeight(items: items)
             )
-            // 鼠标点记录在热图坐标里，换算到整卡坐标再钳制。
-            // 测试钩子（previewFocus）注入的落点**直接按整卡坐标解释**：
-            // 离屏环境里 preference 的传播时序不可控，钩子不该依赖它。
-            let mouse = tooltipMouse(anchor: anchor)
+            // 落点记录在**热图坐标**里（`onContinuousHover` 给的就是它），
+            // 换算到整卡坐标再钳制、再让开被查看那一列。
+            let frame = heatmapFrame(in: containerSize)
             let origin = AnnualTooltipPlacement.origin(
-                mouse: mouse, containerSize: containerSize, tooltipSize: size
+                mouse: CGPoint(x: anchor.x + frame.minX, y: anchor.y + frame.minY),
+                containerSize: containerSize,
+                tooltipSize: size,
+                avoiding: focusedColumnStrip(in: containerSize)
             )
             AnnualTooltipFollower(items: items, target: origin)
                 .allowsHitTesting(false)
                 .transition(.opacity)
         }
-    }
-
-    private func tooltipMouse(anchor: CGPoint) -> CGPoint {
-        if previewFocus != nil { return anchor }
-        return CGPoint(
-            x: anchor.x + heatmapFrame.minX,
-            y: anchor.y + heatmapFrame.minY
-        )
     }
 
     // MARK: - 标题行
@@ -212,6 +258,8 @@ public struct AnnualRecapCard: View {
                 .foregroundStyle(theme.accent)
                 .monospacedDigit()
         }
+        // 固定高：浮卡落点要用它推热图位置（见 `Layout.headerHeight`）。
+        .frame(height: Layout.headerHeight)
     }
 
     // MARK: - 年历
@@ -252,14 +300,9 @@ public struct AnnualRecapCard: View {
                                 }
                             }
                     )
-                    // #5 二轮：热图画布在整卡坐标里的位置经 preference 传上去 ——
-                    // 浮卡挂在整卡层（见 body），鼠标点要从热图坐标换算过去。
-                    // `allowsHitTesting(false)`：浮卡绝不抢命中，
-                    // 否则它会盖住下面的格子，鼠标一动悬停就断了。
-                    .preference(
-                        key: HeatmapFrameKey.self,
-                        value: proxy.frame(in: .named(Self.coordinateSpaceName))
-                    )
+                    // 「浮卡不抢命中」这条靠它守住：浮卡盖住格子时鼠标一动悬停就断了。
+                    // ⚠️ 这里**不再**往上报热图 frame —— 浮卡要按照样式算出来的
+                    // `heatmapFrame(in:)`（见那里的说明：preference 从来没到过）。
             }
         }
     }

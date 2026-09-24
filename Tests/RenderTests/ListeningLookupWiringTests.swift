@@ -69,4 +69,27 @@ final class ListeningLookupWiringTests: XCTestCase {
             "徽章不许再用原生 .help：点击后它不再弹出（2026-09-24 报障本体）"
         )
     }
+
+    /// 徽章浮卡要画在**整窗最上层**。
+    ///
+    /// 它挂在侧栏的浮层里、会伸出侧栏 220pt 之外，而分隔线 / 中间栏 / 右栏都是
+    /// **更晚的兄弟节点**，默认会把溢出的浮卡画在下面 —— 2026-09-24 报障：
+    /// 浮卡右半截被中间栏底色盖住。侧栏抬一层（`.zIndex`）即可，浮卡自己
+    /// `allowsHitTesting(false)`，不抢任何点击。
+    ///
+    /// 为什么用源码扫描：三栏主界面要真的 `AppState`，离屏搭不出来；这是纯接线事实。
+    /// 反证：删掉 MainView 里 `AppSidebar` 挂载处的 `.zIndex` → 红。
+    func testSidebarIsLiftedAboveTheLaterColumns() throws {
+        let view = try source("Sources/AppUI/Views/MainView.swift")
+        let lines = view.components(separatedBy: .newlines)
+        let index = try XCTUnwrap(
+            lines.firstIndex { $0.contains("AppSidebar(state: state)") },
+            "MainView 里找不到 AppSidebar 的挂载点"
+        )
+        let mount = lines[index..<min(index + 8, lines.count)].joined(separator: "\n")
+        XCTAssertTrue(
+            mount.contains(".zIndex("),
+            "侧栏必须抬一层（.zIndex）—— 否则徽章浮卡伸出侧栏的那半截会被后面的栏盖住"
+        )
+    }
 }

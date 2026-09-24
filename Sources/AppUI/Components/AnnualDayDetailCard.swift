@@ -144,12 +144,23 @@ struct AnnualTooltipFollower: View {
 /// 伸出去压住 footer/footnote，而 footer 是更晚的兄弟节点会反过来画在浮卡上面
 /// —— 既难看又挡字。钳在整卡内 + 浮卡挂在整卡层，两个问题一起消失。
 /// 纯函数，四条边各有一条单测。
+///
+/// 三轮（2026-09-24 报障「浮卡挡住了要看的那一天的方格，以及同列上下其他格子」）：
+/// 光「不越界」不够 —— 浮卡还得**让开正在看的那一列**。新增 `avoiding:` 禁入区，
+/// 有交点就整体挪到它的一侧。避让按**整列**（见 `AnnualHeatmapMetrics.columnStrip`）：
+/// 只躲被查看那一格的话，鼠标沿列上下移动时浮卡又会压住上面/下面那格 ——
+/// 用户要的正是「沿列比对」，一格都不该挡。
 enum AnnualTooltipPlacement {
 
+    /// - Parameters:
+    ///   - avoid: 禁入区（被查看的那一列在**整卡坐标**里的条带）。与浮卡纵向有
+    ///     交集时，浮卡必须整体落在它左侧或右侧、并留出 `margin` 空档（阴影也不许
+    ///     碰到那一列）。`nil` = 没有禁入区，退回「只在边界内钳制」的老行为。
     static func origin(
         mouse: CGPoint,
         containerSize: CGSize,
         tooltipSize: CGSize,
+        avoiding avoid: CGRect? = nil,
         margin: CGFloat = 12
     ) -> CGPoint {
         var x = mouse.x + margin
@@ -160,6 +171,18 @@ enum AnnualTooltipPlacement {
         }
         if y + tooltipSize.height > containerSize.height - margin {
             y = mouse.y - margin - tooltipSize.height
+        }
+        // 让开禁入区（纵向不挨着就无所谓 —— 例如浮卡完全落在网格下方）。
+        if let avoid,
+           y < avoid.maxY, y + tooltipSize.height > avoid.minY,
+           !(x + tooltipSize.width <= avoid.minX - margin || x >= avoid.maxX + margin) {
+            // 优先挪到列右侧（与「鼠标右下」的默认落点同向）；右边装不下再挪到左侧。
+            if avoid.maxX + margin + tooltipSize.width <= containerSize.width - margin {
+                x = avoid.maxX + margin
+            } else if avoid.minX - margin - tooltipSize.width >= margin {
+                x = avoid.minX - margin - tooltipSize.width
+            }
+            // 两侧都装不下（浮卡窄于窗口时不该发生）→ 保持原样，交给下面的钳制兜底。
         }
         // 最后钳进边界（浮卡比容器还宽/高时，前面的翻转逻辑会翻过头 —— 这里兜底）。
         x = min(max(x, margin), max(containerSize.width - tooltipSize.width - margin, margin))

@@ -63,12 +63,20 @@ struct StreakBadgeView: View {
             showsTip = hovering
         }
         // 悬浮卡挂在胶囊**下方**（徽章在侧栏最顶上，往上放会出窗）。
-        // overlay 允许画出自身边界之外，压在导航列表上；不参与命中，不抢点击。
-        .overlay(alignment: .bottom) {
+        //
+        // ⚠️ 2026-09-24 报障（口径「不要挡住徽章本身」）：纵向落点必须用
+        // `.overlay(alignment: .top)` + 「胶囊高 + 间隙」的位移。老写法是
+        // `.overlay(alignment: .bottom).offset(y: 27)` —— 那是**卡底**对齐胶囊底
+        // 再整体下移，卡一高过位移量，卡的左上角就压回徽章身上（实机：徽章被压掉半个）。
+        //
+        // ⚠️ 浮卡会画出侧栏 220pt 之外压在中间栏上，所以侧栏本身要抬一层
+        // （见 `MainView` 里 `AppSidebar` 的 `.zIndex`）；浮卡自己
+        // `allowsHitTesting(false)`，不参与命中、不抢点击。
+        .overlay(alignment: .top) {
             if showsTip || previewShowsTip {
                 tipCard
                     .fixedSize()
-                    .offset(y: tipCardEstimatedHeight)
+                    .offset(y: tipTopOffset)
                     .allowsHitTesting(false)
                     .transition(.opacity)
                     .zIndex(10)
@@ -101,6 +109,9 @@ struct StreakBadgeView: View {
         )
     }
 
-    /// 徽章胶囊高（约 21）+ 间隙：把悬浮卡从胶囊底边挪下去一点。
-    private var tipCardEstimatedHeight: CGFloat { 27 }
+    /// 悬浮卡顶边距徽章顶边多远。
+    ///
+    /// = 胶囊高（11pt 那行行高 ≈13 + 上下各 3 内边距 ≈ 19）+ 6pt 间隙，取整上取。
+    /// 宁可多留一点空，也绝不许压到徽章上 —— 两者是「说明」与「被说明对象」的关系。
+    private var tipTopOffset: CGFloat { 26 }
 }

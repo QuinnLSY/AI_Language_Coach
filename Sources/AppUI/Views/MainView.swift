@@ -40,6 +40,12 @@ public struct MainView: View {
                 HStack(spacing: 0) {
                     AppSidebar(state: state)
                         .frame(width: sidebarW)
+                        // ⚠️ 侧栏要抬一层（2026-09-24 报障：徽章浮卡右半截被中间栏底色
+                        // 盖住）。徽章的悬浮说明卡画在自己 220pt 之外，而分隔线 / 中间栏 /
+                        // 右栏都是**更晚的兄弟节点**，默认会把溢出的浮卡画在下面。
+                        // 浮卡自己 `allowsHitTesting(false)`，抬层不抢任何点击；
+                        // 设置 / 情景这类浮层在更外层的 ZStack 上、zIndex 更高，仍然压得住它。
+                        .zIndex(1)
 
                     Divider().overlay(state.theme.divider)
                         .frame(width: sideDividerWidth)
