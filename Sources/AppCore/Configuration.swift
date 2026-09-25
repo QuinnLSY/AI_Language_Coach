@@ -18,6 +18,38 @@ public enum ThemeMode: String, Codable, Sendable, CaseIterable, Identifiable {
     }
 }
 
+/// 应用内动效档位（2026-09-25 用户要求的应用内开关）。
+///
+/// `followSystem` 跟随 macOS「减弱动态效果」系统偏好；`reduced` / `full` 是**强制档**，
+/// 无视系统偏好 —— 用户明确说「就要看动画」或「就要安静」时用。
+/// 三态缺一不可：只有「开/关」两态的话，强制开等于替用户否决系统偏好。
+public enum MotionMode: String, Codable, Sendable, CaseIterable, Identifiable {
+    case followSystem
+    case reduced
+    case full
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .followSystem: "跟随系统"
+        case .reduced: "减少动画"
+        case .full: "完整动画"
+        }
+    }
+
+    /// 该档位在「系统偏好是否要求减少动态」下的**实际**结论。
+    /// 纯函数，落点两处共用：环境注入（`appMotionRoot(override:)`）与
+    /// 非 View 上下文的 `AppMotionDescriptor.current()` —— 两处必须同一份真相。
+    public func reducesMotion(systemPrefers: Bool) -> Bool {
+        switch self {
+        case .followSystem: systemPrefers
+        case .reduced: true
+        case .full: false
+        }
+    }
+}
+
 public enum PracticeMode: String, Codable, Sendable, CaseIterable, Identifiable {
     case conversation
     case pronunciation
@@ -378,6 +410,8 @@ public struct ProductConfig: Sendable, Equatable {
     public var teacherVoice: String
     public var practiceMode: PracticeMode
     public var themeMode: ThemeMode
+    /// 应用内动效档位（见 `MotionMode`）。默认跟随系统 —— 与第一批行为一致。
+    public var motionMode: MotionMode
     /// 各能力当前选中的模型（`AIProviderKind.rawValue -> model`）。**由 UI 填写**。
     public var selectedModels: [String: String]
     /// 老师形象（`AnimalKind.rawValue` 字符串，UI 层映射）。默认小熊猫。
@@ -430,6 +464,7 @@ public struct ProductConfig: Sendable, Equatable {
         teacherVoice: String = "Serena",
         practiceMode: PracticeMode = .conversation,
         themeMode: ThemeMode = .day,
+        motionMode: MotionMode = .followSystem,
         selectedModels: [String: String] = [:],
         teacherAnimal: String = "panda",
         teacherPersona: String = "standard",
@@ -454,6 +489,7 @@ public struct ProductConfig: Sendable, Equatable {
         self.teacherVoice = teacherVoice
         self.practiceMode = practiceMode
         self.themeMode = themeMode
+        self.motionMode = motionMode
         self.selectedModels = selectedModels
         self.teacherAnimal = teacherAnimal
         self.teacherPersona = teacherPersona
@@ -489,7 +525,7 @@ public struct ProductConfig: Sendable, Equatable {
 
 extension ProductConfig: Codable {
     private enum CodingKeys: String, CodingKey {
-        case learningLanguage, nativeLanguage, teacherVoice, practiceMode, themeMode
+        case learningLanguage, nativeLanguage, teacherVoice, practiceMode, themeMode, motionMode
         case selectedModels, teacherAnimal, teacherPersona, studentAnimal, activeProviders
         case teacherBubbles, animalBubbles, animalActivity
         case animalActivityFrequency, voicePreview, autoSpeak, speechRate
@@ -521,6 +557,7 @@ extension ProductConfig: Codable {
         teacherVoice = try value(.teacherVoice, fallback.teacherVoice)
         practiceMode = try value(.practiceMode, fallback.practiceMode)
         themeMode = try value(.themeMode, fallback.themeMode)
+        motionMode = try value(.motionMode, fallback.motionMode)
         selectedModels = try value(.selectedModels, fallback.selectedModels)
         teacherAnimal = try value(.teacherAnimal, fallback.teacherAnimal)
         // ⚠️ 缺字段的老配置一律落回 `standard` —— 那正是加档位之前的行为，
@@ -553,6 +590,7 @@ extension ProductConfig: Codable {
         try container.encode(teacherVoice, forKey: .teacherVoice)
         try container.encode(practiceMode, forKey: .practiceMode)
         try container.encode(themeMode, forKey: .themeMode)
+        try container.encode(motionMode, forKey: .motionMode)
         try container.encode(selectedModels, forKey: .selectedModels)
         try container.encode(teacherAnimal, forKey: .teacherAnimal)
         try container.encode(teacherPersona, forKey: .teacherPersona)

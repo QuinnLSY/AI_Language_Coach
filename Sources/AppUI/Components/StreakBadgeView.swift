@@ -27,6 +27,7 @@ import SwiftUI
 struct StreakBadgeView: View {
 
     @Environment(\.forestTheme) private var theme
+    @Environment(\.appMotion) private var motion
 
     let badge: TodayPanel.StreakBadge
     /// 点一下去哪儿（侧栏传 `AppState.openAnnualRecapInProgress`）。
@@ -48,6 +49,11 @@ struct StreakBadgeView: View {
                 Text("\(badge.days) 天")
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .monospacedDigit()
+                    // 数字滚动推入而不是跳变（#356）：跨天 / 完成练习后连续天数
+                    // 变化时，旧数字往上推出、新数字从下推入。monospacedDigit 防
+                    // 位数变化时的宽度抖动。reduceMotion 下动画自动退化成短淡变。
+                    .contentTransition(.numericText())
+                    .animation(motion.animation(.reveal), value: badge.days)
             }
             .foregroundStyle(tint)
             .padding(.horizontal, 8)

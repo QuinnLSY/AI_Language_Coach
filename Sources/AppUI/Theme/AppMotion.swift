@@ -1,3 +1,4 @@
+import AppCore
 import AppKit
 import SwiftUI
 
@@ -81,20 +82,34 @@ public struct AppMotionDescriptor: Sendable, Equatable {
         reduceMotion ? min(token.nominalDuration, 0.12) : token.nominalDuration
     }
 
-    /// 从**系统偏好**直接读档，不走 SwiftUI 环境。
+    /// 从**系统偏好 + 应用内覆盖档**读档，不走 SwiftUI 环境。
     ///
     /// 给 `@Observable` class 用（例如 `AppState` 里的 `withAnimation`）：那里读不到
-    /// `@Environment`，可它照样得跟着「减弱动态效果」走 —— 少了这条路，浮层的
+    /// `@Environment`，可它照样得跟着档位走 —— 少了这条路，浮层的
     /// 出场动画就成了系统偏好的法外之地。
+    ///
+    /// 覆盖档（`appOverride`）由 `AppState` 在启动 / 切换设置时写入（见 `MotionMode`）；
+    /// 没写时就是老行为 —— 纯跟系统。两条路径的合成逻辑必须同一份真相：
+    /// 环境那条走 `MotionMode.reducesMotion(systemPrefers:)`，这条也是。
     ///
     /// ⚠️ View 内部请继续用环境那份：环境会**实时**响应偏好变化，而这一份只是
     /// 调用那一刻的快照（测试里注入的假档位也只对环境那份有效）。
     public static func current() -> AppMotionDescriptor {
-        AppMotionDescriptor(
-            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+        let systemReduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let reduceMotion = appOverride?.reducesMotion(systemPrefers: systemReduceMotion)
+            ?? systemReduceMotion
+        return AppMotionDescriptor(
+            reduceMotion: reduceMotion,
             reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
         )
     }
+
+    /// 应用内动效覆盖档（`nil` = 跟随系统）。由 `AppState` 在启动与切换设置时写入。
+    ///
+    /// 为什么是静态变量而不是配置回查：`Animation.app(_:)` 是**静态**入口，
+    /// 调用点（`withAnimation(.app(...))`）拿不到任何实例引用；配置经 ConfigStore
+    /// 异步加载，动画是即时的。`AppState`（@MainActor）是唯一的写入者，读写都在主线程。
+    nonisolated(unsafe) public static var appOverride: MotionMode?
 
     /// 常驻循环动画（星星闪烁、树叶摇曳、丝带飘）。
     ///
@@ -126,13 +141,18 @@ public extension EnvironmentValues {
 
 public extension View {
 
-    /// 在**应用根注入一次**：读系统的「减弱动态效果 / 降低透明度」偏好，
-    /// 让整棵子树所有 token 自动退化。
+    /// 在**应用根注入一次**：按「应用内覆盖档 + 系统偏好」合成实际档位，
+    /// 让整棵子树所有 token 自动跟随（合成逻辑走 `MotionMode.reducesMotion`，
+    /// 与非 View 上下文的 `Animation.app(_:)` 同一份真相）。
+    ///
+    /// - Parameter override: 应用内开关（设置页的「动画效果」），默认跟随系统。
     ///
     /// ⚠️ Sheet / popover 挂在视图树的另一条分支上，根上注入不一定传得过去 ——
     /// 覆盖不到的地方要各自再写一次。忘了写不会报错，只会静默退回到默认档，
     /// 所以每次加 sheet 都要过一眼这里。
-    func appMotionRoot() -> some View { modifier(AppMotionRootModifier()) }
+    func appMotionRoot(override: MotionMode = .followSystem) -> some View {
+        modifier(AppMotionRootModifier(override: override))
+    }
 
     /// token 版的 `.animation(_:value:)`。
     func appAnimation<V: Equatable>(_ token: AppMotion, value: V) -> some View {
@@ -147,14 +167,16 @@ public extension View {
 }
 
 private struct AppMotionRootModifier: ViewModifier {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 应用内覆盖档（设置页的「动画效果」三态）。
+    let override: MotionMode
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     func body(content: Content) -> some View {
         content.environment(
             \.appMotion,
             AppMotionDescriptor(
-                reduceMotion: reduceMotion,
+                reduceMotion: override.reducesMotion(systemPrefers: systemReduceMotion),
                 reduceTransparency: reduceTransparency
             )
         )

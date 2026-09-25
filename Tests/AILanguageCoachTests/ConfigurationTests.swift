@@ -299,6 +299,7 @@ final class ConfigurationTests: XCTestCase {
             teacherVoice: "Ryan",
             practiceMode: .shadowing,
             themeMode: .night,
+            motionMode: .reduced,
             selectedModels: ["llm": "some-model"],
             teacherAnimal: "tiger",
             teacherPersona: "strict",
@@ -329,6 +330,7 @@ final class ConfigurationTests: XCTestCase {
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let expectedKeys = [
             "learningLanguage", "nativeLanguage", "teacherVoice", "practiceMode", "themeMode",
+            "motionMode",
             "selectedModels", "teacherAnimal", "teacherPersona", "studentAnimal", "activeProviders",
             "teacherBubbles", "animalBubbles", "animalActivity", "animalActivityFrequency",
             "voicePreview", "autoSpeak", "speechRate", "dailyGoalMinutes", "dailyGoalMode",

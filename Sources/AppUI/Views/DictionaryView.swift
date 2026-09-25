@@ -59,6 +59,12 @@ public struct DictionaryView: View {
                     .padding(20)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .id(Self.topAnchorID)
+                    // 失败提示的触觉反馈（#358）：挂在常驻容器上（挂在 if let 里
+                    // 每次都是新装视图，trigger 永远等不到变化）。带「重试」动作的
+                    // 才是失败 —— 纯告知（如「已在词汇本里」）不打扰。
+                    .sensoryFeedback(.warning, trigger: state.dictionaryNotice?.text) { old, new in
+                        new != nil && old != new
+                    }
                 }
                 // ⚠️ 换一个词只是**换掉卡里的内容**，`ScrollView` 自己不会把偏移重置：
                 // 从「派生词 / 近义词」那一块点进去，新词会带着同样的偏移开屏，

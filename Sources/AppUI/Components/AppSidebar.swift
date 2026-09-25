@@ -23,7 +23,12 @@ private struct BottomBlockHeightKey: PreferenceKey {
 public struct AppSidebar: View {
 
     @Environment(\.forestTheme) private var theme
+    @Environment(\.appMotion) private var motion
     @Bindable var state: AppState
+
+    /// 导航高亮条的 matched geometry 空间：高亮从旧条目**滑**到新条目，
+    /// 而不是旧的消失、新的原地长出来（同一时间只有一个条目持有它）。
+    @Namespace private var navSelectionNamespace
 
     /// 测试钩子（**只在离屏渲染用例里置 true**，产品行为零改动）：点亮打卡悬浮卡。
     ///
@@ -156,6 +161,11 @@ public struct AppSidebar: View {
                 .padding(.vertical, 6)
         }
         .padding(.top, 10)
+        // 高亮条的滑动动画挂在这里（而不是各条目上）：activeSection / showingSettings
+        // 变化的同一次更新里，旧条目的高亮移除、新条目的高亮插入，matched geometry
+        // 才有「两边都在场」的一帧可比。reduceMotion 下 motion.animation 自动退化。
+        .animation(motion.animation(.panel), value: state.activeSection)
+        .animation(motion.animation(.panel), value: state.showingSettings)
     }
 
     // MARK: - 老师座位（黑板 + 教棍老师 + 督促气泡；白天夜晚文案随主题）
@@ -310,10 +320,16 @@ public struct AppSidebar: View {
             .frame(height: 38)
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(isActive ? theme.selection : Color.clear)
-            )
+            .background {
+                // 高亮条只在**当前**条目上画；配合 navList 上的 .animation(_:value:)，
+                // 切页时旧高亮移除、新高亮插入是同一笔交易 —— matched geometry
+                // 让它看起来是同一条高亮滑过去的（#355）。
+                if isActive {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(theme.selection)
+                        .matchedGeometryEffect(id: "nav-selection", in: navSelectionNamespace)
+                }
+            }
             // 提示点：老师开口了但你不在对话页。收起态画在图标右上角，展开态落在行尾。
             .overlay(alignment: isExpanded ? .trailing : .topTrailing) {
                 if badge {

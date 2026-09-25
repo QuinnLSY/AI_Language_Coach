@@ -128,6 +128,9 @@ public final class AppState {
 
     public var themeMode: ThemeMode = .day
     public var systemIsDark: Bool = false
+    /// 应用内动效档位（设置页「动画效果」）。启动时从配置加载并写进
+    /// `AppMotionDescriptor.appOverride`（非 View 上下文的动画链路靠它）。
+    public var motionMode: MotionMode = .followSystem
     /// 侧边栏展开/收起（供主界面参与宽度分配）。
     public var isSidebarExpanded = true
     /// 真实进度：来自学习数据库；首次启动为种子关卡。
@@ -1146,6 +1149,9 @@ public final class AppState {
         let configuration = await services.configuration
         product = configuration.product
         themeMode = configuration.product.themeMode
+        motionMode = configuration.product.motionMode
+        // 非 View 上下文（withAnimation(.app(...))）读不到环境，走这个静态覆盖档。
+        AppMotionDescriptor.appOverride = motionMode
         autoSpeak = configuration.product.autoSpeak
         chat.profile.learningLanguage = configuration.product.learningLanguage
         chat.profile.nativeLanguage = configuration.product.nativeLanguage
@@ -1509,6 +1515,15 @@ public final class AppState {
     public func setThemeMode(_ mode: ThemeMode) async {
         themeMode = mode
         product.themeMode = mode
+        await persistProduct()
+    }
+
+    /// 切换应用内动效档位。除持久化外要同步写 `AppMotionDescriptor.appOverride`：
+    /// 漏了的话设置页看着切了、`withAnimation(.app(...))` 那条链路还是旧档。
+    public func setMotionMode(_ mode: MotionMode) async {
+        motionMode = mode
+        product.motionMode = mode
+        AppMotionDescriptor.appOverride = mode
         await persistProduct()
     }
 

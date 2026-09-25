@@ -78,6 +78,7 @@ public struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     themeCard
+                    motionCard
                     partnerCard
                     forestCompanionsCard
                     modelCard
@@ -203,6 +204,41 @@ public struct SettingsView: View {
                     .font(.system(size: 12, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
             }
+        }
+    }
+
+    // MARK: - 动画效果（应用内动效开关，三态）
+
+    private var motionCard: some View {
+        card(title: "动画效果", systemImage: "sparkles") {
+            VStack(alignment: .leading, spacing: 10) {
+                Picker("", selection: Binding(
+                    get: { state.motionMode },
+                    set: { mode in Task { await state.setMotionMode(mode) } }
+                )) {
+                    ForEach(MotionMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+
+                Text(motionHint)
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+            }
+        }
+    }
+
+    /// 三态的说明文案（抽成纯函数便于钉住措辞）。
+    private var motionHint: String {
+        switch state.motionMode {
+        case .followSystem:
+            "跟着系统的「减弱动态效果」设置走 —— 系统安静，语林也安静。"
+        case .reduced:
+            "星星、树叶都停下来，动画退成轻轻的淡入淡出。"
+        case .full:
+            "所有动画都开，与系统的「减弱动态效果」设置无关。"
         }
     }
 

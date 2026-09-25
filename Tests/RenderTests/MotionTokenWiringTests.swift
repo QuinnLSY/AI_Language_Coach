@@ -55,13 +55,13 @@ final class MotionTokenWiringTests: XCTestCase {
 
     /// 根上必须注入动效档位与按压层 —— 这是全树继承的唯一入口。
     ///
-    /// 反证：删掉 MainView 里的 `.appMotionRoot()` 或 `.buttonStyle(.appPressable)` → 红。
+    /// 反证：删掉 MainView 里的 `.appMotionRoot(override:)` 或 `.buttonStyle(.appPressable)` → 红。
     func testMotionRootIsInjectedAtTheAppRoot() throws {
         let main = try source("Sources/AppUI/Views/MainView.swift")
 
         XCTAssertTrue(
-            main.contains(".appMotionRoot()"),
-            "MainView 根必须注入 .appMotionRoot() —— 否则整棵树都不跟随「减弱动态效果」"
+            main.contains(".appMotionRoot(override:"),
+            "MainView 根必须注入 .appMotionRoot(override:) —— 否则整棵树都不跟随动效档位"
         )
         XCTAssertTrue(
             main.contains(".buttonStyle(.appPressable)"),

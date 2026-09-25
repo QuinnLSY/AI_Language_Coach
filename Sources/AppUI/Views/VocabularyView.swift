@@ -54,6 +54,11 @@ public struct VocabularyView: View {
                     }
                     .padding(20)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    // 失败提示的触觉反馈（#358）：同 DictionaryView —— 挂常驻容器，
+                    // 且只有带动作（失败可重试）的提示才触发。
+                    .sensoryFeedback(.warning, trigger: state.vocabularyNotice?.text) { old, new in
+                        new != nil && old != new
+                    }
                 }
                 .task {
                     // 截图/验证辅助：--vocabulary-tail 启动后滚到词表末尾。

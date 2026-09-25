@@ -136,9 +136,10 @@ public struct MainView: View {
         }
         .frame(minWidth: 1080, minHeight: 720)
         .forestTheme(state.theme)
-        // ⚠️ 动效档位在这一层注入一次，整棵树都跟着系统偏好走（「减弱动态效果」打开时
-        // token 自动退化成一小段线性淡变）。Sheet 挂在另一条分支上，覆盖不到，各自加。
-        .appMotionRoot()
+        // ⚠️ 动效档位在这一层注入一次，整棵树都跟着走：应用内覆盖档（设置页「动画效果」）
+        // 与系统「减弱动态效果」在此合成（同一份逻辑在 MotionMode.reducesMotion）。
+        // Sheet 挂在另一条分支上，覆盖不到，各自加。
+        .appMotionRoot(override: state.motionMode)
         // 统一的按压反馈：165 处 Button 不必逐个改。只改不透明度、不动布局，
         // 所以命中区与间距完全不变（详见 AppButtonStyle 的说明）。
         // 显式写了 `.buttonStyle(.plain)` 的地方会以自己为准 —— 那是刻意的。
@@ -148,6 +149,15 @@ public struct MainView: View {
         // 面板一开就把气泡收掉：它浮在内容层之上，否则会跟着留在面板外面。
         .onChange(of: state.isContentCovered) { _, covered in
             if covered { state.lookupBubble.hide() }
+        }
+        // 结算成功的触觉（#358）：只在**出现**时触发（收起不打扰）。
+        // 挂在常驻的根容器上 —— 挂进 if let 分支里每次都是新装视图，trigger 等不到变化。
+        // 结算成功的触觉（#358）：只在**出现**时触发（收起不打扰）。
+        // 挂在常驻的根容器上 —— 挂进 if let 分支里每次都是新装视图，trigger 等不到变化。
+        // ⚠️ 闭包参数写显式类型：body 已经大到贴着类型检查预算，推断负担能省则省
+        // （不加标注时整条链「unable to type-check in reasonable time」）。
+        .sensoryFeedback(.success, trigger: state.lastReward) { (old: ScenarioReward?, new: ScenarioReward?) in
+            old == nil && new != nil
         }
         // 日夜切换作用于全局：原生控件（TextField / Picker / 滚动条）也一起跟随。
         .preferredColorScheme(state.theme.isNight ? .dark : .light)

@@ -722,6 +722,12 @@ public struct ChatView: View {
                                 bubble(message)
                             }
                             .id(message.id.uuidString)
+                            // 新消息从底部推入（#357）：看得出来「刚到」，而不是凭空出现。
+                            // 移除保持纯淡出 —— 换会话时整列表退场，滑动会乱。
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .bottom).combined(with: .opacity),
+                                removal: .opacity
+                            ))
                         }
 
                         // 判据同样走纯函数：`isBooting` 那段 `isGenerating` 还是 false，
@@ -740,6 +746,10 @@ public struct ChatView: View {
                     .padding(.horizontal, 18)
                     .padding(.vertical, 16)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    // 消息插入/移除的动画事务（#357）：没有它，上面的 .transition
+                    // 从不带动画、新消息是瞬间蹦出来的。挂在 count 上 —— 追加新消息
+                    // 与换会话重置列表都会触发；换会话时旧行纯淡出（见行的 asymmetric）。
+                    .appAnimation(.reveal, value: chat.visibleMessages.count)
                 }
                 // 需求 2：聊天区上翻时，输入框**正上方**出现快速回底按钮，
                 // 并且输入框上方那一条文字有轻微虚化（见 `messageFadeMask`）。
@@ -2048,6 +2058,8 @@ public struct ChatView: View {
                 } else {
                     Image(systemName: isRecording ? "waveform" : "mic.fill")
                         .font(.system(size: 14, weight: .semibold))
+                        // 录音中波形做迭代变色（#358）：不用 ProgressView 也看得出「正在采」。
+                        .symbolEffect(.variableColor.iterative, options: .repeating, isActive: isRecording)
                 }
             }
             // ⚠️ 尺寸/形状/描边全部来自 `ComposerButtonChrome`（与「+」同一份）：
