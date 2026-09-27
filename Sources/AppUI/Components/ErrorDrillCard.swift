@@ -51,7 +51,7 @@ public struct ErrorDrillCard: View {
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(theme.surface)
-                .shadow(color: theme.shadow, radius: 8, x: 0, y: 3)
+                .appElevation(.card)
         )
         // 换题时把上一题的答案清掉 —— 留着会让人以为「这题我已经写过了」。
         .onChange(of: session.index) { answer = ""; isFieldFocused = true }

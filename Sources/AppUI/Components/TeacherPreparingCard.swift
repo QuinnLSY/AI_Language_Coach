@@ -16,10 +16,14 @@ import SwiftUI
 struct TeacherPreparingCard: View {
 
     @Environment(\.forestTheme) private var theme
+    @Environment(\.appMotion) private var motion
 
     let teacherKind: AnimalKind
     /// 计时起点。默认 = 本视图创建时刻；留成参数是为了离屏渲染能把它固定下来。
     var startedAt: Date = Date()
+    /// 当前真实的等待阶段（装配 → 生成开场白）。**不是按秒数编的**：
+    /// `ChatView` 手里有真实信号（`isBooting` / `chat.isGreeting`），分界线不是猜的。
+    var stage: TeacherWaitStage = .greeting
 
     var body: some View {
         TimelineView(.periodic(from: startedAt, by: 1)) { context in
@@ -34,6 +38,7 @@ struct TeacherPreparingCard: View {
                         .monospacedDigit()
                     TypingDots(color: theme.secondaryText)
                 }
+                stageRow
                 if let detail = TeacherWaitCopy.detail(seconds: seconds) {
                     Text(detail)
                         .font(.system(size: 10, design: .rounded))
@@ -44,9 +49,33 @@ struct TeacherPreparingCard: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            // 读屏读「老师正在准备，已等待 N 秒」这一整句，而不是把跳动的点也念一遍。
+            // 读屏读「老师正在准备，已等待 N 秒」这一整句 + 当前阶段，而不是把跳动的东西也念一遍。
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(TeacherWaitCopy.title(seconds: seconds))
+            .accessibilityLabel(TeacherWaitCopy.title(seconds: seconds) + "，\(stage.displayName)")
         }
+    }
+
+    /// 阶段条：两个真实阶段的点 + 标签，走到哪一步哪个点亮。
+    ///
+    /// ⚠️ 这一行**常驻**（两个阶段都要显示）：如果只在某个阶段才画，
+    /// 阶段切换那一秒卡片会凭空长高/缩短一行 —— 等待 30 秒的人会以为界面又闪了一下。
+    private var stageRow: some View {
+        HStack(spacing: 14) {
+            ForEach(TeacherWaitStage.allCases, id: \.self) { step in
+                let reached = step <= stage
+                let current = step == stage
+                HStack(spacing: 4) {
+                    Image(systemName: reached ? "circle.inset.filled" : "circle")
+                        .font(.system(size: 7))
+                        .foregroundStyle(current ? theme.accent : reached ? theme.secondaryText.opacity(0.6) : theme.secondaryText.opacity(0.3))
+                    Text(step.displayName)
+                        .font(.system(size: 9, weight: current ? .semibold : .regular, design: .rounded))
+                        .foregroundStyle(current ? theme.accent : theme.secondaryText.opacity(current ? 1 : 0.6))
+                }
+            }
+        }
+        // 与文字左边缘对齐（头像宽 30 + 间距 8）。
+        .padding(.leading, 38)
+        .appAnimation(.press, value: stage)
     }
 }

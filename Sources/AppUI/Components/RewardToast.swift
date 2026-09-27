@@ -43,10 +43,10 @@ struct RewardToast: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(
-            Capsule().fill(theme.panel)
-                .shadow(color: theme.shadow, radius: 14, x: 0, y: 6)
-        )
+        // 浮层材质（#361）：结算 toast 在一切内容之上，毛玻璃透出底下还有界面；
+        // 「降低透明度」下退回实底。
+        .floatingSurface(in: Capsule())
+        .appElevation(.overlay)
         .overlay(Capsule().strokeBorder(theme.divider, lineWidth: 1))
     }
 }

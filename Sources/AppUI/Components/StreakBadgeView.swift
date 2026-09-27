@@ -104,11 +104,10 @@ struct StreakBadgeView: View {
         .font(.system(size: 11))
         .padding(.horizontal, 9)
         .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(theme.panel)
-                .shadow(color: .black.opacity(theme.isNight ? 0.4 : 0.14), radius: 5, y: 2)
-        )
+        // 浮层材质（#361）：侧栏悬浮卡悬在导航条目上方，毛玻璃透出底下还有内容；
+        // 「降低透明度」下退回实底。
+        .floatingSurface(in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .appElevation(.raised)
         .overlay(
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .strokeBorder(theme.columnDivider, lineWidth: 1)

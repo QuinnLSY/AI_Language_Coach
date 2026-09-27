@@ -667,7 +667,7 @@ public struct MainView: View {
                     .strokeBorder(state.theme.divider, lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .shadow(color: state.theme.shadow, radius: 30, x: 0, y: 14)
+            .appElevation(.sheet)
             .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
         }
         .zIndex(28)
@@ -693,7 +693,7 @@ public struct MainView: View {
                         .strokeBorder(state.theme.divider, lineWidth: 1)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .shadow(color: state.theme.shadow, radius: 30, x: 0, y: 14)
+                .appElevation(.sheet)
                 .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
         }
         .zIndex(20)
@@ -719,7 +719,7 @@ public struct MainView: View {
                         .strokeBorder(state.theme.divider, lineWidth: 1)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .shadow(color: state.theme.shadow, radius: 30, x: 0, y: 14)
+                .appElevation(.sheet)
                 .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
         }
         .zIndex(18)
@@ -748,7 +748,7 @@ public struct MainView: View {
                         .strokeBorder(state.theme.divider, lineWidth: 1)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .shadow(color: state.theme.shadow, radius: 30, x: 0, y: 14)
+                .appElevation(.sheet)
                 .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
         }
         .zIndex(20)
@@ -774,7 +774,7 @@ public struct MainView: View {
                         .strokeBorder(state.theme.divider, lineWidth: 1)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .shadow(color: state.theme.shadow, radius: 30, x: 0, y: 14)
+                .appElevation(.sheet)
                 .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
         }
         .zIndex(20)
@@ -799,7 +799,7 @@ public struct MainView: View {
                         .strokeBorder(state.theme.divider, lineWidth: 1)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .shadow(color: state.theme.shadow, radius: 30, x: 0, y: 14)
+                .appElevation(.sheet)
                 .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
         }
         .zIndex(20)

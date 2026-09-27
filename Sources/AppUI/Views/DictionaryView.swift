@@ -79,6 +79,8 @@ public struct DictionaryView: View {
             }
         }
         .background(theme.surfaceAlt.opacity(0.35))
+        // 内容不足一屏时不硬弹（#360，同聊天区）。
+        .scrollBounceBehavior(.basedOnSize)
         .task {
             await state.reloadDictionaryLibrary()
         }
@@ -319,7 +321,7 @@ public struct DictionaryView: View {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .strokeBorder(theme.accent.opacity(0.3), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.14), radius: 8, y: 3)
+        .appElevation(.card)
     }
 
     // MARK: - 查单词内容
@@ -382,7 +384,7 @@ public struct DictionaryView: View {
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(theme.surface)
-                .shadow(color: theme.shadow, radius: 8, x: 0, y: 3)
+                .appElevation(.card)
         )
     }
 

@@ -71,7 +71,7 @@ struct CurriculumVerdictCard: View {
             if showsContainer {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(theme.panel)
-                    .shadow(color: theme.shadow, radius: 14, x: 0, y: 6)
+                    .appElevation(.overlay)
             }
         }
         .overlay {

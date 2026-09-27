@@ -81,7 +81,7 @@ public struct RecordsView: View {
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(theme.surface)
-                .shadow(color: theme.shadow, radius: 8, x: 0, y: 3)
+                .appElevation(.card)
         )
     }
 
@@ -133,6 +133,8 @@ public struct RecordsView: View {
             }
         }
         .background(theme.surfaceAlt.opacity(0.35))
+        // 内容不足一屏时不硬弹（#360，同聊天区）。
+        .scrollBounceBehavior(.basedOnSize)
     }
 
     // MARK: - 跨页跳转
@@ -217,7 +219,7 @@ public struct RecordsView: View {
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(theme.surface)
-                .shadow(color: theme.shadow, radius: 8, x: 0, y: 3)
+                .appElevation(.card)
         )
     }
 
@@ -586,7 +588,7 @@ public struct RecordsView: View {
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(theme.surface)
-                .shadow(color: theme.shadow, radius: 8, x: 0, y: 3)
+                .appElevation(.card)
         )
     }
 }

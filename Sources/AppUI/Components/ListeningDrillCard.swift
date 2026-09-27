@@ -107,7 +107,7 @@ public struct ListeningDrillCard: View {
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(theme.surface)
-                .shadow(color: theme.shadow, radius: 8, x: 0, y: 3)
+                .appElevation(.card)
         )
         // 换句时清掉上一句的输入与焦点：留着会让人以为「这句我已经写过了」。
         .onChange(of: index) { _, _ in

@@ -100,7 +100,7 @@ struct AnnualDayDetailCard: View {
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(theme.surface)
-                .shadow(color: theme.shadow, radius: 6, x: 0, y: 2)
+                .appElevation(.card)
         )
     }
 }

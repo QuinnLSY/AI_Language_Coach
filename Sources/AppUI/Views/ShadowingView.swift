@@ -60,6 +60,11 @@ public struct ShadowingView: View {
                                 }
                             }
                         }
+                    } else if state.isShadowingLoading {
+                        // 骨架屏（#359）：今天的句子是一次真实模型调用（5–20s），
+                        // 原来这段时间只能看到空态引导 —— 内容马上就到却先看「没有」，
+                        // 骨架先把版式摆出来。
+                        SkeletonShadowingCard()
                     } else {
                         emptyHint
                     }
@@ -70,6 +75,8 @@ public struct ShadowingView: View {
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            // 内容不足一屏时不硬弹（#360，同聊天区）。
+            .scrollBounceBehavior(.basedOnSize)
         }
         .background(theme.surfaceAlt.opacity(0.35))
         .task { await state.loadShadowing() }
@@ -362,7 +369,7 @@ public struct ShadowingView: View {
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(theme.surface)
-                .shadow(color: theme.shadow, radius: 10, x: 0, y: 4)
+                .appElevation(.raised)
         )
     }
 
@@ -417,7 +424,7 @@ public struct ShadowingView: View {
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(theme.surface)
-                .shadow(color: theme.shadow, radius: 10, x: 0, y: 4)
+                .appElevation(.raised)
         )
     }
 
@@ -563,7 +570,7 @@ public struct ShadowingView: View {
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(theme.surface)
-                .shadow(color: theme.shadow, radius: 10, x: 0, y: 4)
+                .appElevation(.raised)
         )
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
@@ -643,7 +650,7 @@ public struct ShadowingView: View {
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(theme.surface)
-                .shadow(color: theme.shadow, radius: 10, x: 0, y: 4)
+                .appElevation(.raised)
         )
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
@@ -774,7 +781,7 @@ public struct ShadowingView: View {
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(theme.surface)
-                .shadow(color: theme.shadow, radius: 10, x: 0, y: 4)
+                .appElevation(.raised)
         )
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }

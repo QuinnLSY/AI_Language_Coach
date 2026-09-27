@@ -86,6 +86,8 @@ public struct LearningProgressView: View {
             }
         }
         .background(theme.surfaceAlt.opacity(0.35))
+        // 内容不足一屏时不硬弹（#360，同聊天区）。
+        .scrollBounceBehavior(.basedOnSize)
         .task {
             // 进入页面汇总一次。**刚汇总过就不重算**，但隔了一会儿再进来必须重算 ——
             // 「今日任务」的进度要跟刚才做过的事对得上，拿昨天的快照说今天的事就是撒谎。
@@ -862,7 +864,7 @@ public struct LearningProgressView: View {
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(theme.surface)
-                .shadow(color: theme.shadow, radius: 8, x: 0, y: 3)
+                .appElevation(.card)
         )
     }
 }

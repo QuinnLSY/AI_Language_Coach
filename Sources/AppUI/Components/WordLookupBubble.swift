@@ -140,11 +140,10 @@ public struct WordLookupBubble: View {
             maxWidth: max(Self.maxWidth, minCardWidth),
             alignment: .leading
         )
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(theme.surface)
-                .shadow(color: theme.shadow, radius: 10, x: 0, y: 4)
-        )
+        // 浮层材质（#361）：划词卡悬在正文上方，毛玻璃透出底下还有内容；
+        // 「降低透明度」下退回实底。
+        .floatingSurface(in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .appElevation(.raised)
         // 卡片上的光标由 `CursorPolicy` 按命中测试裁决（#233 四轮）：
         // 卡片是 SwiftUI 浮层，命中它的是 FloatLayer 的平台视图 → 箭头。
         .overlay(

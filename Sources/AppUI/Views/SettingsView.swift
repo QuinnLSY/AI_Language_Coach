@@ -97,6 +97,8 @@ public struct SettingsView: View {
                 .frame(maxWidth: 620, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .center)
             }
+            // 内容不足一屏时不硬弹（#360，同聊天区）。
+            .scrollBounceBehavior(.basedOnSize)
         }
         .background(theme.panel)
         // 设置页里散落着好几个文本输入（学习语言 / 母语 / 教师音色 / 手动模型名…）：
@@ -2431,7 +2433,7 @@ public struct SettingsView: View {
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(theme.surface)
-                .shadow(color: theme.shadow, radius: 8, x: 0, y: 3)
+                .appElevation(.card)
         )
     }
 

@@ -34,6 +34,8 @@ public struct ListeningView: View {
             }
         }
         .background(theme.surfaceAlt.opacity(0.35))
+        // 内容不足一屏时不硬弹（#360，同聊天区）。
+        .scrollBounceBehavior(.basedOnSize)
         .task { await state.openListening() }
     }
 

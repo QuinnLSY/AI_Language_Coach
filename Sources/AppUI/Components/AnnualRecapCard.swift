@@ -208,7 +208,7 @@ public struct AnnualRecapCard: View {
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(theme.surface)
-                .shadow(color: theme.shadow, radius: 8, x: 0, y: 3)
+                .appElevation(.card)
         )
         // 浮卡挂在**整卡层**而不是热图层：footer/footnote 是热图的晚兄弟，
         // 挂在热图层会被它们画在头上（#5 二轮报障）。挂在这里 = 最后画 = 悬浮最上；

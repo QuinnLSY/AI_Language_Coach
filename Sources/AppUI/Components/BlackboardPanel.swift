@@ -103,7 +103,7 @@ struct BlackboardPanel: View {
             if isCelebrating { stamp }
         }
         .frame(width: Self.frameWidth, height: panelHeight + 10)
-        .shadow(color: theme.shadow, radius: 10, x: 0, y: 4)
+        .appElevation(.raised)
         .appAnimation(.panel, value: panelHeight)
         // 板自己的矩形整块吃掉点击：板挡住的东西（侧栏入口）不该被点到，
         // 圆角外那几个像素和行与行之间的空隙也一样（板外才是穿透区）。

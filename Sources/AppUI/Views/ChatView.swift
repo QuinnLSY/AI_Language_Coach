@@ -751,6 +751,10 @@ public struct ChatView: View {
                     // 与换会话重置列表都会触发；换会话时旧行纯淡出（见行的 asymmetric）。
                     .appAnimation(.reveal, value: chat.visibleMessages.count)
                 }
+                // 内容不足一屏时不硬弹（#360）：空会话 / 只有一两条时上下拖动
+                // 会把整段内容拽起来又弹回去，像皮筋。basedOnSize 只在真的
+                // 能滚的时候才允许回弹。
+                .scrollBounceBehavior(.basedOnSize)
                 // 需求 2：聊天区上翻时，输入框**正上方**出现快速回底按钮，
                 // 并且输入框上方那一条文字有轻微虚化（见 `messageFadeMask`）。
                 .mask { messageFadeMask }
@@ -850,7 +854,12 @@ public struct ChatView: View {
     @ViewBuilder
     private var pendingCard: some View {
         if isTeacherPreparing {
-            TeacherPreparingCard(teacherKind: teacherKind)
+            // 真实阶段：装配（拉服务 / 加载模型）→ 生成开场白。分界线是
+            // `isBooting` / `chat.isGreeting` 这两个真实信号，不是按秒数编的。
+            TeacherPreparingCard(
+                teacherKind: teacherKind,
+                stage: isBooting ? .booting : .greeting
+            )
         } else {
             streamingCard
         }

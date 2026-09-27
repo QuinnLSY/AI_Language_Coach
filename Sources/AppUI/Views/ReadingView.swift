@@ -48,6 +48,8 @@ public struct ReadingView: View {
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            // 内容不足一屏时不硬弹（#360，同聊天区）。
+            .scrollBounceBehavior(.basedOnSize)
         }
         .background(theme.surfaceAlt.opacity(0.35))
         .task { await state.openReading() }
@@ -508,19 +510,11 @@ public struct ReadingView: View {
 
     // MARK: - 加载 / 空态
 
+    /// 加载态换成**骨架屏**（#359）：一次阅读是一篇短文 + 几道题（5–20s），
+    /// 转圈只说「在等」，骨架先把版式摆出来 —— 知道会长成什么样，等得才安心。
+    /// 老的转圈卡删了；读屏语义由骨架卡自己的 accessibilityLabel 承接。
     private var loadingCard: some View {
-        HStack(spacing: 10) {
-            ProgressView().controlSize(.small)
-            Text("老师正在写今天的短文…")
-                .font(.system(size: 12, design: .rounded))
-                .foregroundStyle(theme.secondaryText)
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .center)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(theme.surface)
-        )
+        SkeletonReadingCard()
     }
 
     private var emptyCard: some View {

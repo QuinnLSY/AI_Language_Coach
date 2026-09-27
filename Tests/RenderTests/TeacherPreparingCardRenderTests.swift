@@ -120,7 +120,10 @@ final class TeacherPreparingCardRenderTests: XCTestCase {
 
     // MARK: - ① 等久了真的多出一行
 
-    /// 卡片布局：`[0, 30]` 主标题行（动物头像 30pt 高）；`[35, 50]` 是后加的解释行。
+    /// 卡片布局（2026-09-27 加阶段条后）：`[0, 30]` 主标题行（动物头像 30pt 高）；
+    /// 阶段条常驻在 `[~34, ~48]`；解释行（≥8 秒才有）在它下面。
+    /// 带区起点取「标题行下沿到解释行上沿之间」的中间带，判据用 early/late **差值**
+    /// —— 阶段条两帧都有墨，在差值里自然抵消，不依赖对行高的精确估计。
     func testDetailLineOnlyAppearsAfterWaitingLongEnough() throws {
         let early = try renderCard(secondsAgo: 1, day: true)
         let late = try renderCard(secondsAgo: 20, day: true)
@@ -130,10 +133,18 @@ final class TeacherPreparingCardRenderTests: XCTestCase {
         XCTAssertGreaterThan(earlyTitle, 300, "主标题行就该有墨迹")
         XCTAssertGreaterThan(lateTitle, 300, "主标题行就该有墨迹")
 
-        XCTAssertLessThan(ink(early, fromPt: 34, toPt: 52), 60,
-                          "只等 1 秒不该有解释行（实测 \(ink(early, fromPt: 34, toPt: 52)) 像素）")
-        XCTAssertGreaterThan(ink(late, fromPt: 34, toPt: 52), 200,
-                             "等到 20 秒必须真的多出一行解释（实测 \(ink(late, fromPt: 34, toPt: 52)) 像素）")
+        // 阶段条（#359）常驻：两个阶段的点 + 标签，刚等 1 秒也要画出来。
+        XCTAssertGreaterThan(ink(early, fromPt: 33, toPt: 50), 100,
+                             "阶段条常驻，刚等 1 秒也该有墨迹")
+        XCTAssertGreaterThan(ink(late, fromPt: 33, toPt: 50), 100)
+
+        // 解释行只在等久了出现：early/late 在标题以下的墨差值就是那一行的量。
+        let earlyBelow = ink(early, fromPt: 50, toPt: 70)
+        let lateBelow = ink(late, fromPt: 50, toPt: 70)
+        XCTAssertLessThan(earlyBelow, 60,
+                          "只等 1 秒不该有解释行（实测 \(earlyBelow) 像素）")
+        XCTAssertGreaterThan(lateBelow, 200,
+                             "等到 20 秒必须真的多出一行解释（实测 \(lateBelow) 像素）")
     }
 
     // MARK: - ② 日夜两版都能看（并落盘供人眼复核）
