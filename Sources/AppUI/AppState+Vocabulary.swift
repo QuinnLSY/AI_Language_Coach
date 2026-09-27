@@ -267,6 +267,10 @@ extension AppState {
     /// 开始读当前这个词（录音期间 VoiceService 会把识别结果流式推给输入框）。
     public func startVocabularyReviewRecording() async {
         guard vocabularyReview?.current != nil else { return }
+        // ⚠️ 识别 / 评分期间不重开麦克风（同跟读页，2026-09-27）：
+        // 上一段的识别还在跑就开新录，两次识别在串行的语音服务上排队，
+        // 而且先回来的那次会把分数挂到**当前这个**词上。
+        guard !isVocabularyReviewBusy else { return }
         // ⚠️ 真源而非界面快照（见 `isModelRunning` 的说明）：巡检挂起后快照会过期。
         _ = (try? await services.resumeIfSuspended(.asr)) ?? false
         await syncModelRunStates()
@@ -305,6 +309,8 @@ extension AppState {
     /// 停止录音 → **原始**识别（不做拼写纠正）→ 音素评测（跟读同一套双通道）。
     public func finishVocabularyReviewRecording() async {
         guard let entry = vocabularyReview?.current else { return }
+        // 同上：只有真在录音时才收尾，否则拿空音频换回一句假的「没有听清」。
+        guard isVocabularyReviewRecording else { return }
         isVocabularyReviewRecording = false
         isVocabularyReviewBusy = true
         let recognized = await services.shadowing.finishRecording(language: ShadowingService.practiceLanguage)
@@ -336,9 +342,21 @@ extension AppState {
     }
 
     /// 放弃这次录音。
+    ///
+    /// **离开词汇页时也要调用**（2026-09-27，同跟读页）：切页只销毁视图，
+    /// `AppState` 里的录音状态还在 —— 不主动收尾，麦克风就会跟着用户去别的页面。
     public func cancelVocabularyReviewRecording() async {
+        guard isVocabularyReviewRecording else { return }
         isVocabularyReviewRecording = false
         await services.shadowing.cancelRecording()
+    }
+
+    /// 停掉复习页的回放声音（离开页面时调用）。
+    ///
+    /// 只停声音、**不动** `isVocabularyReviewBusy`：评分可能还在跑，
+    /// 回来时那张卡还要显示结果（把忙碌态抹掉会让它看起来像已经完成了）。
+    public func stopVocabularyReviewAudio() async {
+        await services.shadowing.stopAudio()
     }
 
     /// 听我的：回放刚才读的那遍。

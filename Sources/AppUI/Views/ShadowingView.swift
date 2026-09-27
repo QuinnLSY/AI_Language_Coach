@@ -80,6 +80,13 @@ public struct ShadowingView: View {
         }
         .background(theme.surfaceAlt.opacity(0.35))
         .task { await state.loadShadowing() }
+        // ⚠️ 离开跟读页要收掉**麦克风**与**示范音频**（2026-09-27）：
+        // 切页只销毁视图，`AppState` 里的录音状态还在 —— 麦克风会跟着用户去别的页面，
+        // 而整段示范音是十几秒的朗读，留在后台念完同样莫名其妙。
+        .onDisappear {
+            Task { await state.cancelShadowingRecording() }
+            Task { await state.stopShadowingAudio() }
+        }
     }
 
     // MARK: - 顶栏（与其他两栏 64pt 对齐）
@@ -453,7 +460,12 @@ public struct ShadowingView: View {
                 title: state.isShadowingRecording ? "停止并评分" : "开始跟读",
                 tint: state.isShadowingRecording ? .red : theme.accentAlt,
                 filled: state.isShadowingRecording,
-                isBusy: false
+                // ⚠️ 识别 / 评分 / 放声音期间必须显示「忙」并禁用（2026-09-27）。
+                // 原先这里是恒 `false`：识别那几秒里按钮已经变回可点的「开始跟读」，
+                // 点下去就是**重新打开麦克风**，而上一段的识别还在跑（两次识别在串行的
+                // 语音服务上排队），结果回来时评的已经不是用户正在读的那一句了。
+                // 与聊天区语音输入那次报障同源 —— 都是「识别中」这一格没有出口。
+                isBusy: state.isShadowingBusy
             ) {
                 Task { await state.toggleShadowingRecording() }
             }
@@ -508,6 +520,9 @@ public struct ShadowingView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.appPressable)
+        // 「忙」= 真的按不动。只换外观不拦点击，等于把上面那些守卫交给渲染时序去保证
+        // （按钮状态可能比状态机慢一帧，那一帧里用户点下去就重入）。
+        .disabled(isBusy)
         // VoiceOver：三颗按钮的可见内容全是图标，`title` 才是它们此刻**实际**要做的事
         // （「开始跟读」/「停止并评分」/「听示范」），必须显式读出来。
         .accessibilityLabel(title)

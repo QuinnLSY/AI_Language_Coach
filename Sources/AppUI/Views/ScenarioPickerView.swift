@@ -23,6 +23,14 @@ public struct ScenarioPickerView: View {
     /// 共用一份状态会让「展开一套考卷」把展开的情景卡也收起来）。
     @State private var expandedExamID: String?
 
+    /// 待确认删除的自建情景 id（两步确认的第一下）。
+    ///
+    /// 删除自建情景是**一点就没、且无法恢复**的：情景连同它的目标句一起消失，
+    /// 重新生成要再花一次模型请求。所以不能像「开始任务」那样点了就走 ——
+    /// 第一下只进确认态，第二下才真删，并且随时有「取消」可退。
+    /// 存的是 id 而不是 Bool：一屏多个自建情景，Bool 会让点其中一个把其它几个也点亮。
+    @State private var pendingDeleteScenarioID: String?
+
     public init(state: AppState, onClose: @escaping () -> Void) {
         self.state = state
         self.onClose = onClose
@@ -58,6 +66,11 @@ public struct ScenarioPickerView: View {
                     .padding(20)
                 }
             }
+        }
+        // 收起卡片就把确认态一起清掉：否则下次展开同一张卡，按钮还停在「确认删除」，
+        // 人以为自己刚点的那下没生效，再点一下就真删了。
+        .onChange(of: state.expandedScenarioID) { _, _ in
+            pendingDeleteScenarioID = nil
         }
     }
 
@@ -449,22 +462,38 @@ public struct ScenarioPickerView: View {
                 // 判断走 `origin` 这个**数据**，不拿分组名或 id 前缀比较 ——
                 // 那两样一改字，「这是不是用户自建的」就会静默失效，而它决定的是删除入口。
                 if scenario.origin == .custom {
+                    let confirming = pendingDeleteScenarioID == scenario.id
                     Button {
-                        Task { await state.deleteCustomScenario(id: scenario.id) }
+                        if confirming {
+                            pendingDeleteScenarioID = nil
+                            Task { await state.deleteCustomScenario(id: scenario.id) }
+                        } else {
+                            pendingDeleteScenarioID = scenario.id
+                        }
                     } label: {
                         HStack(spacing: 4) {
-                            Image(systemName: "trash").font(.system(size: 9, weight: .semibold))
-                            Text("删除")
+                            Image(systemName: confirming ? "trash.fill" : "trash")
+                                .font(.system(size: 9, weight: .semibold))
+                            Text(confirming ? "确认删除" : "删除")
                                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                         }
-                        .foregroundStyle(theme.secondaryText)
+                        // 常态描边、确认态红底：两级视觉强度，让人一眼看出「这一步不一样」。
+                        .foregroundStyle(confirming ? .white : theme.secondaryText)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background(Capsule().strokeBorder(theme.divider, lineWidth: 1))
+                        .background(Capsule().fill(confirming ? theme.danger : Color.clear))
+                        .overlay(
+                            Capsule().strokeBorder(
+                                confirming ? Color.clear : theme.divider,
+                                lineWidth: 1
+                            )
+                        )
                         .contentShape(Capsule())
                     }
                     .buttonStyle(.appPressable)
-                    .help("删掉这个自建情景；已经收进词汇本的词不回收")
+                    .help(confirming
+                        ? "再点一次就真的删掉「\(scenario.titleZh)」，无法恢复"
+                        : "删掉这个自建情景；已经收进词汇本的词不回收")
                 }
                 Text(scenario.origin == .custom
                     ? "删除只影响这个情景，词汇本里的词留着。"
@@ -489,7 +518,50 @@ public struct ScenarioPickerView: View {
                 .buttonStyle(.appPressable)
                 .help("进入「\(scenario.titleZh)」")
             }
+            if pendingDeleteScenarioID == scenario.id {
+                deleteConfirmBanner(scenario)
+            }
         }
+    }
+
+    /// 删除确认条：**必须自带「取消」**。
+    ///
+    /// 只有「再点一次」没有退路的话，确认态一旦进入，唯一的出口就是硬着头皮点下去
+    /// （学习记忆卡上这条是被实测反馈过的）。所以警告条里就地给一个「取消」，
+    /// 点了什么都不删、退回原来的样子。
+    private func deleteConfirmBanner(_ scenario: Scenario) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(theme.danger)
+            Text("再点一次「确认删除」就会删掉「\(scenario.titleZh)」和它的目标句，无法恢复。已经收进词汇本的词会保留。")
+                .font(.system(size: 11, design: .rounded))
+                .foregroundStyle(theme.danger)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button {
+                pendingDeleteScenarioID = nil
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.uturn.backward")
+                    Text("取消")
+                }
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(theme.primaryText)
+                .padding(.horizontal, 12)
+                .frame(height: 24)
+                .background(Capsule().fill(theme.surface))
+                .overlay(Capsule().strokeBorder(theme.divider, lineWidth: 1))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.appPressable)
+            .help("什么都不删，退回原来的样子")
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(theme.danger.opacity(0.10))
+        )
     }
 
     /// 主线任务：当前节点 + 完成情况（需求 3 的核心展示）。

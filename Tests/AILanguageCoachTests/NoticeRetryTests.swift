@@ -123,7 +123,11 @@ final class NoticeRetryTests: XCTestCase {
         await state.startVocabularyReview()
         XCTAssertNotNil(state.vocabularyReview?.current, "前提：复习会话要真的开起来")
 
-        // 一次都没录就收尾 → 一定落在「没有听清…」那一支（这是复习时最常见的失败）。
+        // ⚠️ 必须**先进录音态**再收尾（2026-09-27）：原先是「一次都没录也去收尾」，
+        // 靠空音频换回这句提示；现在收尾有 `guard isVocabularyReviewRecording`，
+        // 那条路已经是空操作（见下一条用例）。这里还原的是真实的失败现场：
+        // 麦克风开着、但没拿到音频（被系统掐断 / 权限中途收回时就是这样）。
+        state.isVocabularyReviewRecording = true
         await state.finishVocabularyReviewRecording()
 
         let notice = try XCTUnwrap(state.vocabularyReviewNotice, "读不了必须说一声")
@@ -131,6 +135,23 @@ final class NoticeRetryTests: XCTestCase {
             notice.action,
             "读失败这条要自带重试：用户不用退出复习、不用去找原来那颗按钮"
         )
+    }
+
+    /// 反面：没在录音时收尾必须是**空操作**，不许凭空造一句「没有听清」。
+    ///
+    /// 少了这道守卫，重复点「停」会拿一份空音频去收尾，写出的「没有听清」会把
+    /// 上一次真实的评分结果顶掉（2026-09-27 报障同源：按钮在忙碌期间仍可点）。
+    func testFinishingWithoutRecordingIsANoOp() async throws {
+        let state = try await makeState()
+        _ = try await addWord(state, "zqxwv")
+        await state.startVocabularyReview()
+        state.vocabularyReviewNotice = nil
+
+        await state.finishVocabularyReviewRecording()
+
+        XCTAssertFalse(state.isVocabularyReviewRecording, "没在录音就不该改状态")
+        XCTAssertFalse(state.isVocabularyReviewBusy, "没在录音就不该进忙碌态（否则按钮永久禁用）")
+        XCTAssertNil(state.vocabularyReviewNotice, "没录过就不该凭空报「没有听清」")
     }
 
     // MARK: - 辅助

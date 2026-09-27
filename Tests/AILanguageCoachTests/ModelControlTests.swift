@@ -155,10 +155,10 @@ final class ModelControlTests: XCTestCase {
     // MARK: - 语音输入与手打输入的合并
 
     func testMergedInputKeepsTypedTextAndAppendsSpeech() {
-        XCTAssertEqual(ChatView.mergedInput(base: "", voice: "hello"), "hello")
-        XCTAssertEqual(ChatView.mergedInput(base: "I want", voice: "a coffee"), "I want a coffee")
-        XCTAssertEqual(ChatView.mergedInput(base: "I want ", voice: "a coffee"), "I want a coffee")
-        XCTAssertEqual(ChatView.mergedInput(base: "typed only", voice: "  "), "typed only")
+        XCTAssertEqual(VoiceTranscriptMerge.merged(base: "", voice: "hello"), "hello")
+        XCTAssertEqual(VoiceTranscriptMerge.merged(base: "I want", voice: "a coffee"), "I want a coffee")
+        XCTAssertEqual(VoiceTranscriptMerge.merged(base: "I want ", voice: "a coffee"), "I want a coffee")
+        XCTAssertEqual(VoiceTranscriptMerge.merged(base: "typed only", voice: "  "), "typed only")
     }
 
     /// 回归：`ChatView` 的属性有默认值 `= nil`，手写 init 漏赋值**不会编译报错**。
@@ -170,9 +170,11 @@ final class ModelControlTests: XCTestCase {
             chat: chat,
             modelName: "qwen3:8b",
             health: .connected(model: "qwen3:8b"),
+            voicePhase: .recording,
             voiceTranscript: "hello wor",
             modelStoppedNotice: "本地模型 · qwen3:8b 已关闭"
         )
+        XCTAssertEqual(view.voicePhase, .recording, "voicePhase 必须被 init 存入，否则三颗语音按钮的语义全错")
         XCTAssertEqual(view.voiceTranscript, "hello wor", "voiceTranscript 必须被 init 存入，否则语音流式写不进输入框")
         XCTAssertEqual(view.modelStoppedNotice, "本地模型 · qwen3:8b 已关闭", "modelStoppedNotice 必须被 init 存入，否则关闭提示条不显示")
     }

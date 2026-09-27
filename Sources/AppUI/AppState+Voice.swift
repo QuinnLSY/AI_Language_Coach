@@ -59,7 +59,10 @@ extension AppState {
 
     /// 点击麦克风：开始录音（录音期间流式把识别结果送到 `voiceTranscript`）。
     public func startVoiceInput() async {
-        guard !isRecording else { return }
+        // ⚠️ 识别中**不接受**新一段：上一段的结果还在路上（本地 whisper 可能要几十秒），
+        // 这时重开麦克风会让两次识别在串行的语音服务上排队，新一段迟迟没有中间结果
+        // ——用户看到的就是「说完一句话，一个字都不出」。等上一次结束或点取消。
+        guard voicePhase == .idle else { return }
         // 语音识别模型不在运行 → 资源管理挂起的自动恢复；用户关闭的才提示怎么打开。
         // ⚠️ 状态一律问**服务层真源**（`services.isModelRunning`），绝不用 `isModelRunning`
         // 那份界面快照：巡检挂起后它不会立刻刷新，会让这里误判「还在跑」而跳过自动恢复，
@@ -76,31 +79,60 @@ extension AppState {
         voiceTranscript = nil
         await services.voice.stopSpeaking()
         await services.voice.setPartialLanguage("English")
+        // 本段语音的令牌：取消 / 重开都会换掉它，让在途识别自己作废。
+        voiceInputToken = UUID()
         await services.voice.startRecording()
-        let state = await services.voice.isRecording
-        isRecording = state
-        if let error = await services.voice.lastError { voiceError = error }
+        // 起不来（没权限 / 麦克风被别的进程占着）→ 留在空闲态，
+        // 不能乐观地先置成 `recording`：那会让「取消录音」对着一个没开的麦。
+        guard await services.voice.isRecording else {
+            voicePhase = .idle
+            if let error = await services.voice.lastError { voiceError = error }
+            return
+        }
+        voicePhase = .recording
     }
 
     /// 再次点击：停止录音 → 识别 → 纠正拼写 → 填入输入框（由调用方接收文本）。
     ///
     /// **拼写纠正只在这里发生**：手打的文字一个都不改。
     public func finishVoiceInput() async -> String? {
-        guard isRecording else { return nil }
-        let recognized = await services.voice.stopRecordingAndTranscribe(language: "English")
-        isRecording = false
-        isTranscribing = await services.voice.isTranscribing
-        voiceError = await services.voice.lastError
+        // 只有「正在录音」才谈得上停止并识别。识别中再点一次不该重入：
+        // 第二次 `stopRecordingAndTranscribe` 拿到的是空音频，会报出假的
+        // 「没有录到声音」并把前一次的真实结果顶掉。
+        guard voicePhase == .recording else { return nil }
+        let token = voiceInputToken
+        // ⚠️ 状态**先落**再 await：识别这段是本流程里最长的一段（本地 whisper 数秒到数十秒），
+        // 界面必须立刻进入「识别中」——这既是对用户的交代，也是让主按钮知道自己该变成
+        // 「作废这次识别」而不是「再录一段」的唯一依据。
+        voicePhase = .transcribing
         voiceTranscript = nil
-        guard let recognized, !recognized.isEmpty else { return nil }
+        let recognized = await services.voice.stopRecordingAndTranscribe(language: "English")
+        voiceError = await services.voice.lastError
+        // 这期间用户点了取消（或重开了一段）→ 这次结果已经没有归属，丢弃：
+        // 不写输入框、不改状态。用户按下取消时看到的内容必须原样留着。
+        guard token == voiceInputToken else { return nil }
+        guard let recognized, !recognized.isEmpty else {
+            voicePhase = .idle
+            return nil
+        }
         let corrected = await services.correctSpelling(recognized)
+        // 拼写纠正也是一次服务调用，同样可能被取消追上。
+        guard token == voiceInputToken else { return nil }
+        voicePhase = .idle
         return corrected.isEmpty ? recognized : corrected
     }
 
+    /// 取消这一整段语音：不识别、不填进输入框。
+    ///
+    /// **录音中与识别中都能取消**。识别已经开始时无法中途掐断（请求在服务端跑着），
+    /// 但可以**换令牌**让结果回来时发现自己已过期 —— 用户按下取消就应该立刻看到
+    /// 界面回到空闲、输入框保持他改过的样子，而不是几秒后被识别结果覆盖一遍。
     public func cancelVoiceInput() async {
+        guard voicePhase != .idle else { return }
+        voiceInputToken = UUID()
         await services.voice.cancelRecording()
-        isRecording = false
         voiceTranscript = nil
+        voicePhase = .idle
     }
 
     /// 关闭对话区的语音错误提示。

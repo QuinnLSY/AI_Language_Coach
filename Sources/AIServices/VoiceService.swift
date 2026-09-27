@@ -106,6 +106,10 @@ public actor VoiceService {
 
     /// 停止录音并识别；返回识别文本（失败返回 nil 并写入 lastError）。
     public func stopRecordingAndTranscribe(language: String? = nil) async -> String? {
+        // ⚠️ 一次录音只允许收尾一次。重入的代价不是「什么都不做」而是**错报**：
+        // 第二次 `recorder.stop()` 拿到的是空音频，会写 `lastError = "没有录到声音"`，
+        // 把第一次那次真实识别的失败原因顶掉，用户看到的就是「我明明说了话，它说没录到」。
+        guard !isTranscribing else { return nil }
         // 先停掉流式识别，避免它与最终识别抢同一个（串行的）语音服务。
         stopPartialLoop()
         let samples = recorder.stop()

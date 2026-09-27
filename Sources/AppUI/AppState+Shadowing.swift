@@ -329,6 +329,11 @@ extension AppState {
 
     public func startShadowingRecording() async {
         guard hasShadowingMaterial else { return }
+        // ⚠️ 识别 / 评分 / 放声音期间**不重开麦克风**（2026-09-27）：
+        // 两次录音会让识别结果错位 —— 上一段的识别回来时写进 `shadowingComparison` 的
+        // 是**别的句子**的分数，而用户正在读的是这一句。按钮那边同时被禁用，
+        // 这里再加一道是因为按钮状态可能比状态机慢一帧。
+        guard !isShadowingBusy else { return }
         // ⚠️ 真源而非界面快照（见 `isModelRunning` 的说明）：这就是用户报「设置里开着、
         // 一跟读就连接失败」的那一处——快照说还在跑，于是跳过了自动恢复。
         _ = (try? await services.resumeIfSuspended(.asr)) ?? false
@@ -357,6 +362,9 @@ extension AppState {
     /// 两种粒度共用入口：段落模式把整段识别文本回填到每一句（见 `ShadowingPassageScorer`）。
     public func finishShadowingRecording() async {
         guard hasShadowingMaterial else { return }
+        // 只有真的在录音时才谈得上「停止并评分」：重入拿到的是空音频，
+        // 会换回一句假的「没有听清，凑近麦克风再说一次」。
+        guard isShadowingRecording else { return }
         isShadowingRecording = false
         isShadowingBusy = true
         let recognized = await services.shadowing.finishRecording(language: ShadowingService.practiceLanguage)
@@ -413,6 +421,18 @@ extension AppState {
         await services.shadowing.stopAudio()
         isShadowingBusy = false
         isShadowingPlaying = false
+    }
+
+    /// 放弃这次跟读录音（丢掉，不评分）。
+    ///
+    /// 除了页面上的取消入口，**离开跟读页时也必须调用**（2026-09-27）：
+    /// `MainView` 是 `if/else` 切页 —— 视图没了，`AppState` 里的录音状态还在，
+    /// 麦克风会一直开着跟到下一个页面去。用户切去词典查个词，回来时还在录，
+    /// 中间那几分钟的说话声全被采进去了：隐私与资源两头都不该这样。
+    public func cancelShadowingRecording() async {
+        guard isShadowingRecording else { return }
+        isShadowingRecording = false
+        await services.shadowing.cancelRecording()
     }
 
     public func dismissShadowingNotice() { shadowingNotice = nil }

@@ -73,6 +73,11 @@ public struct VocabularyView: View {
         .background(theme.surfaceAlt.opacity(0.35))
         // 内容不足一屏时不硬弹（#360，同聊天区）。
         .scrollBounceBehavior(.basedOnSize)
+        // ⚠️ 离开词汇页要收掉麦克风与回放（2026-09-27，同跟读页）。
+        .onDisappear {
+            Task { await state.cancelVocabularyReviewRecording() }
+            Task { await state.stopVocabularyReviewAudio() }
+        }
         // 每次出现都补一次导入（按 word 去重，重复导入是零成本的幂等操作）；
         // 同时保证本次启动的每日推荐已抽好。
         .task {

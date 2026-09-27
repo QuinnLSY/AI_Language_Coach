@@ -175,10 +175,25 @@ public final class AppState {
     /// 今日全局 token 用量（侧边栏黑板 / 督促气泡判定）。
     public internal(set) var todayTokens: Int = 0
     // MARK: 语音（第 17/18 步）
-    /// 是否正在录音。
-    public internal(set) var isRecording = false
-    /// 是否正在识别。
-    public internal(set) var isTranscribing = false
+    /// 聊天区语音输入的阶段 —— **唯一真相**（2026-09-27 报障修复）。
+    ///
+    /// ⚠️ 曾经用两个布尔 `isRecording` / `isTranscribing` 各自维护，结果是
+    /// 「识别中」这个状态**从没被置上过**：`finishVoiceInput` 在
+    /// `stopRecordingAndTranscribe` 返回**之后**才读 `services.voice.isTranscribing`，
+    /// 而那个方法内部 `defer` 已经把标志复原了，于是恒读到 false。
+    /// 后果分两层：①识别期间界面没有任何「正在识别」的迹象，用户以为刚才那次点击
+    /// 没生效，于是再点一次；②此刻录音其实已经停了，第二次点击落进「开始录音」分支
+    /// ——麦克风被重新打开、前一段的识别结果被丢掉，用户看到的就是
+    /// 「按键没反应 / 想停停不掉 / 想取消取消不了」。改成单一阶段值之后，
+    /// 「同一时刻只能是三者之一」由类型保证，`primaryAction` 也逼着每个使用点
+    /// 把「识别中点一下该干什么」想清楚（那一格以前是缺的）。
+    public internal(set) var voicePhase: VoiceInputPhase = .idle
+    /// 本段语音输入的令牌：取消 / 重开时换值，在途的识别回来即作废（不回填输入框）。
+    public internal(set) var voiceInputToken = UUID()
+    /// 是否正在录音（由 `voicePhase` 派生；跟读 / 词汇复习各自有独立的录音状态）。
+    public var isRecording: Bool { voicePhase == .recording }
+    /// 是否正在把这段录音送去识别（同上，派生态）。
+    public var isTranscribing: Bool { voicePhase == .transcribing }
     /// 是否正在朗读教师回复。
     public internal(set) var isSpeaking = false
     /// 朗读相位：准备中（已点中、正在合成首句）/ 朗读中（已有声音）。

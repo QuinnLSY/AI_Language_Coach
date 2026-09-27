@@ -27,8 +27,11 @@ public struct ChatView: View {
     /// 小学员形象（学员消息头像 / 空态引导）。
     let studentKind: AnimalKind
     // 语音（第 17/18 步）
-    var isRecording: Bool = false
-    var isTranscribing: Bool = false
+    /// 语音输入的阶段（唯一真相）。三颗语音相关的按钮**全部**从它取语义：
+    /// 以前这里是 `isRecording` + `isTranscribing` 两个布尔，而「识别中」
+    /// 那一格从未被点亮过 —— 识别期间按钮看着还是「录音中」，
+    /// 点下去执行的是「开始录音」，用户想停却停不掉（见 `VoiceInputPhase`）。
+    var voicePhase: VoiceInputPhase = .idle
     var autoSpeak: Bool = false
     /// 点击麦克风：开始录音 / 停止并识别。
     var onMicStart: (() async -> Void)? = nil
@@ -152,8 +155,12 @@ public struct ChatView: View {
     /// 输入框当前高度（由 `MultilineComposerField` 按真实排版量出并夹到 5 行以内）。
     @State private var inputHeight: CGFloat = 0
     @State private var isInputFocused: Bool = false
-    /// 本次录音开始前输入框里的内容：流式识别结果拼在它后面，绝不覆盖用户手打的字。
-    @State private var voiceBase: String = ""
+    /// 本段语音在输入框里的位置记忆（前缀 + 上次写入的语音段）。
+    ///
+    /// 合并规则见 `VoiceTranscriptMerge`：用户没动过就整段替换（流畅、不滚长），
+    /// 用户改过字就**保留他的手改**、只把识别的增量补在后面 —— 后者是 2026-09-27
+    /// 报障的修复点（以前每一步都按录音前快照重算，用户改的字会被冲回去）。
+    @State private var voiceMerge = VoiceMergeState()
     /// 当前轮换到的预设提问下标。
     @State private var questionIndex: Int = 0
     /// 录音中且尚未发送：只有这段时间才允许流式结果往输入框里写。
@@ -192,7 +199,7 @@ public struct ChatView: View {
                 isBooting: Bool = false,
                 providerLabel: String = "", contextLimit: Int? = nil, reasoningLabel: String? = nil,
                 teacherKind: AnimalKind = .panda, studentKind: AnimalKind = .bear,
-                isRecording: Bool = false, isTranscribing: Bool = false,
+                voicePhase: VoiceInputPhase = .idle,
                 autoSpeak: Bool = false,
                 onMicStart: (() async -> Void)? = nil,
                 onMicStop: (() async -> String?)? = nil,
@@ -254,8 +261,7 @@ public struct ChatView: View {
         self.reasoningLabel = reasoningLabel
         self.teacherKind = teacherKind
         self.studentKind = studentKind
-        self.isRecording = isRecording
-        self.isTranscribing = isTranscribing
+        self.voicePhase = voicePhase
         self.autoSpeak = autoSpeak
         self.onMicStart = onMicStart
         self.onMicStop = onMicStop
@@ -348,6 +354,12 @@ public struct ChatView: View {
             composer
         }
         .background(theme.surfaceAlt.opacity(0.35))
+        // ⚠️ 离开对话页要收掉语音输入（2026-09-27）：切页只销毁视图，
+        // `AppState` 里的录音状态还在 —— 麦克风会一直开着跟到下一个页面。
+        // 用户切去词典查个词，回来时录音还没停，中间那几分钟全被采进去了。
+        .onDisappear {
+            if voicePhase != .idle { onCancelVoiceInput?() }
+        }
         // 教师回复完成后自动朗读（设置里可关）；挂在最外层，空态切换分支也不丢事件。
         // ⚠️ 一律读 `visibleMessages`：启动时被「藏起来待复盘」的上一段对话既不该上屏，
         // 也不该在开屏时被念出来（`messages` 里那一刻装的正是它）。
@@ -360,10 +372,10 @@ public struct ChatView: View {
             }
         }
         // 流式语音输入：录音期间识别结果实时写入输入框（只替换「本次语音」那一段，
-        // 用户手打的内容原样保留）。
+        // 用户手打的内容原样保留；用户在录音期间改过的字同样保留，见 `applyVoiceText`）。
         .onChange(of: voiceTranscript) { _, text in
-            guard let text, isRecording, isMergingVoice else { return }
-            input = Self.mergedInput(base: voiceBase, voice: text)
+            guard let text, voicePhase.isCapturing, isMergingVoice else { return }
+            applyVoiceText(text)
         }
         // 预设提问轮换：只在输入框为空、且没有正在等回复时滚动。
         .onReceive(Timer.publish(every: rotationInterval, on: .main, in: .common).autoconnect()) { _ in
@@ -414,13 +426,14 @@ public struct ChatView: View {
         return starterQuestions[questionIndex % starterQuestions.count]
     }
 
-    /// 把「语音识别结果」拼到「录音前已有内容」后面（纯函数，便于单测）。
-    public nonisolated static func mergedInput(base: String, voice: String) -> String {
-        let spoken = voice.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !spoken.isEmpty else { return base }
-        guard !base.isEmpty else { return spoken }
-        if let last = base.last, last.isWhitespace { return base + spoken }
-        return base + " " + spoken
+    /// 把一次识别文本落到输入框 —— **流式与定稿共用这一个入口**。
+    ///
+    /// 规则只有一份（`VoiceTranscriptMerge`），所以「边说边出字」与「松手后的最终结果」
+    /// 不可能对同一段话给出两种写法；用户在录音期间改过的字也不会被后面的推送抹掉。
+    private func applyVoiceText(_ incoming: String) {
+        let outcome = VoiceTranscriptMerge.apply(voiceMerge, incoming: incoming, current: input)
+        voiceMerge = outcome.state
+        input = outcome.text
     }
 
     // MARK: - 头部
@@ -1790,9 +1803,12 @@ public struct ChatView: View {
             HStack(spacing: 8) {
                 attachButton
                 Spacer(minLength: 8)
-                // 录音期间的「取消」：紧跟麦克风左侧 —— 语义相邻（都是「这段语音」的操作），
-                // 且不与左侧「+」抢位置；只在录音中出现，识别/定稿阶段无从取消。
-                if isRecording { cancelVoiceButton }
+                // 「取消」：紧跟麦克风左侧 —— 语义相邻（都是「这段语音」的操作），
+                // 且不与左侧「+」抢位置。
+                // ⚠️ **录音中与识别中都要出现**：识别开始之后用户仍然可能「这段我不要了」，
+                // 而识别往往要等好几秒（本地 whisper 更久）。只在录音中给出口，
+                // 等于把用户锁在「必须等它识别完、再把字删掉」的流程里。
+                if voicePhase != .idle { cancelVoiceButton }
                 micButton
                 sendButton
             }
@@ -2017,15 +2033,17 @@ public struct ChatView: View {
         return currentStarterQuestion != nil
     }
 
-    /// 录音期间的「取消」：这一整段不要了 —— 不识别、不填进输入框。
+    /// 这一整段语音不要了：不识别、不填进输入框（识别已经开始的，结果作废）。
     ///
     /// 为什么单开一颗：麦克风按钮的语义是「停止并**识别**」，所以「我刚才是说错了」
     /// 原本没有出口，只能让它识别完、再把输入框里的字删掉。
-    /// ⚠️ 取消时要把输入框退回录音前的样子（`voiceBase`）：流式结果已经往里面写过字了。
+    ///
+    /// ⚠️ 取消要把输入框退回**本段语音之前**的样子（`voiceMerge.prefix`）：
+    /// 流式结果已经往里面写过字了。但**用户手改的部分要留着** —— 他只说「这段语音不要」，
+    /// 没说「把我打的字也删掉」。所以退的是「前缀」，而不是整段复原成录音前的快照。
     private var cancelVoiceButton: some View {
         Button {
-            isMergingVoice = false
-            input = voiceBase
+            stopMergingVoice()
             onCancelVoiceInput?()
         } label: {
             Image(systemName: "xmark")
@@ -2037,51 +2055,90 @@ public struct ChatView: View {
                 ))
         }
         .buttonStyle(.appPressable)
-        .help("取消这次录音（不识别、不填入输入框）")
+        .help(voicePhase.isBusy ? "放弃这次识别（已识别的结果不会填进输入框）" : "取消这次录音（不识别、不填入输入框）")
         .accessibilityLabel("取消语音输入")
     }
 
+    /// 结束本段语音的写入并复原输入框：识别结果不再回流，语音段本身被摘掉。
+    private func stopMergingVoice() {
+        isMergingVoice = false
+        input = voiceMerge.prefix
+        voiceMerge = VoiceMergeState()
+    }
+
     /// 麦克风按钮：点击说话 → 录音期间流式出字 → 再点识别并纠正拼写后定稿。
+    ///
+    /// ⚠️ 三件事**全部由 `voicePhase` 决定**（`primaryAction`）：
+    /// 以前只有「录音中 / 否则」两个分支，识别期间 `isRecording` 仍为 true
+    /// 而在途的是识别 —— 用户点一下想「停」，落进的却是「停止并再识别一次」，
+    /// 第二次 `recorder.stop()` 拿到空音频，报出假的「没有录到声音」。
+    /// 现在识别中点击的语义是**放弃这次识别**（服务端请求掐不断，但结果可以作废）。
     private var micButton: some View {
         Button {
-            Task { @MainActor in
-                if isRecording {
-                    isMergingVoice = false
+            switch voicePhase.primaryAction {
+            case .start:
+                // 记住本段语音之前的内容：流式结果只追加在它后面。
+                voiceMerge = VoiceMergeState(prefix: input)
+                isMergingVoice = true
+                Task { @MainActor in await onMicStart?() }
+            case .stopAndTranscribe:
+                // 先断开流式回流，随后**定稿文本走同一套合并规则**：
+                // 用户在录音期间改过的字不会被这一下抹掉。
+                isMergingVoice = false
+                Task { @MainActor in
                     if let text = await onMicStop?(), !text.isEmpty {
-                        input = Self.mergedInput(base: voiceBase, voice: text)
+                        applyVoiceText(text)
                     }
-                    // 本次结果成为下一轮的起点：连续口述会自然接在后面。
-                    voiceBase = input
                     isInputFocused = true
-                } else {
-                    // 记住录音前的输入，流式结果只替换「本次语音」这一段
-                    voiceBase = input
-                    isMergingVoice = true
-                    await onMicStart?()
                 }
+            case .cancelTranscribe:
+                stopMergingVoice()
+                onCancelVoiceInput?()
             }
         } label: {
             Group {
-                if isTranscribing {
+                if voicePhase.isBusy {
                     ProgressView().controlSize(.small)
                 } else {
-                    Image(systemName: isRecording ? "waveform" : "mic.fill")
+                    Image(systemName: voicePhase.isCapturing ? "waveform" : "mic.fill")
                         .font(.system(size: 14, weight: .semibold))
                         // 录音中波形做迭代变色（#358）：不用 ProgressView 也看得出「正在采」。
-                        .symbolEffect(.variableColor.iterative, options: .repeating, isActive: isRecording)
+                        .symbolEffect(.variableColor.iterative, options: .repeating,
+                                      isActive: voicePhase.isCapturing)
                 }
             }
             // ⚠️ 尺寸/形状/描边全部来自 `ComposerButtonChrome`（与「+」同一份）：
             // 需求要求这两个按钮外观一致，各自写一套样式迟早会漂。
             .modifier(ComposerButtonChrome(
-                tint: isRecording ? Color.red : theme.accent,
-                fill: isRecording ? Color.red.opacity(0.12) : theme.surfaceAlt,
-                border: isRecording ? Color.red.opacity(0.5) : theme.divider
+                tint: voicePhase == .idle ? theme.accent : Color.red,
+                fill: voicePhase == .idle ? theme.surfaceAlt : Color.red.opacity(0.12),
+                border: voicePhase == .idle ? theme.divider : Color.red.opacity(0.5)
             ))
         }
         .buttonStyle(.appPressable)
-        .help(isRecording ? "停止并识别" : "点击说话")
-        .accessibilityLabel(isRecording ? "停止录音并识别" : "语音输入")
+        .help(Self.micButtonHelp(voicePhase))
+        .accessibilityLabel(Self.micButtonAccessibilityLabel(voicePhase))
+    }
+
+    /// 主按钮的悬停说明（按阶段说清「点下去会发生什么」）。
+    ///
+    /// `nonisolated`：纯查表、不碰任何视图状态，却会被 `View` 的 `@MainActor` 连坐成
+    /// 主 actor 隔离 —— 那样测试与非隔离上下文都用不了（见 MEMORY 的标准修法①）。
+    nonisolated static func micButtonHelp(_ phase: VoiceInputPhase) -> String {
+        switch phase {
+        case .idle: return "点击说话"
+        case .recording: return "停止并识别"
+        case .transcribing: return "放弃这次识别"
+        }
+    }
+
+    /// VoiceOver 文案：识别中这颗按钮读成「取消录音」会误导 —— 那时麦克风早就关了。
+    nonisolated static func micButtonAccessibilityLabel(_ phase: VoiceInputPhase) -> String {
+        switch phase {
+        case .idle: return "语音输入"
+        case .recording: return "停止录音并识别"
+        case .transcribing: return "放弃这次识别"
+        }
     }
 
     // MARK: - 输入区信息显示
@@ -2117,6 +2174,13 @@ public struct ChatView: View {
     }
 
     private func send() {
+        // 生成中按回车：**什么都不做**（输入原样留着）。
+        // 这时 `ChatService.send` 会被自己的 `guard !isGenerating` 挡下，而下面那句
+        // `input = ""` 已经执行 —— 用户打的那句就这么没了，还以为是发失败。
+        // 那颗按钮此刻的语义是「停止」，回车不该替它决定。
+        // ⚠️ 例外必须放行：老师正在**打招呼**时是可以抢话的（`ChatService.send` 专门
+        // 撤掉招呼来接这一句，注释写着「绝不能让这句话石沉大海」），而那也是一次生成。
+        guard !chat.isGenerating || chat.isGreeting else { return }
         // 对话模型被关闭时，输入不丢、也不发出去；用户按提示启动模型即可。
         guard modelStoppedNotice == nil else { return }
         let typed = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2130,11 +2194,20 @@ public struct ChatView: View {
             text = ""
         }
         guard !text.isEmpty || !pendingAttachments.isEmpty else { return }
+        // 还在录音 / 识别时点发送：先把这一段语音收掉（不识别、不填入）。
+        // ⚠️ 必须**停麦克风**，不能只断开回流：以前这里只清 `isMergingVoice`，
+        // 麦克风继续开着，用户接着说的话会被录进一个已经发出去的消息里，
+        // 而且那颗主按钮还显示「录音中」——他以为自己没发出去。
+        if voicePhase != .idle {
+            stopMergingVoice()
+            onCancelVoiceInput?()
+        }
         // 手打与语音一视同仁：发出去后输入框彻底清空。
-        // 同时断开语音回流 —— 否则「还录着音就点发送」时，下一轮流式结果会把内容原样填回来。
+        // 同时丢弃本段语音的位置记忆 —— 否则「还录着音就点发送」时，
+        // 下一轮流式结果会按旧前缀把内容原样填回来。
         input = ""
-        voiceBase = ""
         isMergingVoice = false
+        voiceMerge = VoiceMergeState()
         // 发送（含附件）收在 AppState 里：视图不自己拼「取附件 + 清空」的顺序，
         // 那个顺序漏一步就会「下一句把同一张图重发一遍」。
         if let onSend {

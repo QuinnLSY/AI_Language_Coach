@@ -126,7 +126,7 @@ extension AppState {
     /// ⚠️ 本方法**靠 `currentPlacementQuestion` 在交卷后返回 nil 来防重入**：
     /// 少了那道闸，答完之后误点一下选项会覆盖 `placementAnswers`、把下标已到末尾
     /// 的分支再走一次 → `finishPlacement()` 重算 → **成绩当场被改掉**
-    ///（反证实测：correct 1 变 2）。所以那道守卫不是「语义好看」，是承重的。
+    ///（撤掉守卫实测：correct 1 变 2）。所以那道闸不是「语义好看」，是承重的。
     public func choosePlacementOption(_ optionIndex: Int) {
         guard let question = currentPlacementQuestion else { return }
         guard question.options.indices.contains(optionIndex) else { return }
