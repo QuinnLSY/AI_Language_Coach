@@ -603,6 +603,15 @@ public struct MainView: View {
                     wordTick: state.forest.wordTick,
                     wordPayload: state.forest.lastCollectedWord,
                     comfortTick: state.forest.comfortTick,
+                    // 批次四 · A：分模块回应 / 簇拥安慰 / 对话陪伴 / 安静打盹。
+                    huddleComfortTick: state.forest.huddleComfortTick,
+                    moduleTick: state.forest.moduleTick,
+                    lastModule: state.forest.lastModule,
+                    abandonTick: state.forest.abandonTick,
+                    lastAbandonedModule: state.forest.lastAbandonedModule,
+                    learnerTurnTick: state.forest.learnerTurnTick,
+                    teacherTurnTick: state.forest.teacherTurnTick,
+                    lastActivityAt: state.forest.lastActivityAt,
                     previewSleepBubble: CommandLine.arguments.contains("--sleep-bubble")
                 )
                 .frame(height: TreeViewport.groundBandHeight)

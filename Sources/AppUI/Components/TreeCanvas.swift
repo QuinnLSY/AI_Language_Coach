@@ -662,6 +662,23 @@ struct ForestGroundBand: View {
     var wordPayload: String? = nil
     /// 纠错脉冲（`state.forest.comfortTick`）：派一只小动物歪头安慰。
     var comfortTick: Int = 0
+    /// 连续错得多时的**簇拥安慰**（`huddleComfortTick`）：几只一起围过来。
+    var huddleComfortTick: Int = 0
+    /// 模块完成脉冲：按模块演一段戏（批次四 · A 分模块回应）。
+    var moduleTick: Int = 0
+    /// 最近完成的模块。
+    var lastModule: PracticeModule? = nil
+    /// 中途退出脉冲：目送你走（不评判、不庆祝）。
+    var abandonTick: Int = 0
+    /// 最近中途退出的模块。
+    var lastAbandonedModule: PracticeModule? = nil
+    /// 学员开口脉冲：最近的一只点点头。
+    var learnerTurnTick: Int = 0
+    /// 老师开口脉冲：几只抬起头听。
+    var teacherTurnTick: Int = 0
+    /// 最后一次「学习上发生了点什么」的时刻：据此判断人是不是走开了
+    /// （安静太久 → 有谁打个盹）。判时间差，不判布尔。
+    var lastActivityAt: Date = Date()
     /// 验证钩子：启动时先冒一句「它们在睡觉」（仅在 `--sleep-bubble` 下由主界面传入）。
     var previewSleepBubble: Bool = false
 
@@ -713,6 +730,23 @@ struct ForestGroundBand: View {
         "抱抱你，这次我们慢慢读。",
     ]
 
+    /// 簇拥安慰的话（错得多时用的，比单人安慰更用力一点）。
+    ///
+    /// ⚠️ 语气纪律：这里**不提错误本身**（单人那组已经说过了），说的是「我们一起在」。
+    nonisolated static let huddleComfortPhrases = [
+        "我们都在这儿呢，慢慢来～",
+        "一起读，就不难啦！",
+        "错几个不算什么，我们陪着你！",
+        "来，我们陪你再读一遍。",
+    ]
+
+    /// 安静太久时打盹的那句话（不是「睡着」，是困了点个头）。
+    nonisolated static let dozingPhrases = [
+        "好安静呀……我先打个盹～",
+        "等你回来，我眯一会儿。",
+        "呼……有点困了，你慢慢想。",
+    ]
+
     /// 捡词叙事：看见词时要出发了。
     nonisolated static let fetchStartPhrases = [
         "咦，那边飘来一个新单词！",
@@ -753,6 +787,8 @@ struct ForestGroundBand: View {
     @State private var isFetchingWord = false
     /// 正在展示的「叼回来的单词卡」（nil = 没有；slot = 哪只小动物叼着）。
     @State private var wordCard: (slot: Int, word: String)? = nil
+    /// 安静期间已经打过盹了（学习上又有动静时解锁，见 `dozeOffIfQuiet`）。
+    @State private var hasDozed = false
 
     private static let maxResidents = 8
     // 各类元素的**上限**：始终按上限创建视图，靠透明度控制显隐。
@@ -923,6 +959,33 @@ struct ForestGroundBand: View {
                 guard tick > 0 else { return }
                 comfort()
             }
+            // 错得多了：几只一起围过来（同一件事，安慰的分量更足）
+            .onChange(of: huddleComfortTick) { _, tick in
+                guard tick > 0 else { return }
+                huddleComfort()
+            }
+            // 模块完成：按模块演一段戏（读完想听故事 / 写完在地上划两笔…）
+            .onChange(of: moduleTick) { _, tick in
+                guard tick > 0, let module = lastModule else { return }
+                playModuleSkit(module)
+            }
+            // 中途退出：目送你走
+            .onChange(of: abandonTick) { _, tick in
+                guard tick > 0, let module = lastAbandonedModule else { return }
+                waveGoodbye(module)
+            }
+            // 学员开口：最近的一只点点头（「嗯，你在说」）
+            .onChange(of: learnerTurnTick) { _, tick in
+                guard tick > 0 else { return }
+                acknowledgeLearner()
+            }
+            // 老师开口：几只抬起头听（不用全员，两三只就够像「在听」）
+            .onChange(of: teacherTurnTick) { _, tick in
+                guard tick > 0 else { return }
+                listenUp()
+            }
+            // 学习上又有动静了 → 解除「已经打过盹」的标记（下次安静还能再演）
+            .onChange(of: lastActivityAt) { _, _ in hasDozed = false }
         }
         .frame(maxWidth: .infinity)
         // 右下角：表情按钮 + 夜晚「睡觉」气泡（右对齐，永远不会溢出面板）
@@ -970,6 +1033,8 @@ struct ForestGroundBand: View {
             try? await Task.sleep(for: .seconds(interval))
             guard !Task.isCancelled, activityAllowed, !theme.isNight else { continue }
             guard count > 0 else { continue }
+            // 人是不是走开了？安静太久就有谁打个盹（判时间差，零新增定时器）
+            dozeOffIfQuiet()
             // 只在**在场**的居民里挑：轮换暂离的槽位不能「凭空演戏」
             let present = (0..<count).filter { !away[$0] }
             guard let index = present.randomElement() else { continue }
@@ -1196,6 +1261,97 @@ struct ForestGroundBand: View {
         guard let index = present.randomElement() else { return }
         trigger(index, action: .tilt)
         requestRawBubble(index, pool: Self.comfortPhrases)
+    }
+
+    // MARK: 分模块回应（批次四 · A）
+
+    /// 簇拥安慰：一轮错得多了，几只一起围过来（不是一只歪头了事）。
+    ///
+    /// ⚠️ 与 `comfort()` 只差「几只」和台词分量 —— 判据（错几条）在 `ForestStage`，
+    /// 这里不做二次判断，免得两处门槛不一致。
+    private func huddleComfort() {
+        guard activityAllowed, !theme.isNight else { return }
+        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        guard !present.isEmpty else { return }
+        // 最多三只：再多就不是安慰，是围观的
+        let cast = Array(present.shuffled().prefix(min(3, present.count)))
+        for index in cast {
+            trigger(index, action: .tilt)
+            if bubblesAllowed {
+                requestRawBubble(index, pool: Self.huddleComfortPhrases)
+            }
+        }
+    }
+
+    /// 模块完成戏码：按 `ForestModuleSkit` 派 1–2 只，演这个模块的动作与台词。
+    private func playModuleSkit(_ module: PracticeModule) {
+        guard activityAllowed, !theme.isNight else { return }
+        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        guard !present.isEmpty else { return }
+        let cast = Array(present.shuffled().prefix(ForestModuleSkit.castSize(for: module)))
+        for index in cast {
+            trigger(index, action: ForestModuleSkit.action(for: module))
+        }
+        // 只让领衔的那只说话：两只同时冒同一句会像复读机。
+        if bubblesAllowed, let lead = cast.first {
+            requestRawBubble(lead, pool: ForestModuleSkit.lines(for: module))
+        }
+    }
+
+    /// 中途退出：目送你走。
+    ///
+    /// 动作选 `shake`（左右摆 = 挥手），台词走 `farewellLines` —— 语气上
+    /// 不评判、不催促，退出不是失败。
+    private func waveGoodbye(_ module: PracticeModule) {
+        guard activityAllowed, !theme.isNight else { return }
+        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        guard !present.isEmpty else { return }
+        let cast = Array(present.shuffled().prefix(min(2, present.count)))
+        for index in cast {
+            trigger(index, action: .shake)
+        }
+        if bubblesAllowed, let lead = cast.first {
+            requestRawBubble(lead, pool: ForestModuleSkit.farewellLines(for: module))
+        }
+    }
+
+    /// 学员开口：最近的一只点点头（「嗯，你在说」）。
+    ///
+    /// ⚠️ 判「最近」看的是**画面上的 x**，不是槽位号：草坡上站位是错落的，
+    /// 槽位相邻的两只未必挨着。
+    private func acknowledgeLearner() {
+        guard activityAllowed, !theme.isNight else { return }
+        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        guard let index = present.randomElement() else { return }
+        trigger(index, action: .nod)
+    }
+
+    /// 老师开口：两三只抬起头听（全员一起抬头反而像受惊）。
+    private func listenUp() {
+        guard activityAllowed, !theme.isNight else { return }
+        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        guard !present.isEmpty else { return }
+        let cast = Array(present.shuffled().prefix(min(2, present.count)))
+        for index in cast {
+            trigger(index, action: .listen)
+        }
+    }
+
+    /// 安静太久了：有谁打个盹（不是「睡着」，是困了点个头）。
+    ///
+    /// 由**既有心跳**判时间差（`lastActivityAt` 距今），因此不需要新增任何定时器；
+    /// `hasDozed` 保证安静期间只演一次，直到学习上又有动静才解锁。
+    private func dozeOffIfQuiet() {
+        guard activityAllowed, !theme.isNight, !hasDozed else { return }
+        let quiet = Date().timeIntervalSince(lastActivityAt)
+        guard quiet >= ForestStage.idleThresholdSeconds else { return }
+        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        guard let index = present.randomElement() else { return }
+        hasDozed = true
+        trigger(index, action: .nod)
+        if bubblesAllowed {
+            requestRawBubble(index, pool: Self.dozingPhrases)
+        }
     }
 
     /// 捡词具象叙事：看见新词 → 跑出画面 → 叼一张单词卡回来展示。

@@ -295,10 +295,15 @@ extension AppState {
             )
         }
         resetAnswerState()
+        // 结算完成（走完最后一句）：森林里该有谁竖起耳朵庆祝一下。
+        forest.ingest(.moduleCompleted(module: .listening))
     }
 
     /// 关掉整个听力会话（走完 / 提前退出都走这里）。
     public func exitListeningDrill() {
+        // ⚠️ 判据要在清空之前算（`listeningRound` 马上就被清了）：
+        // 还没走到最后一句就关掉 = 提前退出，森林目送你而不是庆祝。
+        let abandoned = listeningIndex + 1 < listeningRound.count
         isListeningDrill = false
         listeningSummary = nil
         resetAnswerState()
@@ -309,6 +314,7 @@ extension AppState {
         listeningMeaningMissedWords = []
         listeningRound = []
         listeningIndex = 0
+        if abandoned { forest.ingest(.practiceAbandoned(module: .listening)) }
     }
 
     public func dismissListeningNotice() { listeningNotice = nil }

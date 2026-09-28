@@ -12,6 +12,9 @@ public enum LearningEvent: Equatable, Sendable {
     /// 收进一个生词（词汇本真正落了一条；重复导入也会再发一次，森林只当「又捡到词」）。
     case wordCollected(word: String)
     /// 一轮对话后落了 N 条纠错（N > 0 才发）。
+    ///
+    /// `count >= ForestStage.huddleComfortThreshold` 时森林从「一只歪头」升级成
+    /// 「几只围过来」——错得多的时候，安慰也要更用力一点（判据在舞台，发射点不变）。
     case correctionsRecorded(count: Int)
     /// 一段练习完成并已生成复盘。
     case practiceCompleted(rounds: Int)
@@ -19,6 +22,49 @@ public enum LearningEvent: Equatable, Sendable {
     case starsEarned(levelID: String, total: Int, delta: Int)
     /// 通关一个关卡（星星累加 + 解锁下一关已落库）。
     case levelCompleted(levelID: String)
+    /// 某一个**练习模块**真做完了一轮（阅读 / 写作 / 听力 / 跟读 / 词汇复习 / 考试 / 错题重练）。
+    ///
+    /// 与 `practiceCompleted` 的分工：后者是「一段情景对话生成了复盘」，本条是
+    /// **哪个模块**做完了 —— 森林要按模块演不同的戏（读完书想听故事、写完字
+    /// 在地上划两笔），没有模块信息就只能一律跳一下。
+    case moduleCompleted(module: PracticeModule)
+    /// 某个模块**中途退出**（没做完就走了）。
+    ///
+    /// ⚠️ 只「真退出」才发：结算完成走 `moduleCompleted`。提前离开不是失败，
+    /// 森林的回应是「目送你走」，不是安慰也不是庆祝。
+    case practiceAbandoned(module: PracticeModule)
+    /// 学员开口说了一句（消息已落库）。
+    case learnerTurn
+    /// 老师说了一句（回复已落库）。
+    case teacherTurn
+}
+
+/// 练习模块：森林按模块给不同的回应（「事事有回应」的分模块版）。
+///
+/// ⚠️ 只收**有明确完成时刻**的模块：判据含糊（比如「打开过某页」）的不要进来，
+/// 否则森林会对着一件没发生的事演戏。
+public enum PracticeModule: String, CaseIterable, Sendable, Equatable, Identifiable {
+    case reading
+    case writing
+    case listening
+    case shadowing
+    case vocabulary
+    case exam
+    case errorDrill
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .reading: "阅读理解"
+        case .writing: "写作练习"
+        case .listening: "听力训练"
+        case .shadowing: "跟读练习"
+        case .vocabulary: "词汇复习"
+        case .exam: "闯关考试"
+        case .errorDrill: "错题重练"
+        }
+    }
 }
 
 /// 学习事件的进程内总线：服务层（actor 上下文）同步 `emit`，

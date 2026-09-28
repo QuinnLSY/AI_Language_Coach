@@ -81,11 +81,14 @@ final class ForestEventTests: XCTestCase {
         XCTAssertEqual(stage.lastCompletedLevelID, "L1")
     }
 
-    /// 纠错事件走**自己的**安慰通道（批次二接通）：只动 comfortTick，
+    /// 纠错事件走**自己的**安慰通道（批次二接通）：只动安慰通道，
     /// 树上的四个通道纹丝不动——安慰是小剧场的事，不该惊动枝头。
+    ///
+    /// ⚠️ 批次四起安慰分两档（单人 / 簇拥），判据是**错几条**：这里用 1 条走单人档，
+    /// 门槛与分档的互斥性由 `ForestResponsivenessTests` 单独钉死。
     func testCorrectionsRecordedDrivesComfortChannelOnly() {
         let stage = ForestStage()
-        stage.ingest(.correctionsRecorded(count: 3))
+        stage.ingest(.correctionsRecorded(count: 1))
         XCTAssertEqual(stage.comfortTick, 1, "纠错必须驱动歪头安慰通道")
         XCTAssertEqual(stage.wordTick, 0)
         XCTAssertEqual(stage.practiceTick, 0)
@@ -225,9 +228,12 @@ final class ForestEventTests: XCTestCase {
     }
 
     /// 动作词汇表：批次二新增的 7 个动作必须都在枚举里（语义化升级不许悄悄缩水）。
+    ///
+    /// 批次四再加 1 个（竖起耳朵听），共 10 个 —— 数量写在这里是为了
+    /// 「有人删动作」时立刻红，加动作时同步更新这一行并说明理由。
     func testLivelyAnimalActionVocabulary() {
-        XCTAssertEqual(LivelyAnimalAction.allCases.count, 9,
-                       "跳/摇/歪头/点头/伸懒腰/刨土/转圈/害羞/摇摆——9 个动作一个不能少")
+        XCTAssertEqual(LivelyAnimalAction.allCases.count, 10,
+                       "跳/摇/歪头/点头/伸懒腰/刨土/转圈/害羞/摇摆/竖耳——10 个动作一个不能少")
         // 数值即编排协议：跳与摇沿用批次一的 0/1，已有调用方按数字理解
         XCTAssertEqual(LivelyAnimalAction.hop.rawValue, 0)
         XCTAssertEqual(LivelyAnimalAction.shake.rawValue, 1)

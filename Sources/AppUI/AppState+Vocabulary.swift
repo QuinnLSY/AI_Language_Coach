@@ -235,6 +235,12 @@ extension AppState {
         vocabularyReviewRecognized = nil
         vocabularyReviewNotice = nil
         await reloadVocabulary()
+        // 队列判空 = 这一轮复习真的做完了（**最后一张判完**才算，不是「打开过」）。
+        // ⚠️ 完成只在这一处发：收起（`finishVocabularyReview`）那边的同一判据
+        // 会再发一次，森林就会为同一轮复习演两遍。
+        if vocabularyReview?.current == nil {
+            forest.ingest(.moduleCompleted(module: .vocabulary))
+        }
         // ⚠️ 黑板要跟着复习实时走：每判一张就刷新今日作业（force 跳过 15s 节流）。
         // 之前只刷词表不刷进度快照，黑板一直显示「0/8 个词」，要点开学习进度才同步（2026-09-19）。
         await refreshTodayPanel(force: true)
@@ -242,6 +248,10 @@ extension AppState {
 
     /// 收起这一轮（提前退出 / 结算卡上的「完成」都走这里）。
     public func finishVocabularyReview() async {
+        // ⚠️ 判据要在清空之前算：还有没判完的词 = 提前退出。
+        // 全部判完时 `current` 已为 nil —— 那种情况在 `gradeVocabularyReviewCard` 里
+        // 发过「完成」了，这里**绝不能**再发一次（同一轮复习不许演两遍）。
+        let abandoned = vocabularyReview?.current != nil
         if isVocabularyReviewRecording { await cancelVocabularyReviewRecording() }
         await services.shadowing.stopAudio()
         vocabularyReview = nil
@@ -253,6 +263,7 @@ extension AppState {
         isVocabularyReviewBusy = false
         await reloadVocabulary()
         await refreshTodayPanel(force: true)
+        if abandoned { forest.ingest(.practiceAbandoned(module: .vocabulary)) }
     }
 
     /// 点一下开始读，再点一下停止并评分。

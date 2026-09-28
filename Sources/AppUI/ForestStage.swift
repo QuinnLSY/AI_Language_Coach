@@ -1,4 +1,5 @@
 import AIDomain
+import Foundation
 import Observation
 
 /// 森林舞台：把学习事件翻译成「森林各处该动一下」的脉冲。
@@ -28,13 +29,42 @@ public final class ForestStage {
     public private(set) var ceremonyTick = 0
     /// 纠错脉冲：地面派一只小动物「歪头安慰」（批次二接通）。
     public private(set) var comfortTick = 0
+    /// 连续错得多了（>= `huddleComfortThreshold`）的**簇拥安慰**：几只一起围过来。
+    ///
+    /// 与 `comfortTick` 二选一，不同时推 —— 判据在翻译表里，发射点只发一次事件。
+    public private(set) var huddleComfortTick = 0
+    /// 簇拥安慰的门槛：一轮里错到这么多条就不再是「一个人安慰」的事了。
+    public static let huddleComfortThreshold = 3
+    /// 模块完成脉冲：地面按模块演一段戏（批次四 · A）。
+    public private(set) var moduleTick = 0
+    /// 最近完成的模块（地面挑戏码用）。
+    public private(set) var lastModule: PracticeModule?
+    /// 中途退出脉冲：地面「目送你走」（不评判、不庆祝）。
+    public private(set) var abandonTick = 0
+    /// 最近中途退出的模块（挑送别话用）。
+    public private(set) var lastAbandonedModule: PracticeModule?
+    /// 学员开口脉冲：最近的一只点点头（「嗯，你在说」）。
+    public private(set) var learnerTurnTick = 0
+    /// 老师开口脉冲：几只抬起头听（「老师在说话」）。
+    public private(set) var teacherTurnTick = 0
+    /// 最后一次「学习上发生了点什么」的时刻（地面据此判断「人是不是走开了」）。
+    ///
+    /// 为什么是时刻而不是布尔：判「久未发言」要的是**时间差**，布尔存不住
+    /// 「从什么时候开始安静的」。地面那趟既有心跳拿它跟当下比，零新增定时器。
+    public private(set) var lastActivityAt: Date = Date()
+    /// 安静多久算「人走开了」（秒）。地面据此让小动物打个盹。
+    public static let idleThresholdSeconds: TimeInterval = 240
     /// 最近通关的关卡（供仪式装饰用；nil = 还没通过关）。
     public private(set) var lastCompletedLevelID: String?
 
     public init() {}
 
     /// 事件 → 脉冲的唯一翻译表。
+    ///
+    /// 每一条进来都算「学习上发生了点什么」，顺手刷新 `lastActivityAt`：
+    /// 地面的「久未发言就打盹」判的是**距今多久没动静**，不需要另行埋点。
     public func ingest(_ event: LearningEvent) {
+        lastActivityAt = Date()
         switch event {
         case .wordCollected(let word):
             wordTick += 1
@@ -46,9 +76,24 @@ public final class ForestStage {
         case .levelCompleted(let levelID):
             ceremonyTick += 1
             lastCompletedLevelID = levelID
-        case .correctionsRecorded:
+        case .correctionsRecorded(let count):
             // 歪头安慰：纠错不是坏消息——森林用温柔的方式接住它。
-            comfortTick += 1
+            // 错得多了就换成几只一起围过来（同一件事，安慰的分量不同）。
+            if count >= Self.huddleComfortThreshold {
+                huddleComfortTick += 1
+            } else {
+                comfortTick += 1
+            }
+        case .moduleCompleted(let module):
+            moduleTick += 1
+            lastModule = module
+        case .practiceAbandoned(let module):
+            abandonTick += 1
+            lastAbandonedModule = module
+        case .learnerTurn:
+            learnerTurnTick += 1
+        case .teacherTurn:
+            teacherTurnTick += 1
         }
     }
 

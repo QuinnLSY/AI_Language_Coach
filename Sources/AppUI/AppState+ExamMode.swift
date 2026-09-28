@@ -116,7 +116,8 @@ extension AppState {
         runner.finishEarly()
         examRunner = runner
         chat.updateExamContext(nil)
-        settleExam(runner)
+        // 提前交卷：剩余题目都是「跳过」的，走的是目送那条路。
+        settleExam(runner, abandoned: true)
     }
 
     /// 关闭结算卡：本轮考试到此为止（报告、示范答案一起收走）。
@@ -192,9 +193,15 @@ extension AppState {
     ///
     /// 报告里的分数**不经过模型**（`ExamScoring` 是纯函数），
     /// 所以报告一定出得来；示范答案是附加项，拿不到就如实说没拿到。
-    func settleExam(_ runner: ExamRunner) {
+    func settleExam(_ runner: ExamRunner, abandoned: Bool = false) {
         let report = runner.report(pronunciation: nil)
         examReport = report
+        // 两种收场，森林两种回应：**走完**是庆祝，**提前交卷**是目送你走。
+        // ⚠️ 判据由调用点给（`finishExam` 是提前交卷，最后一问答完 / 跳完是走完），
+        // 不在这里猜 —— 结算本身看不出是哪一种。
+        forest.ingest(abandoned
+                      ? .practiceAbandoned(module: .exam)
+                      : .moduleCompleted(module: .exam))
         examSampleAnswers = [:]
         examSampleNotice = nil
         examSampleTargets = ExamSampleAnswerRule.items(

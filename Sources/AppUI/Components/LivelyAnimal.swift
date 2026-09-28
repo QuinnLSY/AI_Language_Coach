@@ -23,6 +23,11 @@ public enum LivelyAnimalAction: Int, CaseIterable, Sendable {
     case shy = 7
     /// 结对摇摆（左右大幅倾摆；两只同时演就是「结对跳舞」）。
     case wiggle = 8
+    /// 竖起耳朵听（身体微微挺直并保持一会儿）。
+    ///
+    /// ⚠️ 与 `.nod`（打盹点头，前倾慢点）恰好是一对反义：一个精神、一个困，
+    /// 别拿其中一个去顶另一个的场。批次四给「老师开口 / 听力练完」用。
+    case listen = 9
 }
 
 /// 林间活力小动物：点击冒泡与自发动作都由父级（ForestGroundBand）编排——
@@ -92,6 +97,7 @@ public struct LivelyAnimal: View {
         case .spin: performSpin()
         case .shy: performShy()
         case .wiggle: performSwing([(11, 0.16), (-11, 0.16), (11, 0.16), (-11, 0.16), (0, 0.22)])
+        case .listen: performListen()
         }
     }
 
@@ -139,6 +145,15 @@ public struct LivelyAnimal: View {
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(0.3))
             withAnimation(.spring(response: 0.32, dampingFraction: 0.5)) { bodyScaleY = 1 }
+        }
+    }
+
+    /// 竖起耳朵听：身体挺一下并保持（注意力在线的样子），再慢慢落回。
+    private func performListen() {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.7)) { bodyScaleY = 1.07 }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(0.9))
+            withAnimation(.spring(response: 0.36, dampingFraction: 0.7)) { bodyScaleY = 1 }
         }
     }
 

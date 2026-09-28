@@ -40,6 +40,8 @@ extension AppState {
         writingReview = review
         // 交卷即落一行写作记录（学习记录页 / 每周小结的「写作练习」口径）。
         await services.recordWritingSubmission(topic: topic, essay: essay, review: review)
+        // 落库之后才通知森林：没记下来的事不该让小动物白高兴一场。
+        forest.ingest(.moduleCompleted(module: .writing))
     }
 
     /// 收掉当前批改卡（改稿重写时用）。
@@ -198,6 +200,8 @@ extension AppState {
         readingEntries[readingEntryIndex].choices = readingChoices
         let entry = readingEntries[readingEntryIndex]
         await services.saveReading(entry)
+        // 同上：**落库之后**才让森林知道（读完了会有谁想听故事）。
+        forest.ingest(.moduleCompleted(module: .reading))
         await refreshTodayPanel(force: true)
     }
 

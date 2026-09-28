@@ -392,6 +392,8 @@ extension AppState {
         // 跟读也是今日作业的一项：练完立刻刷新黑板/庆祝判定（force —— 练完的瞬间不许被节流吞掉）。
         // ⚠️ 以前这里不刷，跟读凑齐计划的最后一块时收尾仪式永远缺席（#227）。
         await refreshTodayPanel(force: true)
+        // 只有真的评出结果才通知森林：没听清那次不算「练完」。
+        forest.ingest(.moduleCompleted(module: .shadowing))
     }
 
     /// 听我的：回放刚才录的音，和示范对着听。

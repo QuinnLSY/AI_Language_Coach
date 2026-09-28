@@ -84,6 +84,12 @@ extension AppState {
         errorDrillStreaks = ledger
         saveErrorDrillStreaks()
         errorDrillSummary = session.summary(conquered: conquered)
+        // ⚠️ 判据要在清空之前算：「推进到底」才走到这里（`advanceErrorDrill` 只在
+        // `isFinished` 时才调），其余入口（学习记录页的取消）都是半路收场 ——
+        // 半路收场时森林目送你走，不庆祝。
+        forest.ingest(session.isFinished
+                      ? .moduleCompleted(module: .errorDrill)
+                      : .practiceAbandoned(module: .errorDrill))
         errorDrill = nil
         errorDrillLastOutcome = nil
     }

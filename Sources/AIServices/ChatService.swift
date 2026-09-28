@@ -184,6 +184,8 @@ public final class ChatService {
         // 会被一起藏起来（表现为「我打了一句，屏幕上什么都没有」）。
         suppressesRestoredHistory = false
         persist(message)
+        // 「事事有回应」批次四：学员开口，森林里得有谁应一声（挂在既有落库点，零新增请求）。
+        services.events.emit(.learnerTurn)
         // 情景对话：学员每发一次言记一轮，用于给老师「还剩几轮」的收尾提示。
         if scenarioProgress != nil { scenarioProgress?.turnsUsed += 1 }
         // 主线任务的「当前节点」跟着这一句往前走（老师下一轮就知道该带学员做哪一步了）。
@@ -1011,6 +1013,7 @@ public final class ChatService {
         let message = ChatMessage(role: .assistant, content: parsed.cleanText)
         messages.append(message)
         persist(message)
+        noteTeacherTurn()
         engine.recordTeacher(parsed.cleanText, at: message.createdAt)
         engine.send(.generationFinished)
         if !parsed.corrections.isEmpty {
@@ -1154,6 +1157,7 @@ public final class ChatService {
         let message = ChatMessage(role: .assistant, content: parsed.cleanText)
         messages.append(message)
         persist(message)
+        noteTeacherTurn()
         engine.recordTeacher(parsed.cleanText, at: message.createdAt)
         engine.send(.generationFinished)
         if !parsed.corrections.isEmpty {
@@ -1162,6 +1166,14 @@ public final class ChatService {
         }
         DailyTokenCounter.add(max(estimatedContextTokens - tokensBefore, 0))
         turnResult = (message, parsed.corrections)
+    }
+
+    /// 老师说了一句：通知森林（三处落库点共用这一句，事件只发一次）。
+    ///
+    /// 为什么不直接在三处各 emit 一次：发射点一多，「森林为什么没反应」就要查
+    /// 三个地方；收口之后，哨兵只要钉住这一行就够了。
+    private func noteTeacherTurn() {
+        services.events.emit(.teacherTurn)
     }
 
     /// 本地兜底引导句：模型没起来 / 回空时用，保证老师一定有话说。
@@ -1204,6 +1216,7 @@ public final class ChatService {
         let message = ChatMessage(role: .assistant, content: trimmed)
         messages.append(message)
         persist(message)
+        noteTeacherTurn()
         engine.recordTeacher(trimmed, at: message.createdAt)
         return message
     }
