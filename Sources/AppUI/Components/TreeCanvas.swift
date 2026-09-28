@@ -35,6 +35,8 @@ public struct TreeCanvas: View {
     let progress: LearnerProgress
     /// 小学员形象（沿树攀爬的学员，戴红领巾；可点击说话）。
     let studentAnimal: AnimalKind
+    /// 学员的小伙伴（陪着一起爬树的那一只；nil = 不画，兼容不需要伙伴的场景）。
+    let companionAnimal: AnimalKind?
     /// 关卡 → 它在树上要额外显示的一行（对应情景 + 主线任务进度）。
     ///
     /// 需求 2：**情景与大树要一眼看出关系** —— 光有一个小对话标，
@@ -72,6 +74,9 @@ public struct TreeCanvas: View {
     private var canvasHeight: CGFloat { Self.canvasHeight }
     private var groundHeight: CGFloat { Self.groundHeight }
 
+    /// 小伙伴「先跑过去等着」的横向偏移（通关时短暂离开学员身边）。
+    @State private var companionDashX: CGFloat = 0
+
     /// 学员在树上的位置锚点：宿主（右侧栏）用它把滚动视口定位到学员身上。
     ///
     /// 为什么需要一个独立的小视图而不是用关卡节点：学员沿树干走的是 `climbFraction`，
@@ -79,12 +84,14 @@ public struct TreeCanvas: View {
     public static let learnerAnchorID = "tree-learner-anchor"
 
     public init(theme: ForestTheme, progress: LearnerProgress, studentAnimal: AnimalKind = .bear,
+                companionAnimal: AnimalKind? = nil,
                 levelNotes: [String: TreeLevelNote] = [:],
                 ceremonyTick: Int = 0, practiceTick: Int = 0, wordTick: Int = 0,
                 onSelectLevel: @escaping (TreeLevel) -> Void = { _ in }) {
         self.theme = theme
         self.progress = progress
         self.studentAnimal = studentAnimal
+        self.companionAnimal = companionAnimal
         self.levelNotes = levelNotes
         self.ceremonyTick = ceremonyTick
         self.practiceTick = practiceTick
@@ -147,16 +154,38 @@ public struct TreeCanvas: View {
                 Leaves(theme: theme)
                     .frame(width: width, height: canvasHeight)
 
-                // 小学员（攀爬者）：配饰随攒星成长（红领巾→背包→望远镜→毕业帽）、可点击说话；
-                // 随进度沿树干上下。档位判据与各页面同源（`StudentProgression`）。
-                TalkingAnimal(
-                    kind: studentAnimal,
-                    isSleeping: theme.isNight,
-                    size: 64,
-                    accessory: StudentProgression.accessory(totalStars: progress.totalStars),
-                    phrases: studentAnimal.phrases
-                )
-                .position(x: midX, y: learnerY)
+                // 小学员（攀爬者）与他的小伙伴：配饰随攒星成长（红领巾→背包→望远镜→毕业帽）、
+                // 可点击说话；随进度沿树干上下。档位判据与各页面同源（`StudentProgression`）。
+                //
+                // ⚠️ 两只装在一个 ZStack 里共用**同一条**攀升动画 —— 各挂一条 spring
+                // 等于给动效天花板凭空加一处内联参数（那正是 `MotionTokenWiringTests` 守的）。
+                // ⚠️ 伙伴只用 `learnerY + 偏移` 摆位，**不动** `learnerY` 与滚动锚点算式
+                // （那是 `TreeScrollViewTests` 钉死的），也不抢学员的点击。
+                ZStack(alignment: .topLeading) {
+                    TalkingAnimal(
+                        kind: studentAnimal,
+                        isSleeping: theme.isNight,
+                        size: 64,
+                        accessory: StudentProgression.accessory(totalStars: progress.totalStars),
+                        phrases: studentAnimal.phrases
+                    )
+                    .position(x: midX, y: learnerY)
+
+                    if let companionAnimal {
+                        TalkingAnimal(
+                            kind: companionAnimal,
+                            isSleeping: theme.isNight,
+                            size: ForestCompanion.size,
+                            accessory: StudentProgression.accessory(totalStars: progress.totalStars),
+                            phrases: companionAnimal.phrases
+                        )
+                        .position(
+                            x: midX + ForestCompanion.besideLearner.width + companionDashX,
+                            y: learnerY + ForestCompanion.besideLearner.height
+                        )
+                    }
+                }
+                .frame(width: width, height: canvasHeight)
                 .animation(.spring(response: 0.8, dampingFraction: 0.7), value: progress.climbFraction)
 
                 // 学员位置的**滚动锚点**（1×1、不可见）：右侧栏一打开就滚到这里，
@@ -186,6 +215,24 @@ public struct TreeCanvas: View {
             .frame(width: width, height: canvasHeight)
         }
         .frame(height: canvasHeight)
+        // 通关：伙伴先跑到下一个关卡那边等着（全通关了就原地陪着庆祝）
+        .onChange(of: ceremonyTick) { _, tick in
+            guard tick > 0 else { return }
+            dashCompanionAhead()
+        }
+    }
+
+    /// 通关那一刻伙伴的小动作：往下一关那一侧跑过去，等一会儿再回到学员身边。
+    private func dashCompanionAhead() {
+        guard companionAnimal != nil else { return }
+        let next = progress.levels.first { $0.state != .completed }
+        let target = ForestCompanion.dashX(nextBranchIsLeft: next.map { $0.branch == .left })
+        withAnimation(.app(.panel)) { companionDashX = target }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.6))
+            guard !Task.isCancelled else { return }
+            withAnimation(.app(.panel)) { companionDashX = 0 }
+        }
     }
 
     private nonisolated static func y(for fraction: Double, baseY: CGFloat) -> CGFloat {
@@ -447,7 +494,8 @@ private struct FallingLeafView: View {
 
     var body: some View {
         LeafShape()
-            .fill(theme.foliageDeep.opacity(0.9))
+            // 季节说话的地方：秋天飘金叶、冬天飘雪花（同一套飘落动画换个颜色）
+            .fill(theme.fallingFlake.opacity(0.9))
             .frame(width: leaf.size, height: leaf.size * 0.55)
             .rotationEffect(.degrees(started ? leaf.spin : 0))
             .position(
@@ -1036,11 +1084,16 @@ struct ForestGroundBand: View {
             // 人是不是走开了？安静太久就有谁打个盹（判时间差，零新增定时器）
             dozeOffIfQuiet()
             // 只在**在场**的居民里挑：轮换暂离的槽位不能「凭空演戏」
+            //
+            // ⚠️ 谁上场按**当前物种的活跃度**加权，且判「爱不爱飞」看的是当前物种
+            // （`kindAt`）—— 早先看的是初始 `order`，轮换换过人之后性格就串了味。
             let present = (0..<count).filter { !away[$0] }
-            guard let index = present.randomElement() else { continue }
-            let isBird = order[index % order.count] == .owl
+            guard let index = AnimalPersonaBook.pick(kinds: kinds, present: present,
+                                                     roll: Double.random(in: 0..<1)) else { continue }
+            let kind = kindAt(index: index, fallback: order[index % order.count])
+            let persona = AnimalPersonaBook.persona(for: kind)
 
-            if isBird && !perched[index] && Int.random(in: 0..<10) < 3 {
+            if persona.favorsPerch && !perched[index] && Int.random(in: 0..<10) < 3 {
                 // 鸟类：飞上枝桠，停留一阵（期间会小幅挪动），再飞回草地
                 await flyToPerch(index, count: count, span: span, inset: inset,
                                  groundLine: groundLine, quantizedWidth: quantizedWidth, width: width)
@@ -1062,18 +1115,24 @@ struct ForestGroundBand: View {
                     await flyBackToGrass(index)
                 }
             } else {
-                // 地面：游走 / 跳 / 摇 / 小剧场动作 / 双人社交（结对舞或一问一答）
+                // 地面：游走 / 跳 / 摇 / 独角戏 / 双人社交（结对舞或一问一答）
+                //
+                // 跳与摇这两档也会「改演招牌动作」—— 兔子更爱蹦、考拉爱打盹，
+                // 就靠 `AnimalPersonaBook.action` 那三成概率。
                 let roll = Int.random(in: 0..<10)
+                let signatureRoll = Double.random(in: 0..<1)
                 if roll < 4 {
                     wander(index, count: count, span: span, inset: inset,
                            groundLine: groundLine, quantizedWidth: quantizedWidth)
                 } else if roll < 6 {
-                    trigger(index, action: .hop)
+                    trigger(index, action: AnimalPersonaBook.action(for: kind, roll: signatureRoll,
+                                                                    fallback: .hop))
                 } else if roll < 8 {
-                    trigger(index, action: .shake)
+                    trigger(index, action: AnimalPersonaBook.action(for: kind, roll: signatureRoll,
+                                                                    fallback: .shake))
                 } else if roll == 8 {
-                    // 独角戏：打盹点头 / 伸懒腰 / 刨土 / 追尾巴轮着来（wiggle 留给双人舞）
-                    trigger(index, action: [.nod, .stretch, .dig, .spin].randomElement() ?? .dig)
+                    // 独角戏：从本物种的偏好池里抽（wiggle 只留给双人舞）
+                    trigger(index, action: AnimalPersonaBook.soloAction(for: kind, roll: signatureRoll))
                 } else {
                     await socialise(count: count, span: span, inset: inset,
                                     groundLine: groundLine, quantizedWidth: quantizedWidth)

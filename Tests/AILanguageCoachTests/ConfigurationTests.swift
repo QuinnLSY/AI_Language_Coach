@@ -304,6 +304,8 @@ final class ConfigurationTests: XCTestCase {
             teacherAnimal: "tiger",
             teacherPersona: "strict",
             studentAnimal: "penguin",
+            studentCompanion: "fox",
+            forestFollowsClock: true,
             activeProviders: ["tts": "local.tts"],
             teacherBubbles: false,
             animalBubbles: false,
@@ -331,7 +333,8 @@ final class ConfigurationTests: XCTestCase {
         let expectedKeys = [
             "learningLanguage", "nativeLanguage", "teacherVoice", "practiceMode", "themeMode",
             "motionMode",
-            "selectedModels", "teacherAnimal", "teacherPersona", "studentAnimal", "activeProviders",
+            "selectedModels", "teacherAnimal", "teacherPersona", "studentAnimal", "studentCompanion",
+            "forestFollowsClock", "activeProviders",
             "teacherBubbles", "animalBubbles", "animalActivity", "animalActivityFrequency",
             "voicePreview", "autoSpeak", "speechRate", "dailyGoalMinutes", "dailyGoalMode",
             "practiceReminderEnabled", "practiceReminderHour", "practiceReminderMinute",

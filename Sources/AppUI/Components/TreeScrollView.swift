@@ -12,6 +12,8 @@ struct TreeScrollView: View {
     let theme: ForestTheme
     let progress: LearnerProgress
     var studentAnimal: AnimalKind = .bear
+    /// 学员的小伙伴（陪着一起爬树；nil = 不画）。
+    var companionAnimal: AnimalKind? = nil
     var levelNotes: [String: TreeLevelNote] = [:]
     /// 学习事件脉冲（透传给 `TreeCanvas`：果实 / 树冠仪式 / 落叶）。
     var ceremonyTick: Int = 0
@@ -33,6 +35,7 @@ struct TreeScrollView: View {
                         theme: theme,
                         progress: progress,
                         studentAnimal: studentAnimal,
+                        companionAnimal: companionAnimal,
                         levelNotes: levelNotes,
                         ceremonyTick: ceremonyTick,
                         practiceTick: practiceTick,

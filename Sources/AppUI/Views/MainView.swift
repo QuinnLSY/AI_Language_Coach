@@ -61,14 +61,22 @@ public struct MainView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                // 右上角：太阳 / 月亮 = 日夜切换（位置与原先天空装饰完全一致）
+                // 右上角：太阳 / 月亮 = 日夜切换。
+                //
+                // 开着「跟随时间」时它**沿弧线走**：日出从左边缘升起、正午到最高、
+                // 日落沉到右边缘，夜里换月亮走同一条弧。关着时钉在右上角（既有位置），
+                // 老用户开屏看到的还是原来那颗太阳。
+                let followsClock = state.forestFollowsClock
+                let anchor = ForestAtmosphere.celestialAnchor(hour: state.clockHour, width: total)
                 CelestialToggle {
                     Task { await state.toggleDayNight() }
                 }
-                .frame(width: 130, height: 130)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                .padding(.trailing, 64)
-                .padding(.top, 44)
+                .frame(width: ForestAtmosphere.celestialSize, height: ForestAtmosphere.celestialSize)
+                .frame(maxWidth: .infinity, maxHeight: .infinity,
+                       alignment: followsClock ? .topLeading : .topTrailing)
+                .padding(.leading, followsClock ? anchor.x : 0)
+                .padding(.trailing, followsClock ? 0 : ForestAtmosphere.celestialMargin)
+                .padding(.top, followsClock ? anchor.y : 44)
                 .zIndex(2)
 
                 if state.showingSettings {
@@ -580,6 +588,8 @@ public struct MainView: View {
                     theme: state.theme,
                     progress: state.progress,
                     studentAnimal: state.studentAnimalKind,
+                    // 批次五 · D：小伙伴陪着学员一起爬树（没选过就自动配一只）
+                    companionAnimal: state.companionAnimalKind,
                     levelNotes: state.treeLevelNotes,
                     // 森林回应：攒星弹果实、通关全套仪式、练完/收词飘叶
                     ceremonyTick: state.forest.ceremonyTick,

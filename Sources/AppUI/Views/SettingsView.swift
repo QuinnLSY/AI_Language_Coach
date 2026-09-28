@@ -5,10 +5,12 @@ import AppCore
 import AppKit
 import SwiftUI
 
-/// 设置里的伙伴角色：老师（侧边栏/聊天区 AI）与 小学员（聊天区学员位/树上攀爬者）。
+/// 设置里的伙伴角色：老师（侧边栏/聊天区 AI）、小学员（聊天区学员位/树上攀爬者）、
+/// 小伙伴（陪着小学员一起爬树的那一只）。
 private enum PartnerRole: String, CaseIterable, Identifiable {
     case teacher
     case student
+    case companion
 
     var id: String { rawValue }
 
@@ -16,6 +18,7 @@ private enum PartnerRole: String, CaseIterable, Identifiable {
         switch self {
         case .teacher: "老师"
         case .student: "小学员"
+        case .companion: "小伙伴"
         }
     }
 
@@ -23,6 +26,7 @@ private enum PartnerRole: String, CaseIterable, Identifiable {
         switch self {
         case .teacher: "显示在左侧边栏与聊天区"
         case .student: "显示在聊天区与成长之树攀爬者"
+        case .companion: "陪小学员一起爬树，配饰跟着一起换"
         }
     }
 
@@ -30,6 +34,7 @@ private enum PartnerRole: String, CaseIterable, Identifiable {
         switch self {
         case .teacher: "graduationcap.fill"
         case .student: "figure.child"
+        case .companion: "heart.fill"
         }
     }
 }
@@ -216,8 +221,34 @@ public struct SettingsView: View {
                 Text(theme.isNight ? "夜晚的森林很安静，星星陪着小动物们睡觉，也陪你练习。" : "阳光正好，小动物们都醒着，一起爬树学英语吧！")
                     .font(.system(size: 12, design: .rounded))
                     .foregroundStyle(theme.secondaryText)
+
+                Divider().overlay(theme.divider)
+
+                // 跟随时间：天黑了自己切夜景、太阳沿弧线走、春夏秋冬换叶色。
+                // ⚠️ 手动点右上角太阳/月亮会**收回**自动（否则那个按钮点了没反应）。
+                Toggle(isOn: Binding(
+                    get: { state.forestFollowsClock },
+                    set: { on in Task { await state.setForestFollowsClock(on) } }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("跟随时间与季节")
+                            .font(.system(size: 13, design: .rounded))
+                        Text(followClockHint)
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                }
+                .toggleStyle(.switch)
             }
         }
+    }
+
+    /// 「跟随时间与季节」的说明（抽成纯属性便于钉住措辞）。
+    private var followClockHint: String {
+        if !state.forestFollowsClock { return "关着时，日夜只由上面这一排决定。" }
+        let season = ForestAtmosphere.season(month: state.clockMonth).displayName
+        let moment = ForestAtmosphere.moment(hour: Int(state.clockHour)).displayName
+        return "现在是\(season)季的\(moment)，太阳月亮会在天上慢慢走。"
     }
 
     // MARK: - 动画效果（应用内动效开关，三态）
@@ -287,7 +318,7 @@ public struct SettingsView: View {
 
                 // 当前角色说明
                 HStack(spacing: 8) {
-                    Image(systemName: partnerRole == .teacher ? "graduationcap.fill" : "figure.child")
+                    Image(systemName: partnerRole.icon)
                         .font(.system(size: 11))
                         .foregroundStyle(theme.accent)
                     Text(partnerRole.caption)
@@ -307,7 +338,7 @@ public struct SettingsView: View {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 11))
                         .foregroundStyle(theme.accent)
-                    Text("老师持教棍，小学员戴红领巾。点选即可分别更换两个形象。")
+                    Text("老师持教棍，小学员戴红领巾，小伙伴跟着一起换。点选即可分别更换三个形象。")
                         .font(.system(size: 11, design: .rounded))
                         .foregroundStyle(theme.secondaryText)
                 }
@@ -315,20 +346,29 @@ public struct SettingsView: View {
         }
     }
 
+    /// 当前角色已选中的是哪一只（三个角色同一个展示区，判据收在这里一份）。
+    private func selectedKind(for role: PartnerRole) -> AnimalKind {
+        switch role {
+        case .teacher: return state.teacherAnimalKind
+        case .student: return state.studentAnimalKind
+        case .companion: return state.companionAnimalKind
+        }
+    }
+
     private func partnerCell(_ kind: AnimalKind) -> some View {
-        let isSelected = partnerRole == .teacher
-            ? kind == state.teacherAnimalKind
-            : kind == state.studentAnimalKind
+        let isSelected = selectedKind(for: partnerRole) == kind
+        // ⚠️ 设置页预览一律用**基线配饰**（老师教棍 / 学员红领巾）：
+        // 这里选的是「角色是谁」，不是「它爬到哪一站了」。
         let accessory: AnimalAccessory = isSelected
             ? (partnerRole == .teacher ? .teacher : .student)
             : .none
 
         return Button {
             Task {
-                if partnerRole == .teacher {
-                    await state.setTeacherAnimal(kind)
-                } else {
-                    await state.setStudentAnimal(kind)
+                switch partnerRole {
+                case .teacher: await state.setTeacherAnimal(kind)
+                case .student: await state.setStudentAnimal(kind)
+                case .companion: await state.setCompanionAnimal(kind)
                 }
             }
         } label: {
@@ -351,7 +391,7 @@ public struct SettingsView: View {
             )
             .overlay(alignment: .topTrailing) {
                 if isSelected {
-                    Image(systemName: partnerRole == .teacher ? "graduationcap.fill" : "figure.child")
+                    Image(systemName: partnerRole.icon)
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(theme.onAccentFill)
                         .padding(4)

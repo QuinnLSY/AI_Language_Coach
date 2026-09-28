@@ -422,6 +422,13 @@ public struct ProductConfig: Sendable, Equatable {
     public var teacherPersona: String
     /// 小学员形象（`AnimalKind.rawValue` 字符串，UI 层映射）。默认小熊。
     public var studentAnimal: String
+    /// 学员的小伙伴形象（`AnimalKind.rawValue`；**空串 = 自动**，按 `ForestCompanion` 的伙伴规则跟着学员走）。
+    ///
+    /// 存空串而不是 nil：这一项只是「偏好」，空值有明确含义（自动），
+    /// 不需要「没设过」与「设成了空」两种状态。
+    public var studentCompanion: String
+    /// 森林跟随真实时间与季节（默认关：老用户开屏看到的还是原来的那片林子）。
+    public var forestFollowsClock: Bool
     /// 每类能力当前激活的 Provider（`AIProviderKind.rawValue -> provider id`）。
     /// 本地模型与云端 Provider 并存时，由它决定实际用谁。
     public var activeProviders: [String: String]
@@ -469,6 +476,8 @@ public struct ProductConfig: Sendable, Equatable {
         teacherAnimal: String = "panda",
         teacherPersona: String = "standard",
         studentAnimal: String = "bear",
+        studentCompanion: String = "",
+        forestFollowsClock: Bool = false,
         activeProviders: [String: String] = [:],
         teacherBubbles: Bool = true,
         animalBubbles: Bool = true,
@@ -494,6 +503,8 @@ public struct ProductConfig: Sendable, Equatable {
         self.teacherAnimal = teacherAnimal
         self.teacherPersona = teacherPersona
         self.studentAnimal = studentAnimal
+        self.studentCompanion = studentCompanion
+        self.forestFollowsClock = forestFollowsClock
         self.activeProviders = activeProviders
         self.teacherBubbles = teacherBubbles
         self.animalBubbles = animalBubbles
@@ -526,7 +537,8 @@ public struct ProductConfig: Sendable, Equatable {
 extension ProductConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case learningLanguage, nativeLanguage, teacherVoice, practiceMode, themeMode, motionMode
-        case selectedModels, teacherAnimal, teacherPersona, studentAnimal, activeProviders
+        case selectedModels, teacherAnimal, teacherPersona, studentAnimal, studentCompanion
+        case forestFollowsClock, activeProviders
         case teacherBubbles, animalBubbles, animalActivity
         case animalActivityFrequency, voicePreview, autoSpeak, speechRate
         case dailyGoalMinutes, dailyGoalMode
@@ -564,6 +576,8 @@ extension ProductConfig: Codable {
         // 不能因为升级就把老用户的教学口径改掉。
         teacherPersona = try value(.teacherPersona, fallback.teacherPersona)
         studentAnimal = try value(.studentAnimal, fallback.studentAnimal)
+        studentCompanion = try value(.studentCompanion, fallback.studentCompanion)
+        forestFollowsClock = try value(.forestFollowsClock, fallback.forestFollowsClock)
         activeProviders = try value(.activeProviders, fallback.activeProviders)
         teacherBubbles = try value(.teacherBubbles, fallback.teacherBubbles)
         animalBubbles = try value(.animalBubbles, fallback.animalBubbles)
@@ -595,6 +609,8 @@ extension ProductConfig: Codable {
         try container.encode(teacherAnimal, forKey: .teacherAnimal)
         try container.encode(teacherPersona, forKey: .teacherPersona)
         try container.encode(studentAnimal, forKey: .studentAnimal)
+        try container.encode(studentCompanion, forKey: .studentCompanion)
+        try container.encode(forestFollowsClock, forKey: .forestFollowsClock)
         try container.encode(activeProviders, forKey: .activeProviders)
         try container.encode(teacherBubbles, forKey: .teacherBubbles)
         try container.encode(animalBubbles, forKey: .animalBubbles)

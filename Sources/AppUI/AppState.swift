@@ -1103,8 +1103,25 @@ public final class AppState {
         modelRunStates = await services.modelRunStates()
     }
 
+    /// 当前时刻（24 小时制，带分钟小数）：天体沿弧线走要的是**连续**位置，
+    /// 不是每小时跳一格。
+    public var clockHour: Double {
+        let now = Date()
+        let calendar = Calendar.current
+        return Double(calendar.component(.hour, from: now))
+            + Double(calendar.component(.minute, from: now)) / 60
+    }
+
+    /// 当前月份（1...12）：季节的判据。
+    public var clockMonth: Int { Calendar.current.component(.month, from: Date()) }
+
+    /// 森林是否跟随真实时间与季节（设置开关，默认关）。
+    public var forestFollowsClock: Bool { product.forestFollowsClock }
+
     public var theme: ForestTheme {
-        ForestThemeResolver.resolve(mode: themeMode, systemIsDark: systemIsDark)
+        ForestThemeResolver.resolve(mode: themeMode, systemIsDark: systemIsDark,
+                                    hour: Int(clockHour.rounded(.down)), month: clockMonth,
+                                    followsClock: product.forestFollowsClock)
     }
 
     // 供设置页读取的产品字段
@@ -1137,6 +1154,16 @@ public final class AppState {
     /// 小学员形象（聊天区学员位 + 右侧爬树形象）。
     public var studentAnimalKind: AnimalKind {
         AnimalKind(rawValue: product.studentAnimal) ?? .bear
+    }
+    /// 学员的小伙伴（陪着一起爬树的那一只）。
+    ///
+    /// 没选过就按 `ForestCompanion` 的伙伴规则自动配一只（每个学员物种有固定搭档）——
+    /// 「伙伴是要认得的」，所以默认不是随机的。
+    public var companionAnimalKind: AnimalKind {
+        if !product.studentCompanion.isEmpty, let kind = AnimalKind(rawValue: product.studentCompanion) {
+            return kind
+        }
+        return ForestCompanion.partner(for: studentAnimalKind)
     }
 
     /// 小学员的当前配饰（批次三成长线）：攒星换装——红领巾 → 小背包 → 望远镜 → 毕业帽。
@@ -1571,7 +1598,20 @@ public final class AppState {
     }
 
     public func toggleDayNight() async {
+        // ⚠️ 开着「跟随时间」时，手动点太阳/月亮必须先**收回自动**：
+        // 否则时刻说了算，点了跟没点一样（按钮看着是活的，实际是死的）。
+        if product.forestFollowsClock {
+            product.forestFollowsClock = false
+            await setThemeMode(theme.isNight ? .day : .night)
+            return
+        }
         await setThemeMode(Self.themeAfterCelestialTap(isNight: theme.isNight))
+    }
+
+    /// 切换「森林跟随时间与季节」。
+    public func setForestFollowsClock(_ on: Bool) async {
+        product.forestFollowsClock = on
+        await persistProduct()
     }
 
     /// 右上角太阳 / 月亮被点后的目标主题（纯函数，便于单测）：
@@ -1685,6 +1725,12 @@ public final class AppState {
 
     public func setStudentAnimal(_ kind: AnimalKind) async {
         product.studentAnimal = kind.rawValue
+        await persistProduct()
+    }
+
+    /// 设置小伙伴（传 nil = 回到自动配对）。
+    public func setCompanionAnimal(_ kind: AnimalKind?) async {
+        product.studentCompanion = kind?.rawValue ?? ""
         await persistProduct()
     }
 

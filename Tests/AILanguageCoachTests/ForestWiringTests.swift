@@ -216,9 +216,12 @@ final class ForestWiringTests: XCTestCase {
         let tree = try source("AppUI/Components/TreeCanvas.swift")
         let life = self.body(of: "private func orchestrateLife", in: tree)
         XCTAssertFalse(life.isEmpty, "找不到 orchestrateLife")
-        XCTAssertTrue(life.contains("action: .hop"), "跳的接线断了")
-        XCTAssertTrue(life.contains("action: .shake"), "摇的接线断了")
-        XCTAssertTrue(life.contains(".nod, .stretch, .dig, .spin"), "独角戏动作池没接进编排")
+        // ⚠️ 批次五起跳/摇走「招牌动作插队」那条路（`fallback` 就是原本那一档），
+        // 独角戏也从写死的池子换成**按物种**抽 —— 判据跟着语义走，别再钉旧字面量。
+        XCTAssertTrue(life.contains("fallback: .hop"), "跳的接线断了")
+        XCTAssertTrue(life.contains("fallback: .shake"), "摇的接线断了")
+        XCTAssertTrue(life.contains("AnimalPersonaBook.soloAction(for: kind, roll: signatureRoll)"),
+                      "独角戏动作池没接进编排（现在按物种抽）")
         XCTAssertTrue(life.contains("socialise"), "双人社交没接进编排")
         let social = self.body(of: "private func socialise", in: tree)
         XCTAssertTrue(social.contains("action: .wiggle"), "结对摇摆（跳舞）没接进社交")

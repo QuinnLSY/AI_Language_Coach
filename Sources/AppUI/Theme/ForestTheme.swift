@@ -41,28 +41,100 @@ public extension Color {
 public struct ForestTheme: Sendable, Equatable {
 
     public let palette: ForestPalette
+    /// 一天里的时刻（nil = 不跟随时间，用色板本来的天空）。
+    ///
+    /// ⚠️ 与 `season` 一样**只改插画层**：天空、山丘、叶色。下面那些
+    /// `accent` / `warning` / `streak` / 文本与表面色一个都不看它 ——
+    /// 它们被 `ThemeContrastTests` 用对比度和 ΔE 钉住，随时刻漂会当场失真。
+    public let moment: ForestMoment?
+    /// 季节（nil = 不分季节）。同样只改插画层。
+    public let season: ForestSeason?
 
-    public init(palette: ForestPalette) { self.palette = palette }
+    public init(palette: ForestPalette, moment: ForestMoment? = nil, season: ForestSeason? = nil) {
+        self.palette = palette
+        self.moment = moment
+        self.season = season
+    }
 
     public var isNight: Bool { palette == .night }
 
     // 天空
     public var sky: [Color] {
-        isNight
-            ? [Color(hex: 0x0A1230), Color(hex: 0x152347), Color(hex: 0x24405A)]
-            : [Color(hex: 0x7FD4F0), Color(hex: 0xB6EAFA), Color(hex: 0xE9F8DE)]
+        // 夜档不看时刻：夜里就是夜里的天空（时刻只用来给白天的天空上色）。
+        if isNight {
+            return [Color(hex: 0x0A1230), Color(hex: 0x152347), Color(hex: 0x24405A)]
+        }
+        guard let moment else {
+            return [Color(hex: 0x7FD4F0), Color(hex: 0xB6EAFA), Color(hex: 0xE9F8DE)]
+        }
+        switch moment {
+        case .dawn:
+            // 上头还蓝着、地平线已经暖起来
+            return [Color(hex: 0x8FB6DE), Color(hex: 0xD6DCF0), Color(hex: 0xFFD9AE)]
+        case .morning:
+            return [Color(hex: 0x7FD4F0), Color(hex: 0xB6EAFA), Color(hex: 0xE9F8DE)]
+        case .noon:
+            return [Color(hex: 0x6BCDF2), Color(hex: 0xA6E6FB), Color(hex: 0xDCF6E6)]
+        case .afternoon:
+            return [Color(hex: 0x86CBEE), Color(hex: 0xC2E6F5), Color(hex: 0xF5F3DA)]
+        case .dusk:
+            // 太阳压到山脊上：整片天被染成蜜橘色
+            return [Color(hex: 0x5A7CA8), Color(hex: 0xE08A5A), Color(hex: 0xF7C97C)]
+        case .night:
+            return [Color(hex: 0x0A1230), Color(hex: 0x152347), Color(hex: 0x24405A)]
+        }
+    }
+
+    /// 插画层的季节取色：夜里一律用色板原色（夜里看不出叶色，改了只会把夜景改坏），
+    /// 白天才按季节换 —— 春嫩 / 夏盛（= 原色）/ 秋黄 / 冬雪。
+    private func seasonal(day: UInt32, night: UInt32,
+                          spring: UInt32, autumn: UInt32, winter: UInt32) -> Color {
+        if isNight { return Color(hex: night) }
+        guard let season else { return Color(hex: day) }
+        switch season {
+        case .spring: return Color(hex: spring)
+        case .summer: return Color(hex: day)
+        case .autumn: return Color(hex: autumn)
+        case .winter: return Color(hex: winter)
+        }
     }
 
     // 远景山丘 / 林冠
-    public var hillFar: Color { isNight ? Color(hex: 0x16324A) : Color(hex: 0xA8DCC0) }
-    public var hillMid: Color { isNight ? Color(hex: 0x143B38) : Color(hex: 0x74C79A) }
-    public var hillNear: Color { isNight ? Color(hex: 0x0F2E2B) : Color(hex: 0x3F9E67) }
+    public var hillFar: Color {
+        seasonal(day: 0xA8DCC0, night: 0x16324A,
+                 spring: 0xBCE7C6, autumn: 0xCFC294, winter: 0xDCEBF2)
+    }
+    public var hillMid: Color {
+        seasonal(day: 0x74C79A, night: 0x143B38,
+                 spring: 0x8AD3A2, autumn: 0xC2A863, winter: 0xC9DCE6)
+    }
+    public var hillNear: Color {
+        seasonal(day: 0x3F9E67, night: 0x0F2E2B,
+                 spring: 0x4FB072, autumn: 0x9E8B45, winter: 0xAFCBD8)
+    }
 
     // 树
     public var trunk: Color { isNight ? Color(hex: 0x4A3626) : Color(hex: 0xA9743F) }
     public var trunkShade: Color { isNight ? Color(hex: 0x33251A) : Color(hex: 0x7E5228) }
-    public var foliage: Color { isNight ? Color(hex: 0x1E5346) : Color(hex: 0x4FA96B) }
-    public var foliageDeep: Color { isNight ? Color(hex: 0x143A31) : Color(hex: 0x2E7D55) }
+    public var foliage: Color {
+        seasonal(day: 0x4FA96B, night: 0x1E5346,
+                 spring: 0x6CC476, autumn: 0xC08A3E, winter: 0x7FA8A0)
+    }
+    public var foliageDeep: Color {
+        seasonal(day: 0x2E7D55, night: 0x143A31,
+                 spring: 0x3E9B5C, autumn: 0x8E6428, winter: 0x5F8A84)
+    }
+
+    /// 飘落物的颜色（收词飘的那片叶子 / 通关时的落叶缤纷）。
+    ///
+    /// 秋天是金的、冬天是雪白的 —— 同一套飘落动画换个颜色，季节就自己说出来了。
+    public var fallingFlake: Color {
+        switch season {
+        case .autumn: return Color(hex: isNight ? 0x6E4A22 : 0xE9A23C)
+        case .winter: return Color(hex: 0xE8F4FA)
+        default: return foliage
+        }
+    }
 
     // 强调
     /// 主强调色（琥珀金）：用于**文字 / 图标 / 描边 / 淡底**。
@@ -287,11 +359,28 @@ public extension View {
 // MARK: - 分辨率
 
 public enum ForestThemeResolver {
+
     public static func resolve(mode: ThemeMode, systemIsDark: Bool) -> ForestTheme {
         switch mode {
         case .day: ForestTheme(palette: .day)
         case .night: ForestTheme(palette: .night)
         case .system: ForestTheme(palette: systemIsDark ? .night : .day)
         }
+    }
+
+    /// 「跟随时间与季节」打开后的主题（纯函数，便于单测）。
+    ///
+    /// 打开时**时刻说了算**：天黑了就切夜景、白天按小时挑天空色、按月份换季节。
+    /// 关掉时与老行为逐字相同（`moment` / `season` 都是 nil）。
+    ///
+    /// ⚠️ 手动点太阳/月亮走的是「收回到手动」那条路（见 `AppState.toggleDayNight`），
+    /// 不是在这里跟自动打架 —— 否则开了自动之后那个按钮点了没反应。
+    public static func resolve(mode: ThemeMode, systemIsDark: Bool,
+                               hour: Int, month: Int, followsClock: Bool) -> ForestTheme {
+        guard followsClock else { return resolve(mode: mode, systemIsDark: systemIsDark) }
+        let palette: ForestPalette = ForestAtmosphere.isNightHour(hour) ? .night : .day
+        return ForestTheme(palette: palette,
+                           moment: ForestAtmosphere.moment(hour: hour),
+                           season: ForestAtmosphere.season(month: month))
     }
 }
