@@ -227,7 +227,9 @@ final class LearningDatabaseTests: XCTestCase {
             content TEXT NOT NULL, created_at REAL NOT NULL, reasoning TEXT
         )
         """)
-        let empty = ChatSession(startedAt: Date(timeIntervalSinceNow: -60))
+        let empty = ChatSession(startedAt: Date(timeIntervalSinceNow: -90))
+        // 幻影：列上写着 1 条、实际一条流水都没有（老版本不回滚计数的遗留）。
+        let phantom = ChatSession(startedAt: Date(timeIntervalSinceNow: -60))
         let used = ChatSession(startedAt: Date(timeIntervalSinceNow: -30))
         try legacy.run(
             "INSERT INTO sessions (id, started_at, mode, message_count) VALUES (?1, ?2, 'conversation', 0)",
@@ -235,16 +237,29 @@ final class LearningDatabaseTests: XCTestCase {
         )
         try legacy.run(
             "INSERT INTO sessions (id, started_at, mode, message_count) VALUES (?1, ?2, 'conversation', 1)",
+            [.text(phantom.id.uuidString), .real(phantom.startedAt.timeIntervalSince1970)]
+        )
+        try legacy.run(
+            "INSERT INTO sessions (id, started_at, mode, message_count) VALUES (?1, ?2, 'conversation', 2)",
             [.text(used.id.uuidString), .real(used.startedAt.timeIntervalSince1970)]
+        )
+        try legacy.run(
+            "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?1, ?2, 'user', 'hello', ?3)",
+            [
+                .text(UUID().uuidString), .text(used.id.uuidString),
+                .real(used.startedAt.timeIntervalSince1970 + 5),
+            ]
         )
         try legacy.setSchemaVersion(3)
         legacy.close()
 
-        // 重新打开 → 迁移到最新版：遗留空会话被清掉，真会话保留
+        // 重新打开 → 迁移到最新版：空会话与幻影都被清掉，真会话保留
         let db = try LearningDatabase(path: url.path)
         let sessions = try await db.recentSessions(limit: 10)
         XCTAssertEqual(sessions.count, 1, "空会话是历史包袱，应在迁移时清掉")
         XCTAssertEqual(sessions.first?.sessionID, used.id)
+        let phantomLeft = try await db.sessionSummary(id: phantom.id)
+        XCTAssertNil(phantomLeft, "幻影（列上写着 1 条、实际零流水）同样是包袱 —— 留着会在界面凭空显示「1 条对话」")
         let version = try await db.schemaVersion()
         XCTAssertEqual(version, LearningDatabase.schemaVersion, "迁移后必须停在最新版")
     }
@@ -392,7 +407,7 @@ final class LearningDatabaseTests: XCTestCase {
     // 而同屏展开的复盘里明明白白写着「1 轮对话」。
     //
     // 根因：复盘成功会把练习流水清掉（`purgeSessionMessages`），顺手把
-    // `sessions.message_count` 归零 —— 归零本身是对的（`hygiene()` 靠它判空会话），
+    // `sessions.message_count` 归零 —— 归零本身是对的（这一列的本义是「现存流水条数」），
     // 但三处会话查询直接读这一列，于是「做过复盘的那一条」永远报 0。
     // 修法是查询时用复盘行里存着的条数兜底（见 `messageCountExpression`）。
 
@@ -455,5 +470,90 @@ final class LearningDatabaseTests: XCTestCase {
             afterMoreTalking.first?.messageCount, 3,
             "取「现存条数」与「复盘快照」的较大值：既不能塌成 0，也不能比复盘里写的还少"
         )
+    }
+
+    // MARK: - 开库清理不许误伤复盘骨架（2026-09-28「学习记录回滚」报障）
+    //
+    // 用户报障：错题本与最近练习记录退回好几天前，年度记录却正常。
+    // 根因：`runHygiene()` 旧判据「message_count = 0 且无流水且非情景」把复盘清空
+    // 流水后的骨架行当空会话删掉，`corrections` 随外键（foreign_keys=ON）级联被
+    // 物理清空 —— 09-23 起每天的复盘行全成孤儿、错题本回退到 09-13。
+    // 新判据：「学员没发过言、也没复盘过」才可删。
+
+    /// 复盘过的随口练会话（scenario 为空 —— 旧判据下恰好全中「空会话」）：
+    /// 开库后骨架行必须幸存，纠错绝不能随级联消失。
+    func testHygieneKeepsReviewedFreeTalkSkeletonAndItsCorrections() async throws {
+        let db = try makeDB()
+        let session = ChatSession(mode: .freeTalk)
+        try await db.createSession(session)
+        try await db.appendMessage(
+            ChatMessage(role: .user, content: "I go to school yesterday"), sessionID: session.id
+        )
+        try await db.appendCorrection(
+            GrammarCorrection(original: "I go", corrected: "I went", explanation: "过去式"),
+            sessionID: session.id
+        )
+        try await db.saveReview(SessionReview(sessionID: session.id, messageCount: 1, headline: "不错"))
+        let purged = try await db.purgeSessionMessages(sessionID: session.id)
+        XCTAssertEqual(purged, 1, "前提：复盘收尾确实清空了流水（骨架行此刻正是旧判据眼里的「空会话」）")
+
+        try db.runHygiene()
+
+        let summary = try await db.sessionSummary(id: session.id)
+        XCTAssertNotNil(summary, "复盘骨架行必须幸存 —— 记录页的时长与轮次全靠它兜底")
+        let corrections = try await db.corrections(sessionID: session.id)
+        XCTAssertEqual(corrections.count, 1, "纠错是学习记忆，绝不能随会话删除被级联清空")
+    }
+
+    /// 开屏生成的「只有一句招呼、学员没接话」的空段：开库清理，别在最近练习里刷屏。
+    func testHygieneRemovesGreetingOnlySessions() async throws {
+        let db = try makeDB()
+        let greeting = ChatSession(mode: .conversation)
+        try await db.createSession(greeting)
+        try await db.appendMessage(ChatMessage(role: .assistant, content: "Welcome back!"), sessionID: greeting.id)
+
+        try db.runHygiene()
+
+        let summary = try await db.sessionSummary(id: greeting.id)
+        XCTAssertNil(summary, "学员没参与过的空段不算一次练习 —— 下一句招呼每次都会重新生成")
+    }
+
+    /// 一条消息都没有的真空会话：照旧清理（原有行为不许退化）。
+    func testHygieneStillRemovesTrulyEmptySessions() async throws {
+        let db = try makeDB()
+        let empty = ChatSession(mode: .conversation)
+        try await db.createSession(empty)
+
+        try db.runHygiene()
+
+        let summary = try await db.sessionSummary(id: empty.id)
+        XCTAssertNil(summary)
+    }
+
+    /// 学员发过言、还没复盘的会话：正在练，绝不能清。
+    func testHygieneKeepsSessionWithLearnerMessages() async throws {
+        let db = try makeDB()
+        let live = ChatSession(mode: .conversation)
+        try await db.createSession(live)
+        try await db.appendMessage(ChatMessage(role: .assistant, content: "hi"), sessionID: live.id)
+        try await db.appendMessage(ChatMessage(role: .user, content: "hello"), sessionID: live.id)
+
+        try db.runHygiene()
+
+        let summary = try await db.sessionSummary(id: live.id)
+        XCTAssertNotNil(summary, "只清「学员从未参与」的会话，练到一半的不动")
+    }
+
+    /// 情景会话（哪怕只有开场白）也不清 —— 情景绑定是用户的选择。
+    func testHygieneKeepsScenarioSessions() async throws {
+        let db = try makeDB()
+        let scenario = ChatSession(mode: .conversation, scenarioID: "restaurant")
+        try await db.createSession(scenario)
+        try await db.appendMessage(ChatMessage(role: .assistant, content: "Welcome!"), sessionID: scenario.id)
+
+        try db.runHygiene()
+
+        let summary = try await db.sessionSummary(id: scenario.id)
+        XCTAssertNotNil(summary)
     }
 }

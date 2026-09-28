@@ -30,7 +30,7 @@ public actor LearningDatabase {
     public init(path: String) throws {
         db = try SQLiteDatabase(path: path)
         try migrate()
-        try hygiene()
+        try runHygiene()
     }
 
     /// 默认库位置：项目空间 `.workbuddy/app-config/learning.db`。
@@ -236,11 +236,23 @@ public actor LearningDatabase {
     /// 轻量卫生清理（幂等，每次打开都跑）：
     /// 旧版本每次启动都会建一条空会话，而「最近会话」取最新的一条，
     /// 导致上次的练习永远恢复不回来 —— 把这种纯空会话删掉（有情景标记的保留）。
-    private nonisolated func hygiene() throws {
+    /// 开库清理「学员从未参与」的会话。
+    ///
+    /// ⚠️ 判据是「学员没发过言、也没复盘过」，**不是** `message_count = 0`：
+    /// 复盘成功后 `purgeSessionMessages` 会清空流水、把计数归零（设计如此，骨架行要留下，
+    /// `endedExpression` / `messageCountExpression` 专门为它兜底）。旧判据「count = 0 且无流水」
+    /// 下，复盘过的随口练会话恰好全中「空会话」，开库即删 —— `corrections` 随外键级联
+    /// 被物理清空，错题本每天退回几天前（2026-09-28 取证实锤：09-23 起的复盘行全成孤儿）。
+    ///
+    /// 因此只删两类：一条消息都没有的真空会话；「只有开场白」的空段
+    /// （开屏招呼落了库、学员没接话 —— 反正下一句招呼每次都重新生成）。
+    /// 情景会话、复盘过的会话、学员发过言还没复盘的会话一律不动。
+    public nonisolated func runHygiene() throws {
         try db.run("""
         DELETE FROM sessions
-        WHERE message_count = 0 AND scenario_id IS NULL AND id != 'archive'
-          AND NOT EXISTS (SELECT 1 FROM messages WHERE messages.session_id = sessions.id)
+        WHERE scenario_id IS NULL AND id != 'archive'
+          AND NOT EXISTS (SELECT 1 FROM session_reviews WHERE session_reviews.session_id = sessions.id)
+          AND NOT EXISTS (SELECT 1 FROM messages WHERE messages.session_id = sessions.id AND messages.role = 'user')
         """)
     }
 
@@ -344,7 +356,7 @@ public actor LearningDatabase {
     ///
     /// ⚠️ 只读 `sessions.message_count` 会算出「0 条对话」：复盘成功后
     /// `purgeSessionMessages` 会把消息清掉、并把这一列归零
-    /// （归零是必要的 —— `hygiene()` 就是拿 `message_count = 0` 当空会话判据的）。
+    /// （归零让这一列始终守住「现存流水条数」的本义；`runHygiene()` 已不看这一列）。
     /// 于是「最近练习」里那一条明明写着「时长 2 分 54 秒」，右边却是「0 条对话」，
     /// 而同屏展开的复盘里写着「1 轮对话」—— 同一件事在三个地方各说各的。
     /// 复盘行里存着当时的条数，拿它兜底，卡片与复盘就再也打不了架。
@@ -456,8 +468,8 @@ public actor LearningDatabase {
     ///
     /// ⚠️ **删完必须把 `sessions.message_count` 重新对齐**（见 `syncMessageCount`）：
     /// 这个列是**存储字段**（`appendMessage` 自增），不是实时 COUNT。
-    /// 光删行不校数，`message_count` 会越积越大，而 `hygiene()` 正是拿
-    /// `message_count = 0` 当「空会话」的判据 —— 删空了的会话将永远清不掉。
+    /// 光删行不校数，这一列就会虚高 —— 它还参与「对话条数」的取大值口径，
+    /// 显示上永远比真实多。
     ///
     /// - Returns: 真的删掉的行数（id 不存在的不算）。
     @discardableResult
@@ -963,8 +975,8 @@ public actor LearningDatabase {
             // 以前这里顺手 DELETE，复盘一跑错题本就被清空（#3 报障的根因）。
             // 它的生命周期归 `clearLearningMemory`（用户显式清除）管。
             try db.run("DELETE FROM messages WHERE session_id = ?1", [.text(sessionID.uuidString)])
-            // ⚠️ 顺手把 `message_count` 归零：它以前在这里不回滚，于是「清空过流水的会话」
-            // 还留着一个虚高的计数（`hygiene()` 靠这个列判空，虚高就永远判不出来）。
+            // ⚠️ 顺手把 `message_count` 归零：这一列的本义是「现存流水条数」，
+            // 清完必须归零，否则取大值口径会拿虚高值（`runHygiene()` 已不看这一列）。
             try syncMessageCount(sessionID: sessionID)
             return actual
         }
