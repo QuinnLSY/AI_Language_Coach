@@ -212,6 +212,33 @@ final class VocabularyPageTests: XCTestCase {
         try dump(hosting, name: "round52-settings-vocabulary-card.png")
     }
 
+    /// 情景对话卡（2026-09-28 接上的「重置闯关进度」入口）要能布局。
+    ///
+    /// 两种形态都会被渲染到：有进度（概况行 + 可点按钮）与零进度（无概况行、按钮禁用态）。
+    /// 断言用**布局高度差**：有进度那帧必须比零进度帧高出一行概况 ——
+    /// 少了那一行 = 概况没接上 `progress`。
+    func testSettingsScenarioCardLayouts() async throws {
+        let state = makeAppState()
+        let hosting = NSHostingView(rootView: SettingsView(state: state))
+        hosting.frame = NSRect(x: 0, y: 0, width: 700, height: 2400)
+        hosting.layoutSubtreeIfNeeded()
+        let emptyHeight = hosting.fittingSize.height
+        XCTAssertGreaterThan(emptyHeight, 0, "设置页（零进度，重置按钮禁用态）应可布局")
+        try dump(hosting, name: "round55-settings-scenario-card-empty.png")
+
+        // 攒出可见进度后再布局：概况行让整页高出一段（约为卡片说明行的高度）。
+        state.progress.levels[0].earnedStars = 3
+        state.progress.levels[0].state = .completed
+        state.progress.recalculateSummary()
+        hosting.layoutSubtreeIfNeeded()
+        let starredHeight = hosting.fittingSize.height
+        XCTAssertGreaterThan(
+            starredHeight - emptyHeight, 10,
+            "有进度时卡片要长出「已收集 N 颗星」那一行（差值 \(starredHeight - emptyHeight)pt）"
+        )
+        try dump(hosting, name: "round55-settings-scenario-card-starred.png")
+    }
+
     /// 把离屏排好的视图整块出图（与各 `*RenderTests` 同一套写法）。
     private func dump(_ view: NSView, name: String) throws {
         let root = URL(fileURLWithPath: #filePath)

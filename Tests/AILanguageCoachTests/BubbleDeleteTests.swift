@@ -1,6 +1,3 @@
-import AIInterfaces
-import AIDomain
-import AIServices
 import AppKit
 @testable import AppUI
 import SwiftUI

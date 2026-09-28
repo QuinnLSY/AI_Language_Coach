@@ -16,7 +16,10 @@ import SwiftUI
 struct TeacherPreparingCard: View {
 
     @Environment(\.forestTheme) private var theme
-    @Environment(\.appMotion) private var motion
+    // ⚠️ 这里**不需要**再读 `\.appMotion`：卡内三处会动的东西各自已经读了动效档 ——
+    // `TypingDots` 自己判 reduceMotion（减弱动态效果下三点静止）、`.appAnimation`
+    // 修饰器从环境取档、`CuteAnimalView` 走 `.loopAnimation`。顶层再读一份只会
+    // 变成没人用的死属性（periphery 2026-09-28 报过）。
 
     let teacherKind: AnimalKind
     /// 计时起点。默认 = 本视图创建时刻；留成参数是为了离屏渲染能把它固定下来。

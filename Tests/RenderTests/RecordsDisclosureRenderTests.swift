@@ -29,7 +29,6 @@ final class RecordsDisclosureRenderTests: XCTestCase {
     private let bandTop = 0
     private let bandBottom = 40
     private let background = (r: 242, g: 242, b: 242)   // 0.95 灰
-    private let ink = (r: 0, g: 0, b: 0)                // 纯黑矩形
 
     /// 终态夹具：不做动画，直接是展开后的样子。
     private struct FinalFixture: View {

@@ -23,12 +23,6 @@ final class AnnualTooltipLayerRenderTests: XCTestCase {
 
     private var window: NSWindow?
 
-    private var calendar: Calendar = {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.firstWeekday = 2
-        return calendar
-    }()
-
     private let now = Date(timeIntervalSince1970: 1_789_000_000)
     private let cardWidth: CGFloat = 820
 

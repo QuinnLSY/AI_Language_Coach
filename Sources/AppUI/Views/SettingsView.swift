@@ -55,6 +55,8 @@ public struct SettingsView: View {
     @State private var showImportConfirm = false
     /// 重置每日推荐学习进度的二次确认。
     @State private var showVocabularyResetConfirm = false
+    /// 重置闯关进度（全新起点）的二次确认。
+    @State private var showQuestResetConfirm = false
     /// 配置里的 LLM Provider 标签（本地 / 云端）。
     @State private var providerOptions: [(id: String, name: String, isRemote: Bool)] = []
     /// 「外部模型」面板（统一接入入口）：
@@ -86,6 +88,7 @@ public struct SettingsView: View {
                     learningCard
                     practiceReminderCard
                     vocabularyCard
+                    scenarioCard
                     privacyCard
                     cacheCard
                     runtimeCard
@@ -141,6 +144,14 @@ public struct SettingsView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("「认识」次数会清零，词库重新从简单档开始推荐。词汇本里的词条与复习进度不受影响。")
+        }
+        .confirmationDialog("确定重置闯关进度吗？", isPresented: $showQuestResetConfirm, titleVisibility: .visible) {
+            Button("重置进度", role: .destructive) {
+                Task { await state.resetQuestProgress() }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("所有关卡归零、只开放第一关，情景任务的完成记录一并清空，无法恢复。词汇本、对话记录与学习记忆不受影响。")
         }
         .confirmationDialog("确定清理缓存吗？", isPresented: $showClearConfirm, titleVisibility: .visible) {
             Button("清理缓存", role: .destructive) {
@@ -1704,6 +1715,52 @@ public struct SettingsView: View {
             ? "上次已学 \(state.dailyProgressResetLearned) / \(total) 词（推荐词源）"
             : "上次已学 \(state.dailyProgressResetLearned) 词"
         return "上次重置：\(formatter.string(from: date)) · \(learned) · \(collectedText)"
+    }
+
+    // MARK: - 情景对话（闯关进度）
+
+    /// 情景对话卡：当前闯关概况 + 「重置闯关进度」入口。
+    ///
+    /// 为什么有重置入口：闯关进度随数据库永久保存，练歪了 / 想从头跟一遍课程时
+    /// 没有任何出口能回到起点。与词汇本的重置同一口径 —— 红色描边按钮 + 确认弹窗。
+    private var scenarioCard: some View {
+        card(title: "情景对话", systemImage: "theatermasks.fill") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("情景任务与大树关卡记录你的闯关进度：每练完一轮情景任务收一颗星，星星攒够解锁下一关。")
+                    .font(.system(size: 11, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if state.progress.totalStars > 0 {
+                    Text("已收集 \(state.progress.totalStars) 颗星 · 爬升 \(Int(state.progress.climbFraction * 100))%")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                        .monospacedDigit()
+                }
+
+                Button {
+                    showQuestResetConfirm = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.counterclockwise")
+                        Text("重置闯关进度（全新起点）")
+                    }
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.red)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.red.opacity(0.8), lineWidth: 1)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.appPressable)
+                .disabled(state.progress.totalStars == 0)
+                .opacity(state.progress.totalStars == 0 ? 0.45 : 1)
+                .help("所有关卡归零、只开第一关，情景任务的完成记录一并清空（词汇本与对话记录不动）")
+            }
+        }
     }
 
     // MARK: - 隐私与安全（本地优先 + 外发披露）

@@ -1,7 +1,5 @@
 import AIDomain
-import AIInterfaces
 import AIInfrastructure
-import AIProviders
 import AIServices
 import AppCore
 @testable import AppUI

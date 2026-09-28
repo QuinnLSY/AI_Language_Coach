@@ -92,7 +92,6 @@ final class BubbleActionsRenderTests: XCTestCase {
     private struct Render {
         var rep: NSBitmapImageRep
         var scale: CGFloat
-        var size: CGSize
         /// 这几帧「稳定」下来用了几轮（见 `render` 的收敛循环）。
         /// 只为诊断：它顶到上限就说明当时有东西一直在动，别去怀疑断言本身。
         var settleRounds: Int = 0
@@ -169,7 +168,6 @@ final class BubbleActionsRenderTests: XCTestCase {
         return Render(
             rep: frame,
             scale: CGFloat(frame.pixelsHigh) / size.height,
-            size: size,
             settleRounds: settleRounds
         )
     }

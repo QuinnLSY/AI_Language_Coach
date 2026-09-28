@@ -111,6 +111,23 @@ extension AppState {
         await reloadProgress()
     }
 
+    /// 重置闯关进度（全新起点）：所有关卡 0 星、只开第一关，情景任务的完成记录一并清空。
+    ///
+    /// ⚠️ 归零口径只用 `LearnerProgress.zeroed`：它保留各关的元数据（标题 / 需求星数），
+    /// 「重置」不该顺手改掉课程设计；也记得走 `recalculateSummary`，`climbFraction`
+    /// 不会残留旧值。词汇本 / 对话记录 / 学习记忆各在各的表里，不在此列。
+    public func resetQuestProgress() async {
+        // 情景任务的完成记录在另一张表：逐条清掉（量级 = 情景数，循环没有压力）。
+        for scenarioID in questRecords.keys {
+            await services.clearQuestProgress(scenarioID: scenarioID)
+        }
+        questRecords = [:]
+        progress = progress.zeroed(unlocking: 0)
+        await services.saveProgress(progress)
+        await refreshQuestRecords()
+        await reloadProgress(includeAnnual: false)
+    }
+
     /// 每日目标（分钟）——写产品配置（持久化）。
     public func setDailyGoalMinutes(_ minutes: Int) async {
         product.dailyGoalMinutes = min(max(minutes, 5), 180)

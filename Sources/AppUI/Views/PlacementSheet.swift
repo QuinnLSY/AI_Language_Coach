@@ -169,7 +169,7 @@ struct PlacementSheet: View {
 
                 VStack(spacing: 8) {
                     ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
-                        optionRow(question: question, index: index, option: option)
+                        optionRow(index: index, option: option)
                     }
                 }
             }
@@ -190,7 +190,7 @@ struct PlacementSheet: View {
         .frame(height: 6)
     }
 
-    private func optionRow(question: PlacementQuestion, index: Int, option: String) -> some View {
+    private func optionRow(index: Int, option: String) -> some View {
         Button {
             state.choosePlacementOption(index)
         } label: {

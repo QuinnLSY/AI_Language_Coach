@@ -1,6 +1,5 @@
 import AIDomain
 import AIInfrastructure
-import AIServices
 import AppKit
 @testable import AppUI
 import SwiftUI
@@ -21,7 +20,6 @@ final class ThirdBatchRenderTests: XCTestCase {
     private struct Render {
         var rep: NSBitmapImageRep
         var scale: CGFloat
-        var size: CGSize
     }
 
     private func makeHost(_ view: some View, size: CGSize) throws -> Render {
@@ -41,8 +39,7 @@ final class ThirdBatchRenderTests: XCTestCase {
         host.cacheDisplay(in: host.bounds, to: rep)
         return Render(
             rep: rep,
-            scale: CGFloat(rep.pixelsHigh) / max(size.height, 1),
-            size: size
+            scale: CGFloat(rep.pixelsHigh) / max(size.height, 1)
         )
     }
 

@@ -267,11 +267,6 @@ public struct ListeningSummary: Sendable, Equatable {
             return (order.firstIndex(of: lhs) ?? 0) < (order.firstIndex(of: rhs) ?? 0)
         }
     }
-
-    /// 兼容入口（精听那条链路的既有调用点）。
-    static func rankMissedWords(_ attempts: [ListeningAttempt]) -> [String] {
-        rankMissedWords(attempts.map(\.missedWords))
-    }
 }
 
 // MARK: - 当天账本

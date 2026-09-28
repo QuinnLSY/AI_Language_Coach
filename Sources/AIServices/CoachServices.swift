@@ -430,11 +430,6 @@ public actor CoachServices {
         return try await attachmentStore.importFile(at: url)
     }
 
-    /// 附件在本机的位置（nil = 文件已被清理，UI 显示「不可用」）。
-    public func attachmentURL(for attachment: ChatAttachment) async -> URL? {
-        await attachmentStore.fileURL(for: attachment)
-    }
-
     /// 读取附件内容（多模态请求内联图片时用）。
     public func attachmentData(for attachment: ChatAttachment) async -> Data? {
         await attachmentStore.data(for: attachment)

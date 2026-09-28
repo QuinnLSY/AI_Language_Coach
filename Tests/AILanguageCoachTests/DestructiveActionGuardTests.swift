@@ -115,4 +115,33 @@ final class DestructiveActionGuardTests: XCTestCase {
         XCTAssertTrue(kit.contains("@State private var confirmingDelete = false"),
                       "删除素材必须两步确认")
     }
+
+    // MARK: - ④ 重置闯关进度（设置页）
+
+    /// 重置闯关进度与「清缓存」「重置每日推荐」同属不可逆操作：必须走确认弹窗。
+    ///
+    /// ⚠️ 判据是 `await state.resetQuestProgress()` **全文件恰好 1 次**（只在弹窗里）：
+    /// 只断言「存在调用点 + 前面有 destructive」是假绿 —— 反证时把按钮改成直接调重置，
+    /// 弹窗里那个调用点还在，哨兵照样绿（2026-09-28 亲眼撞上）。
+    func testQuestProgressResetGoesThroughConfirmationDialog() throws {
+        let lines = codeLines(try source("AppUI/Views/SettingsView.swift"))
+        let code = lines.map(\.text).joined(separator: "\n")
+
+        let callCount = code.components(separatedBy: "await state.resetQuestProgress()").count - 1
+        XCTAssertEqual(callCount, 1,
+                       "重置的调用点必须只在确认弹窗里（实测 \(callCount) 处）")
+
+        guard let callLine = firstLine("await state.resetQuestProgress()", in: lines) else {
+            return XCTFail("找不到重置闯关进度的调用")
+        }
+        let before = lines.filter { $0.number < callLine }.suffix(6).map(\.text).joined(separator: "\n")
+        XCTAssertTrue(before.contains("role: .destructive"),
+                      "那唯一的调用点要落在确认弹窗的破坏性按钮里")
+
+        XCTAssertTrue(code.contains("确定重置闯关进度吗？"), "确认弹窗要有明确的标题")
+        XCTAssertTrue(code.contains("无法恢复。词汇本、对话记录与学习记忆不受影响"),
+                      "弹窗要说明清什么、不清什么（与学习记忆卡同一口径）")
+        XCTAssertTrue(code.contains("showQuestResetConfirm = true"),
+                      "按钮只负责打开确认框")
+    }
 }
