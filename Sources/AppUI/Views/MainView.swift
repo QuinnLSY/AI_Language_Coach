@@ -576,7 +576,11 @@ public struct MainView: View {
                     theme: state.theme,
                     progress: state.progress,
                     studentAnimal: state.studentAnimalKind,
-                    levelNotes: state.treeLevelNotes
+                    levelNotes: state.treeLevelNotes,
+                    // 森林回应：攒星弹果实、通关全套仪式、练完/收词飘叶
+                    ceremonyTick: state.forest.ceremonyTick,
+                    practiceTick: state.forest.practiceTick,
+                    wordTick: state.forest.wordTick
                 ) { level in
                     Task { await open(level) }
                 }
@@ -595,6 +599,10 @@ public struct MainView: View {
                 )
                 .frame(height: TreeViewport.groundBandHeight)
                 .allowsHitTesting(true)
+            }
+            // 通关烟花：盖在整块树面板上（不裁切、不吃点击），放完自动收
+            .overlay {
+                CeremonyFireworksLayer(theme: state.theme, tick: state.forest.ceremonyTick)
             }
         }
         .background(state.theme.surface.opacity(0.62))

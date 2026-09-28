@@ -1435,6 +1435,10 @@ public final class ChatService {
         for correction in corrections {
             await services.persistCorrection(correction, sessionID: sessionID)
         }
+        // 森林地基：有纠错落库才发事件（零条 = 没发生，森林保持安静）。
+        if !corrections.isEmpty {
+            services.events.emit(.correctionsRecorded(count: corrections.count))
+        }
     }
 
     /// deepseek-r1 会输出 `<think>...推理...</think>`，产品层不展示推理段。

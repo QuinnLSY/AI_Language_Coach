@@ -533,6 +533,10 @@ extension AppState {
             }
             progress.recalculateSummary()
             await services.saveProgress(progress)
+            // 攒了星但没通关：小回应（新果实弹入），全套仪式留给通关那一刻。
+            if award.gained > 0 {
+                forest.ingest(.starsEarned(levelID: level.id, total: award.total, delta: award.gained))
+            }
         }
         scheduleRewardDismissal()
     }

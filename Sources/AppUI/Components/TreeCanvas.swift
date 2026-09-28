@@ -52,6 +52,23 @@ public struct TreeCanvas: View {
     /// 画布底部「林间地面」的高度（树干扎根的那一段）。
     public nonisolated static let groundHeight: CGFloat = 120
 
+    /// 学习事件脉冲（来自 `ForestStage`，见 `MainView` 装配）：
+    /// 攒星 = 新果实弹入；通关 = 树冠抖三抖 + 落叶缤纷 + 烟花；
+    /// 练完一段 = 飘几片叶子；收词 = 飘一片叶子。
+    var ceremonyTick: Int = 0
+    var practiceTick: Int = 0
+    var wordTick: Int = 0
+
+    /// 树冠茂密度（纯函数，便于单测）：已得星 / 需求星，钳到 0…1。
+    ///
+    /// 「求知好学」把学习成果物化进风景——树冠随总进度从稀疏变蓬松。
+    /// ⚠️ 只做**视觉变换**（scale / 透明度），绝不动布局：`canvasHeight`、
+    /// `learnerY` 与滚动锚点算式一根手指都不能碰（那是 TreeScrollViewTests 钉死的）。
+    public nonisolated static func canopyDensity(earned: Int, required: Int) -> Double {
+        guard required > 0 else { return 0 }
+        return min(max(Double(earned) / Double(required), 0), 1)
+    }
+
     private var canvasHeight: CGFloat { Self.canvasHeight }
     private var groundHeight: CGFloat { Self.groundHeight }
 
@@ -63,11 +80,15 @@ public struct TreeCanvas: View {
 
     public init(theme: ForestTheme, progress: LearnerProgress, studentAnimal: AnimalKind = .bear,
                 levelNotes: [String: TreeLevelNote] = [:],
+                ceremonyTick: Int = 0, practiceTick: Int = 0, wordTick: Int = 0,
                 onSelectLevel: @escaping (TreeLevel) -> Void = { _ in }) {
         self.theme = theme
         self.progress = progress
         self.studentAnimal = studentAnimal
         self.levelNotes = levelNotes
+        self.ceremonyTick = ceremonyTick
+        self.practiceTick = practiceTick
+        self.wordTick = wordTick
         self.onSelectLevel = onSelectLevel
     }
 
@@ -79,6 +100,10 @@ public struct TreeCanvas: View {
             let currentLevelID = progress.currentLevelID
             /// 学员站的位置（树上那条「爬到哪」的线）。锚点与形象共用，不能各算一套。
             let learnerY = Self.learnerY(for: progress.climbFraction)
+            // 星星成果实：总进度物化成枝头的果子（数量 = 已得星，封顶到果位表）。
+            let earnedStars = progress.levels.reduce(0) { $0 + $1.earnedStars }
+            let requiredStars = progress.levels.reduce(0) { $0 + $1.requiredStars }
+            let density = Self.canopyDensity(earned: earnedStars, required: requiredStars)
 
             ZStack(alignment: .topLeading) {
                 // 树干
@@ -92,8 +117,10 @@ public struct TreeCanvas: View {
                     )
                     .frame(width: width, height: canvasHeight)
 
-                // 树冠
-                Canopy(theme: theme)
+                // 树冠（茂密度随总进度；通关时抖三抖）
+                Canopy(theme: theme, density: density,
+                       fruitCount: min(earnedStars, FruitLayer.placements.count),
+                       shakeTick: ceremonyTick)
                     .frame(width: width, height: 300)
                     .offset(y: 20)
 
@@ -148,6 +175,12 @@ public struct TreeCanvas: View {
                     Spacer(minLength: 0)
                 }
                 .frame(width: 1, height: canvasHeight)
+
+                // 事件落叶层（收词一片 / 练完一小阵 / 通关缤纷）：
+                // 盖在角色之上、不挡点击；reduceMotion 下完全静止（不生成叶子）。
+                LeafFallLayer(theme: theme, wordTick: wordTick,
+                              practiceTick: practiceTick, ceremonyTick: ceremonyTick)
+                    .frame(width: width, height: canvasHeight)
             }
             .frame(width: width, height: canvasHeight)
         }
@@ -240,7 +273,16 @@ private struct TrunkShape: Shape {
 
 private struct Canopy: View {
     let theme: ForestTheme
+    /// 树冠茂密度 0…1（已得星 / 需求星）：只做视觉变换（大小 / 深叶层显隐），不动布局。
+    var density: Double = 0
+    /// 枝头果实数量（= 已得星，封顶到 `FruitLayer.placements`）。
+    var fruitCount: Int = 0
+    /// 通关仪式脉冲：变化时抖三抖（独立于常驻摇摆的第二层旋转）。
+    var shakeTick: Int = 0
+
     @State private var sway = false
+    @State private var shakeAngle: Double = 0
+    @Environment(\.appMotion) private var motion
 
     var body: some View {
         ZStack {
@@ -249,10 +291,200 @@ private struct Canopy: View {
             Circle().fill(theme.foliage).frame(width: 210, height: 180).offset(x: -20, y: 8)
             Circle().fill(theme.foliage).frame(width: 170, height: 150).offset(x: 66, y: -6)
             Circle().fill(theme.foliage.opacity(0.9)).frame(width: 150, height: 130).offset(x: -84, y: -14)
+            // 茂密层第六团圆叶：星星攒过一半才露头——「树冠越学越蓬」看得见
+            Circle().fill(theme.foliage.opacity(0.95)).frame(width: 120, height: 104)
+                .offset(x: 8, y: -34)
+                .opacity(density > 0.55 ? 1 : 0)
+
+            FruitLayer(theme: theme, count: fruitCount)
         }
+        .scaleEffect(0.97 + density * 0.06, anchor: .bottom)
         .rotationEffect(.degrees(sway ? 1.6 : -1.6), anchor: .bottom)
         .loopAnimation(.easeInOut(duration: 5.5).repeatForever(autoreverses: true), value: sway)
         .onAppear { sway = true }
+        // 仪式抖动：常驻摇摆之外的第二层旋转，放完归零（两套 modifier 叠加互不打架）
+        .rotationEffect(.degrees(shakeAngle), anchor: .bottom)
+        .onChange(of: shakeTick) { _, tick in
+            guard tick > 0, !motion.reduceMotion else { return }
+            runCeremonyShake()
+        }
+    }
+
+    /// 通关仪式：树冠抖三抖（幅度远大于常驻摇摆的 ±1.6°，一眼区分）。
+    private func runCeremonyShake() {
+        let swings: [(Double, Double)] = [(2.6, 0.16), (-2.2, 0.16), (1.6, 0.15), (-1.0, 0.15), (0, 0.2)]
+        Task { @MainActor in
+            for (angle, duration) in swings {
+                withAnimation(.easeInOut(duration: duration)) { shakeAngle = angle }
+                try? await Task.sleep(for: .seconds(duration))
+            }
+            shakeAngle = 0
+        }
+    }
+}
+
+// MARK: - 枝头果实（星星成果实挂上枝头）
+
+/// 星星物化成果实：总进度看得见、摸得着（数量 = 已得星，封顶到果位表）。
+/// 新果实从同一侧长出来——数量变化即弹入，`appAnimation` 自己尊重动效档。
+/// （internal：果位表与稳定性约束被 `ForestEventTests` 直接钉住。）
+struct FruitLayer: View {
+    let theme: ForestTheme
+    let count: Int
+
+    /// 果位表（树冠局部坐标：挂在五团圆叶的下缘；加果时按序取用）。
+    /// ⚠️ 稳定位置：同 index 永远同位，重绘不跳动。
+    nonisolated static let placements: [(Double, Double)] = [
+        (-160, 110), (-95, 135), (-30, 120), (30, 140), (90, 135), (150, 100),
+        (-140, 60), (-60, 80), (10, 85), (75, 70), (135, 45), (-115, 15),
+        (-40, 30), (40, 0), (105, -10), (-90, -30),
+    ]
+
+    var body: some View {
+        ForEach(0..<Self.placements.count, id: \.self) { index in
+            if index < count {
+                fruit(at: index)
+                    .transition(.scale(scale: 0.2, anchor: .bottom).combined(with: .opacity))
+            }
+        }
+        .appAnimation(.reveal, value: count)
+    }
+
+    /// 一颗果实：金黄果身 + 高光 + 一片小叶（金色沿用花蕊的既有色，不引入新色板）。
+    private func fruit(at index: Int) -> some View {
+        let p = Self.placements[index]
+        return ZStack {
+            Circle().fill(Color(hex: 0xF7B32B)).frame(width: 9, height: 9)
+            Circle().fill(Color.white.opacity(0.35)).frame(width: 3, height: 3)
+                .offset(x: -1.5, y: -1.5)
+            Ellipse()
+                .fill(theme.foliageDeep)
+                .frame(width: 5, height: 2.6)
+                .offset(x: 2.4, y: -5)
+                .rotationEffect(.degrees(-28))
+        }
+        .offset(x: p.0, y: p.1)
+    }
+}
+
+// MARK: - 事件落叶层（收词 / 练完 / 通关的树叶回应）
+
+/// 一片正在飘落的叶子（模型与视图分离：模型可测、视图自己演）。
+struct FallLeaf: Identifiable, Equatable {
+    let id: Int
+    /// 起点横向位置（画布宽度的比例）。
+    let x: Double
+    /// 起点纵向位置（画布坐标：树冠区域）。
+    let startY: Double
+    /// 全程横向漂移（pt）。
+    let drift: Double
+    /// 飘落时长（秒）。
+    let duration: Double
+    /// 叶长（pt）。
+    let size: Double
+    /// 全程自旋（度）。
+    let spin: Double
+}
+
+/// 学习事件的树叶回应层：收词飘一片、练完一小阵、通关缤纷。
+/// 纯装饰：不挡点击；`reduceMotion` 下一片都不生成（静止即安静）。
+struct LeafFallLayer: View {
+    let theme: ForestTheme
+    var wordTick: Int = 0
+    var practiceTick: Int = 0
+    var ceremonyTick: Int = 0
+
+    @State private var leaves: [FallLeaf] = []
+    @State private var counter = 0
+    @Environment(\.appMotion) private var motion
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                ForEach(leaves) { leaf in
+                    FallingLeafView(leaf: leaf, theme: theme, width: proxy.size.width)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .onChange(of: wordTick) { _, tick in guard tick > 0 else { return }; spawn(1) }
+        .onChange(of: practiceTick) { _, tick in guard tick > 0 else { return }; spawn(4) }
+        .onChange(of: ceremonyTick) { _, tick in guard tick > 0 else { return }; spawn(12) }
+    }
+
+    /// 按脉冲生成 n 片叶子；每片自持生命周期（飘完自摘，父级无常驻计时器）。
+    private func spawn(_ n: Int) {
+        guard !motion.reduceMotion else { return }
+        for _ in 0..<n {
+            counter += 1
+            let leaf = FallLeaf(
+                id: counter,
+                x: Double.random(in: 0.22...0.78),
+                startY: Double.random(in: 90...250),
+                drift: Double.random(in: -60...60),
+                duration: Double.random(in: 2.2...3.4),
+                size: Double.random(in: 10...15),
+                spin: Double.random(in: -140...140)
+            )
+            leaves.append(leaf)
+            let id = leaf.id
+            let life = leaf.duration
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(life + 0.4))
+                leaves.removeAll { $0.id == id }
+            }
+        }
+    }
+}
+
+private struct FallingLeafView: View {
+    let leaf: FallLeaf
+    let theme: ForestTheme
+    let width: CGFloat
+
+    @State private var started = false
+
+    var body: some View {
+        LeafShape()
+            .fill(theme.foliageDeep.opacity(0.9))
+            .frame(width: leaf.size, height: leaf.size * 0.55)
+            .rotationEffect(.degrees(started ? leaf.spin : 0))
+            .position(
+                x: width * leaf.x + (started ? leaf.drift : 0),
+                y: leaf.startY + (started ? 620 : 0)
+            )
+            .opacity(started ? 0 : 0.95)
+            .onAppear {
+                withAnimation(.easeIn(duration: leaf.duration)) { started = true }
+            }
+    }
+}
+
+// MARK: - 通关烟花层
+
+/// 通关烟花：`tick` 变化时放一次（约 3 秒后自动收），平时零开销。
+/// 与黑板的烟花同一组件——那套是一次性动画，离屏渲染取得到稳定帧。
+struct CeremonyFireworksLayer: View {
+    let theme: ForestTheme
+    var tick: Int = 0
+
+    @State private var visible = false
+
+    var body: some View {
+        ZStack {
+            if visible {
+                CelebrationFireworks(tint: theme.accent, secondary: theme.glow)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+        }
+        .task(id: tick) {
+            guard tick > 0 else { return }
+            withAnimation(.app(.reveal)) { visible = true }
+            try? await Task.sleep(for: .seconds(3.2))
+            guard !Task.isCancelled else { return }
+            withAnimation(.app(.reveal)) { visible = false }
+        }
     }
 }
 
@@ -475,6 +707,9 @@ struct ForestGroundBand: View {
     @State private var sleepLine: String?
     /// 连点刷新用：变化即重启 3 秒自动收起计时（与动物气泡同一套逻辑）。
     @State private var sleepTick = 0
+    /// 各槽位是否暂离（轮换中「走了还没回来」）。可见 = 槽位在宽度档位内 **且** 没暂离——
+    /// 走了之后画面上真的少一只，回来的时间看缘分（错落感的关键，见 `ForestRotationPacing`）。
+    @State private var away: [Bool] = Array(repeating: false, count: Self.maxResidents)
 
     private static let maxResidents = 8
     // 各类元素的**上限**：始终按上限创建视图，靠透明度控制显隐。
@@ -575,7 +810,7 @@ struct ForestGroundBand: View {
                 // 气泡层：每只小动物一份，统一画在所有居民之上。
                 // 层级由出现序号决定 —— 最新出现的气泡 zIndex 最大，不会被任何动物或其他气泡遮挡。
                 ForEach(0..<Self.maxResidents, id: \.self) { i in
-                    if i < count, let text = bubbleTexts[i] {
+                    if i < count, !away[i], let text = bubbleTexts[i] {
                         let home = homePosition(index: i, count: count, span: span,
                                                 inset: inset, groundLine: groundLine, quantizedWidth: qw)
                         SpeechBubble(text: text, maxWidth: 150)
@@ -667,7 +902,9 @@ struct ForestGroundBand: View {
             try? await Task.sleep(for: .seconds(interval))
             guard !Task.isCancelled, activityAllowed, !theme.isNight else { continue }
             guard count > 0 else { continue }
-            let index = Int.random(in: 0..<count)
+            // 只在**在场**的居民里挑：轮换暂离的槽位不能「凭空演戏」
+            let present = (0..<count).filter { !away[$0] }
+            guard let index = present.randomElement() else { continue }
             let isBird = order[index % order.count] == .owl
 
             if isBird && !perched[index] && Int.random(in: 0..<10) < 3 {
@@ -782,11 +1019,13 @@ struct ForestGroundBand: View {
     }
 
     /// 全体回家排排站好（关闭活动 / 入夜时调用，带过渡动画）。
+    /// ⚠️ 暂离状态一并清掉：轮换循环醒来看到的是「全员到场」，不会有人卡在画外。
     private func sendEveryoneHome() {
         withAnimation(.spring(response: 0.7, dampingFraction: 0.8)) {
             for i in 0..<Self.maxResidents {
                 offsets[i] = .zero
                 perched[i] = false
+                away[i] = false
             }
             clearAllBubbles()
         }
@@ -812,21 +1051,24 @@ struct ForestGroundBand: View {
     ///
     /// ⚠️ 只递 `actionTicks`（`LivelyAnimal` 靠它变化触发动作），不自己写动画 ——
     /// 身体动画归 `LivelyAnimal`，气泡层级归本视图，两边各管各的才不会打架。
+    /// ⚠️ 只点**在场**的居民：轮换暂离的槽位不演戏、不冒泡。
     private func celebrate() {
         guard activityAllowed else { return }
-        for i in 0..<Self.maxResidents {
+        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        for i in present {
             actionKinds[i] = 0
             actionTicks[i] += 1
         }
-        // 只让前 3 只说话：八只同时冒泡会糊成一片。
-        for i in 0..<min(3, Self.maxResidents) {
+        // 只让前三只在场的说话：八只同时冒泡会糊成一片。
+        let bubbled = Array(present.prefix(3))
+        for i in bubbled {
             bubbleCounter += 1
             bubbleStamps[i] = bubbleCounter
             bubbleTexts[i] = Self.celebrationPhrases[(i + celebrationTick) % Self.celebrationPhrases.count]
         }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(3))
-            for i in 0..<min(3, Self.maxResidents) { bubbleTexts[i] = nil }
+            for i in bubbled { bubbleTexts[i] = nil }
         }
     }
 
@@ -896,7 +1138,7 @@ struct ForestGroundBand: View {
     private func resident(kind: AnimalKind, index: Int, visibleCount: Int,
                           span: CGFloat, inset: CGFloat, groundLine: CGFloat,
                           quantizedWidth: CGFloat) -> some View {
-        let visible = index < visibleCount
+        let visible = index < visibleCount && !away[index]
         let home = homePosition(index: index, count: visibleCount, span: span, inset: inset,
                                 groundLine: groundLine, quantizedWidth: quantizedWidth)
         let facing = facingAt(index: index)
@@ -926,7 +1168,8 @@ struct ForestGroundBand: View {
         .opacity(visible ? 1 : 0)
         .scaleEffect(visible ? 1 : 0.6, anchor: .bottom)
         .allowsHitTesting(visible)
-        .appAnimation(.reveal, value: visibleCount)
+        // 显隐动画认「在不在场」这一个量：宽度档位变化与轮换暂离/回归共用同一条曲线
+        .appAnimation(.reveal, value: visible)
     }
 
     // MARK: 物种轮换（随机离开 → 新邻居进入）
@@ -954,60 +1197,108 @@ struct ForestGroundBand: View {
         facings.indices.contains(index) ? facings[index] : 1
     }
 
-    /// 轮换编排：随机间隔让一只小动物告别离开，随后一只新邻居进场打招呼。
+    /// 轮换编排（自然化版）：告别 → 各自看缘分错落回来。
+    ///
+    /// 与旧版「走一只、紧跟回来一只」的传送带不同：
+    /// ① 约三成概率**结伴两只**前后脚走（`ForestRotationPacing.groupSize`）；
+    /// ② 归期各自独立 4–45s——有快得像「提前来」的，也有大半天不见影的，
+    ///    期间画面上真的少一两只（数量动态变化）；
+    /// ③ 下一批告别前安静 0.5–1.5 个周期，一成概率来一段长歇（留白）。
     private func orchestrateRotation(count: Int, span: CGFloat, inset: CGFloat,
                                      groundLine: CGFloat, quantizedWidth: CGFloat,
                                      order: [AnimalKind]) async {
-        // 轮换节奏比日常动作慢得多：25~55 秒一次（频率越高越勤快）
-        let base = 55 - activityFrequency * 30
-        try? await Task.sleep(for: .seconds(base * Double.random(in: 0.9...1.2)))
+        // 个体错峰启动，别开屏就整整齐齐换班
+        try? await Task.sleep(for: .seconds(Double.random(in: 8...20)))
         while !Task.isCancelled {
-            // 轮换属于「活动」：开关关闭或入夜时静默等待
+            // 轮换属于「活动」：开关关闭或入夜时静默等待（醒来时全员已被送回家）
             guard activityAllowed, !theme.isNight else {
                 try? await Task.sleep(for: .seconds(5))
                 continue
             }
             guard count > 0 else { continue }
-            let index = Int.random(in: 0..<count)
-
-            // ① 告别气泡（气泡开关关闭时静默离开）
-            if bubblesAllowed {
-                requestRawBubble(index, pool: Self.leavePhrases)
-                try? await Task.sleep(for: .seconds(2.6))
+            let present = (0..<count).filter { !away[$0] }
+            guard !present.isEmpty else {
+                // 全在「回家路上」：等下一轮（归期循环没跑完不会走到这，兜底而已）
+                try? await Task.sleep(for: .seconds(4))
+                continue
             }
-            guard !Task.isCancelled else { return }
 
-            // ② 沿地面走出画面（朝最近一侧边缘小跳离场）
-            let home = homePosition(index: index, count: count, span: span, inset: inset,
+            // ① 这一批走几只？
+            let group = ForestRotationPacing.groupSize(present: present.count,
+                                                       roll: Double.random(in: 0..<1))
+            let leavers = Array(present.shuffled().prefix(group))
+
+            // ② 告别 + 沿地面走出画面：结伴时前后脚错落动身，不齐步走
+            for (offset, index) in leavers.enumerated() {
+                if offset > 0 {
+                    try? await Task.sleep(for: .seconds(
+                        ForestRotationPacing.staggerDelay(roll: Double.random(in: 0..<1))))
+                    guard !Task.isCancelled else { return }
+                }
+                if bubblesAllowed {
+                    requestRawBubble(index, pool: Self.leavePhrases)
+                    try? await Task.sleep(for: .seconds(2.6))
+                }
+                guard !Task.isCancelled else { return }
+                await hopOutOfStage(index, count: count, span: span, inset: inset,
                                     groundLine: groundLine, quantizedWidth: quantizedWidth)
-            let current = offsets[index]
-            let bandCenter = inset + span / 2
-            let exitLeft = home.x + current.width < bandCenter
-            let exitX = exitLeft ? -(inset + 40) : (inset + span + 40) - home.x
-            if facings.indices.contains(index) { facings[index] = exitLeft ? -1 : 1 }
-            await hopTo(index, target: CGSize(width: exitX, height: current.height),
-                        steps: 4, hopHeight: 9)
-            try? await Task.sleep(for: .seconds(0.35))
-            guard !Task.isCancelled else { return }
-
-            // ③ 换物种、瞬移回进场边缘、走进来
-            let pool = AnimalKind.allCases.filter { $0 != kindAt(index: index, fallback: order.first ?? .fox) }
-            let newKind = pool.randomElement() ?? .rabbit
-            if kinds.indices.contains(index) { kinds[index] = newKind }
-            let enterLeft = exitLeft
-            let enterX = enterLeft ? -(inset + 40) : (inset + span + 40) - home.x
-            if offsets.indices.contains(index) {
-                offsets[index] = CGSize(width: enterX, height: current.height)
+                away[index] = true
             }
-            try? await Task.sleep(for: .seconds(0.15))
-            await hopTo(index, target: CGSize(width: 0, height: current.height),
-                        steps: 6, hopHeight: 8)
 
-            // ④ 打招呼气泡
-            if bubblesAllowed {
-                requestRawBubble(index, pool: Self.greetPhrases)
+            // ③ 归期各自独立：谁先到看缘分（回来顺序与离开顺序刻意打乱）
+            for index in leavers.shuffled() {
+                try? await Task.sleep(for: .seconds(
+                    ForestRotationPacing.returnDelay(roll: Double.random(in: 0..<1))))
+                guard !Task.isCancelled else { return }
+                // 入夜 / 关活动：剩下的不再回来（sendEveryoneHome 已把 away 清掉）
+                guard activityAllowed, !theme.isNight else { break }
+                await arriveFromEdge(index: index, count: count, span: span, inset: inset,
+                                     groundLine: groundLine, quantizedWidth: quantizedWidth,
+                                     order: order)
             }
-            try? await Task.sleep(for: .seconds(base * Double.random(in: 0.85...1.3)))
+
+            // ④ 下一批告别前先安静一阵
+            try? await Task.sleep(for: .seconds(ForestRotationPacing.nextDepartureDelay(
+                frequency: activityFrequency,
+                roll: Double.random(in: 0..<1),
+                spread: Double.random(in: 0..<1))))
+        }
+    }
+
+    /// 沿地面走出画面（朝离自家近的一侧边缘小跳离场）。
+    private func hopOutOfStage(_ index: Int, count: Int, span: CGFloat, inset: CGFloat,
+                               groundLine: CGFloat, quantizedWidth: CGFloat) async {
+        let home = homePosition(index: index, count: count, span: span, inset: inset,
+                                groundLine: groundLine, quantizedWidth: quantizedWidth)
+        let current = offsets[index]
+        let bandCenter = inset + span / 2
+        let exitLeft = home.x + current.width < bandCenter
+        let exitX = exitLeft ? -(inset + 40) : (inset + span + 40) - home.x
+        if facings.indices.contains(index) { facings[index] = exitLeft ? -1 : 1 }
+        await hopTo(index, target: CGSize(width: exitX, height: current.height),
+                    steps: 4, hopHeight: 9)
+    }
+
+    /// 一位「新邻居」从离场那一侧的边缘走进来（换物种 → 走回家位 → 打招呼）。
+    private func arriveFromEdge(index: Int, count: Int, span: CGFloat, inset: CGFloat,
+                                groundLine: CGFloat, quantizedWidth: CGFloat,
+                                order: [AnimalKind]) async {
+        // 换物种：谁回来是缘分（只保证不是走掉的那位）
+        let pool = AnimalKind.allCases.filter { $0 != kindAt(index: index, fallback: order.first ?? .fox) }
+        let newKind = pool.randomElement() ?? .rabbit
+        if kinds.indices.contains(index) { kinds[index] = newKind }
+        // 此刻还在画外（离场位置），现身走进来
+        away[index] = false
+        if facings.indices.contains(index) {
+            facings[index] = offsets[index].width < 0 ? -1 : 1
+        }
+        try? await Task.sleep(for: .seconds(0.15))
+        guard !Task.isCancelled else { return }
+        let current = offsets[index]
+        await hopTo(index, target: CGSize(width: 0, height: current.height),
+                    steps: 6, hopHeight: 8)
+        if bubblesAllowed {
+            requestRawBubble(index, pool: Self.greetPhrases)
         }
     }
 

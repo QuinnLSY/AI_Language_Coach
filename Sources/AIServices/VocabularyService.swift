@@ -310,10 +310,13 @@ public actor VocabularyService {
 
     private let llm: LLMManager
     private let learning: LearningDatabase?
+    /// 学习事件总线（收词事件从这里发出）。CoachServices 装配时注入共享实例。
+    private let events: LearningEventBus
 
-    public init(llm: LLMManager, learning: LearningDatabase?) {
+    public init(llm: LLMManager, learning: LearningDatabase?, events: LearningEventBus = LearningEventBus()) {
         self.llm = llm
         self.learning = learning
+        self.events = events
     }
 
     // MARK: - 读取
@@ -357,7 +360,12 @@ public actor VocabularyService {
         guard !clean.isEmpty else { return nil }
         let entry = VocabularyEntry(word: clean, meaning: meaning, source: source)
         _ = try? await learning.upsertVocabulary(entry)
-        return await entries().first { $0.word.caseInsensitiveCompare(clean) == .orderedSame }
+        guard let saved = await entries().first(where: { $0.word.caseInsensitiveCompare(clean) == .orderedSame }) else {
+            return nil
+        }
+        // 森林地基：词真的进了本子才说「又捡到一个」——落库失败时森林保持安静。
+        events.emit(.wordCollected(word: clean))
+        return saved
     }
 
     /// 记一次复习（调度与判分规则见 `ReviewScheduler`）。

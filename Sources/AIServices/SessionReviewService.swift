@@ -13,10 +13,13 @@ public actor SessionReviewService {
 
     private let llm: LLMManager
     private let learning: LearningDatabase?
+    /// 学习事件总线（练习完成事件从这里发出）。CoachServices 装配时注入共享实例。
+    private let events: LearningEventBus
 
-    public init(llm: LLMManager, learning: LearningDatabase?) {
+    public init(llm: LLMManager, learning: LearningDatabase?, events: LearningEventBus = LearningEventBus()) {
         self.llm = llm
         self.learning = learning
+        self.events = events
     }
 
     // MARK: - 生成
@@ -261,5 +264,7 @@ public actor SessionReviewService {
     private func persist(_ review: SessionReview) async {
         guard let learning else { return }
         try? await learning.saveReview(review)
+        // 森林地基：复盘落库了，树冠才飘叶（练完一段的「小回应」）。
+        events.emit(.practiceCompleted(rounds: review.messageCount))
     }
 }

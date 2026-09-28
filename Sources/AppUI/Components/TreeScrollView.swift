@@ -13,6 +13,10 @@ struct TreeScrollView: View {
     let progress: LearnerProgress
     var studentAnimal: AnimalKind = .bear
     var levelNotes: [String: TreeLevelNote] = [:]
+    /// 学习事件脉冲（透传给 `TreeCanvas`：果实 / 树冠仪式 / 落叶）。
+    var ceremonyTick: Int = 0
+    var practiceTick: Int = 0
+    var wordTick: Int = 0
     var onSelectLevel: (TreeLevel) -> Void = { _ in }
 
     /// 内容顶部内边距（算滚动位置时要带上它）。
@@ -29,7 +33,10 @@ struct TreeScrollView: View {
                         theme: theme,
                         progress: progress,
                         studentAnimal: studentAnimal,
-                        levelNotes: levelNotes
+                        levelNotes: levelNotes,
+                        ceremonyTick: ceremonyTick,
+                        practiceTick: practiceTick,
+                        wordTick: wordTick
                     ) { level in
                         onSelectLevel(level)
                     }

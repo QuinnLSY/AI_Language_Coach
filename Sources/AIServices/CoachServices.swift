@@ -44,6 +44,11 @@ public actor CoachServices {
     /// 记忆退回结构化路径 —— 不引入任何额外开销。
     public let embedding: EmbeddingManager
 
+    /// 学习事件总线：服务层在**既有落库点**顺手发出「刚刚发生了什么」，
+    /// 森林舞台（AppUI `ForestStage`）订阅它做视觉回应。唯一的实例在这里，
+    /// UI 与测试都从 `services.events` 订阅——不要另开第二条总线。
+    public nonisolated let events = LearningEventBus()
+
     /// 学习数据库。打开失败时为 nil（功能降级为不持久化，不影响对话）。
     public private(set) var learning: LearningDatabase?
     /// 学习库被**隔离重建**时给用户看的说明（nil = 一切正常）。
@@ -118,7 +123,7 @@ public actor CoachServices {
         let database = opened.database
         self.learning = database
         self.databaseRecoveryNote = opened.note
-        self.reviewer = SessionReviewService(llm: self.llm, learning: database)
+        self.reviewer = SessionReviewService(llm: self.llm, learning: database, events: self.events)
         self.spellingCorrector = SpellingCorrectionService(llm: self.llm)
         self.translator = TranslationService(llm: self.llm)
         // 发音评测（第 23 步）：首版纯声学 + 文本对齐，不依赖任何发音模型；
@@ -130,7 +135,7 @@ public actor CoachServices {
         self.placement = PlacementService()
         self.materialStore = materialStore
         self.customScenarioStore = customScenarioStore
-        self.vocabulary = VocabularyService(llm: self.llm, learning: database)
+        self.vocabulary = VocabularyService(llm: self.llm, learning: database, events: self.events)
         self.dictionary = DictionaryService(llm: self.llm, store: dictionaryStore)
         self.progress = ProgressService(learning: database)
         self.writing = WritingService(llm: self.llm)

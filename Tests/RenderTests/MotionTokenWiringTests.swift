@@ -102,8 +102,11 @@ final class MotionTokenWiringTests: XCTestCase {
 
     /// 尚未 token 化的内联动画参数不得超过当前登记的数量。
     ///
-    /// 当前 17 处**有意保留**的业务节奏 —— 它们不是「交互反馈」，改快了就不是那个东西：
-    /// TreeCanvas 树 ×5（生长 / 花开 / 上干的呼吸感）、LivelyAnimal ×3（跳 / 摇的性格幅度）、
+    /// 当前 19 处**有意保留**的业务节奏 —— 它们不是「交互反馈」，改快了就不是那个东西：
+    /// TreeCanvas 树 ×7（生长 / 花开 / 上干的呼吸感；批次一新增 2：
+    /// 通关仪式的多段摆 0.15–0.2s、落叶的随机飘落时长 2.2–3.4s——都是**动态节奏**，
+    /// 时长由摆段 / 每片叶子随机决定，token 的固定曲线表达不了）、
+    /// LivelyAnimal ×3（跳 / 摇的性格幅度）、
     /// Animals ×3（Zzz 漂浮已带 reduceMotion 守卫、敲黑板 0.11/0.13s）、
     /// DictionarySampleWordsRow ×2（翻卡 `flipDuration`）、TeacherCorner ×1（带 `delay` 的收展）、
     /// MainView ×1（主题切换的慢crossfade）、ChatView ×1（三点已带 reduceMotion 守卫）、
@@ -113,7 +116,7 @@ final class MotionTokenWiringTests: XCTestCase {
     ///
     /// 反证：在任何普通 View 里内联一条 `.easeOut(duration: 0.3)` → 数量超上限 → 红。
     func testInlineAnimationParametersStayUnderTheRegisteredCeiling() throws {
-        let ceiling = 17
+        let ceiling = 19
         let offenders = try inlineAnimationOffenders()
         XCTAssertLessThanOrEqual(
             offenders.count, ceiling,

@@ -125,6 +125,11 @@ public final class AppState {
 
     public let services: CoachServices
     public let chat: ChatService
+    /// 森林舞台：把学习事件（收词 / 练完 / 攒星 / 通关）翻译成树与林间的视觉脉冲。
+    /// 事件源是 `services.events` 总线（订阅凭证见 `forestSubscription`）与本类的直发点。
+    public let forest = ForestStage()
+    /// 森林舞台对服务层总线的订阅凭证（释放即退订）。
+    private var forestSubscription: LearningEventBus.Subscription?
 
     public var themeMode: ThemeMode = .day
     public var systemIsDark: Bool = false
@@ -1042,6 +1047,9 @@ public final class AppState {
     init(services: CoachServices) {
         self.services = services
         self.chat = ChatService(services: services)
+        // 森林地基：服务层落库点（收词 / 纠错 / 复盘）发出的事件 → 树与林间的回应。
+        // 凭证存成属性：订阅随 AppState 活、随 AppState 走。
+        self.forestSubscription = forest.attach(to: services.events)
         // 应用打开时，所有模型默认为「启动」。
         var states: [AIProviderKind: Bool] = [:]
         for kind in AIProviderKind.allCases { states[kind] = true }
@@ -1564,6 +1572,9 @@ public final class AppState {
         }
         progress.recalculateSummary()
         await services.saveProgress(progress)
+        // 森林仪式：通关是里程碑——树冠抖三抖、落叶缤纷、放烟花（学员攀爬
+        // 不用事件，`climbFraction` 变了它自己会顺着树干爬上去）。
+        forest.ingest(.levelCompleted(levelID: levelID))
     }
 
     // MARK: - 模型（UI 可填可选，代码零字面量）
