@@ -258,7 +258,7 @@ public struct ListeningView: View {
                 kind: state.studentAnimalKind,
                 isSleeping: theme.isNight,
                 size: 40,
-                accessory: .student
+                accessory: state.studentAccessory
             )
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {

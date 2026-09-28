@@ -1139,6 +1139,26 @@ public final class AppState {
         AnimalKind(rawValue: product.studentAnimal) ?? .bear
     }
 
+    /// 小学员的当前配饰（批次三成长线）：攒星换装——红领巾 → 小背包 → 望远镜 → 毕业帽。
+    /// 各页面的学员形象统一从这读，档位判据只此一份（`StudentProgression`）。
+    public var studentAccessory: AnimalAccessory {
+        StudentProgression.accessory(totalStars: progress.totalStars)
+    }
+
+    /// 中间栏连胜飞鸟的数据（批次三；nil = 连胜还没开始，不显示）。
+    /// 判据与侧栏火苗徽章同源（`TodayPanel.streakBadge`），两处永远说同一个数。
+    public var streakBadgeForChat: TodayPanel.StreakBadge? {
+        TodayPanel.streakBadge(
+            streakDays: progressSnapshot.streakDays,
+            hasPracticeToday: progressSnapshot.today.hasPractice
+        )
+    }
+
+    /// 点连胜飞鸟跳年度学习记录（与侧栏火苗徽章同一去处）。
+    public func requestOpenAnnualRecap() {
+        Task { await openAnnualRecapInProgress() }
+    }
+
     /// 老师人格档位（教学风格）。认不出的值落回 `.standard`，同 `teacherAnimalKind` 的约定。
     public var teacherPersona: TeacherPersona {
         TeacherPersona(rawValue: product.teacherPersona) ?? .standard

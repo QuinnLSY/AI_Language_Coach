@@ -100,7 +100,7 @@ public struct VocabularyView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            CuteAnimalView(kind: state.studentAnimalKind, isSleeping: theme.isNight, size: 40, accessory: .student)
+            CuteAnimalView(kind: state.studentAnimalKind, isSleeping: theme.isNight, size: 40, accessory: state.studentAccessory)
             VStack(alignment: .leading, spacing: 2) {
                 Text("词汇本")
                     .font(.system(size: 16, weight: .bold, design: .rounded))

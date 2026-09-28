@@ -147,12 +147,13 @@ public struct TreeCanvas: View {
                 Leaves(theme: theme)
                     .frame(width: width, height: canvasHeight)
 
-                // 小学员（攀爬者）：戴红领巾、可点击说话；随进度沿树干上下。
+                // 小学员（攀爬者）：配饰随攒星成长（红领巾→背包→望远镜→毕业帽）、可点击说话；
+                // 随进度沿树干上下。档位判据与各页面同源（`StudentProgression`）。
                 TalkingAnimal(
                     kind: studentAnimal,
                     isSleeping: theme.isNight,
                     size: 64,
-                    accessory: .student,
+                    accessory: StudentProgression.accessory(totalStars: progress.totalStars),
                     phrases: studentAnimal.phrases
                 )
                 .position(x: midX, y: learnerY)

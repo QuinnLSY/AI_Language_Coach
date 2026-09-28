@@ -26,6 +26,12 @@ public struct ChatView: View {
     let teacherKind: AnimalKind
     /// 小学员形象（学员消息头像 / 空态引导）。
     let studentKind: AnimalKind
+    /// 小学员当前配饰（批次三成长线：攒星换装；nil = 默认红领巾，离屏/测试兜底）。
+    var studentAccessory: AnimalAccessory = .student
+    /// 连胜数据（批次三中间栏飞鸟；nil = 不显示——连胜还没开始）。
+    var streakBadge: TodayPanel.StreakBadge? = nil
+    /// 点飞鸟跳年度学习记录（与侧栏火苗徽章同一去处）。
+    var onOpenStreak: (() -> Void)? = nil
     // 语音（第 17/18 步）
     /// 语音输入的阶段（唯一真相）。三颗语音相关的按钮**全部**从它取语义：
     /// 以前这里是 `isRecording` + `isTranscribing` 两个布尔，而「识别中」
@@ -199,6 +205,9 @@ public struct ChatView: View {
                 isBooting: Bool = false,
                 providerLabel: String = "", contextLimit: Int? = nil, reasoningLabel: String? = nil,
                 teacherKind: AnimalKind = .panda, studentKind: AnimalKind = .bear,
+                studentAccessory: AnimalAccessory = .student,
+                streakBadge: TodayPanel.StreakBadge? = nil,
+                onOpenStreak: (() -> Void)? = nil,
                 voicePhase: VoiceInputPhase = .idle,
                 autoSpeak: Bool = false,
                 onMicStart: (() async -> Void)? = nil,
@@ -261,6 +270,9 @@ public struct ChatView: View {
         self.reasoningLabel = reasoningLabel
         self.teacherKind = teacherKind
         self.studentKind = studentKind
+        self.studentAccessory = studentAccessory
+        self.streakBadge = streakBadge
+        self.onOpenStreak = onOpenStreak
         self.voicePhase = voicePhase
         self.autoSpeak = autoSpeak
         self.onMicStart = onMicStart
@@ -462,6 +474,12 @@ public struct ChatView: View {
             }
 
             Spacer()
+
+            // 连胜飞鸟（批次三）：连胜 ≥1 天才出现，扑翅动效只在 +1 那一刻；
+            // 点按去处与侧栏火苗徽章一致（年度学习记录）。
+            if let streakBadge {
+                StreakBirdBadge(badge: streakBadge, onTap: { onOpenStreak?() })
+            }
 
             // 克隆音色生效提示：与情景胶囊并列，位置显眼但不抢戏。
             if let voiceIndicator {
@@ -940,9 +958,13 @@ public struct ChatView: View {
     }
 
     private var emptyHint: some View {
-        VStack(spacing: 10) {
-            CuteAnimalView(kind: studentKind, isSleeping: theme.isNight, size: 92, accessory: .student)
-            Text("和老师打个招呼，开始今天的攀爬吧 🌿")
+        let copy = PeriodGreeting.emptyStateLines(hour: Calendar.current.component(.hour, from: Date()))
+        return VStack(spacing: 10) {
+            CuteAnimalView(kind: studentKind, isSleeping: theme.isNight, size: 92, accessory: studentAccessory)
+            Text(copy.greeting)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(theme.primaryText)
+            Text(copy.invite)
                 .font(.system(size: 14, design: .rounded))
                 .foregroundStyle(theme.secondaryText)
         }

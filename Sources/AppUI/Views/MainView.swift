@@ -456,6 +456,10 @@ public struct MainView: View {
                     reasoningLabel: Self.reasoningDisplay(state.activeReasoningEffort),
                     teacherKind: state.teacherAnimalKind,
                     studentKind: state.studentAnimalKind,
+                    studentAccessory: state.studentAccessory,
+                    // 批次三氛围：中间栏连胜飞鸟（数据与侧栏火苗同源，判据在 AppState）
+                    streakBadge: state.streakBadgeForChat,
+                    onOpenStreak: { state.requestOpenAnnualRecap() },
                     voicePhase: state.voicePhase,
                     autoSpeak: state.autoSpeak,
                     onMicStart: { await state.startVoiceInput() },

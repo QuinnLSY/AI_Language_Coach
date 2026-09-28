@@ -178,11 +178,19 @@ private enum Fur {
 
 // MARK: - 角色配件
 
-/// 身份配件：老师持教棍，小学员戴红领巾。配件随动物缩放并参与日夜/跳动。
+/// 身份配件：老师持教棍；小学员沿闯关进度换装（红领巾 → 小背包 → 望远镜 → 毕业帽，
+/// 档位见 `StudentProgression`）。配件随动物缩放并参与日夜/跳动。
 public enum AnimalAccessory: Equatable, Sendable {
     case none
     case teacher
+    /// 红领巾（入门档，0 星起）。
     case student
+    /// 小背包（出发档，攒够星就背上去远足）。
+    case studentBackpack
+    /// 望远镜（探索档，看得更远的学期）。
+    case studentTelescope
+    /// 毕业帽（学成档，森林里的最高荣誉）。
+    case studentGraduation
 }
 
 // MARK: - 主体
@@ -243,6 +251,9 @@ public struct CuteAnimalView: View {
             case .none: EmptyView()
             case .teacher: TeacherPointer(size: size, knockTick: knockTick)
             case .student: RedScarf(size: size)
+            case .studentBackpack: LittleBackpack(size: size)
+            case .studentTelescope: LittleTelescope(size: size)
+            case .studentGraduation: GraduationCap(size: size)
             }
         }
         .frame(width: size, height: size)
@@ -831,6 +842,15 @@ private enum AccessoryPalette {
     static let scarf = Color(hex: 0xE8454B)
     static let scarfDark = Color(hex: 0xC22F38)
     static let tip = Color(hex: 0xFFD34D)
+    // 成长线配饰：背包（草绿系）/ 望远镜（黄铜系）/ 毕业帽（墨黑 + 金穗）
+    static let pack = Color(hex: 0x5FA05C)
+    static let packDark = Color(hex: 0x477F48)
+    static let strap = Color(hex: 0xE8DCC2)
+    static let brass = Color(hex: 0xD9A441)
+    static let brassDark = Color(hex: 0xA8792C)
+    static let cap = Color(hex: 0x2E2C33)
+    static let capDark = Color(hex: 0x1F1E23)
+    static let tassel = Color(hex: 0xFFD34D)
 }
 
 /// 教棍的姿态（纯函数，方便钉住「往哪边敲」这件事）。
@@ -960,6 +980,106 @@ private struct RedScarf: View {
                 .frame(width: size * 0.11, height: size * 0.16)
                 .rotationEffect(.degrees(12))
                 .offset(x: size * 0.06, y: size * 0.23)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+/// 小背包：背上背的小圆角书包 + 两侧水壶袋 + 扣带，背上它就是「要出发远足」的学员。
+private struct LittleBackpack: View {
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            // 包身（圆角矩形，背在背后偏一侧，不挡脸）
+            RoundedRectangle(cornerRadius: size * 0.07, style: .continuous)
+                .fill(AccessoryPalette.pack)
+                .frame(width: size * 0.34, height: size * 0.40)
+                .offset(x: size * 0.26, y: size * 0.08)
+            // 包盖
+            RoundedRectangle(cornerRadius: size * 0.07, style: .continuous)
+                .fill(AccessoryPalette.packDark)
+                .frame(width: size * 0.34, height: size * 0.14)
+                .offset(x: size * 0.26, y: size * -0.06)
+            // 扣带
+            Capsule()
+                .fill(AccessoryPalette.strap)
+                .frame(width: size * 0.035, height: size * 0.10)
+                .offset(x: size * 0.26, y: size * 0.02)
+            // 水壶袋
+            Capsule()
+                .fill(AccessoryPalette.packDark)
+                .frame(width: size * 0.10, height: size * 0.20)
+                .offset(x: size * 0.14, y: size * 0.12)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+/// 小望远镜：举在眼前的小单筒望远镜（斜向上 25°，望向远处），探索档的象征。
+private struct LittleTelescope: View {
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            // 镜筒
+            Capsule()
+                .fill(AccessoryPalette.brass)
+                .frame(width: size * 0.42, height: size * 0.13)
+                .rotationEffect(.degrees(-25))
+                .offset(x: size * 0.20, y: size * -0.16)
+            // 物镜（粗端）
+            Capsule()
+                .fill(AccessoryPalette.brassDark)
+                .frame(width: size * 0.12, height: size * 0.17)
+                .rotationEffect(.degrees(-25))
+                .offset(x: size * 0.36, y: size * -0.22)
+            // 目镜（细端）
+            Capsule()
+                .fill(AccessoryPalette.brassDark)
+                .frame(width: size * 0.08, height: size * 0.15)
+                .rotationEffect(.degrees(-25))
+                .offset(x: size * 0.04, y: size * -0.10)
+            // 镜身高光
+            Capsule()
+                .fill(.white.opacity(0.30))
+                .frame(width: size * 0.22, height: size * 0.03)
+                .rotationEffect(.degrees(-25))
+                .offset(x: size * 0.20, y: size * -0.19)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+/// 毕业帽：方帽 + 帽穗，学成档的最高荣誉，稳稳戴在头顶。
+private struct GraduationCap: View {
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            // 帽顶（菱形板）
+            RoundedRectangle(cornerRadius: size * 0.02, style: .continuous)
+                .fill(AccessoryPalette.cap)
+                .frame(width: size * 0.52, height: size * 0.52)
+                .rotationEffect(.degrees(45))
+                .scaleEffect(x: 1, y: 0.55)
+                .offset(y: size * -0.30)
+            // 帽座（梯形感的小圆台）
+            Capsule()
+                .fill(AccessoryPalette.capDark)
+                .frame(width: size * 0.36, height: size * 0.10)
+                .offset(y: size * -0.22)
+            // 帽穗：从帽顶垂到一侧
+            Capsule()
+                .fill(AccessoryPalette.tassel)
+                .frame(width: size * 0.03, height: size * 0.22)
+                .rotationEffect(.degrees(18), anchor: .top)
+                .offset(x: size * 0.14, y: size * -0.12)
+            // 穗子坠
+            Circle()
+                .fill(AccessoryPalette.tassel)
+                .frame(width: size * 0.07, height: size * 0.07)
+                .offset(x: size * 0.19, y: size * 0.00)
         }
         .frame(width: size, height: size)
     }
