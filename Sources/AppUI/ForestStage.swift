@@ -13,14 +13,21 @@ import Observation
 @Observable
 public final class ForestStage {
 
-    /// 收词脉冲：树上飘一片叶子（批次二起地面也会接）。
+    /// 收词脉冲：树上飘一片叶子；地面的小剧场（跑出去叼回来）也接这里。
     public private(set) var wordTick = 0
+    /// 最近收进的生词（捡词叙事的台词内容；nil = 本会话还没收过词）。
+    ///
+    /// 批次二起地面剧场需要知道「叼回来的是什么」——这是脉冲之外唯一
+    /// 需要载荷的地方，从事件里顺手记下，调用方不用再查词汇本。
+    public private(set) var lastCollectedWord: String?
     /// 练习完成脉冲：树冠飘几片叶子（小回应）。
     public private(set) var practiceTick = 0
     /// 攒星脉冲：枝头新果实弹入一颗（果实数量本身从进度算，这里只管「动一下」）。
     public private(set) var fruitPulseTick = 0
     /// 通关脉冲：全套仪式（树冠抖三抖 + 落叶缤纷 + 烟花）。
     public private(set) var ceremonyTick = 0
+    /// 纠错脉冲：地面派一只小动物「歪头安慰」（批次二接通）。
+    public private(set) var comfortTick = 0
     /// 最近通关的关卡（供仪式装饰用；nil = 还没通过关）。
     public private(set) var lastCompletedLevelID: String?
 
@@ -29,8 +36,9 @@ public final class ForestStage {
     /// 事件 → 脉冲的唯一翻译表。
     public func ingest(_ event: LearningEvent) {
         switch event {
-        case .wordCollected:
+        case .wordCollected(let word):
             wordTick += 1
+            lastCollectedWord = word
         case .practiceCompleted:
             practiceTick += 1
         case .starsEarned:
@@ -39,9 +47,8 @@ public final class ForestStage {
             ceremonyTick += 1
             lastCompletedLevelID = levelID
         case .correctionsRecorded:
-            // 批次二：地面的「歪头安慰」接这里。先留在翻译表里占位，
-            // 让「事件都进舞台」这件事从第一天就是真的。
-            break
+            // 歪头安慰：纠错不是坏消息——森林用温柔的方式接住它。
+            comfortTick += 1
         }
     }
 

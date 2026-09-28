@@ -159,6 +159,73 @@ final class ForestWiringTests: XCTestCase {
         XCTAssertTrue(home.contains("away[i] = false"), "全体回家必须清掉暂离态（否则有人卡在画外）")
     }
 
+    // MARK: - ⑤ 小剧场接线（批次二）
+
+    /// 主界面必须把小剧场三件套接进地面带：收词脉冲、词的载荷、安慰脉冲。
+    /// ⚠️ 用 `body(of: "ForestGroundBand(")` 限定作用域——MainView 同时也把
+    /// `wordTick: state.forest.wordTick` 传给树，整文件 contains 会假绿。
+    func testMainViewWiresTheatreIntoGroundBand() throws {
+        let main = try source("AppUI/Views/MainView.swift")
+        let band = self.body(of: "ForestGroundBand(", in: main)
+        XCTAssertFalse(band.isEmpty, "找不到 ForestGroundBand 装配")
+        XCTAssertTrue(band.contains("wordTick: state.forest.wordTick"), "收词脉冲没接到地面带")
+        XCTAssertTrue(band.contains("wordPayload: state.forest.lastCollectedWord"),
+                      "词的载荷没接（捡词叙事不知道要叼什么词）")
+        XCTAssertTrue(band.contains("comfortTick: state.forest.comfortTick"), "安慰脉冲没接到地面带")
+    }
+
+    /// 捡词叙事必须真的「跑出去 + 叼回来」：出画暂离、词卡展示、词来自载荷。
+    func testFetchWordLeavesAndReturnsWithTheCard() throws {
+        let tree = try source("AppUI/Components/TreeCanvas.swift")
+        let fetch = self.body(of: "private func fetchWord", in: tree)
+        XCTAssertFalse(fetch.isEmpty, "找不到 fetchWord")
+        XCTAssertTrue(fetch.contains("guard activityAllowed, !theme.isNight, !isFetchingWord, let word = wordPayload"),
+                      "捡词必须被活动开关/夜晚/并发守卫，且词来自载荷")
+        XCTAssertTrue(fetch.contains("away[fetcher] = true"), "跑出去必须真的暂离（画面上少一只）")
+        XCTAssertTrue(fetch.contains("away[fetcher] = false"), "叼着词卡回来必须现身")
+        XCTAssertTrue(fetch.contains("wordCard = (fetcher, word)"), "词卡必须带上词的内容")
+        XCTAssertTrue(fetch.contains("hopTo(fetcher, target: CGSize(width: exitX"),
+                      "跑出去必须是真的位移（跳动出画），不是原地消失")
+    }
+
+    /// 点击彩蛋必须接上：点击随机演害羞或追尾巴转圈，然后才冒泡。
+    func testTapPlaysAnEasterEggBeforeBubbling() throws {
+        let animal = try source("AppUI/Components/LivelyAnimal.swift")
+        let tap = self.body(of: "private func handleTap", in: animal)
+        XCTAssertFalse(tap.isEmpty, "找不到 handleTap")
+        XCTAssertTrue(tap.contains("performShy()"), "害羞彩蛋没接上")
+        XCTAssertTrue(tap.contains("performSpin()"), "追尾巴转圈彩蛋没接上")
+        XCTAssertTrue(tap.contains("onTap?()"), "彩蛋之后仍要冒泡（点击说话不丢）")
+        // 夜晚睡觉时不折腾身体：直接透传冒泡
+        XCTAssertTrue(tap.contains("guard !isSleeping"), "睡着的小动物不该被点击吵醒")
+    }
+
+    /// 歪头安慰：纠错后派在场居民演 tilt + 安慰语；夜晚/关活动/关气泡都不吵。
+    func testComfortPlaysTiltWithGentleWords() throws {
+        let tree = try source("AppUI/Components/TreeCanvas.swift")
+        let comfort = self.body(of: "private func comfort", in: tree)
+        XCTAssertFalse(comfort.isEmpty, "找不到 comfort")
+        XCTAssertTrue(comfort.contains("guard activityAllowed, !theme.isNight, bubblesAllowed"),
+                      "安慰也要守活动开关与夜晚安静")
+        XCTAssertTrue(comfort.contains("trigger(index, action: .tilt)"), "安慰的动作必须是歪头")
+        XCTAssertTrue(comfort.contains("pool: Self.comfortPhrases"), "安慰话必须来自安慰语池")
+    }
+
+    /// 日常编排必须真的会挑到新动作与双人社交（不是加了枚举却没人演）。
+    func testOrchestrationActuallyPlaysTheNewSkits() throws {
+        let tree = try source("AppUI/Components/TreeCanvas.swift")
+        let life = self.body(of: "private func orchestrateLife", in: tree)
+        XCTAssertFalse(life.isEmpty, "找不到 orchestrateLife")
+        XCTAssertTrue(life.contains("action: .hop"), "跳的接线断了")
+        XCTAssertTrue(life.contains("action: .shake"), "摇的接线断了")
+        XCTAssertTrue(life.contains(".nod, .stretch, .dig, .spin"), "独角戏动作池没接进编排")
+        XCTAssertTrue(life.contains("socialise"), "双人社交没接进编排")
+        let social = self.body(of: "private func socialise", in: tree)
+        XCTAssertTrue(social.contains("action: .wiggle"), "结对摇摆（跳舞）没接进社交")
+        XCTAssertTrue(social.contains("performDialogue"), "一问一答没接进社交")
+        XCTAssertTrue(social.contains("ForestTheatrePacing.closestPair"), "配对必须找最近的邻居")
+    }
+
     private func firstLine(_ needle: String, in lines: [(number: Int, text: String)]) -> Int? {
         lines.first { $0.text.contains(needle) }?.number
     }

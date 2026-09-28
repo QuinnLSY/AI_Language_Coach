@@ -595,6 +595,10 @@ public struct MainView: View {
                     },
                     // 今日任务全部完成 → 林子里的小动物一起跳一下（一天只触发一次）。
                     celebrationTick: state.celebrationTick,
+                    // 小剧场：收词叼回来、纠错歪头安慰。
+                    wordTick: state.forest.wordTick,
+                    wordPayload: state.forest.lastCollectedWord,
+                    comfortTick: state.forest.comfortTick,
                     previewSleepBubble: CommandLine.arguments.contains("--sleep-bubble")
                 )
                 .frame(height: TreeViewport.groundBandHeight)

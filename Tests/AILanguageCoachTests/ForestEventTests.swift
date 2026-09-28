@@ -62,9 +62,11 @@ final class ForestEventTests: XCTestCase {
         XCTAssertEqual(stage.practiceTick, 0)
         XCTAssertEqual(stage.fruitPulseTick, 0)
         XCTAssertEqual(stage.ceremonyTick, 0)
+        XCTAssertEqual(stage.comfortTick, 0)
 
         stage.ingest(.wordCollected(word: "substantial"))
         XCTAssertEqual(stage.wordTick, 1)
+        XCTAssertEqual(stage.lastCollectedWord, "substantial", "捡词叙事要凭这个词叼卡片回来")
         XCTAssertEqual(stage.practiceTick, 0, "收词不该惊动别的通道")
 
         stage.ingest(.practiceCompleted(rounds: 4))
@@ -79,15 +81,19 @@ final class ForestEventTests: XCTestCase {
         XCTAssertEqual(stage.lastCompletedLevelID, "L1")
     }
 
-    /// 纠错事件进得了总线、舞台先按住不表（批次二地面的「歪头安慰」接这里）——
-    /// 占位本身钉死：纠错不该误触发树上的任何通道。
-    func testCorrectionsRecordedDoesNotTouchTreeChannels() {
+    /// 纠错事件走**自己的**安慰通道（批次二接通）：只动 comfortTick，
+    /// 树上的四个通道纹丝不动——安慰是小剧场的事，不该惊动枝头。
+    func testCorrectionsRecordedDrivesComfortChannelOnly() {
         let stage = ForestStage()
         stage.ingest(.correctionsRecorded(count: 3))
+        XCTAssertEqual(stage.comfortTick, 1, "纠错必须驱动歪头安慰通道")
         XCTAssertEqual(stage.wordTick, 0)
         XCTAssertEqual(stage.practiceTick, 0)
         XCTAssertEqual(stage.fruitPulseTick, 0)
         XCTAssertEqual(stage.ceremonyTick, 0)
+
+        stage.ingest(.correctionsRecorded(count: 1))
+        XCTAssertEqual(stage.comfortTick, 2, "连续纠错每次都要有人安慰")
     }
 
     /// 端到端：舞台挂上总线后，emit 的事件要能穿过线程跳回主 actor 变成脉冲。
@@ -177,6 +183,54 @@ final class ForestEventTests: XCTestCase {
                                      "果位 \(i) 与 \(j) 距离过近（<24pt），会挤成一坨")
             }
         }
+    }
+
+    // MARK: - ⑤ 小剧场节奏（批次二）
+
+    /// 双人配对找的是 x 距离**最近**的邻居——隔着整条草坡对话很奇怪。
+    func testClosestPairPicksNearestNeighbours() {
+        let xs: [Int: CGFloat] = [0: 100, 1: 140, 2: 360, 3: 380]
+        XCTAssertEqual(ForestTheatrePacing.closestPair(x: xs, present: [0, 1, 2, 3])?.0, 2)
+        XCTAssertEqual(ForestTheatrePacing.closestPair(x: xs, present: [0, 1, 2, 3])?.1, 3,
+                       "2 和 3 相距 20pt，比 0/1 的 40pt 更近")
+    }
+
+    /// 凑不齐两只（或坐标缺失）时返回 nil，调用方要有独舞兜底。
+    func testClosestPairHandlesDegenerateCases() {
+        XCTAssertNil(ForestTheatrePacing.closestPair(x: [0: 100], present: [0]), "只有一只")
+        XCTAssertNil(ForestTheatrePacing.closestPair(x: [:], present: [0, 1]), "没有坐标")
+        XCTAssertNil(ForestTheatrePacing.closestPair(x: [0: 100, 1: 120], present: []), "没人在场")
+    }
+
+    /// 一问一答的节拍：每句错开 2.4s，末句多挂一会儿收尾。
+    func testDialogueCuesPaceTheScript() {
+        let cues = ForestTheatrePacing.dialogueCues(lineCount: 2)
+        XCTAssertEqual(cues.count, 2)
+        XCTAssertEqual(cues[0].start, 0, accuracy: 0.001)
+        XCTAssertEqual(cues[1].start, 2.4, accuracy: 0.001, "第二句等第一句说完半口气再接")
+        XCTAssertLessThan(cues[0].hold, cues[1].hold, "末句多挂一会儿，别话说一半就收")
+        XCTAssertTrue(ForestTheatrePacing.dialogueCues(lineCount: 0).isEmpty, "空脚本不排节拍")
+    }
+
+    /// 小剧场文案表：脚本至少两句（一问一答）、安慰话与捡词台词非空。
+    func testTheatreScriptTablesAreWellFormed() {
+        XCTAssertTrue(ForestGroundBand.dialogueScripts.count >= 4, "对话池太薄会天天复读")
+        for script in ForestGroundBand.dialogueScripts {
+            XCTAssertGreaterThanOrEqual(script.count, 2, "一问一答至少两句")
+            XCTAssertTrue(script.allSatisfy { !$0.isEmpty })
+        }
+        XCTAssertFalse(ForestGroundBand.comfortPhrases.isEmpty)
+        XCTAssertFalse(ForestGroundBand.fetchStartPhrases.isEmpty)
+        XCTAssertFalse(ForestGroundBand.fetchDonePhrases.isEmpty)
+    }
+
+    /// 动作词汇表：批次二新增的 7 个动作必须都在枚举里（语义化升级不许悄悄缩水）。
+    func testLivelyAnimalActionVocabulary() {
+        XCTAssertEqual(LivelyAnimalAction.allCases.count, 9,
+                       "跳/摇/歪头/点头/伸懒腰/刨土/转圈/害羞/摇摆——9 个动作一个不能少")
+        // 数值即编排协议：跳与摇沿用批次一的 0/1，已有调用方按数字理解
+        XCTAssertEqual(LivelyAnimalAction.hop.rawValue, 0)
+        XCTAssertEqual(LivelyAnimalAction.shake.rawValue, 1)
     }
 }
 

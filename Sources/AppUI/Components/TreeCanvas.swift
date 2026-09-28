@@ -655,6 +655,12 @@ struct ForestGroundBand: View {
     var onActivityToggle: (() -> Void)? = nil
     /// 外部庆祝信号（今日任务全部完成）：每次 +1，全体小动物跳一次并冒一句庆祝话。
     var celebrationTick: Int = 0
+    /// 收词脉冲（`state.forest.wordTick`）：一只小动物跑出画面叼一张单词卡回来。
+    var wordTick: Int = 0
+    /// 最近收进的生词（捡词叙事的台词；nil = 不演，只留树上的叶子回应）。
+    var wordPayload: String? = nil
+    /// 纠错脉冲（`state.forest.comfortTick`）：派一只小动物歪头安慰。
+    var comfortTick: Int = 0
     /// 验证钩子：启动时先冒一句「它们在睡觉」（仅在 `--sleep-bubble` 下由主界面传入）。
     var previewSleepBubble: Bool = false
 
@@ -687,6 +693,38 @@ struct ForestGroundBand: View {
         "它们说：明早第一缕阳光时再见！晚安～",
     ]
 
+    /// 双人小对话（一问一答）：一条脚本由两只相邻的小动物交替说完。
+    /// 每条 2 句起步，句子里带点学习气但不教训人。
+    nonisolated static let dialogueScripts: [[String]] = [
+        ["你说，rainbow 为什么有七种颜色？", "因为每种颜色都是一个单词呀！"],
+        ["今天你练口语了吗？", "练啦！舌头都绕两圈了～"],
+        ["我们比赛背单词吧！", "好呀，输的请吃松果！"],
+        ["那朵云像不像 sheep？", "像！b-a-a～"],
+        ["你听过回声说英语吗？", "听过！它还会复读呢。"],
+        ["今天的句子好长呀。", "没关系，拆成小段就短啦！"],
+    ]
+
+    /// 纠错后的安慰话（歪头 + 一句温柔的话——错误被温柔接住）。
+    nonisolated static let comfortPhrases = [
+        "没关系，错着错着就会啦！",
+        "我也常念错呀，再来一遍就好～",
+        "错误是单词的小脚印，说明你在往前走！",
+        "抱抱你，这次我们慢慢读。",
+    ]
+
+    /// 捡词叙事：看见词时要出发了。
+    nonisolated static let fetchStartPhrases = [
+        "咦，那边飘来一个新单词！",
+        "等等我，我去把它捡回来！",
+        "我的耳朵听到单词落地的声音啦！",
+    ]
+    /// 捡词叙事：叼着词卡回来展示。
+    nonisolated static let fetchDonePhrases = [
+        "捡到啦！快看这个词～",
+        "回来咯！这个词真漂亮！",
+        "新单词到手，收好啦！",
+    ]
+
     /// 每只小动物**独立拥有**一个气泡：`bubbleTexts[i]` 是槽位 i 当前的话（nil = 没在说话）。
     /// 多个气泡可以同时存在；`bubbleStamps[i]` 记录出现序号，序号越大画得越上层（最新出现的永远在最上方）。
     @State private var bubbleTexts: [String?] = Array(repeating: nil, count: Self.maxResidents)
@@ -698,7 +736,7 @@ struct ForestGroundBand: View {
     @State private var perched: [Bool] = Array(repeating: false, count: Self.maxResidents)
     /// 动作触发器（父级递增，LivelyAnimal 变化即执行）。
     @State private var actionTicks: [Int] = Array(repeating: 0, count: Self.maxResidents)
-    @State private var actionKinds: [Int] = Array(repeating: 0, count: Self.maxResidents)
+    @State private var actionKinds: [LivelyAnimalAction] = Array(repeating: .hop, count: Self.maxResidents)
     /// 各槽位的物种（轮换：随机离开/进入）。空时用伪随机初始顺序兜底。
     @State private var kinds: [AnimalKind] = []
     /// 各槽位朝向（游走时按移动方向翻转）。
@@ -710,6 +748,10 @@ struct ForestGroundBand: View {
     /// 各槽位是否暂离（轮换中「走了还没回来」）。可见 = 槽位在宽度档位内 **且** 没暂离——
     /// 走了之后画面上真的少一只，回来的时间看缘分（错落感的关键，见 `ForestRotationPacing`）。
     @State private var away: [Bool] = Array(repeating: false, count: Self.maxResidents)
+    /// 捡词叙事进行中（同一时刻只演一场；期间的收词只留树上的叶子回应）。
+    @State private var isFetchingWord = false
+    /// 正在展示的「叼回来的单词卡」（nil = 没有；slot = 哪只小动物叼着）。
+    @State private var wordCard: (slot: Int, word: String)? = nil
 
     private static let maxResidents = 8
     // 各类元素的**上限**：始终按上限创建视图，靠透明度控制显隐。
@@ -824,6 +866,20 @@ struct ForestGroundBand: View {
                             .allowsHitTesting(false)
                     }
                 }
+
+                // 叼回来的单词卡：跟着捡词小动物的头顶走，展示完自动收。
+                if let card = wordCard, card.slot < count, !away[card.slot] {
+                    let home = homePosition(index: card.slot, count: count, span: span,
+                                            inset: inset, groundLine: groundLine, quantizedWidth: qw)
+                    CarriedWordCard(word: card.word, theme: theme)
+                        .position(
+                            x: home.x + offsets[card.slot].width,
+                            y: home.y + offsets[card.slot].height - home.size * 1.08
+                        )
+                        .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .bottom)))
+                        .zIndex(2000)
+                        .allowsHitTesting(false)
+                }
             }
             .frame(width: width, height: height, alignment: .bottomLeading)
             // 档位切换时让位置/大小平滑过渡，而不是瞬移
@@ -855,6 +911,17 @@ struct ForestGroundBand: View {
             }
             // 今日任务全部完成：全体跳一下 + 冒一句庆祝（外部一天只推一次）
             .onChange(of: celebrationTick) { _, _ in celebrate() }
+            // 收词小剧场：一只小动物跑出去叼一张单词卡回来（上一场没演完就只留树上的叶子）
+            .onChange(of: wordTick) { _, tick in
+                guard tick > 0 else { return }
+                Task { await fetchWord(count: count, span: span, inset: inset,
+                                       groundLine: groundLine, quantizedWidth: qw) }
+            }
+            // 纠错安慰：派一只在场的小动物歪头 + 一句温柔的话
+            .onChange(of: comfortTick) { _, tick in
+                guard tick > 0 else { return }
+                comfort()
+            }
         }
         .frame(maxWidth: .infinity)
         // 右下角：表情按钮 + 夜晚「睡觉」气泡（右对齐，永远不会溢出面板）
@@ -929,23 +996,29 @@ struct ForestGroundBand: View {
                     await flyBackToGrass(index)
                 }
             } else {
-                // 地面：游走（真位移，不回原位）/ 跳 / 摇
+                // 地面：游走 / 跳 / 摇 / 小剧场动作 / 双人社交（结对舞或一问一答）
                 let roll = Int.random(in: 0..<10)
-                if roll < 5 {
+                if roll < 4 {
                     wander(index, count: count, span: span, inset: inset,
                            groundLine: groundLine, quantizedWidth: quantizedWidth)
+                } else if roll < 6 {
+                    trigger(index, action: .hop)
                 } else if roll < 8 {
-                    trigger(index, kind: 0)
+                    trigger(index, action: .shake)
+                } else if roll == 8 {
+                    // 独角戏：打盹点头 / 伸懒腰 / 刨土 / 追尾巴轮着来（wiggle 留给双人舞）
+                    trigger(index, action: [.nod, .stretch, .dig, .spin].randomElement() ?? .dig)
                 } else {
-                    trigger(index, kind: 1)
+                    await socialise(count: count, span: span, inset: inset,
+                                    groundLine: groundLine, quantizedWidth: quantizedWidth)
                 }
             }
         }
     }
 
-    /// 触发跳/摇动作。
-    private func trigger(_ index: Int, kind: Int) {
-        actionKinds[index] = kind
+    /// 触发一次动作（具体演哪个由 `LivelyAnimalAction` 语义表决定）。
+    private func trigger(_ index: Int, action: LivelyAnimalAction) {
+        actionKinds[index] = action
         actionTicks[index] += 1
     }
 
@@ -1056,7 +1129,7 @@ struct ForestGroundBand: View {
         guard activityAllowed else { return }
         let present = (0..<Self.maxResidents).filter { !away[$0] }
         for i in present {
-            actionKinds[i] = 0
+            actionKinds[i] = .hop
             actionTicks[i] += 1
         }
         // 只让前三只在场的说话：八只同时冒泡会糊成一片。
@@ -1070,6 +1143,112 @@ struct ForestGroundBand: View {
             try? await Task.sleep(for: .seconds(3))
             for i in bubbled { bubbleTexts[i] = nil }
         }
+    }
+
+    // MARK: 小剧场（批次二：双人社交 / 歪头安慰 / 捡词叙事）
+
+    /// 双人社交：挑 x 距离最近的一对邻居，要么结对摇摆（跳舞），要么一问一答。
+    /// 只剩一只时就给它一段独舞，不让社交意图落空。
+    private func socialise(count: Int, span: CGFloat, inset: CGFloat,
+                           groundLine: CGFloat, quantizedWidth: CGFloat) async {
+        let present = (0..<count).filter { !away[$0] }
+        let xs = present.reduce(into: [Int: CGFloat]()) { result, index in
+            let home = homePosition(index: index, count: count, span: span, inset: inset,
+                                    groundLine: groundLine, quantizedWidth: quantizedWidth)
+            result[index] = home.x + offsets[index].width
+        }
+        if let pair = ForestTheatrePacing.closestPair(x: xs, present: present) {
+            if Bool.random() {
+                // 结对跳舞：两只同时摇摆，同步的节奏就是舞步
+                trigger(pair.0, action: .wiggle)
+                trigger(pair.1, action: .wiggle)
+                if bubblesAllowed, Bool.random() {
+                    requestRawBubble(pair.0, pool: ["跳个舞吧！"])
+                }
+            } else {
+                await performDialogue(pair)
+            }
+        } else if let only = present.first {
+            trigger(only, action: .wiggle)
+        }
+    }
+
+    /// 一问一答：按 `ForestTheatrePacing.dialogueCues` 的节拍，两只邻居交替把脚本说完。
+    private func performDialogue(_ pair: (Int, Int)) async {
+        guard bubblesAllowed, let script = Self.dialogueScripts.randomElement() else { return }
+        let cues = ForestTheatrePacing.dialogueCues(lineCount: script.count)
+        for (i, cue) in cues.enumerated() {
+            if i > 0 {
+                try? await Task.sleep(for: .seconds(cue.start - cues[i - 1].start))
+                guard !Task.isCancelled else { return }
+            }
+            let speaker = i.isMultiple(of: 2) ? pair.0 : pair.1
+            requestRawBubble(speaker, pool: [script[i]], hold: cue.hold)
+        }
+    }
+
+    /// 歪头安慰：纠错后派一只在场的小动物歪歪头，说句温柔的话。
+    /// ⚠️ 只点在场的居民；安慰语固定轮换（连续纠错不会每次都是同一句）。
+    private func comfort() {
+        guard activityAllowed, !theme.isNight, bubblesAllowed else { return }
+        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        guard let index = present.randomElement() else { return }
+        trigger(index, action: .tilt)
+        requestRawBubble(index, pool: Self.comfortPhrases)
+    }
+
+    /// 捡词具象叙事：看见新词 → 跑出画面 → 叼一张单词卡回来展示。
+    ///
+    /// 「事事有回应」的具象版——收词不只是飘一片叶子，而是森林里真的有谁
+    /// 为这件事跑了一趟。上一场没演完时新事件只留树上的叶子回应（不排队、不叠加）。
+    private func fetchWord(count: Int, span: CGFloat, inset: CGFloat,
+                           groundLine: CGFloat, quantizedWidth: CGFloat) async {
+        guard activityAllowed, !theme.isNight, !isFetchingWord, let word = wordPayload else { return }
+        // 只派**在场且站在草地上**的居民（枝上的鸟不接这活）
+        let present = (0..<count).filter { !away[$0] && !perched[$0] }
+        guard let fetcher = present.randomElement() else { return }
+
+        isFetchingWord = true
+        defer { isFetchingWord = false }
+
+        // ① 看见词：先冒一句「我去捡」，动身
+        if bubblesAllowed {
+            requestRawBubble(fetcher, pool: Self.fetchStartPhrases, hold: ForestTheatrePacing.fetchNoticeSeconds)
+        }
+        try? await Task.sleep(for: .seconds(ForestTheatrePacing.fetchNoticeSeconds))
+        guard !Task.isCancelled else { return }
+
+        // ② 跑出画面（朝离自家近的一侧），短暂消失翻找
+        let home = homePosition(index: fetcher, count: count, span: span, inset: inset,
+                                groundLine: groundLine, quantizedWidth: quantizedWidth)
+        let exitLeft = home.x + offsets[fetcher].width < inset + span / 2
+        if facings.indices.contains(fetcher) { facings[fetcher] = exitLeft ? -1 : 1 }
+        let exitX = exitLeft ? -(inset + 40) : (inset + span + 40) - home.x
+        await hopTo(fetcher, target: CGSize(width: exitX, height: offsets[fetcher].height),
+                    steps: 3, hopHeight: 8)
+        guard !Task.isCancelled else { return }
+        away[fetcher] = true
+        try? await Task.sleep(for: .seconds(ForestTheatrePacing.fetchLingerSeconds))
+        guard !Task.isCancelled else { return }
+
+        // ③ 叼着词卡现身，走回家
+        away[fetcher] = false
+        wordCard = (fetcher, word)
+        withAnimation(.app(.reveal)) {
+            if facings.indices.contains(fetcher) { facings[fetcher] = exitLeft ? 1 : -1 }
+        }
+        try? await Task.sleep(for: .seconds(0.2))
+        guard !Task.isCancelled else { return }
+        await hopTo(fetcher, target: .zero, steps: 5, hopHeight: 8)
+        guard !Task.isCancelled else { return }
+
+        // ④ 展示：冒一句炫耀 + 词卡挂一会儿，然后各自收场
+        if bubblesAllowed {
+            requestRawBubble(fetcher, pool: Self.fetchDonePhrases)
+        }
+        try? await Task.sleep(for: .seconds(ForestTheatrePacing.wordCardHoldSeconds))
+        guard !Task.isCancelled else { return }
+        withAnimation(.app(.reveal)) { wordCard = nil }
     }
 
     // MARK: 花草
@@ -1326,8 +1505,8 @@ struct ForestGroundBand: View {
 
     /// 轮换专用冒泡（不走物种文案池，直接给文案）。
     /// 每个小动物持有自己的气泡：新气泡只覆盖**自己**那一句，其他动物的话照常挂着；
-    /// 出现序号递增 → 最新出现的画在最上层；3 秒后各自独立收起。
-    private func requestRawBubble(_ index: Int, pool: [String]) {
+    /// 出现序号递增 → 最新出现的画在最上层；`hold` 秒后各自独立收起。
+    private func requestRawBubble(_ index: Int, pool: [String], hold: Double = 3) {
         guard !pool.isEmpty, bubbleTexts.indices.contains(index) else { return }
         bubbleCounter += 1
         let stamp = bubbleCounter
@@ -1336,7 +1515,7 @@ struct ForestGroundBand: View {
             bubbleTexts[index] = pool.randomElement()
         }
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(3))
+            try? await Task.sleep(for: .seconds(hold))
             // 期间这只小动物又说了新话（或全体收声）→ 本次收起作废
             guard bubbleStamps.indices.contains(index), bubbleStamps[index] == stamp else { return }
             withAnimation(.app(.reveal)) { bubbleTexts[index] = nil }
@@ -1396,5 +1575,30 @@ struct ForestGroundBand: View {
             path.closeSubpath()
             return path
         }
+    }
+}
+
+/// 小动物「叼回来」的单词卡：圆角小白卡 + 一片小叶 + 单词本体。
+/// 纯展示（不吃点击），挂在捡词动物的头顶，展示完由父级收走。
+private struct CarriedWordCard: View {
+    let word: String
+    let theme: ForestTheme
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Image(systemName: "leaf.fill")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(theme.accent)
+            Text(word)
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(theme.primaryText)
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(RoundedRectangle(cornerRadius: 9).fill(theme.surface))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(theme.accent.opacity(0.55), lineWidth: 1))
+        .shadow(color: theme.shadow, radius: 4, x: 0, y: 2)
     }
 }
