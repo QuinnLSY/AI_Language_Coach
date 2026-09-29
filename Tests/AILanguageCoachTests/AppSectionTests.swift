@@ -111,6 +111,31 @@ final class AppSectionTests: XCTestCase {
         XCTAssertEqual(state.activeSection, .scenarios)
     }
 
+    /// 回归（2026-09-29 报障「点击数次才弹框」）：面板必须**先开再加载**。
+    ///
+    /// 修复前 `applySection(.scenarios)` 排在三个 await 之后——读库 / 读资源一慢，
+    /// 面板迟迟不开，用户以为点了没反应。其余 `open*()` 全是先开页面再加载。
+    ///
+    /// 反证：把 `applySection` 挪回 `loadMaterialKits()` 之后 → 红。标记：`// 反证：`
+    func testScenarioPanelOpensBeforeItsLoads() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AppUI/AppState+Scenario.swift", encoding: .utf8
+        )
+        guard let bodyRange = source.range(of: "public func openScenarios() async {") else {
+            return XCTFail("找不到 openScenarios")
+        }
+        let tail = source[bodyRange.lowerBound...]
+        let end = tail.range(of: "\n    }")?.lowerBound ?? tail.endIndex
+        let body = String(tail[..<end])
+
+        let applyIndex = body.range(of: "applySection(.scenarios)")
+        let loadIndex = body.range(of: "await loadScenarios()")
+        XCTAssertNotNil(applyIndex, "openScenarios 必须落 section（否则高亮与互斥全失效）")
+        XCTAssertNotNil(loadIndex)
+        XCTAssertLessThan(applyIndex!.lowerBound, loadIndex!.lowerBound,
+                          "面板必须先开（applySection）再去加载列表")
+    }
+
     /// 切到练习页会把其他页面标记全部清掉。
     /// 修复前 `openPractice()` 漏了 `showingScenarios`，情景浮层会压着练习页不放。
     func testOpeningPracticeClearsEveryOtherFlag() async {

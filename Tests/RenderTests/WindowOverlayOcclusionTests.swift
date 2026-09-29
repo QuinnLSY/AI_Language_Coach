@@ -114,6 +114,10 @@ final class WindowOverlayOcclusionTests: XCTestCase {
     }
 
     /// 卡片压在某个词上 → 悬停不再上报（不发查词请求、也不换卡片内容）。
+    ///
+    /// ⚠️ 悬停探测自带 ~0.4s 延迟定时器，**别用「睡固定时长再看一眼」**：
+    /// 全量 2000+ 用例一起跑时机器一忙，定时器过冲轻易吃掉那点余量，
+    /// 同一份代码随机变红（2026-09-29 实测）。改用轮询（宽限 2s）与「窗口内保持」。
     func testHoverProbeIsSilencedUnderTheOverlay() async throws {
         let (text, window, firstWord) = try makeSentenceView()
 
@@ -123,8 +127,7 @@ final class WindowOverlayOcclusionTests: XCTestCase {
         // ① 没有卡片：悬停照常上报。
         let firstPoint = try windowCenter(of: firstWord, in: text)
         text.mouseMoved(with: try XCTUnwrap(mouseMovedEvent(at: firstPoint, in: window)))
-        try await Task.sleep(nanoseconds: 400_000_000)
-        XCTAssertEqual(probes, ["Marco"], "没有卡片时悬停应当正常上报")
+        await waitUntil("没有卡片时悬停应当正常上报") { probes == ["Marco"] }
 
         // ② 卡片盖在这一带（盖住下一个词）：悬停闭嘴。
         let secondPoint = try windowCenter(of: NSRange(location: 6, length: 5), in: text)
@@ -138,8 +141,43 @@ final class WindowOverlayOcclusionTests: XCTestCase {
         )
 
         text.mouseMoved(with: try XCTUnwrap(mouseMovedEvent(at: secondPoint, in: window)))
-        try await Task.sleep(nanoseconds: 400_000_000)
-        XCTAssertEqual(probes, ["Marco"], "卡片挡住的词不许再上报（穿透）")
+        await waitHolding("卡片挡住的词不许再上报（穿透）") { probes == ["Marco"] }
+    }
+
+    // MARK: 时间相关断言的两种写法（同 WordLookupBubblePresenterTests）
+
+    /// 反复检查直到条件成立；超时即失败。
+    private func waitUntil(
+        _ message: String,
+        timeout: TimeInterval = 2,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ condition: () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTFail("等了 \(timeout)s 仍未满足：\(message)", file: file, line: line)
+    }
+
+    /// 在窗口内反复检查条件**一直**成立，破一次立刻失败。
+    private func waitHolding(
+        _ message: String,
+        duration: TimeInterval = 1.5,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ condition: () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(duration)
+        while Date() < deadline {
+            guard condition() else {
+                XCTFail(message, file: file, line: line)
+                return
+            }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
     }
 
     // MARK: 探针不参与交互
@@ -208,6 +246,8 @@ final class WindowOverlayOcclusionTests: XCTestCase {
     }
 
     /// 从卡片回到文字上，**同一个词**也要能重新探测（别被 `lastHoverWord` 记死）。
+    ///
+    /// ⚠️ 同上：轮询，不睡固定时长（全量跑时定时器过冲会随机变红）。
     func testHoverWorksAgainAfterLeavingTheOverlay() async throws {
         let (text, window, firstWord) = try makeSentenceView()
         var probes: [String] = []
@@ -220,12 +260,10 @@ final class WindowOverlayOcclusionTests: XCTestCase {
         window.contentView?.addSubview(probe)
 
         text.mouseMoved(with: try XCTUnwrap(mouseMovedEvent(at: point, in: window)))
-        try await Task.sleep(nanoseconds: 400_000_000)
-        XCTAssertTrue(probes.isEmpty, "卡片盖着时不该上报")
+        await waitHolding("卡片盖着时不该上报") { probes.isEmpty }
 
         probe.removeFromSuperview()
         text.mouseMoved(with: try XCTUnwrap(mouseMovedEvent(at: point, in: window)))
-        try await Task.sleep(nanoseconds: 400_000_000)
-        XCTAssertEqual(probes, ["Marco"], "卡片收走后，同一个词应当能重新探测")
+        await waitUntil("卡片收走后，同一个词应当能重新探测") { probes == ["Marco"] }
     }
 }

@@ -111,39 +111,21 @@ public struct MainView: View {
                     examReportOverlay(report)
                 }
 
-                // 模型启停结果：顶部最前方，向下弹入 → 数秒后向上收起
-                if let toast = state.modelToast {
-                    ModelToastView(toast: toast) { state.dismissModelToast() }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .padding(.top, 18)
-                        .zIndex(50)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
+                // 模型启停 / 星星结算 / 课程覆盖度三张浮卡：抽成独立计算属性
+                //（body 贴着类型检查预算，这三段链留在 body 里就超时——编译器实测报过错）。
+                globalToastOverlays
 
-                // 情景结算提示（星星入账 / 通关）——浮在最上层，数秒后自动消失
-                if let reward = state.lastReward {
-                    RewardToast(reward: reward) { state.dismissReward() }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .padding(.top, 78)
-                        .zIndex(30)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-
-                // 课程覆盖度判定（这一关的目标句说到了几句）——**另起一张**，
-                // 不与奖励条合并：星星说的是参与度，这一张说的是内容覆盖，两者会不一致。
-                if let assessment = state.lastAssessment {
-                    CurriculumVerdictCard(
-                        assessment: assessment,
-                        scenarioTitle: state.scenario(for: state.lastAssessedScenarioID)?.titleZh ?? "这一关",
-                        onClose: { state.dismissAssessment() }
-                    )
-                    .frame(maxWidth: 440)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .padding(.top, 146)
-                    .zIndex(29)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                }
-            }
+            // 划词气泡浮层：挂在**最外层** ZStack 上（2026-09-29 报障的修复）。
+            //
+            // 用户口径：**任何浮卡都要显示在整个应用界面的最上方**。原先挂在中间栏
+            // （chatArea）上，侧栏抬到 zIndex(1) 后气泡就被压在侧栏底下——
+            // 挪到这里，sidebar(1) / CelestialToggle(2) / 各面板(18~50) 全在它底下；
+            // 面板打开时 `isContentCovered` 已把气泡收掉（见下方 onChange），互不打架。
+            //
+            // anchor 的坐标是**相对浮层所在层级**实时解算的（`geo[anchor.bounds]`），
+            // 换层只需要平移一次原点，摆位算式（`WordLookupLayerPlacement`）不用动。
+            .wordLookupBubbleOverlay()
+        }
         }
         .frame(minWidth: 1080, minHeight: 720)
         .forestTheme(state.theme)
@@ -391,6 +373,49 @@ public struct MainView: View {
         }
     }
 
+    // MARK: - 全局浮卡（从 body 抽出来减类型检查负担）
+
+    /// 三张全局浮卡（模型启停结果 / 情景结算 / 课程覆盖度）。
+    ///
+    /// ⚠️ 别把它们并回 body：body 贴着类型检查预算，这三段修饰链留在里面
+    /// 整个表达式就会「unable to type-check in reasonable time」（编译器实测报过错）。
+    @ViewBuilder
+    private var globalToastOverlays: some View {
+        // 模型启停结果：顶部最前方，向下弹入 → 数秒后向上收起
+        if let toast = state.modelToast {
+            ModelToastView(toast: toast) { state.dismissModelToast() }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.top, 18)
+                .zIndex(50)
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+
+        // 情景结算提示（星星入账 / 通关）——浮在最上层，数秒后自动消失
+        if let reward = state.lastReward {
+            RewardToast(reward: reward) { state.dismissReward() }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.top, 78)
+                .zIndex(30)
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+
+        // 课程覆盖度判定（这一关的目标句说到了几句）——**另起一张**，
+        // 不与奖励条合并：星星说的是参与度，这一张说的是内容覆盖，两者会不一致。
+        if let assessment = state.lastAssessment {
+            let assessedTitle = state.scenario(for: state.lastAssessedScenarioID)?.titleZh ?? "这一关"
+            CurriculumVerdictCard(
+                assessment: assessment,
+                scenarioTitle: assessedTitle,
+                onClose: { state.dismissAssessment() }
+            )
+            .frame(maxWidth: 440)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.top, 146)
+            .zIndex(29)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
     // MARK: - 启动期界面钩子（截图 / 验证用，不影响正常使用）
 
     /// 处理「纯界面」启动参数：主题、直接打开某个面板、展开某张情景卡。
@@ -545,10 +570,9 @@ public struct MainView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(state.theme.surfaceAlt.opacity(0.55))
-        // 划词气泡画在这一层之上：句子都在滚动容器里（聊天区还给内容加了渐隐 `mask`），
-        // 挂在句内的 overlay 会被裁掉，也会被后面声明的兄弟视图盖住。
-        // 浮层的位置由 `Anchor` 实时解算，滚动时照样贴着文字走。
-        .wordLookupBubbleOverlay()
+        // 划词气泡**不再挂在这一层**（2026-09-29 报障：侧栏抬到 zIndex(1) 之后，
+        // 挂在中间栏上的气泡被压在侧栏底下，左半截被侧栏底色盖住）。
+        // 浮层现在挂在最外层 ZStack 上 —— 那是整个应用的最上方，谁也压不住它。
     }
 
     // MARK: - 可拖动分割线（聊天 / 成长之树之间）
@@ -650,14 +674,21 @@ public struct MainView: View {
                     // 批次八 · H：首次进入欢迎演出 / 错误举牌（老师联系不上时）
                     welcomeTick: state.forest.welcomeTick,
                     errorSignTick: state.forest.errorSignTick,
-                    errorHeadline: state.forest.lastErrorHeadline
+                    errorHeadline: state.forest.lastErrorHeadline,
+                    // 对话种下的植物：学员每开口一次，大树下草坪上多一株（2026-09-29 搬进林子）
+                    conversationRounds: state.chat.learnerTurnCount
                 )
                 .frame(height: TreeViewport.groundBandHeight)
                 .allowsHitTesting(true)
             }
-            // 通关烟花：盖在整块树面板上（不裁切、不吃点击），放完自动收
+            // 通关烟花 + 今日任务全部完成的烟花：盖在整块树面板上（不裁切、不吃点击），放完自动收。
+            // ⚠️ 2026-09-29 用户报障「森林也没有任务完成的烟花」：庆祝此前只落在黑板与地面带，
+            // 林子自己毫无表示 —— 补一层由 `state.celebrationTick` 驱动的烟花（与通关各管各的 tick）。
             .overlay {
-                CeremonyFireworksLayer(theme: state.theme, tick: state.forest.ceremonyTick)
+                ZStack {
+                    CeremonyFireworksLayer(theme: state.theme, tick: state.forest.ceremonyTick)
+                    CeremonyFireworksLayer(theme: state.theme, tick: state.celebrationTick)
+                }
             }
         }
         .background(state.theme.surface.opacity(0.62))

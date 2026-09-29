@@ -19,11 +19,17 @@ extension AppState {
     ///
     /// 考卷与情景在同一张面板上，所以在这里一起加载 —— 分开加载会出现
     /// 「面板开了、考试那一段是空的」，而那正是资源读取失败时最难分辨的样子。
+    ///
+    /// ⚠️ **先把面板开起来再去加载**（2026-09-29 用户报障「点击数次才弹框」）：
+    /// 原先 `applySection` 排在三个 await 之后 —— 任一次读库 / 读资源慢了，
+    /// 面板就迟迟不开，用户只会觉得「点了没反应」，再点几下才碰巧等到它开。
+    /// 其余 `open*()`（practice / progress / records）全是先 `applySection` 再加载，
+    /// 只有这一处顺序反了。首帧上列表短暂为空由骨架与空态兜着，比「没反应」好得多。
     public func openScenarios() async {
+        applySection(.scenarios)
         await loadScenarios()
         await loadExamBlueprints()
         await loadMaterialKits()
-        applySection(.scenarios)
     }
 
     public func closeScenarios() {

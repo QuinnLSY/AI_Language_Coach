@@ -247,9 +247,10 @@ final class ForestResponsivenessTests: XCTestCase {
         }
     }
 
-    /// 中间栏空地的动效预算：**没有**循环动画（阅读区不许有东西一直在动）。
+    /// 林间空地的动效预算：**没有**循环动画（2026-09-29 起植物长在林间地面带，
+    /// 但这条预算仍然成立：植物只做「新长一株」的一次入场，不许有任何常驻动的东西）。
     ///
-    /// 反证：在 GladeFloor 里加一句 `repeatForever` → 红。
+    /// 反证：在 GladeFloor.swift 里加一句 `repeatForever` → 红。
     func testGladeFloorHasNoLoopingAnimation() throws {
         let glade = try source("AppUI/Components/GladeFloor.swift")
         for line in codeLines(glade) {
@@ -258,14 +259,88 @@ final class ForestResponsivenessTests: XCTestCase {
         }
     }
 
-    /// 空地挂在对话区底部（不是垫在消息流里随滚动跑）。
+    /// 2026-09-29 用户口径：对话种下的植物**长在林间大树下草坪上**，不再画在聊天区。
     ///
-    /// 反证：删掉 ChatView 里那句 `.background(alignment: .bottom)` → 红。
-    func testChatViewPinsTheGladeToTheBottom() throws {
+    /// 三条判据（各对一种失效方式敏感，撤掉对应改动才红）：
+    /// ① ChatView 里不再挂 `GladeFloor`（撤「聊天区撤栽」→ 红）；
+    /// ② 地面带真的把 `ForestFloraBed` 画上了，且与草坡共用同一根 `groundLine`（撤「林间栽种」→ 红）；
+    /// ③ 主界面把 `ChatService.learnerTurnCount` 装配进地面带（撤装配 → 林子永远 0 株 → 红）。
+    /// 反证标记：`// 反证：`
+    func testConversationFloraLivesInTheForestNotInTheChat() throws {
         let chat = try source("AppUI/Views/ChatView.swift")
-        XCTAssertTrue(chat.contains("GladeFloor(theme: theme, rounds: gladeRounds)"), "对话区必须挂上林间空地")
-        XCTAssertTrue(chat.contains("alignment: .bottom"), "空地必须贴底（它是地面，不是内容）")
-        let body = self.body(of: "private var gladeRounds", in: chat)
-        XCTAssertTrue(body.contains("role == .user"), "空地长的是「你说过的话」——只数学员开口")
+        XCTAssertFalse(chat.contains("GladeFloor("),
+                       "对话区不许再画林间空地（植物搬进林子，别悬浮在聊天上）")
+
+        let ground = try source("AppUI/Components/TreeCanvas.swift")
+        let floraLine = codeLines(ground).filter { $0.text.contains("ForestFloraBed(theme:") }
+        guard floraLine.count == 1 else {
+            return XCTFail("地面带必须栽上对话植物（且只栽一处），实际 \(floraLine.count) 处")
+        }
+        XCTAssertTrue(floraLine[0].text.contains("groundLine: groundLine"),
+                      "植物必须与草坡同一根草坪线（各算各的迟早浮在半空）")
+
+        let main = try source("AppUI/Views/MainView.swift")
+        XCTAssertTrue(main.contains("conversationRounds: state.chat.learnerTurnCount"),
+                      "主界面没把学员开口次数装配进地面带")
+    }
+
+    /// 「有栽种扎根的痕迹，不是贴图」：土丘 + 轻微倒向 + 落地阴影，三件都在画法里。
+    ///
+    /// ⚠️ 判据扫**非注释行**：注释掉的画法等于没画（反证必须真删，这里同步防住）。
+    /// 反证：删掉任意一件（土丘 Ellipse / tiltDegrees / shadow）→ 红。
+    func testConversationFlowsHavePlantingTraces() throws {
+        let flora = codeLines(try source("AppUI/Components/GladeFloor.swift")).map(\.text)
+        XCTAssertTrue(flora.contains { $0.contains("tiltDegrees") }, "植株要有轻微倒向（直挺挺的像贴图）")
+        XCTAssertTrue(flora.contains { $0.contains("rotationEffect(.degrees(plant.tiltDegrees)") },
+                      "倒向必须真的作用到植株上")
+        XCTAssertTrue(flora.contains { $0.contains("hillNear.opacity") }, "根部要有土丘（栽种扎根的痕迹）")
+        XCTAssertTrue(flora.contains { $0.contains(".shadow(color: theme.shadow") }, "植株脚下要有落地阴影")
+    }
+
+    /// 倾角要**轻微**且**确定**：±7° 以内，同 index 永远同倒向（重绘不许换方向）。
+    ///
+    /// 反证：把 tiltDegrees 的幅度乘大（×10 倍越界）或改成随机 → 红。
+    func testFloraTiltIsSlightAndDeterministic() {
+        for plant in GladeGrowth.plants(rounds: GladeGrowth.maxPlants) {
+            XCTAssertTrue((-7...7).contains(plant.tiltDegrees), "倾角出界：\(plant.tiltDegrees)")
+        }
+        XCTAssertEqual(GladeGrowth.plants(rounds: 6).map(\.tiltDegrees),
+                       GladeGrowth.plants(rounds: 6).map(\.tiltDegrees),
+                       "同轮次的倒向必须确定（重绘不许换方向）")
+    }
+
+    /// 每日任务完成：黑板要**自己升起来**（盖章与烟花都画在展开的板面上，
+    /// 板收着的时候用户什么也看不见 —— 2026-09-29 报障「黑板没有升起」）。
+    ///
+    /// 反证：把 celebrateToday 里升板那两行删掉 → 红。
+    func testCelebrationRaisesTheBlackboard() throws {
+        let body = self.body(of: "func celebrateToday(dayKey:",
+                             in: try source("AppUI/AppState+Blackboard.swift"))
+        XCTAssertTrue(body.contains("isSidebarExpanded = true"), "侧栏收着时先拉开侧栏")
+        XCTAssertTrue(body.contains("isBlackboardExpanded = true"), "黑板必须自动升起")
+    }
+
+    /// 小动物的庆祝要**错落跳好几下**（三波欢跳），气泡错落着冒（不是同帧齐刷刷）。
+    ///
+    /// 反证：把 celebrate() 的波次循环改回单波（全体同时 trigger 一次）→ 红。
+    func testGroundCelebrationIsStaggeredOverSeveralWaves() throws {
+        let body = self.body(of: "private func celebrate()",
+                             in: try source("AppUI/Components/TreeCanvas.swift"))
+        XCTAssertTrue(body.contains("for wave in 0..<3"), "庆祝必须跳好几下（三波）")
+        XCTAssertTrue(body.contains("Double(order) * 0.18"), "同波之内各只要按位次错开")
+        let bubbleLoop = body.range(of: "for (order, index) in bubbled.enumerated()")
+        XCTAssertNotNil(bubbleLoop, "气泡要按位次错落着冒（不是同时冒）")
+    }
+
+    /// 森林自己也要放庆祝烟花：树面板上由 `state.celebrationTick` 驱动的一层。
+    ///
+    /// ⚠️ 判据扫**非注释行**：注释掉的装配等于没装（反证必须真删，这里同步防住）。
+    /// 反证：删掉 MainView 里那层 `tick: state.celebrationTick` 的烟花 → 红。
+    func testForestFiresItsOwnCelebrationFireworks() throws {
+        let main = codeLines(try source("AppUI/Views/MainView.swift")).map(\.text)
+        XCTAssertTrue(
+            main.contains { $0.contains("CeremonyFireworksLayer(theme: state.theme, tick: state.celebrationTick)") },
+            "树面板必须有庆祝烟花层（只有通关烟花不算）"
+        )
     }
 }

@@ -2,8 +2,11 @@ import SwiftUI
 
 /// 林间空地的生长表（批次四 · B，纯函数、可单测）。
 ///
-/// 中间栏（对话区）脚下那片空地：**学员每开口一次，地上就多一株**。
-/// 聊着聊着身后长出一片小花小草 —— 「你说过的每句话都在这片林子里留下了东西」。
+/// **学员每开口一次，林子里就多一株**。聊着聊着大树下长出一片小花小草 ——
+/// 「你说过的每句话都在这片林子里留下了东西」。
+///
+/// 2026-09-29 用户口径调整：植物**长在成长之树的大树下草坪上**（林间地面带），
+/// 不再画在中间栏聊天区（悬浮在对话上挡视线，看着像贴图而不是种出来的）。
 ///
 /// 为什么是纯函数：同一轮次数必须长出**同一片**空地。视图会随滚动、换页重绘，
 /// 随机一抖就是「花在跳位置」，而确定性伪随机（按 index 取）保证重绘不动。
@@ -34,6 +37,13 @@ public enum GladeGrowth {
             self.kind = kind
             self.x = x
             self.scale = scale
+        }
+
+        /// 轻微的倒向（-7°…7°，度）：种下去的植株总有点朝向，
+        /// 直挺挺立在草坪上像贴图（2026-09-29 用户口径「要有轻微的方向」）。
+        /// 由 index 决定 —— 与位置同一套确定性伪随机，重绘不动。
+        public var tiltDegrees: CGFloat {
+            (pseudo(index, 17) - 0.5) * 14
         }
     }
 
@@ -66,58 +76,81 @@ public enum GladeGrowth {
     }
 }
 
-/// 中间栏脚下那片空地。
+/// 林间地面带上「对话种下的植物」：大树下草坪上的一株株小花小草。
 ///
-/// 动效预算（设计拍板：全场最低，比侧栏连胜飞鸟还低）：
-/// - **没有**循环动画（无 `repeatForever`、无常驻定时器）—— 阅读区不许有东西一直在动；
-/// - 只在「新长出一株」的那一刻有一次入场（走动效 token，减动态效果打开时整段失效）。
-public struct GladeFloor: View {
+/// 三件「种出来了」的视觉痕迹（2026-09-29 用户口径：**有栽种扎根的痕迹，
+/// 不是像贴图一样悬浮在图层上**）：
+/// 1. 根部一圈**土丘**（比草坪深一档的颜色，椭圆压在茎底）；
+/// 2. 植株带**轻微倒向**（`Plant.tiltDegrees`，由生长序号决定）；
+/// 3. 植株脚下一点**落地阴影**（与草坡上其他物件同一套 theme.shadow）。
+///
+/// 动效预算：没有循环动画；只在「新长出一株」的那一刻有一次入场
+/// （走动效 token，减动态效果打开时整段失效）。
+struct ForestFloraBed: View {
 
     let theme: ForestTheme
-    /// 学员开口的次数（= 空地上长了几株）。
+    /// 学员开口的次数（= 草坪上长了几株）。
     let rounds: Int
-    /// 空地高度（植物贴着底边往上长）。
-    var height: CGFloat = 46
+    /// 草坪表面线（**宿主坐标系**：与地面带的草坡 / 灌木 / 小花同一根线，
+    /// 植株的土丘就压在这条线上 —— 各算各的迟早出现「花浮在半空」）。
+    let groundLine: CGFloat
 
-    public init(theme: ForestTheme, rounds: Int, height: CGFloat = 46) {
-        self.theme = theme
-        self.rounds = rounds
-        self.height = height
-    }
-
-    public var body: some View {
+    var body: some View {
         GeometryReader { proxy in
             let plants = GladeGrowth.plants(rounds: rounds)
             ZStack(alignment: .bottomLeading) {
                 ForEach(plants) { plant in
                     sprout(plant)
-                        // 底边往上长：y 用空地底部减去半个身位，别浮在半空
-                        .position(x: plant.x * proxy.size.width,
-                                  y: proxy.size.height - 8 * plant.scale)
+                        .position(
+                            x: 16 + plant.x * max(0, proxy.size.width - 32),
+                            y: groundLine - 2
+                        )
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
             // 新长一株时的入场（同一份 token；「减弱动态效果」下自动静止）
             .appAnimation(.reveal, value: plants.count)
         }
-        .frame(height: height)
-        // 极淡：它是背景，不是内容
-        .opacity(0.62)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 
     @ViewBuilder
     private func sprout(_ plant: GladeGrowth.Plant) -> some View {
+        let body = floraBody(plant)
+        VStack(spacing: 0) {
+            body
+                .rotationEffect(.degrees(plant.tiltDegrees), anchor: .bottom)
+            // 土丘：比草坪深一档的椭圆压在茎底 —— 「这里是种下去的」。
+            Ellipse()
+                .fill(theme.hillNear.opacity(0.55))
+                .frame(width: 14 * plant.scale + 6, height: 4.5 * plant.scale + 1.5)
+                .overlay(
+                    Ellipse()
+                        .fill(theme.shadow.opacity(0.5))
+                        .frame(width: 9 * plant.scale + 4, height: 2.6 * plant.scale + 0.8)
+                        .offset(y: -0.8)
+                )
+        }
+        // 底部锚点落在草坪线上：.position 给的是视图中心，先把土丘一半的高度抬回来。
+        .offset(y: -(4.5 * plant.scale + 1.5) / 2)
+        .shadow(color: theme.shadow, radius: 2.4, x: 0, y: 1.6)
+    }
+
+    /// 植株本体（种类画法与原 GladeFloor 一致，整体放大一档：
+    /// 林间地面带 150pt 高，还按聊天区 46pt 那个小身量长就看不见了）。
+    @ViewBuilder
+    private func floraBody(_ plant: GladeGrowth.Plant) -> some View {
+        let scale = plant.scale * 1.7
         switch plant.kind {
         case .flowerWarm, .flowerPale:
-            flower(pale: plant.kind == .flowerPale, scale: plant.scale)
+            flower(pale: plant.kind == .flowerPale, scale: scale)
         case .mushroom:
-            mushroom(scale: plant.scale)
+            mushroom(scale: scale)
         case .fern:
-            fern(scale: plant.scale)
+            fern(scale: scale)
         case .clover:
-            clover(scale: plant.scale)
+            clover(scale: scale)
         }
     }
 

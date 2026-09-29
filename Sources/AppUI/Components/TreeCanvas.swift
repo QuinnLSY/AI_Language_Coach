@@ -792,6 +792,9 @@ struct ForestGroundBand: View {
     var errorSignTick: Int = 0
     /// 牌子上的那句话（与 tick 分开传：同一句话再举一次也要靠 tick 触发）。
     var errorHeadline: String? = nil
+    /// 学员在当前会话开口的次数（`ChatService.learnerTurnCount`）：
+    /// 大树下草坪上「对话种下的植物」长几株（2026-09-29 从中间栏搬进林子）。
+    var conversationRounds: Int = 0
 
     /// 离场告别语（轮换时随机抽一条）。
     static let leavePhrases = [
@@ -1005,6 +1008,10 @@ struct ForestGroundBand: View {
                                palette: planted.palette)
                             .transition(.scale(scale: 0.4, anchor: .bottom).combined(with: .opacity))
                     }
+
+                    // 对话种下的植物（2026-09-29 从中间栏搬进林子）：大树下草坪上
+                    // 随学员开口一株株长出来，带土丘扎根痕迹与轻微倒向（见 ForestFloraBed）。
+                    ForestFloraBed(theme: theme, rounds: conversationRounds, groundLine: groundLine)
 
                     // 树干底部的两根枝桠栖木（鸟类专用；画在树干透出区域的中心两侧）
                     perchStubs(width: width)
@@ -1378,27 +1385,47 @@ struct ForestGroundBand: View {
         "任务全清！去休息一下吧～",
     ]
 
-    /// 全体跳一下 + 前几只冒庆祝气泡。
+    /// 全体错落欢跳（跳好几下）+ 前几只错落冒庆祝气泡。
     ///
     /// ⚠️ 只递 `actionTicks`（`LivelyAnimal` 靠它变化触发动作），不自己写动画 ——
     /// 身体动画归 `LivelyAnimal`，气泡层级归本视图，两边各管各的才不会打架。
     /// ⚠️ 只点**在场**的居民：轮换暂离的槽位不演戏、不冒泡。
+    ///
+    /// 2026-09-29 用户报障「只是集体跳了一下，然后同时冒出气泡」：
+    /// 改成**三波**欢跳 —— 每只按位次错开 0.18s、波与波隔 0.85s，同一只前后要跳三下；
+    /// 气泡也按位次错开 0.7s 陆续冒出来（齐刷刷同帧冒泡看着像贴图，不像一群活的）。
+    /// 夜晚 / 活动被关（`activityAllowed` 已含「配置 && 白天」）只冒气泡不跳——
+    /// 睡着的小动物被吵醒跳就不礼貌了，但庆祝的话还是要说。
     private func celebrate() {
-        guard activityAllowed else { return }
         let present = (0..<Self.maxResidents).filter { !away[$0] }
-        for i in present {
-            actionKinds[i] = .hop
-            actionTicks[i] += 1
+        if activityAllowed {
+            for wave in 0..<3 {
+                for (order, index) in present.enumerated() {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(Double(wave) * 0.85 + Double(order) * 0.18))
+                        guard !Task.isCancelled else { return }
+                        trigger(index, action: .hop)
+                    }
+                }
+            }
         }
-        // 只让前三只在场的说话：八只同时冒泡会糊成一片。
+        // 只让前三只在场的说话：八只同时冒泡会糊成一片；错落着冒才有「你一句我一句」的感觉。
         let bubbled = Array(present.prefix(3))
-        for i in bubbled {
-            bubbleCounter += 1
-            bubbleStamps[i] = bubbleCounter
-            bubbleTexts[i] = Self.celebrationPhrases[(i + celebrationTick) % Self.celebrationPhrases.count]
+        for (order, index) in bubbled.enumerated() {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(Double(order) * 0.7))
+                guard !Task.isCancelled else { return }
+                bubbleCounter += 1
+                bubbleStamps[index] = bubbleCounter
+                withAnimation(.app(.panel)) {
+                    bubbleTexts[index] = Self.celebrationPhrases[(index + celebrationTick) % Self.celebrationPhrases.count]
+                }
+            }
         }
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(3))
+            // 最后一句话冒出来的时刻 + 3s 展示期，一起收。
+            try? await Task.sleep(for: .seconds(Double(bubbled.count - 1) * 0.7 + 3))
+            guard !Task.isCancelled else { return }
             for i in bubbled { bubbleTexts[i] = nil }
         }
     }

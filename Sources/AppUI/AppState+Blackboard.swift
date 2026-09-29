@@ -145,13 +145,23 @@ extension AppState {
         dailyTaskFloor = raised
     }
 
-    /// 今日完成的收尾仪式（#227）：盖章（幂等）+ 大树小动物欢跳 + 黑板烟花几秒。
+    /// 今日完成的收尾仪式（#227）：黑板升起 + 盖章（幂等）+ 大树小动物错落欢跳 + 森林烟花几秒。
+    ///
+    /// ⚠️ 黑板要**自己升起来**（2026-09-29 用户报障「黑板没有升起、盖章、放烟花了」）：
+    /// 盖章与烟花都画在展开的板面上（`BlackboardPanel`），板收着的时候什么也看不见。
+    /// 侧栏收起时先拉开侧栏再升板（两步与 `openBoardFromCollapsedSidebar` 同一套理由：
+    /// 两个弹簧叠在一起会抖）。这是**一天一次**的庆祝，主动升起不算「抢界面」。
     func celebrateToday(dayKey: String) {
         // 一天只放一次（`dayKey` 落盘）：练完那一刻放，之后反复汇总都不再放。
         celebratedDayKey = dayKey
         rewardCelebrationPending = false
         celebrationTick += 1
         isCelebratingToday = true
+        // 黑板升起（侧栏收着就先拉开侧栏）。
+        withAnimation(.app(.panel)) {
+            isSidebarExpanded = true
+            isBlackboardExpanded = true
+        }
         // 烟花放几秒就撤 —— 开屏第一眼不该有东西一直在动。
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(5))

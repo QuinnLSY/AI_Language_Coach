@@ -355,11 +355,8 @@ public struct ChatView: View {
                 Divider().overlay(theme.divider)
             }
             messageArea
-                // 林间空地：脚下随对话长出小花小草（轮次为 0 时它自己就是空的）。
-                // 挂在 background 而不是垫在消息列表里：滚动时空地不动，它才是「地面」。
-                .background(alignment: .bottom) {
-                    GladeFloor(theme: theme, rounds: gladeRounds)
-                }
+            // 林间空地**已搬进右侧林子**（2026-09-29 用户口径：植物该长在大树下的草坪上，
+            // 而不是悬浮在聊天区挡视线）。轮次取数口在 `ChatService.learnerTurnCount`。
             practiceNoticeBanner
             if let modelStoppedNotice {
                 modelStoppedBanner(modelStoppedNotice)
@@ -960,14 +957,6 @@ public struct ChatView: View {
     /// 手写格式化：避免 DateFormatter 的 locale/并发坑，输出顺序固定为「月日 周 时分」。
     public nonisolated static func stamp(_ date: Date) -> String {
         Timestamps.stamp(date)
-    }
-
-    /// 中间栏空地上长几株：**学员每开口一次长一株**（上限见 `GladeGrowth.maxPlants`）。
-    ///
-    /// 为什么数学员而不是老师：空地上长的是「**你**说过的话」，老师那句是回应。
-    /// 只读 `visibleMessages` —— 待复盘那段历史没上屏，就不该在地上留下痕迹。
-    private var gladeRounds: Int {
-        chat.visibleMessages.reduce(0) { $0 + ($1.role == .user ? 1 : 0) }
     }
 
     private var emptyHint: some View {

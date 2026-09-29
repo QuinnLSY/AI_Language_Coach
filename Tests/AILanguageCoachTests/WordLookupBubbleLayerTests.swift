@@ -173,3 +173,53 @@ final class WordLookupBubblePresenterTests: XCTestCase {
         }
     }
 }
+
+// MARK: - 浮层挂载层级的接线哨兵
+
+/// 2026-09-29 用户口径：**任何浮卡都要显示在整个应用界面的最上方**。
+///
+/// 报障链路：侧栏为救「徽章浮卡被中间栏盖住」抬到 zIndex(1)，而划词气泡的浮层
+/// 挂在中间栏（zIndex 0）上 —— 同一个 HStack 里侧栏反过来把气泡压在了底下，
+/// 气泡左半截被侧栏底色盖住。修复：浮层挪到 MainView **最外层 ZStack** 上。
+final class WordLookupOverlayMountTests: XCTestCase {
+
+    /// 源码的**非注释行**（行号保留）。
+    private func codeLines(_ source: String) -> [(number: Int, text: String)] {
+        source.split(separator: "\n", omittingEmptySubsequences: false).enumerated().compactMap { index, raw in
+            let line = String(raw)
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.hasPrefix("//") else { return nil }
+            return (index + 1, line)
+        }
+    }
+
+    private func source(_ relativePath: String) throws -> String {
+        try String(contentsOfFile: "Sources/\(relativePath)", encoding: .utf8)
+    }
+
+    /// 浮层必须挂在最外层 ZStack 上，且中间栏不再挂第二份（挂两份会画出两张气泡）。
+    ///
+    /// 结构判据（对「挪回低层」敏感）：挂载点必须**晚于** body 里 ZStack 的最后一个孩子
+    /// （`globalToastOverlays` 引用行），又**早于** GeometryReader 的收尾修饰
+    /// （`.frame(minWidth: 1080`）——夹在中间 = 它修饰的是最外层 ZStack 本体。
+    /// 挪回 chatArea（文件后面的独立计算属性）或任何更低层级都会落到 `.frame` 之后 → 红。
+    ///
+    /// 反证：把 `.wordLookupBubbleOverlay()` 挪回 chatArea → 红。标记：`// 反证：`
+    func testBubbleOverlayMountsAtTheOutermostLayer() throws {
+        let main = codeLines(try source("AppUI/Views/MainView.swift"))
+        let mounts = main.filter { $0.text.contains(".wordLookupBubbleOverlay()") }
+        XCTAssertEqual(mounts.count, 1, "浮层只允许挂一份")
+
+        let lastChild = main.first { $0.text.contains("globalToastOverlays") }
+        XCTAssertNotNil(lastChild, "找不到 ZStack 最后一个孩子的引用行（结构变了就改这条判据）")
+        let geometryClose = main.first { $0.text.contains(".frame(minWidth: 1080") }
+        XCTAssertNotNil(geometryClose, "找不到 GeometryReader 的收尾修饰（结构变了就改这条判据）")
+        XCTAssertGreaterThan(mounts[0].number, lastChild!.number,
+                             "浮层必须挂在 ZStack 最后一个孩子之后（挂低了就会被侧栏/面板压住）")
+        XCTAssertLessThan(mounts[0].number, geometryClose!.number,
+                          "浮层必须挂在最外层 ZStack 上（挂在子视图属性里就到不了最上层）")
+
+        let chat = try source("AppUI/Views/ChatView.swift")
+        XCTAssertFalse(chat.contains(".wordLookupBubbleOverlay()"), "中间栏不许再挂浮层")
+    }
+}

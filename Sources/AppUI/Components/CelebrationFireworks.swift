@@ -38,11 +38,15 @@ public struct CelebrationFireworks: View {
 
     public var tint: Color
     public var secondary: Color
-    /// 三簇烟花的起点（相对自身尺寸的比例）。
+    /// 四簇烟花的起点（相对自身尺寸的比例）。
+    ///
+    /// 2026-09-29 用户口径「需要明显一点的烟花」：三簇扩成四簇，铺得更开，
+    /// 黑板那侧与树面板那侧都吃这一份提升。
     public var anchors: [CGPoint] = [
-        CGPoint(x: 0.12, y: 0.30),
-        CGPoint(x: 0.50, y: 0.14),
-        CGPoint(x: 0.88, y: 0.34),
+        CGPoint(x: 0.10, y: 0.30),
+        CGPoint(x: 0.38, y: 0.12),
+        CGPoint(x: 0.66, y: 0.26),
+        CGPoint(x: 0.92, y: 0.38),
     ]
 
     @State private var progress: CGFloat = 0
@@ -84,24 +88,26 @@ public struct CelebrationFireworks: View {
         }
     }
 
-    /// 三簇 × 12 颗 = 36 颗火星。**写死而不用随机**：随机会让每次重绘都换一批位置，
+    /// 四簇 × 14 颗 = 56 颗火星。**写死而不用随机**：随机会让每次重绘都换一批位置，
     /// 离屏截图与真机对不上，也无法断言。
+    ///
+    /// 2026-09-29 用户口径「需要明显一点的烟花」：火星更多、飞得更远、颗粒更大。
     public static let sparks: [Spark] = {
         var list: [Spark] = []
         var id = 0
-        for burst in 0..<3 {
-            for i in 0..<12 {
-                let angle = Double(i) / 12 * 2 * Double.pi
-                let distance: CGFloat = 46 + CGFloat((i * 7 + burst * 13) % 11) * 4
+        for burst in 0..<4 {
+            for i in 0..<14 {
+                let angle = Double(i) / 14 * 2 * Double.pi
+                let distance: CGFloat = 62 + CGFloat((i * 7 + burst * 13) % 11) * 5
                 list.append(
                     Spark(
                         id: id,
                         burst: burst,
                         angle: angle,
                         distance: distance,
-                        size: 5 + CGFloat((i + burst) % 3) * 1.6,
-                        delay: Double(burst) * 0.42,
-                        life: 1.5
+                        size: 6 + CGFloat((i + burst) % 3) * 1.8,
+                        delay: Double(burst) * 0.38,
+                        life: 1.7
                     )
                 )
                 id += 1

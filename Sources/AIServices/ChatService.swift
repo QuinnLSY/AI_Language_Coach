@@ -21,6 +21,16 @@ public final class ChatService {
         suppressesRestoredHistory ? [] : messages
     }
 
+    /// 学员在**当前可见会话**里开口的次数（林间空地长几株的口径）。
+    ///
+    /// 为什么数学员而不是老师：地上长的是「**你**说过的话」，老师那句是回应。
+    /// 只读 `visibleMessages` —— 待复盘那段历史没上屏，就不该在地上留下痕迹。
+    /// （原先这个算式住在 ChatView 里；植物搬进林间地面带后，取数口随之上移，
+    /// 中间栏与右侧栏才能读到同一个数。）
+    public var learnerTurnCount: Int {
+        visibleMessages.reduce(0) { $0 + ($1.role == .user ? 1 : 0) }
+    }
+
     /// 恢复出来的历史**先不给界面看**（只留在内存里，复盘还要用它）。
     private var suppressesRestoredHistory = false
 

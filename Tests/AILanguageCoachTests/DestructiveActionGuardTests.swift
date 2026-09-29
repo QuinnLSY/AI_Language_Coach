@@ -30,6 +30,26 @@ final class DestructiveActionGuardTests: XCTestCase {
 
     // MARK: - ① 删除自建情景：不能点一下就真删
 
+    /// 情景卡与考卷卡的**展开出现方式**：只淡入、不位移（学习记录页复盘同一套）。
+    ///
+    /// 2026-09-29 用户报障「点关卡卡片展开时，文字从界面的顶部出来」：
+    /// `.move(edge: .top)` 的位移量等于内容自身高度 —— 展开区很高时整块会从
+    /// 别的卡片上方滑进来，看着像从整个界面顶部冒出来。
+    ///
+    /// 反证：把 DisclosureBlock 换回 `.transition(.opacity.combined(with: .move(edge: .top)))` → 红。
+    /// 标记：`// 反证：`
+    func testScenarioCardExpansionFadesInPlace() throws {
+        let view = try source("AppUI/Views/ScenarioPickerView.swift")
+        XCTAssertTrue(view.contains("DisclosureBlock {"),
+                      "展开区必须用 DisclosureBlock（只淡入不位移）")
+        for line in codeLines(view) {
+            XCTAssertFalse(
+                line.text.contains(".move(edge: .top)"),
+                "情景面板的卡片展开不许再位移（会从别的卡片上方滑进来）：\(line.number)"
+            )
+        }
+    }
+
     /// 自建情景是用户自己生成的内容（连同目标句），删掉之后要再花一次模型请求才造得回来。
     /// 原先「删除」一点就发 `deleteCustomScenario`，与「删一条气泡还要弹确认」的口径相反。
     func testDeletingCustomScenarioNeedsTwoSteps() throws {

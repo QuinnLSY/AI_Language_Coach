@@ -232,8 +232,10 @@ public struct ScenarioPickerView: View {
 
             if isExpanded {
                 Divider().overlay(theme.divider).padding(.vertical, 12)
-                examDetail(blueprint)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                // 与情景卡片同款：只淡入不位移（`.move(edge: .top)` 会从别的卡片上方滑进来）。
+                DisclosureBlock {
+                    examDetail(blueprint)
+                }
             }
         }
         .padding(14)
@@ -242,6 +244,8 @@ public struct ScenarioPickerView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(theme.surfaceAlt.opacity(0.6))
         )
+        // 兜底：动画期间任何内容都画不出卡片边界（与淡入双保险）。
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(
@@ -364,8 +368,14 @@ public struct ScenarioPickerView: View {
 
             if isExpanded {
                 Divider().overlay(theme.divider).padding(.vertical, 12)
-                detail(scenario)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                // ⚠️ 出现方式与学习记录页的复盘展开同一套（DisclosureBlock：只淡入不位移）：
+                // `.move(edge: .top)` 的位移量等于内容自身高度 —— 展开区很高时整块会从
+                // **别的卡片上方**滑进来，用户看到的就是「文字从界面顶部出来」
+                // （2026-09-29 报障）。淡入是原地出现：从哪张卡点开，就在哪张卡里出现。
+                DisclosureBlock {
+                    detail(scenario)
+                }
+                .padding(.horizontal, 0)
             }
         }
         .padding(14)
@@ -374,6 +384,8 @@ public struct ScenarioPickerView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(theme.surfaceAlt.opacity(0.6))
         )
+        // 兜底：动画期间任何内容都画不出卡片边界（与淡入双保险，学习记录页同款）。
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(
