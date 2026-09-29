@@ -86,6 +86,7 @@ public struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     themeCard
                     motionCard
+                    soundCard
                     partnerCard
                     forestCompanionsCard
                     modelCard
@@ -283,6 +284,28 @@ public struct SettingsView: View {
             "星星、树叶都停下来，动画退成轻轻的淡入淡出。"
         case .full:
             "所有动画都开，与系统的「减弱动态效果」设置无关。"
+        }
+    }
+
+    // MARK: - 轻音效（批次六 · F：默认关）
+
+    private var soundCard: some View {
+        card(title: "轻音效", systemImage: "speaker.wave.2.fill") {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle(isOn: Binding(
+                    get: { state.soundEffectsEnabled },
+                    set: { on in Task { await state.setSoundEffects(on) } }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("开启轻音效")
+                            .font(.system(size: 13, design: .rounded))
+                        Text("收进生词一声「叮」、通关一段小旋律、点小动物一声叫。默认关着，想要热闹再打开。")
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                }
+                .toggleStyle(.switch)
+            }
         }
     }
 

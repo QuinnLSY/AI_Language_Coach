@@ -112,6 +112,31 @@ public enum ForestAtmosphere {
         return hour >= 20 || hour < 5
     }
 
+    // MARK: - 拖天体切换日夜（批次六 · E）
+
+    /// 拖过这个纵向距离（pt）才算「拖到了地平线以下 / 天顶以上」，轻拖不算。
+    public static let celestialDragThreshold: CGFloat = 90
+    /// 拖拽中视觉位移的钳制上限（pt）：太阳半径的量级，拖到底就是贴着地平线。
+    public static let celestialDragClamp: CGFloat = 130
+
+    /// 拖拽松手时该不该切换日夜（纯函数，便于单测）：
+    /// 白天把太阳**往下**拖过阈值 → 入夜；夜里把月亮**往上**拖过阈值 → 回白天。
+    /// 反方向拖（太阳往上 / 月亮往下）只是玩玩，不切。
+    public static func shouldToggleByDrag(isNight: Bool, dragHeight: CGFloat,
+                                          threshold: CGFloat = celestialDragThreshold) -> Bool {
+        isNight ? dragHeight <= -threshold : dragHeight >= threshold
+    }
+
+    /// 拖拽进行中的视觉位移：只放行**该方向**的位移，越过上限就钳住 ——
+    /// 有了「拖不动了」的手感，用户才知道「再拖就触发」。
+    public static func clampedDragOffset(isNight: Bool, dragHeight: CGFloat,
+                                         limit: CGFloat = celestialDragClamp) -> CGFloat {
+        if isNight {
+            return max(min(dragHeight, 0), -limit)
+        }
+        return min(max(dragHeight, 0), limit)
+    }
+
     // MARK: - 天体沿弧线走
 
     /// 天体在窗口顶部的位置：日出从左边缘升起，正午到弧顶，日落沉到右边缘；

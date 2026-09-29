@@ -19,6 +19,11 @@ struct TreeScrollView: View {
     var ceremonyTick: Int = 0
     var practiceTick: Int = 0
     var wordTick: Int = 0
+    /// 天空被点了一下（批次六 · E 可玩彩蛋，透传给 `TreeCanvas`）。
+    var skyTapTick: Int = 0
+    var onSkyTap: (() -> Void)? = nil
+    /// 点了学员 / 小伙伴（批次六 · F 轻音效）。
+    var onLearnerTap: (() -> Void)? = nil
     var onSelectLevel: (TreeLevel) -> Void = { _ in }
 
     /// 内容顶部内边距（算滚动位置时要带上它）。
@@ -39,10 +44,14 @@ struct TreeScrollView: View {
                         levelNotes: levelNotes,
                         ceremonyTick: ceremonyTick,
                         practiceTick: practiceTick,
-                        wordTick: wordTick
-                    ) { level in
-                        onSelectLevel(level)
-                    }
+                        wordTick: wordTick,
+                        skyTapTick: skyTapTick,
+                        onSelectLevel: { level in
+                            onSelectLevel(level)
+                        },
+                        onSkyTap: onSkyTap,
+                        onLearnerTap: onLearnerTap
+                    )
                     .padding(.top, Self.topPadding)
                     // 底部留白：学员还压在树底时，不补这点留白，视口根本滚不到
                     // 目标位置（会被内容底边钳住 → 学员缩在林带后面）。

@@ -130,6 +130,11 @@ public final class AppState {
     public let forest = ForestStage()
     /// 森林舞台对服务层总线的订阅凭证（释放即退订）。
     private var forestSubscription: LearningEventBus.Subscription?
+    /// 轻音效中心（批次六 · F）：收词「叮」/ 通关小旋律 / 点小动物一声叫。
+    /// 开关默认关（`ProductConfig.soundEffects`），启动与设置页切换时同步 `enabled`。
+    public let sound = SoundCueCenter()
+    /// 音效对服务层总线的订阅凭证（收词 / 通关两类事件 → cue）。
+    private var soundSubscription: LearningEventBus.Subscription?
 
     public var themeMode: ThemeMode = .day
     public var systemIsDark: Bool = false
@@ -1083,6 +1088,12 @@ public final class AppState {
         chat.onTeacherTurnEnd = { [weak self] message, corrections in
             self?.handleTeacherTurnEnd(message, corrections: corrections)
         }
+        // 轻音效（批次六 · F）：同一班事件里再挑两类转成声音 cue。
+        // ⚠️ 必须放在 init 末尾：闭包捕获 self，两段式初始化要求全部存储属性先就位。
+        // `enabled` 默认关 —— cue 内部有守卫，开没开都不用调用方操心。
+        self.soundSubscription = services.events.subscribe { [weak self] event in
+            Task { @MainActor in self?.playSoundCueIfEnabled(for: event) }
+        }
     }
 
     public convenience init() { self.init(services: CoachServices()) }
@@ -1223,6 +1234,8 @@ public final class AppState {
         // 非 View 上下文（withAnimation(.app(...))）读不到环境，走这个静态覆盖档。
         AppMotionDescriptor.appOverride = motionMode
         autoSpeak = configuration.product.autoSpeak
+        // 轻音效开关跟随配置（默认关；设置页切换时也走这条同步）。
+        sound.enabled = configuration.product.soundEffects
         chat.profile.learningLanguage = configuration.product.learningLanguage
         chat.profile.nativeLanguage = configuration.product.nativeLanguage
         progress = await services.loadProgress()
@@ -1612,6 +1625,32 @@ public final class AppState {
     public func setForestFollowsClock(_ on: Bool) async {
         product.forestFollowsClock = on
         await persistProduct()
+    }
+
+    // MARK: 轻音效（批次六 · F）
+
+    /// 轻音效开关（设置页「轻音效」卡；默认关）。
+    public var soundEffectsEnabled: Bool { product.soundEffects }
+
+    /// 切换轻音效：配置与内存里的 `enabled` 要**同一笔**落下，
+    /// 漏了后者就是「设置页看着开了、林子里一声不吭」。
+    public func setSoundEffects(_ on: Bool) async {
+        product.soundEffects = on
+        sound.enabled = on
+        await persistProduct()
+    }
+
+    /// 服务层事件 → 音效的映射（批次六 · F 只挑两类，其余静默）：
+    /// 收词 = 一声「叮」；通关 = 一小段琶音。纠错 / 提问不打扰。
+    private func playSoundCueIfEnabled(for event: LearningEvent) {
+        switch event {
+        case .wordCollected:
+            sound.cue(.collectWord)
+        case .levelCompleted:
+            sound.cue(.levelFanfare)
+        default:
+            break
+        }
     }
 
     /// 右上角太阳 / 月亮被点后的目标主题（纯函数，便于单测）：

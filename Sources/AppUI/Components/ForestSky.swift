@@ -8,10 +8,15 @@ public struct ForestSky: View {
     /// 右上角的天体同时是「日夜切换」控件（见 `CelestialToggle`）：由主界面把它画在内容层之上，
     /// 因此这里传 `false`，避免同一位置出现两个天体（一个不可点、一个可点）。
     var showsCelestial: Bool
+    /// 氛围演出隐藏档（批次六 · E「连点天空 5 次」触发）：云、萤火虫收起来，
+    /// 星星不眨眼、太阳光环不转 —— 林子进入完全安静的静态。
+    /// 会话级状态（`ForestStage.ambientHidden`），重启恢复默认演出。
+    var ambientStill: Bool
 
-    public init(theme: ForestTheme, showsCelestial: Bool = true) {
+    public init(theme: ForestTheme, showsCelestial: Bool = true, ambientStill: Bool = false) {
         self.theme = theme
         self.showsCelestial = showsCelestial
+        self.ambientStill = ambientStill
     }
 
     public var body: some View {
@@ -19,7 +24,7 @@ public struct ForestSky: View {
             LinearGradient(colors: theme.sky, startPoint: .top, endPoint: .bottom)
 
             if theme.isNight {
-                StarsField()
+                StarsField(still: ambientStill)
                 if showsCelestial {
                     MoonGlow(theme: theme)
                         .frame(width: 120, height: 120)
@@ -27,16 +32,20 @@ public struct ForestSky: View {
                         .padding(.trailing, 64)
                         .padding(.top, 44)
                 }
-                Fireflies()
+                if !ambientStill {
+                    Fireflies()
+                }
             } else {
                 if showsCelestial {
-                    SunView(theme: theme)
+                    SunView(theme: theme, still: ambientStill)
                         .frame(width: 130, height: 130)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                         .padding(.trailing, 64)
                         .padding(.top, 44)
                 }
-                Clouds()
+                if !ambientStill {
+                    Clouds()
+                }
             }
 
             VStack {
@@ -50,19 +59,24 @@ public struct ForestSky: View {
 
 // MARK: - 右上角天体（同时是日夜切换按钮）
 
-/// 右上角的太阳 / 月亮组件：**点击即切换日夜**。
-/// - 白天显示太阳 → 点击进入夜晚；
-/// - 夜晚显示月亮 → 点击回到白天。
+/// 右上角的太阳 / 月亮组件：**点击或拖拽都能切换日夜**（批次六 · E）。
+/// - 白天显示太阳 → 点击 / 往下拖过阈值进入夜晚；
+/// - 夜晚显示月亮 → 点击 / 往上拖过阈值回到白天。
 /// 视觉与天空里的天体完全一致（同一份 `SunView` / `MoonGlow`），另外叠一圈 hover 光环提示可点。
 public struct CelestialToggle: View {
 
     @Environment(\.forestTheme) private var theme
     let action: () -> Void
+    /// 氛围演出隐藏档下太阳的光环不转（与 `ForestSky` 的静态档同一份状态）。
+    var spins: Bool
 
     @State private var hovering = false
+    /// 拖拽中的视觉位移（已按方向钳制；松手弹回 0）。
+    @State private var dragHeight: CGFloat = 0
 
-    public init(action: @escaping () -> Void) {
+    public init(action: @escaping () -> Void, spins: Bool = true) {
         self.action = action
+        self.spins = spins
     }
 
     public var body: some View {
@@ -71,7 +85,7 @@ public struct CelestialToggle: View {
                 if theme.isNight {
                     MoonGlow(theme: theme).frame(width: 120, height: 120)
                 } else {
-                    SunView(theme: theme).frame(width: 130, height: 130)
+                    SunView(theme: theme, still: !spins).frame(width: 130, height: 130)
                 }
 
                 // hover 反馈：一圈淡淡的光环（不改变天体本身的形状）
@@ -86,7 +100,23 @@ public struct CelestialToggle: View {
         .buttonStyle(.appPressable)
         .onHover { hovering = $0 }
         .appAnimation(.reveal, value: hovering)
-        .help(theme.isNight ? "点击回到白天" : "点击进入夜晚")
+        // 拖拽（E·可玩彩蛋）：白天往下拖太阳、夜里往上拖月亮，过阈值松手即切换。
+        // simultaneousGesture 让轻点（位移 < minimumDistance）仍然走按钮那条路。
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 12)
+                .onChanged { value in
+                    dragHeight = ForestAtmosphere.clampedDragOffset(
+                        isNight: theme.isNight, dragHeight: value.translation.height)
+                }
+                .onEnded { value in
+                    let shouldToggle = ForestAtmosphere.shouldToggleByDrag(
+                        isNight: theme.isNight, dragHeight: value.translation.height)
+                    withAnimation(.app(.panel)) { dragHeight = 0 }
+                    if shouldToggle { action() }
+                }
+        )
+        .offset(y: dragHeight)
+        .help(theme.isNight ? "点击或往上拖回白天" : "点击或往下拖进夜晚")
         .accessibilityLabel(theme.isNight ? "切换到白天" : "切换到夜晚")
     }
 }
@@ -95,6 +125,8 @@ public struct CelestialToggle: View {
 
 private struct SunView: View {
     let theme: ForestTheme
+    /// 静态档（氛围演出隐藏）：光环不转。
+    var still: Bool = false
     @State private var spin = false
 
     var body: some View {
@@ -122,7 +154,7 @@ private struct SunView: View {
             .rotationEffect(.degrees(spin ? 360 : 0))
             .loopAnimation(.linear(duration: 60).repeatForever(autoreverses: false), value: spin)
         }
-        .onAppear { spin = true }
+        .onAppear { if !still { spin = true } }
     }
 }
 
@@ -180,6 +212,8 @@ private struct StarsField: View {
         }
     }()
 
+    /// 静态档（氛围演出隐藏）：星星挂在那儿但不眨眼。
+    var still: Bool = false
     @State private var twinkle = false
 
     var body: some View {
@@ -190,11 +224,12 @@ private struct StarsField: View {
                     .fill(Color(hex: 0xFFF3C4))
                     .frame(width: index % 9 == 0 ? 4 : 2.5, height: index % 9 == 0 ? 4 : 2.5)
                     .position(x: point.x * proxy.size.width, y: point.y * proxy.size.height)
-                    .opacity(twinkle ? (index % 3 == 0 ? 0.35 : 0.9) : (index % 3 == 0 ? 0.95 : 0.55))
+                    .opacity(still ? 0.75
+                        : (twinkle ? (index % 3 == 0 ? 0.35 : 0.9) : (index % 3 == 0 ? 0.95 : 0.55)))
             }
         }
         .loopAnimation(.easeInOut(duration: 3.2).repeatForever(autoreverses: true), value: twinkle)
-        .onAppear { twinkle = true }
+        .onAppear { if !still { twinkle = true } }
     }
 }
 

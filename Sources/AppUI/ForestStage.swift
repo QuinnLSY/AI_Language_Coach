@@ -57,6 +57,16 @@ public final class ForestStage {
     /// 最近通关的关卡（供仪式装饰用；nil = 还没通过关）。
     public private(set) var lastCompletedLevelID: String?
 
+    // MARK: 可玩彩蛋（批次六 · E）
+
+    /// 天空被点了一下：树冠飘两片叶子回应（纯玩，不记进度）。
+    public private(set) var skyTapTick = 0
+    /// 氛围演出隐藏档：连点天空 5 次触发（云、萤火虫收起来，星星不眨眼）。
+    /// 会话级 —— 重启恢复默认演出，不必在设置页里再给一个「恢复」入口。
+    public private(set) var ambientHidden = false
+    /// 连点判定的节拍器（窗口内凑满 5 次算一次「连点」）。
+    private var skyPacer = AmbienceTapPacer()
+
     public init() {}
 
     /// 事件 → 脉冲的唯一翻译表。
@@ -102,6 +112,15 @@ public final class ForestStage {
     public func attach(to bus: LearningEventBus) -> LearningEventBus.Subscription {
         bus.subscribe { [weak self] event in
             Task { @MainActor in self?.ingest(event) }
+        }
+    }
+
+    /// 天空被点了一下（批次六 · E）：每次都飘叶回应；窗口内凑满 5 次，
+    /// 第 5 次额外把氛围演出收起来 / 展开回来（再连点 5 次切换回）。
+    public func registerSkyTap(at date: Date = Date()) {
+        skyTapTick += 1
+        if skyPacer.register(at: date) {
+            ambientHidden.toggle()
         }
     }
 }

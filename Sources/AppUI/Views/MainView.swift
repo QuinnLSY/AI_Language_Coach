@@ -35,7 +35,9 @@ public struct MainView: View {
             ZStack {
                 // 天空不再自己画天体：右上角的太阳/月亮由 CelestialToggle 画在内容层之上，
                 // 这样它才是「看得见、点得到」的日夜切换控件（点击即切换）。
-                ForestSky(theme: state.theme, showsCelestial: false)
+                // ambientStill：连点天空 5 次收起云和萤火虫（批次六 · E 可玩彩蛋）。
+                ForestSky(theme: state.theme, showsCelestial: false,
+                          ambientStill: state.forest.ambientHidden)
 
                 HStack(spacing: 0) {
                     AppSidebar(state: state)
@@ -68,9 +70,10 @@ public struct MainView: View {
                 // 老用户开屏看到的还是原来那颗太阳。
                 let followsClock = state.forestFollowsClock
                 let anchor = ForestAtmosphere.celestialAnchor(hour: state.clockHour, width: total)
-                CelestialToggle {
+                // spins：氛围演出隐藏档下（批次六 · E），切换控件里那颗太阳的光环也停。
+                CelestialToggle(action: {
                     Task { await state.toggleDayNight() }
-                }
+                }, spins: !state.forest.ambientHidden)
                 .frame(width: ForestAtmosphere.celestialSize, height: ForestAtmosphere.celestialSize)
                 .frame(maxWidth: .infinity, maxHeight: .infinity,
                        alignment: followsClock ? .topLeading : .topTrailing)
@@ -594,7 +597,12 @@ public struct MainView: View {
                     // 森林回应：攒星弹果实、通关全套仪式、练完/收词飘叶
                     ceremonyTick: state.forest.ceremonyTick,
                     practiceTick: state.forest.practiceTick,
-                    wordTick: state.forest.wordTick
+                    wordTick: state.forest.wordTick,
+                    // 批次六 · E：点天空飘叶（连点计数在 ForestStage）
+                    skyTapTick: state.forest.skyTapTick,
+                    onSkyTap: { state.forest.registerSkyTap() },
+                    // 批次六 · F：点学员 / 小伙伴一声叫
+                    onLearnerTap: { state.sound.cue(.animalTap) }
                 ) { level in
                     Task { await open(level) }
                 }
@@ -622,7 +630,9 @@ public struct MainView: View {
                     learnerTurnTick: state.forest.learnerTurnTick,
                     teacherTurnTick: state.forest.teacherTurnTick,
                     lastActivityAt: state.forest.lastActivityAt,
-                    previewSleepBubble: CommandLine.arguments.contains("--sleep-bubble")
+                    previewSleepBubble: CommandLine.arguments.contains("--sleep-bubble"),
+                    // 批次六 · F：点小动物一声叫（气泡照旧）
+                    onResidentTap: { state.sound.cue(.animalTap) }
                 )
                 .frame(height: TreeViewport.groundBandHeight)
                 .allowsHitTesting(true)

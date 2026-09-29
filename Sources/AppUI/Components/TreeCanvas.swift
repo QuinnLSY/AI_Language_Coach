@@ -60,6 +60,12 @@ public struct TreeCanvas: View {
     var ceremonyTick: Int = 0
     var practiceTick: Int = 0
     var wordTick: Int = 0
+    /// 天空被点了一下（批次六 · E 可玩彩蛋）：树冠飘两片叶子回应。
+    var skyTapTick: Int = 0
+    /// 天空空白处的点击回调（连点计数在 `ForestStage`，画布只管上报）。
+    var onSkyTap: (() -> Void)? = nil
+    /// 点了学员 / 小伙伴（批次六 · F 轻音效：一声叫）。
+    var onLearnerTap: (() -> Void)? = nil
 
     /// 树冠茂密度（纯函数，便于单测）：已得星 / 需求星，钳到 0…1。
     ///
@@ -87,7 +93,10 @@ public struct TreeCanvas: View {
                 companionAnimal: AnimalKind? = nil,
                 levelNotes: [String: TreeLevelNote] = [:],
                 ceremonyTick: Int = 0, practiceTick: Int = 0, wordTick: Int = 0,
-                onSelectLevel: @escaping (TreeLevel) -> Void = { _ in }) {
+                skyTapTick: Int = 0,
+                onSelectLevel: @escaping (TreeLevel) -> Void = { _ in },
+                onSkyTap: (() -> Void)? = nil,
+                onLearnerTap: (() -> Void)? = nil) {
         self.theme = theme
         self.progress = progress
         self.studentAnimal = studentAnimal
@@ -96,7 +105,10 @@ public struct TreeCanvas: View {
         self.ceremonyTick = ceremonyTick
         self.practiceTick = practiceTick
         self.wordTick = wordTick
+        self.skyTapTick = skyTapTick
         self.onSelectLevel = onSelectLevel
+        self.onSkyTap = onSkyTap
+        self.onLearnerTap = onLearnerTap
     }
 
     public var body: some View {
@@ -113,6 +125,14 @@ public struct TreeCanvas: View {
             let density = Self.canopyDensity(earned: earnedStars, required: requiredStars)
 
             ZStack(alignment: .topLeading) {
+                // 点天空（批次六 · E 可玩彩蛋）：垫在最底层，只有**没人认领**的空白处
+                // 才会轮到它 —— 树干填充、树冠、关卡节点、小动物都在更上层各自接走了
+                // 自己的点击。叶子回应由 `skyTapTick` 驱动（见 LeafFallLayer）。
+                Color.clear
+                    .frame(width: width, height: canvasHeight)
+                    .contentShape(Rectangle())
+                    .onTapGesture { onSkyTap?() }
+
                 // 树干
                 TrunkShape()
                     .fill(
@@ -167,7 +187,8 @@ public struct TreeCanvas: View {
                         isSleeping: theme.isNight,
                         size: 64,
                         accessory: StudentProgression.accessory(totalStars: progress.totalStars),
-                        phrases: studentAnimal.phrases
+                        phrases: studentAnimal.phrases,
+                        onTap: onLearnerTap
                     )
                     .position(x: midX, y: learnerY)
 
@@ -177,7 +198,8 @@ public struct TreeCanvas: View {
                             isSleeping: theme.isNight,
                             size: ForestCompanion.size,
                             accessory: StudentProgression.accessory(totalStars: progress.totalStars),
-                            phrases: companionAnimal.phrases
+                            phrases: companionAnimal.phrases,
+                            onTap: onLearnerTap
                         )
                         .position(
                             x: midX + ForestCompanion.besideLearner.width + companionDashX,
@@ -206,10 +228,11 @@ public struct TreeCanvas: View {
                 }
                 .frame(width: 1, height: canvasHeight)
 
-                // 事件落叶层（收词一片 / 练完一小阵 / 通关缤纷）：
+                // 事件落叶层（收词一片 / 练完一小阵 / 通关缤纷 / 点天空两片）：
                 // 盖在角色之上、不挡点击；reduceMotion 下完全静止（不生成叶子）。
                 LeafFallLayer(theme: theme, wordTick: wordTick,
-                              practiceTick: practiceTick, ceremonyTick: ceremonyTick)
+                              practiceTick: practiceTick, ceremonyTick: ceremonyTick,
+                              skyTick: skyTapTick)
                     .frame(width: width, height: canvasHeight)
             }
             .frame(width: width, height: canvasHeight)
@@ -441,6 +464,8 @@ struct LeafFallLayer: View {
     var wordTick: Int = 0
     var practiceTick: Int = 0
     var ceremonyTick: Int = 0
+    /// 点天空的可玩回应（批次六 · E）：两片，比收词多一点、比练完少一截。
+    var skyTick: Int = 0
 
     @State private var leaves: [FallLeaf] = []
     @State private var counter = 0
@@ -458,6 +483,7 @@ struct LeafFallLayer: View {
         .onChange(of: wordTick) { _, tick in guard tick > 0 else { return }; spawn(1) }
         .onChange(of: practiceTick) { _, tick in guard tick > 0 else { return }; spawn(4) }
         .onChange(of: ceremonyTick) { _, tick in guard tick > 0 else { return }; spawn(12) }
+        .onChange(of: skyTick) { _, tick in guard tick > 0 else { return }; spawn(2) }
     }
 
     /// 按脉冲生成 n 片叶子；每片自持生命周期（飘完自摘，父级无常驻计时器）。
@@ -729,6 +755,8 @@ struct ForestGroundBand: View {
     var lastActivityAt: Date = Date()
     /// 验证钩子：启动时先冒一句「它们在睡觉」（仅在 `--sleep-bubble` 下由主界面传入）。
     var previewSleepBubble: Bool = false
+    /// 点了一只小动物（批次六 · F 轻音效：一声叫；气泡照旧由本视图冒）。
+    var onResidentTap: (() -> Void)? = nil
 
     /// 离场告别语（轮换时随机抽一条）。
     static let leavePhrases = [
@@ -837,6 +865,9 @@ struct ForestGroundBand: View {
     @State private var wordCard: (slot: Int, word: String)? = nil
     /// 安静期间已经打过盹了（学习上又有动静时解锁，见 `dozeOffIfQuiet`）。
     @State private var hasDozed = false
+    /// 点草地冒出来的花（批次六 · E 可玩彩蛋；上限与挤掉规则见 `GroundFlowerBed`）。
+    @State private var plantedFlowers: [PlantedFlower] = []
+    @State private var plantedCounter = 0
 
     private static let maxResidents = 8
     // 各类元素的**上限**：始终按上限创建视图，靠透明度控制显隐。
@@ -916,6 +947,14 @@ struct ForestGroundBand: View {
                            palette: i % 3)
                         .opacity(i < flowerCount ? 1 : 0)
                         .appAnimation(.reveal, value: flowerCount)
+                }
+
+                // 点草地冒出来的花（批次六 · E）：从点下的位置长出来，挤掉最早的
+                ForEach(plantedFlowers) { planted in
+                    flower(x: min(max(planted.x, 16), width - 16),
+                           groundLine: groundLine,
+                           palette: planted.palette)
+                        .transition(.scale(scale: 0.4, anchor: .bottom).combined(with: .opacity))
                 }
 
                 // 树干底部的两根枝桠栖木（鸟类专用；画在树干透出区域的中心两侧）
@@ -1036,6 +1075,13 @@ struct ForestGroundBand: View {
             .onChange(of: lastActivityAt) { _, _ in hasDozed = false }
         }
         .frame(maxWidth: .infinity)
+        // 点草地（批次六 · E 可玩彩蛋）：落在草地上的点击冒一朵小花。
+        // 小动物 / 右下角按钮各自的点击优先级更高，照常工作。
+        .gesture(
+            SpatialTapGesture().onEnded { value in
+                plantFlower(at: value.location.x)
+            }
+        )
         // 右下角：表情按钮 + 夜晚「睡觉」气泡（右对齐，永远不会溢出面板）
         .overlay(alignment: .bottomTrailing) {
             VStack(alignment: .trailing, spacing: 6) {
@@ -1469,6 +1515,16 @@ struct ForestGroundBand: View {
 
     // MARK: 花草
 
+    /// 点草地冒一朵花（批次六 · E）：花色随机抽，上限与挤掉规则在 `GroundFlowerBed`。
+    private func plantFlower(at x: CGFloat) {
+        plantedCounter += 1
+        let planted = PlantedFlower(id: plantedCounter, x: x,
+                                    palette: Int.random(in: 0..<3))
+        withAnimation(.app(.reveal)) {
+            plantedFlowers = GroundFlowerBed.push(planted, into: plantedFlowers)
+        }
+    }
+
     private func grassBlade(x: CGFloat, h: CGFloat, w: CGFloat, seed: Int, groundLine: CGFloat) -> some View {
         Capsule()
             .fill(theme.foliage.opacity(0.7))
@@ -1555,7 +1611,10 @@ struct ForestGroundBand: View {
                 facing: facing,
                 actionTick: actionTicks[index],
                 actionKind: actionKinds[index],
-                onTap: { requestBubble(index) },
+                onTap: {
+                    requestBubble(index)
+                    onResidentTap?()
+                },
                 onSpontaneousBubble: { requestBubble(index) }
             )
         }
@@ -1816,5 +1875,33 @@ private struct CarriedWordCard: View {
         .background(RoundedRectangle(cornerRadius: 9).fill(theme.surface))
         .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(theme.accent.opacity(0.55), lineWidth: 1))
         .shadow(color: theme.shadow, radius: 4, x: 0, y: 2)
+    }
+}
+
+// MARK: - 点草地冒花（批次六 · E 可玩彩蛋）
+
+/// 用户亲手点出来的一朵小花。
+struct PlantedFlower: Identifiable, Equatable {
+    /// 自增序号（同时当 id）。
+    let id: Int
+    /// 点下的横向位置（本视图坐标；渲染时钳回草地两端之内）。
+    let x: CGFloat
+    /// 花色（0/1/2，与既有的三色小花同一套）。
+    let palette: Int
+}
+
+/// 花坛的账本（纯函数，便于单测）：只管一条规则 —— 上限之内随便长，
+/// 超了挤掉**最早**那朵（地就那么大，最新的心意最要紧）。
+enum GroundFlowerBed {
+    /// 12 与林间空地（GladeGrowth.maxPlants）同一口径：再多就糊成噪点。
+    static let cap = 12
+
+    static func push(_ flower: PlantedFlower, into bed: [PlantedFlower]) -> [PlantedFlower] {
+        var bed = bed
+        bed.append(flower)
+        if bed.count > cap {
+            bed.removeFirst(bed.count - cap)
+        }
+        return bed
     }
 }

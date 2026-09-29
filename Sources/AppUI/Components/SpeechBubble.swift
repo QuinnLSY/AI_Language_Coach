@@ -17,6 +17,8 @@ public struct TalkingAnimal: View {
     public var phrases: [String] = []
     /// 气泡出现/消失时回调（父级据此把该个体抬到最上层，避免被相邻气泡遮挡）。
     public var onBubbleChange: ((Bool) -> Void)? = nil
+    /// 被点了一下（批次六 · F：宿主据此发轻音效；nil = 纯展示不发声）。
+    public var onTap: (() -> Void)? = nil
 
     @State private var bubble: String?
     @State private var clickTick = 0
@@ -24,7 +26,8 @@ public struct TalkingAnimal: View {
     public init(kind: AnimalKind, isSleeping: Bool = false, size: CGFloat = 64,
                 accessory: AnimalAccessory = .none, bobbing: Bool = true,
                 facing: CGFloat = 1, phrases: [String] = [],
-                onBubbleChange: ((Bool) -> Void)? = nil) {
+                onBubbleChange: ((Bool) -> Void)? = nil,
+                onTap: (() -> Void)? = nil) {
         self.kind = kind
         self.isSleeping = isSleeping
         self.size = size
@@ -33,6 +36,7 @@ public struct TalkingAnimal: View {
         self.facing = facing
         self.phrases = phrases
         self.onBubbleChange = onBubbleChange
+        self.onTap = onTap
     }
 
     public var body: some View {
@@ -66,6 +70,7 @@ public struct TalkingAnimal: View {
     }
 
     private func showNext() {
+        onTap?()
         guard !phrases.isEmpty else { return }
         let pool = phrases.filter { $0 != bubble }
         let next = pool.randomElement() ?? phrases[0]
