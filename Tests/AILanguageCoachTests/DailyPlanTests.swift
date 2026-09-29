@@ -531,4 +531,111 @@ final class DailyPlanTests: XCTestCase {
         // 缺省值：没记录时三项都是 0，显示的就是「此刻算出来的」。
         XCTAssertEqual(DailyTaskFloor.empty(dayKey: "2026-09-23").progress(for: .conversation, current: 4), 4)
     }
+
+    // MARK: - 「今天」卡片与「今日任务」说同一个数（2026-09-29 报障）
+
+    /// 高水位多记一格**今日时长**：自动复盘清掉一段流水之后，分钟数也不许缩回去。
+    /// 老格式（四段，没有这一格）必须仍能读出来。
+    func testFloorCarriesTodayDurationAndToleratesTheOlderFormat() {
+        let floor = DailyTaskFloor(dayKey: "2026-09-29", conversation: 15, shadowing: 6,
+                                   review: 9, seconds: 859)
+        XCTAssertEqual(DailyTaskFloor.parse(floor.storageText), floor, "多了一格之后往返仍要成立")
+
+        // ⚠️ 老格式（加时长之前写的那一行）：不许因为多了一格就整行作废 ——
+        // 作废会把三项指标一起清零，比少记一次时长严重得多。
+        let legacy = DailyTaskFloor.parse("2026-09-29|15|6|9")
+        XCTAssertEqual(legacy?.conversation, 15, "老格式必须仍能读出来")
+        XCTAssertEqual(legacy?.seconds, 0, "缺的那一格按 0 读")
+        XCTAssertNil(DailyTaskFloor.parse("2026-09-29|15|6"), "字段不足仍然是坏数据")
+
+        // 时长只增不减，且换天从零重记。
+        XCTAssertEqual(floor.raising(DailyPlan.empty, dayKey: "2026-09-29", seconds: 1_200).seconds, 1_200)
+        XCTAssertEqual(
+            floor.raising(DailyPlan.empty, dayKey: "2026-09-29", seconds: 300).seconds, 859,
+            "高水位只涨不跌"
+        )
+        XCTAssertEqual(
+            floor.raising(DailyPlan.empty, dayKey: "2026-09-30", seconds: 300).seconds, 300,
+            "换天从零开始记"
+        )
+    }
+
+    /// **同一个「今天」，两处必须说同一个数**（2026-09-29 用户报障的本体）：
+    /// 自动复盘清掉上一段流水后，「今天」卡片直接读此刻记录只剩 7 轮 / 6 分 47 秒，
+    /// 而「今日任务」有高水位兜着说 15 轮 —— 同一张页面上两个答案。
+    /// 把「今天」这一格抬到水位之后，两处读的就是同一个数。
+    ///
+    /// 反证：撤掉 `ProgressSnapshot.raisingToday` 里的 `day.messages = max(...)` → 红。
+    func testTodayCardSpeaksTheSameNumberAsTodayTasks() {
+        let now = day(2026, 9, 29, 23, 0)
+        let today = calendar.startOfDay(for: now)
+        let vocabulary = VocabularyStats(
+            total: 30, due: 0, mastered: 10, defined: 30,
+            dueAtDayStart: 9, dueAtDayStartReviewed: 9
+        )
+        // ① 今天先练了 16 分钟 / 15 轮，随后自动复盘把那段流水清掉了。
+        let beforePurge = snapshot(
+            today: DailyActivity(day: today, seconds: 16 * 60, messages: 15, shadowingAttempts: 6),
+            vocabulary: vocabulary, reviewedToday: 9
+        )
+        let floor = DailyTaskFloor.empty(dayKey: "2026-09-29").raising(
+            DailyPlanner.plan(snapshot: beforePurge, now: now, calendar: calendar),
+            dayKey: "2026-09-29",
+            seconds: Int(beforePurge.today.seconds)
+        )
+        // ② 此刻只剩下后一段：7 轮 / 6 分 47 秒。
+        let afterPurge = snapshot(
+            today: DailyActivity(day: today, seconds: 6 * 60 + 47, messages: 7, shadowingAttempts: 6),
+            vocabulary: vocabulary, reviewedToday: 9
+        )
+        let taskBefore = DailyPlanner.plan(
+            snapshot: afterPurge, now: now, calendar: calendar, floor: floor
+        ).tasks.first { $0.kind == .conversation }
+        XCTAssertEqual(taskBefore?.progress, 15, "夹具前提：任务侧靠水位保持 15")
+        XCTAssertEqual(afterPurge.today.messages, 7, "夹具前提：此刻的记录确实缩水到 7")
+
+        // 抬到水位 → 两处一致。
+        let shown = afterPurge.raisingToday(to: floor, dayKey: "2026-09-29")
+        let taskAfter = DailyPlanner.plan(
+            snapshot: shown, now: now, calendar: calendar, floor: floor
+        ).tasks.first { $0.kind == .conversation }
+        XCTAssertEqual(shown.today.messages, taskAfter?.progress,
+                       "「今天」卡片的轮次与「今日任务」必须是同一个数")
+        XCTAssertEqual(shown.today.seconds, 16 * 60, "时长同样回到当天水位")
+        XCTAssertTrue(shown.goalReached, "16 分钟已达成 15 分钟的目标 —— 与「今天都做完了」不再打架")
+    }
+
+    /// 水位是**当天**的：换天不许套到今天头上；抬升只增不减，也不许动累计量。
+    ///
+    /// 反证：把 `raisingToday` 的 `guard floor.dayKey == dayKey` 删掉 → 红。
+    func testRaisingTodayOnlyRaisesAndOnlyForItsOwnDay() {
+        let now = day(2026, 9, 29, 23, 0)
+        let today = calendar.startOfDay(for: now)
+        let raw = snapshot(
+            today: DailyActivity(day: today, seconds: 300, messages: 4, shadowingAttempts: 2,
+                                 vocabularyReviewed: 1),
+            reviewedToday: 1
+        )
+        let floor = DailyTaskFloor(dayKey: "2026-09-29", conversation: 15, shadowing: 6,
+                                   review: 9, seconds: 859)
+        let shown = raw.raisingToday(to: floor, dayKey: "2026-09-29")
+        XCTAssertEqual(shown.today.messages, 15)
+        XCTAssertEqual(shown.today.shadowingAttempts, 6)
+        XCTAssertEqual(shown.today.vocabularyReviewed, 9)
+        XCTAssertEqual(shown.today.seconds, 859)
+        XCTAssertEqual(shown.vocabularyReviewedToday, 9, "复习流水被清掉时今日卷轴也要靠水位兜住")
+        XCTAssertEqual(shown.totalSeconds, raw.totalSeconds, "累计量是历史账面，不许被当天水位改写")
+        XCTAssertEqual(shown.totalMessages, raw.totalMessages)
+
+        // 水位低于此刻的记录 → 取此刻的（抬升不是「替换」）。
+        let busier = snapshot(today: DailyActivity(day: today, messages: 20))
+        XCTAssertEqual(busier.raisingToday(to: floor, dayKey: "2026-09-29").today.messages, 20)
+
+        // 水位是昨天的 → 原样返回。
+        let yesterdayFloor = DailyTaskFloor(dayKey: "2026-09-28", conversation: 15, seconds: 859)
+        XCTAssertEqual(
+            raw.raisingToday(to: yesterdayFloor, dayKey: "2026-09-29").today.messages, 4,
+            "昨天的高水位不许套到今天"
+        )
+    }
 }

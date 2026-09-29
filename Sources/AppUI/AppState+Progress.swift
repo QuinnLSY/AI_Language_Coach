@@ -70,7 +70,16 @@ extension AppState {
                 goalMinutes: effectiveGoalMinutes
             )
         }
-        progressSnapshot = snapshot
+        // 汇总刚拿到的是**原始**快照（此刻还留着的记录）。两步顺序不能反：
+        // ① 先用它把当天水位（三项指标 + 时长）抬到最高；② 再把水位回填到「今天」这一格。
+        // 拿抬过的快照去抬水位就是自我循环，水位会滚成一条无法解释的曲线。
+        //
+        // ⚠️ 抬水位必须紧挨着汇总完成：开屏这条路上紧接着就会走「自动复盘 + 清流水」
+        // （`purgePracticeMessages`），晚一步今天的对话数与时长就已经掉下去了。
+        let dayKey = ShadowingDailyRule.dayKey()
+        let todayFloor = raiseDailyTaskFloor(using: snapshot, dayKey: dayKey)
+        // 「今天」卡片与「今日任务」读的都是这一份抬过水位的快照 —— 两处说同一个数。
+        progressSnapshot = snapshot.raisingToday(to: todayFloor, dayKey: dayKey)
         weeklyInsight = await insight
     }
 

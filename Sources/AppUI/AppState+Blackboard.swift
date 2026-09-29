@@ -90,10 +90,8 @@ extension AppState {
         trailingRefreshTask = nil
         lastTodayPanelRefreshAt = now
         await reloadProgress(includeAnnual: false)
-        // ⚠️ 汇总完**立刻**抬高水位：这一刻的记录是今天最多的一刻。
-        // 晚一步就晚了 —— 开屏这条路上，紧接着就会走「复盘上一段 + 清流水」，
-        // 那时今天的对话数已经掉下去了（用户报障的时序正是这个）。
-        raiseDailyTaskFloor()
+        // ⚠️ 水位（含今日时长）由 `reloadProgress` 内部在拿到**原始快照**的那一刻抬高；
+        // 这里紧接着用的 `dailyPlan` / `progressSnapshot` 已经是抬过水位的显示值。
 
         let key = ShadowingDailyRule.dayKey()
         if TodayPanel.shouldCelebrate(
@@ -128,21 +126,27 @@ extension AppState {
         }
     }
 
-    /// 把每日任务的三项完成量抬到「今天见过的最大值」（只增不减，`DailyTaskFloor`）。
+    /// 把每日任务的三项完成量**与今日时长**抬到「今天见过的最大值」
+    /// （只增不减，`DailyTaskFloor`）。
     ///
-    /// ⚠️ 用**不带高水位**的原始计划来抬：拿已经抬高过的计划去抬，高水位就失去了
+    /// ⚠️ 必须传**原始快照**（不带高水位的那一份）：拿已经抬高过的快照去抬，高水位就失去了
     /// 「今天真实做到过多少」这个含义，只会滚成一条无法解释的曲线。
-    /// ⚠️ 只在高水位真的变了的时候才写盘 —— 这个函数每轮对话末尾都会跑一次。
-    func raiseDailyTaskFloor() {
-        let dayKey = ShadowingDailyRule.dayKey()
-        let raw = DailyPlanner.plan(
-            snapshot: progressSnapshot,
+    /// ⚠️ 只在水位真的变了的时候才写盘 —— 这个函数每轮对话末尾都会跑一次。
+    @discardableResult
+    func raiseDailyTaskFloor(using raw: ProgressSnapshot, dayKey: String) -> DailyTaskFloor {
+        let plan = DailyPlanner.plan(
+            snapshot: raw,
             mode: product.dailyGoalMode,
             now: Date()
         )
-        let raised = dailyTaskFloor.raising(raw, dayKey: dayKey)
-        guard raised != dailyTaskFloor else { return }
+        // 时长与三项指标同一次抬：它们一起被自动复盘的清流水打下去，
+        // 也该一起兜住（「今天」卡片上的分钟数与轮次数必须说同一件事）。
+        let raised = dailyTaskFloor.raising(
+            plan, dayKey: dayKey, seconds: Int(raw.today.seconds)
+        )
+        guard raised != dailyTaskFloor else { return dailyTaskFloor }
         dailyTaskFloor = raised
+        return raised
     }
 
     /// 今日完成的收尾仪式（#227）：黑板升起 + 盖章（幂等）+ 大树小动物错落欢跳 + 森林烟花几秒。

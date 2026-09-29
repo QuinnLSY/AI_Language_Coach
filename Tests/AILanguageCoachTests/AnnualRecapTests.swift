@@ -478,4 +478,52 @@ final class AnnualRecapTests: XCTestCase {
         )
         XCTAssertEqual(items.map(\.kind), [.date, .idle], "空日子只有日期 + 「没有练习」两条")
     }
+
+    // MARK: - ⑦ 「只收了新词」的那天也算练过（2026-09-29 报障）
+
+    /// 连续天数的唯一判据是 `hasPractice`，而它认「当天收过词」。
+    /// 年度记录曾经漏传 `vocabulary`（`ProgressService.annualRecap`），
+    /// 「昨天只收了个生词、没开口」在年度口径里就成了「没练」——
+    /// 侧栏徽章说连续 2 天、年度记录说当前连续 1 天（用户报障的本体）。
+    ///
+    /// 这里钉住**口径**：同一批原始记录下，收词那天必须算练过、必须进连续天数。
+    /// 「`annualRecap` 有没有真把词汇喂进去」由 `ProgressConsistencyTests` 的源码哨兵看着
+    /// —— 口径对而装配漏，正是这次报障的形态。
+    ///
+    /// 反证：撤掉 `complete` 那句 `vocabulary: words` → 红（下面那段反证对照就是它的形态）。
+    func testVocabularyOnlyDayCountsTowardTheAnnualStreak() {
+        let now = day(2026, 9, 29, 20, 0)
+        let today = calendar.startOfDay(for: now)
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+        let dayBefore = calendar.date(byAdding: .day, value: -2, to: today)!
+        let days = [dayBefore, yesterday, today]
+        let messages = [now, now.addingTimeInterval(180)]   // 今天说了两句
+        let words = [VocabularyEntry(word: "streak", createdAt: yesterday.addingTimeInterval(12 * 3600))]
+
+        let complete = ProgressAggregator.dailyActivity(
+            days: days, calendar: calendar, messages: messages, vocabulary: words
+        )
+        XCTAssertEqual(complete.count, 3)
+        XCTAssertEqual(complete[1].messages, 0, "夹具前提：昨天没开口")
+        XCTAssertEqual(complete[1].shadowingAttempts, 0, "夹具前提：昨天也没跟读")
+        XCTAssertTrue(complete[1].hasPractice, "昨天只收了新词，也是练过")
+
+        let streakWithWords = AnnualRecapBuilder.build(
+            days: complete, goalMinutes: 15, now: now, calendar: calendar
+        ).currentStreak
+        XCTAssertEqual(streakWithWords, 2, "昨天收词 + 今天开口 = 连续 2 天")
+
+        // 反证对照：不喂词汇（= 漏传的样子）→ 昨天变「没练」→ 只剩 1 天。
+        let missingVocabulary = ProgressAggregator.dailyActivity(
+            days: days, calendar: calendar, messages: messages
+        )
+        XCTAssertFalse(missingVocabulary[1].hasPractice, "没喂词汇时昨天就是「没练」（bug 的形态）")
+        XCTAssertEqual(
+            AnnualRecapBuilder.build(
+                days: missingVocabulary, goalMinutes: 15, now: now, calendar: calendar
+            ).currentStreak,
+            1,
+            "漏传词汇会少算一天 —— 正是用户看到的「年度 1 天 vs 徽章 2 天」"
+        )
+    }
 }

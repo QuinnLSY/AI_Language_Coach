@@ -988,7 +988,7 @@ public final class AppState {
         get { UserDefaults.standard.string(forKey: Self.todayBoardAutoExpandedDayKey) ?? "" }
         set { UserDefaults.standard.set(newValue, forKey: Self.todayBoardAutoExpandedDayKey) }
     }
-    /// 每日任务三项指标的**当天高水位**（`DailyTaskFloor`；**持久化**，一行）。
+    /// 当天各项完成量的**高水位**（`DailyTaskFloor`：三项指标 + 练习时长；**持久化**，一行）。
     ///
     /// ⚠️ 写成 get/set 直落 `UserDefaults` 的**计算属性**，而不是带默认值的存储属性：
     /// 后者一旦忘了在 `init` 里加载，编译器一声不响，而用户的「今天已完成」

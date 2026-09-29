@@ -359,6 +359,36 @@ public struct ProgressSnapshot: Sendable, Equatable {
     /// 今日时长文案（「12 分 30 秒」/「0 秒」）。
     public var todayDurationText: String { ProgressAggregator.durationText(today.seconds) }
 
+    /// 把「今天」这一格抬到当天高水位（只增不减）。
+    ///
+    /// 为什么需要它：**自动复盘会把那一段的练习流水清掉**（`purgePracticeMessages`），
+    /// 于是「今天」卡片直接读此刻记录就会缩水，而「今日任务」有 `DailyTaskFloor` 兜着 ——
+    /// 同一张页面上「今天」说 6 分 47 秒 / 7 轮，下面那张卡说「今天已聊 15 轮」
+    /// （2026-09-29 用户报障）。两处说的都是「今天这一天」，就该说同一个数。
+    ///
+    /// 口径边界：
+    /// - 抬的是**当天成果**这一视角（时长 / 对话 / 跟读 / 复习），不是「此刻还留着多少记录」；
+    /// - 累计量（`totalSeconds` / `totalMessages` / 趋势曲线）**一律不动** ——
+    ///   那是历史账面，不该被当天水位改写；
+    /// - `dayKey` 不匹配（水位是昨天记的）就原样返回：换天从零开始。
+    ///
+    /// ⚠️ 传进来的 `floor` 必须是**已经用原始记录抬过**的那一份；拿抬过的快照去抬水位
+    /// 会滚成一条无法解释的曲线（见 `AppState.raiseDailyTaskFloor(using:)`）。
+    public func raisingToday(to floor: DailyTaskFloor, dayKey: String) -> ProgressSnapshot {
+        guard floor.dayKey == dayKey else { return self }
+        var next = self
+        var day = today
+        day.seconds = max(day.seconds, Double(floor.seconds))
+        day.messages = max(day.messages, floor.conversation)
+        day.shadowingAttempts = max(day.shadowingAttempts, floor.shadowing)
+        day.vocabularyReviewed = max(day.vocabularyReviewed, floor.review)
+        next.today = day
+        // 「今天复习了几个词」与今天那格同源（`vocabularyReviewedToday` 就是它），
+        // 复习流水被清掉时同样要靠水位兜住 —— 今日卷轴与复习任务都读这个数。
+        next.vocabularyReviewedToday = max(vocabularyReviewedToday, floor.review)
+        return next
+    }
+
     /// 初始快照（数据库不可用 / 首次进入时的占位，UI 直接可渲染）。
     public static func empty(now: Date = Date(), days: Int = 14, goalMinutes: Int = ProgressAggregator.defaultGoalMinutes) -> ProgressSnapshot {
         ProgressAggregator.snapshot(
@@ -386,6 +416,10 @@ public enum ProgressAggregator {
     /// 09-23 那天窗口 09-10…09-23 全绿 → 14；跨到 09-24 后窗口变 09-11…09-24，
     /// 09-24 还没练被摘掉、09-11 又掉了出去 → 只剩 13。
     /// 年度记录一直是对的，因为它自己铺了整整一年（`AnnualRecapBuilder.daySlots`）。
+    /// ⚠️ 但**窗口够长只是条件之一**：`hasPractice` 还要喂同样的原始记录。
+    /// 2026-09-29 用户报障的「侧栏 2 天 / 年度 1 天」是另一回事 ——
+    /// `ProgressService.annualRecap` 漏传了 `vocabulary`（收词），
+    /// 「只收了新词、没开口」的那一天在年度口径里被算成「没练」。
     ///
     /// 取一年：与年度记录同一把尺，且「连续一年以上」本身已超出这个数的意义。
     public static let streakWindowDays = 366

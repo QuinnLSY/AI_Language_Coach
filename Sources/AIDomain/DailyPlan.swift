@@ -120,20 +120,24 @@ public struct DailyPlan: Sendable, Equatable {
 
 // MARK: - 当天高水位（#328：三项指标只增不减）
 
-/// 每日任务三项指标的**当天高水位**。
+/// 当天各项完成量的**高水位**：每日任务的三项指标 + 练习时长。
 ///
 /// 产品口径（用户 2026-09-23 报障）：「三个任务指标应该是确定的、不会改变的，
 /// 完成的量只会增加、不会减少；任务一旦完成就固定为已完成，
 /// 不管后面做什么学习操作都不会回退」。
+/// 2026-09-29 又补一条：**「今天」卡片与「今日任务」必须说同一个数** ——
+/// 前者读此刻的快照、后者读这份水位，于是自动复盘之后同一张页面上
+/// 「今天 7 轮 / 6 分 47 秒」与「今天已聊 15 轮」并存（用户报障）。
+/// 时长那一格就是为这件事记的：`ProgressSnapshot.raisingToday(to:dayKey:)` 用它把两张卡对齐。
 ///
-/// 为什么必须另记一份：三项指标读的都是**此刻还存在的记录**，而这些记录会被
+/// 为什么必须另记一份：这些量读的都是**此刻还存在的记录**，而这些记录会被
 /// 正当理由删掉 —— 复盘成功后练习流水会被清（`purgePracticeMessages`）、
 /// 气泡上的删除、「清除学习记忆」删复习流水。记录一少，进度就掉回头，
 /// 卡片从「已完成」退回「未完成」，而那一天他明明做到了。
 /// （复习那一项早前已经用「取今天起初的到期数」绕过同一个坑，见 `reviewTask` 的注释；
 /// 对话与跟读没有那样一个「起初量」可取，所以统一在这里记高水位。）
 ///
-/// ⚠️ 高水位只属于**那一天**：存的是 `dayKey` + 三个数，换天自动作废。
+/// ⚠️ 高水位只属于**那一天**：存的是 `dayKey` + 几个数，换天自动作废。
 /// 与 `shadowing.progress` 存成一行 `dayKey|index` 是同一个套路 ——
 /// 攒字典只会留下一堆用不上的旧日子。
 public struct DailyTaskFloor: Sendable, Equatable {
@@ -143,12 +147,22 @@ public struct DailyTaskFloor: Sendable, Equatable {
     public var conversation: Int
     public var shadowing: Int
     public var review: Int
+    /// 当天练习时长的高水位（秒）。
+    ///
+    /// ⚠️ 它**不参与任务判定**（三项任务只看上三个数），存在的唯一理由是让「今天」卡片
+    /// 与「今日任务」说同一件事：自动复盘会把那一段的练习流水清掉（`purgePracticeMessages`），
+    /// 时长与对话数一起掉下去，于是同一张页面上「今天练了 6 分 47 秒 / 7 轮」与
+    /// 「今天已聊 15 轮」并存（2026-09-29 用户报障）。
+    /// 与那三个数同源、同一条「只增不减」的口径。
+    public var seconds: Int
 
-    public init(dayKey: String, conversation: Int = 0, shadowing: Int = 0, review: Int = 0) {
+    public init(dayKey: String, conversation: Int = 0, shadowing: Int = 0, review: Int = 0,
+                seconds: Int = 0) {
         self.dayKey = dayKey
         self.conversation = max(conversation, 0)
         self.shadowing = max(shadowing, 0)
         self.review = max(review, 0)
+        self.seconds = max(seconds, 0)
     }
 
     public static func empty(dayKey: String) -> DailyTaskFloor {
@@ -170,7 +184,10 @@ public struct DailyTaskFloor: Sendable, Equatable {
     }
 
     /// 用一份计划抬高高水位（只增不减）。换天则从零开始重记。
-    public func raising(_ plan: DailyPlan, dayKey: String) -> DailyTaskFloor {
+    ///
+    /// - Parameter seconds: 此刻算出来的当天练习时长（秒）。与三项指标一样只增不减 ——
+    ///   传进来的必须是**原始记录**，不是已经抬过水位的快照。
+    public func raising(_ plan: DailyPlan, dayKey: String, seconds: Int = 0) -> DailyTaskFloor {
         var next = self.dayKey == dayKey ? self : .empty(dayKey: dayKey)
         for task in plan.tasks {
             switch task.kind {
@@ -179,30 +196,37 @@ public struct DailyTaskFloor: Sendable, Equatable {
             case .review: next.review = max(next.review, task.progress)
             }
         }
+        next.seconds = max(next.seconds, max(seconds, 0))
         return next
     }
 
     // MARK: 持久化（格式留在域层，**存哪儿**由 UI 层决定）
 
-    /// 一行：`dayKey|对话|跟读|复习`。
+    /// 一行：`dayKey|对话|跟读|复习|时长秒`。
     public var storageText: String {
-        "\(dayKey)|\(conversation)|\(shadowing)|\(review)"
+        "\(dayKey)|\(conversation)|\(shadowing)|\(review)|\(seconds)"
     }
 
     /// 解析一行；格式不对或字段缺失一律当「没有记录」（返回 nil）。
+    ///
+    /// ⚠️ **兼容四段的老格式**（加时长水位之前写的）：那一格按 0 读，
+    /// 今天的水位下一次汇总时会从「此刻的记录」重新抬起。宁可少记一次时长，
+    /// 也不能因为多了一格就把整行当坏数据扔掉（那会把三项指标一起清零）。
     public static func parse(_ raw: String?) -> DailyTaskFloor? {
         guard let raw else { return nil }
         let parts = raw.split(separator: "|", omittingEmptySubsequences: false)
-        guard parts.count == 4, !parts[0].isEmpty,
+        guard parts.count == 4 || parts.count == 5, !parts[0].isEmpty,
               let conversation = Int(parts[1]),
               let shadowing = Int(parts[2]),
               let review = Int(parts[3])
         else { return nil }
+        let seconds = parts.count == 5 ? Int(parts[4]) : nil
         return DailyTaskFloor(
             dayKey: String(parts[0]),
             conversation: conversation,
             shadowing: shadowing,
-            review: review
+            review: review,
+            seconds: seconds ?? 0
         )
     }
 }

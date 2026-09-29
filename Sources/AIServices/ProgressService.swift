@@ -135,16 +135,25 @@ public actor ProgressService {
             return AnnualRecap.empty(now: now, goalMinutes: goalMinutes)
         }
         let messages = (try? await learning.messageTimestamps(since: start)) ?? []
+        let corrections = (try? await learning.correctionRecords(since: start)) ?? []
         let shadowing = (try? await learning.shadowingStamps(since: start)) ?? []
         let reviews = (try? await learning.vocabularyReviewStamps(since: start)) ?? []
         let writings = (try? await learning.writingStamps(since: start)) ?? []
         let readings = (try? await learning.readingStamps(since: start)) ?? []
+        // ⚠️ 词汇**必须传**（全量）：`hasPractice` 认「当天收过词」，而格子的深浅与
+        // 连续天数都看 `hasPractice`。漏掉它，「只收了新词、没开口」的那一天在年度口径里
+        // 就算「没练」—— 连续天数比侧栏徽章少一天（2026-09-29 用户报障：徽章 2 天、
+        // 年度记录「当前连续 1 天」）。它与「今天」卡片、每日任务走的是同一把尺
+        // （`dailyActivity`），实参不许各写一套 —— `reviews:` 早前就漏过一次。
+        let vocabulary = (try? await learning.allVocabulary()) ?? []
 
         let activity = ProgressAggregator.dailyActivity(
             days: slots,
             calendar: calendar,
             messages: messages,
+            corrections: corrections,
             shadowing: shadowing,
+            vocabulary: vocabulary,
             reviews: reviews,
             writings: writings,
             readings: readings

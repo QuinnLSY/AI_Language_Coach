@@ -57,9 +57,33 @@ final class LaunchTodayPanelTests: XCTestCase {
         return AppState(services: CoachServices(config: store, databasePath: databasePath))
     }
 
+    /// 清掉「今天」那几个 `UserDefaults` 键，返回**还原闭包**（用完 `defer { restore() }`）。
+    ///
+    /// ⚠️ 不隔离就会**串到同进程后续用例**：测试进程共用一个 `UserDefaults` 域，
+    /// 而 `AppState` 每次汇总（`reloadProgress` → `raiseDailyTaskFloor`）都会把当天水位写进去 ——
+    /// 下一条用例读到的「今天」就是上一条用例的今天。凡是断言 `today.*` 的用例都先用它。
+    private func isolateTodayKeys() -> () -> Void {
+        let keys = [
+            AppState.todayTaskFloorKey,
+            AppState.todayCelebratedDayKey,
+            AppState.todayBoardAutoExpandedDayKey,
+        ]
+        let saved = keys.map { UserDefaults.standard.string(forKey: $0) }
+        for key in keys { UserDefaults.standard.removeObject(forKey: key) }
+        return {
+            for (key, value) in zip(keys, saved) {
+                if let value { UserDefaults.standard.set(value, forKey: key) }
+                else { UserDefaults.standard.removeObject(forKey: key) }
+            }
+        }
+    }
+
     // MARK: - ① 启动结束时首屏就已经有「今天」
 
     func testLaunchLeavesTheTodayPanelPopulatedEvenWithADeadModel() async throws {
+        let restore = isolateTodayKeys()
+        defer { restore() }
+
         let state = try await makeDeadLLMState(withSeededHistory: true)
         await state.start()
 
@@ -75,6 +99,11 @@ final class LaunchTodayPanelTests: XCTestCase {
     // MARK: - ② 全新的库也不能是「今日 0/3」
 
     func testFreshDatabaseStillOffersSomethingToDo() async throws {
+        // ⚠️ 必须隔离：残留的今天水位会把「全新库」的今日对话数直接抬起来
+        // （`today.messages` 说的是「今天做过的量」，它带高水位、且是跨启动持久化的）。
+        let restore = isolateTodayKeys()
+        defer { restore() }
+
         let state = try await makeDeadLLMState(withSeededHistory: false)
         await state.start()
 
@@ -111,21 +140,8 @@ final class LaunchTodayPanelTests: XCTestCase {
     /// ⚠️ 顺带钉住**持久化**：`dailyTaskFloor` 写在 `UserDefaults` 上，
     /// 第二个 `AppState`（= 重开应用）读到的必须还是「已完成」。
     func testFinishedTasksStayFinishedAfterTheFlowIsPurged() async throws {
-        let keys = [
-            AppState.todayTaskFloorKey,
-            AppState.todayCelebratedDayKey,
-            AppState.todayBoardAutoExpandedDayKey,
-        ]
-        // ⚠️ 测试进程用的是 `com.apple.dt.xctest.tool` 域，会串到同进程后续用例 ——
-        // 改完必须原样还原（见技能 macos-ui-verify）。
-        let saved = keys.map { UserDefaults.standard.string(forKey: $0) }
-        defer {
-            for (key, value) in zip(keys, saved) {
-                if let value { UserDefaults.standard.set(value, forKey: key) }
-                else { UserDefaults.standard.removeObject(forKey: key) }
-            }
-        }
-        for key in keys { UserDefaults.standard.removeObject(forKey: key) }
+        let restore = isolateTodayKeys()
+        defer { restore() }
 
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("task-floor-probe-\(UUID().uuidString)", isDirectory: true)
