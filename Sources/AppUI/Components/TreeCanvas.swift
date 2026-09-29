@@ -921,6 +921,13 @@ struct ForestGroundBand: View {
     /// 点草地冒出来的花（批次六 · E 可玩彩蛋；上限与挤掉规则见 `GroundFlowerBed`）。
     @State private var plantedFlowers: [PlantedFlower] = []
     @State private var plantedCounter = 0
+    /// 各槽位**当前生效的移动批次**（见 `hopTo`）。
+    ///
+    /// ⚠️ 活动编排与轮换编排是**两条并发的循环**，它们在同一只居民身上撞车时，
+    /// 两个 `hopTo` 会交替写同一个 `offsets[index]` —— 一只动物被两边同时拽，
+    /// 画面上就是原地抽搐。批次号让**后发起的意图胜出**、前一个自己退场。
+    @State private var hopTokens: [Int] = Array(repeating: 0, count: Self.maxResidents)
+    @State private var hopCounter = 0
 
     private static let maxResidents = 8
     // 各类元素的**上限**：始终按上限创建视图，靠透明度控制显隐。
@@ -1217,9 +1224,14 @@ struct ForestGroundBand: View {
                                  order: [AnimalKind]) async {
         // 个体错峰启动，避免整排动物同时动作
         try? await Task.sleep(for: .seconds(Double.random(in: 3...6)))
-        // 动作间隔由活动频率决定：0 → ~12s，1 → ~4s（再叠加随机抖动）
-        let interval = (12 - activityFrequency * 8) * Double.random(in: 0.8...1.25)
         while !Task.isCancelled {
+            // 动作间隔由活动频率决定：0 → ~12s，1 → ~4s（再叠加随机抖动）。
+            //
+            // ⚠️ **每轮重算**：写在循环外就成了一个固定节拍器，八只动物会踩着同一个
+            // 鼓点动（注释里的「随机抖动」也就只剩开跑前那一次）。频率钳回 0…1，
+            // 免得配置里存了个越界值把间隔算成负数（`Task.sleep` 负数是立刻返回 → 忙循环）。
+            let clampedFrequency = min(max(activityFrequency, 0), 1)
+            let interval = max(1.5, 12 - clampedFrequency * 8) * Double.random(in: 0.8...1.25)
             try? await Task.sleep(for: .seconds(interval))
             guard !Task.isCancelled, activityAllowed, !theme.isNight else { continue }
             guard count > 0 else { continue }
@@ -1361,6 +1373,9 @@ struct ForestGroundBand: View {
     /// 全体回家排排站好（关闭活动 / 入夜时调用，带过渡动画）。
     /// ⚠️ 暂离状态一并清掉：轮换循环醒来看到的是「全员到场」，不会有人卡在画外。
     private func sendEveryoneHome() {
+        // 作废所有在飞的移动：否则离场/游走那趟 `hopTo` 会在「回家」之后继续写
+        // `offsets`，把刚站好的队伍又拽走一只（入夜那一刻最容易看见）。
+        invalidateHops()
         withAnimation(.spring(response: 0.7, dampingFraction: 0.8)) {
             for i in 0..<Self.maxResidents {
                 offsets[i] = .zero
@@ -1623,7 +1638,12 @@ struct ForestGroundBand: View {
         guard let fetcher = present.randomElement() else { return }
 
         isFetchingWord = true
-        defer { isFetchingWord = false }
+        defer {
+            isFetchingWord = false
+            // 捡到一半被打断时这位可能正站在画外（`away` 已置真）—— 接回来，
+            // 否则它这一趟就再没机会回来，草坡上永久少一只。
+            bringStraysHome()
+        }
 
         // ① 看见词：先冒一句「我去捡」，动身
         if bubblesAllowed {
@@ -1813,6 +1833,12 @@ struct ForestGroundBand: View {
     private func orchestrateRotation(count: Int, span: CGFloat, inset: CGFloat,
                                      groundLine: CGFloat, quantizedWidth: CGFloat,
                                      order: [AnimalKind]) async {
+        // ⚠️ 本循环**被取消时**（拖分割线 → `.task(id:)` 重启，或入夜）把还没回来的
+        // 居民接回场上：它们此刻 `away = true`，而新的循环只从「在场」的槽位里挑人，
+        // 于是这些槽位再也排不到归期 —— 画面上永久少几只，越拖越少。
+        // （正常路径是死循环，这个 defer 只在取消 / 退出时跑一次。）
+        defer { bringStraysHome() }
+
         // 个体错峰启动，别开屏就整整齐齐换班
         try? await Task.sleep(for: .seconds(Double.random(in: 8...20)))
         while !Task.isCancelled {
@@ -1871,6 +1897,22 @@ struct ForestGroundBand: View {
         }
     }
 
+    /// 把还挂着「暂离」标记的居民接回场上（轮换循环退出 / 被取消时）。
+    ///
+    /// ⚠️ 只复位**标记**，位置交给 `offsets` 归零（回家）—— 暂离的那只此刻在画外，
+    /// 直接翻牌显形会凭空多出一只站在草坡边上。
+    private func bringStraysHome() {
+        let strays = away.indices.filter { away[$0] }
+        guard !strays.isEmpty else { return }
+        withAnimation(.app(.panel)) {
+            for index in strays {
+                away[index] = false
+                if offsets.indices.contains(index) { offsets[index] = .zero }
+                if perched.indices.contains(index) { perched[index] = false }
+            }
+        }
+    }
+
     /// 沿地面走出画面（朝离自家近的一侧边缘小跳离场）。
     private func hopOutOfStage(_ index: Int, count: Int, span: CGFloat, inset: CGFloat,
                                groundLine: CGFloat, quantizedWidth: CGFloat) async {
@@ -1908,12 +1950,30 @@ struct ForestGroundBand: View {
         }
     }
 
+    /// 作废所有在飞的移动批次（入夜 / 关活动用）。
+    ///
+    /// 只自增计数器不够 —— 在飞的那一批手里拿的正是「当前」批次号；必须把
+    /// 每个槽位的批次号推到新值，它们才对不上账、自行退场。
+    private func invalidateHops() {
+        hopCounter += 1
+        hopTokens = Array(repeating: hopCounter, count: Self.maxResidents)
+    }
+
     /// 多段小跳从当前位置移动到目标位移（跳动前进，而不是平移）。
+    ///
+    /// ⚠️ **后来者胜出**：每次发起都领一个新批次号并记进 `hopTokens[index]`，
+    /// 循环里每一步都对一次账 —— 对不上说明期间又有新的移动意图（游走 / 离场 /
+    /// 归位 / 捡词撞车），本次立刻退出，不再碰 `offsets`。
+    /// 两个编排循环并发盯上同一只时，没有这个对账就是两边交替写同一个位移。
     private func hopTo(_ index: Int, target: CGSize, steps: Int, hopHeight: CGFloat) async {
-        guard offsets.indices.contains(index) else { return }
+        guard offsets.indices.contains(index), hopTokens.indices.contains(index) else { return }
+        hopCounter += 1
+        let token = hopCounter
+        hopTokens[index] = token
         let start = offsets[index]
         for step in 1...max(1, steps) {
             guard !Task.isCancelled else { return }
+            guard hopTokens.indices.contains(index), hopTokens[index] == token else { return }
             let t = Double(step) / Double(steps)
             let x = start.width + (target.width - start.width) * t
             let y = start.height + (target.height - start.height) * t

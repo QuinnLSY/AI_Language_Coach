@@ -13,8 +13,12 @@ public enum ForestErrorSign {
     /// 先 `lowercased()` 再比对，英文关键词一律小写形态。
     public static func headline(for message: String) -> String {
         let lowered = message.lowercased()
-        if lowered.contains("密钥") || lowered.contains("key") || lowered.contains("401")
-            || lowered.contains("unauthorized") || lowered.contains("鉴权") {
+        // ⚠️ 只认「API key」这一个搭配，不认裸 `key`：后者会把 KeyError /
+        // "key not found" / "keyword" 这类与鉴权无关的消息也翻成「钥匙不对」——
+        // 举错牌子比不举更糟（用户会去查一个根本没问题的密钥）。
+        if lowered.contains("密钥") || lowered.contains("鉴权") || lowered.contains("401")
+            || lowered.contains("unauthorized") || lowered.contains("api key")
+            || lowered.contains("apikey") || lowered.contains("api_key") {
             return "钥匙好像不对…"
         }
         if lowered.contains("未配置") || lowered.contains("没有可用") || lowered.contains("未启用")

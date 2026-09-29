@@ -126,6 +126,17 @@ public struct CelestialToggle: View {
 
 // MARK: - 白天
 
+/// 氛围演出隐藏档的开关（纯函数，便于单测）：连点天空 5 次收起演出时，
+/// 星星 / 太阳光环**当场**停 —— 「林子完全安静」这句承诺只有这一处判据。
+///
+/// ⚠️ 2026-09-30 审查修掉的一处：早先写成 `onAppear { if !still { spin = true } }` ——
+/// `still` 只在视图出现那一瞬被读一次，之后切静态档，动画值还是 `true`，光环照转、
+/// 星星照眨（云与萤火虫是整层移除所以没事，只有这两处是「靠动画值停」）。
+/// 现在把 `still` 直接乘进动画的 `value`：档位一变，动画的驱动值就变，切换即停。
+enum AmbientMotion {
+    static func animates(armed: Bool, still: Bool) -> Bool { armed && !still }
+}
+
 private struct SunView: View {
     let theme: ForestTheme
     /// 静态档（氛围演出隐藏）：光环不转。
@@ -154,10 +165,15 @@ private struct SunView: View {
                     .offset(y: -54)
                     .rotationEffect(.degrees(Double(index) * 30))
             }
-            .rotationEffect(.degrees(spin ? 360 : 0))
-            .loopAnimation(.linear(duration: 60).repeatForever(autoreverses: false), value: spin)
+            .rotationEffect(.degrees(AmbientMotion.animates(armed: spin, still: still) ? 360 : 0))
+            .loopAnimation(
+                .linear(duration: 60).repeatForever(autoreverses: false),
+                value: AmbientMotion.animates(armed: spin, still: still)
+            )
         }
-        .onAppear { if !still { spin = true } }
+        // ⚠️ 无条件置 true：静态档由上面的 `animates` 拦，不是靠这里不启动。
+        // （早先在这里判 `if !still`，切档时视图不会重新 appear，永远拦不住。）
+        .onAppear { spin = true }
     }
 }
 
@@ -231,8 +247,12 @@ private struct StarsField: View {
                         : (twinkle ? (index % 3 == 0 ? 0.35 : 0.9) : (index % 3 == 0 ? 0.95 : 0.55)))
             }
         }
-        .loopAnimation(.easeInOut(duration: 3.2).repeatForever(autoreverses: true), value: twinkle)
-        .onAppear { if !still { twinkle = true } }
+        .loopAnimation(
+            .easeInOut(duration: 3.2).repeatForever(autoreverses: true),
+            value: AmbientMotion.animates(armed: twinkle, still: still)
+        )
+        // 同上：静态档由 `animates` 拦在动画的驱动值上，不是靠这里不启动。
+        .onAppear { twinkle = true }
     }
 }
 

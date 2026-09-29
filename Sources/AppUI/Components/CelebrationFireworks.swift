@@ -62,7 +62,7 @@ public struct CelebrationFireworks: View {
             let h = proxy.size.height
             ZStack {
                 ForEach(Self.sparks) { spark in
-                    let origin = anchors[min(spark.burst, anchors.count - 1)]
+                    let origin = Self.anchor(forBurst: spark.burst, anchors: anchors)
                     let travel = spark.distance * progress
                     Circle()
                         .fill(spark.burst % 2 == 0 ? tint : secondary)
@@ -86,6 +86,15 @@ public struct CelebrationFireworks: View {
             progress = 0
             withAnimation { progress = 1 }
         }
+    }
+
+    /// 第 `burst` 簇的起点（纯函数，便于单测）。
+    ///
+    /// 簇数多于锚点时挤在最后一簇（既有行为）；**锚点表为空时退回画面中上部** ——
+    /// `anchors` 是 `public var`，外部给了空表不该让 `anchors[burst]` 越界把整棵树带崩。
+    public static func anchor(forBurst burst: Int, anchors: [CGPoint]) -> CGPoint {
+        guard !anchors.isEmpty else { return CGPoint(x: 0.5, y: 0.3) }
+        return anchors[min(burst, anchors.count - 1)]
     }
 
     /// 四簇 × 14 颗 = 56 颗火星。**写死而不用随机**：随机会让每次重绘都换一批位置，
