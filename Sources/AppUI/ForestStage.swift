@@ -67,6 +67,28 @@ public final class ForestStage {
     /// 连点判定的节拍器（窗口内凑满 5 次算一次「连点」）。
     private var skyPacer = AmbienceTapPacer()
 
+    // MARK: 边界状态（批次八 · H）
+
+    /// 首次进入的欢迎脉冲：全新学员第一次打开应用，林子里欢迎一下。
+    /// 判据（全新进度 + 配置没记过欢迎）在 `AppState`，这里只管演。
+    public private(set) var welcomeTick = 0
+    /// 错误举牌脉冲：老师联系不上时（模型未配置 / 网络失败…），最近的小动物举一块牌子。
+    public private(set) var errorSignTick = 0
+    /// 牌子上的那句话（`ForestErrorSign.headline(for:)` 的产出）。
+    public private(set) var lastErrorHeadline: String?
+
+    /// 首次进入欢迎（只此一次的判定在 AppState；这里每次调用都演）。
+    public func welcome() {
+        welcomeTick += 1
+    }
+
+    /// 老师联系不上：请一只小动物举牌。headline 为空时静默不演（没什么可举的）。
+    public func showError(headline: String?) {
+        guard let headline, !headline.isEmpty else { return }
+        lastErrorHeadline = headline
+        errorSignTick += 1
+    }
+
     public init() {}
 
     /// 事件 → 脉冲的唯一翻译表。

@@ -432,6 +432,9 @@ public struct ProductConfig: Sendable, Equatable {
     /// 轻音效（批次六 · F：收词「叮」/ 通关小旋律 / 点小动物一声叫）。
     /// **默认关** —— 声音比动画更容易打扰，必须让用户主动选择要热闹。
     public var soundEffects: Bool
+    /// 首次进入的欢迎演出演过没有（批次八 · H）：只演一次，落库记名。
+    /// 老配置缺字段落 false —— 演过一次后就永久安静。
+    public var forestWelcomed: Bool
     /// 每类能力当前激活的 Provider（`AIProviderKind.rawValue -> provider id`）。
     /// 本地模型与云端 Provider 并存时，由它决定实际用谁。
     public var activeProviders: [String: String]
@@ -482,6 +485,7 @@ public struct ProductConfig: Sendable, Equatable {
         studentCompanion: String = "",
         forestFollowsClock: Bool = false,
         soundEffects: Bool = false,
+        forestWelcomed: Bool = false,
         activeProviders: [String: String] = [:],
         teacherBubbles: Bool = true,
         animalBubbles: Bool = true,
@@ -510,6 +514,7 @@ public struct ProductConfig: Sendable, Equatable {
         self.studentCompanion = studentCompanion
         self.forestFollowsClock = forestFollowsClock
         self.soundEffects = soundEffects
+        self.forestWelcomed = forestWelcomed
         self.activeProviders = activeProviders
         self.teacherBubbles = teacherBubbles
         self.animalBubbles = animalBubbles
@@ -543,7 +548,7 @@ extension ProductConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case learningLanguage, nativeLanguage, teacherVoice, practiceMode, themeMode, motionMode
         case selectedModels, teacherAnimal, teacherPersona, studentAnimal, studentCompanion
-        case forestFollowsClock, soundEffects, activeProviders
+        case forestFollowsClock, soundEffects, forestWelcomed, activeProviders
         case teacherBubbles, animalBubbles, animalActivity
         case animalActivityFrequency, voicePreview, autoSpeak, speechRate
         case dailyGoalMinutes, dailyGoalMode
@@ -584,6 +589,7 @@ extension ProductConfig: Codable {
         studentCompanion = try value(.studentCompanion, fallback.studentCompanion)
         forestFollowsClock = try value(.forestFollowsClock, fallback.forestFollowsClock)
         soundEffects = try value(.soundEffects, fallback.soundEffects)
+        forestWelcomed = try value(.forestWelcomed, fallback.forestWelcomed)
         activeProviders = try value(.activeProviders, fallback.activeProviders)
         teacherBubbles = try value(.teacherBubbles, fallback.teacherBubbles)
         animalBubbles = try value(.animalBubbles, fallback.animalBubbles)
@@ -618,6 +624,7 @@ extension ProductConfig: Codable {
         try container.encode(studentCompanion, forKey: .studentCompanion)
         try container.encode(forestFollowsClock, forKey: .forestFollowsClock)
         try container.encode(soundEffects, forKey: .soundEffects)
+        try container.encode(forestWelcomed, forKey: .forestWelcomed)
         try container.encode(activeProviders, forKey: .activeProviders)
         try container.encode(teacherBubbles, forKey: .teacherBubbles)
         try container.encode(animalBubbles, forKey: .animalBubbles)

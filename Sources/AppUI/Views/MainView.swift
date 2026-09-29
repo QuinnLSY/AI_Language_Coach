@@ -173,6 +173,18 @@ public struct MainView: View {
         // 日夜切换作用于全局：原生控件（TextField / Picker / 滚动条）也一起跟随。
         .preferredColorScheme(state.theme.isNight ? .dark : .light)
         .animation(.easeInOut(duration: 0.5), value: state.theme.palette)
+        // 批次八 · H：欢迎演出要在**地面带到场之后**才发脉冲（发早了 onChange 收不到
+        // 第一拍）—— 盯着 isBooting 翻 false 的那一刻消费待演标记。
+        .task(id: state.isBooting) {
+            guard !state.isBooting else { return }
+            state.consumeForestWelcome()
+        }
+        // 批次八 · H：老师联系不上（模型未配置 / 网络失败…）→ 林子里的小动物举牌。
+        // 详情仍在聊天区的错误横幅，牌子只举一句短的概括。
+        .onChange(of: state.chat.errorMessage) { _, message in
+            guard let message else { return }
+            state.forest.showError(headline: ForestErrorSign.headline(for: message))
+        }
         .appAnimation(.reveal, value: state.showingSettings)
         .appAnimation(.reveal, value: state.showingScenarios)
         .appAnimation(.reveal, value: state.showingMaterialUpload)
@@ -600,6 +612,8 @@ public struct MainView: View {
                     wordTick: state.forest.wordTick,
                     // 批次六 · E：点天空飘叶（连点计数在 ForestStage）
                     skyTapTick: state.forest.skyTapTick,
+                    // 批次八 · H：首次进入欢迎，树冠也挥挥手
+                    welcomeTick: state.forest.welcomeTick,
                     onSkyTap: { state.forest.registerSkyTap() },
                     // 批次六 · F：点学员 / 小伙伴一声叫
                     onLearnerTap: { state.sound.cue(.animalTap) }
@@ -632,7 +646,11 @@ public struct MainView: View {
                     lastActivityAt: state.forest.lastActivityAt,
                     previewSleepBubble: CommandLine.arguments.contains("--sleep-bubble"),
                     // 批次六 · F：点小动物一声叫（气泡照旧）
-                    onResidentTap: { state.sound.cue(.animalTap) }
+                    onResidentTap: { state.sound.cue(.animalTap) },
+                    // 批次八 · H：首次进入欢迎演出 / 错误举牌（老师联系不上时）
+                    welcomeTick: state.forest.welcomeTick,
+                    errorSignTick: state.forest.errorSignTick,
+                    errorHeadline: state.forest.lastErrorHeadline
                 )
                 .frame(height: TreeViewport.groundBandHeight)
                 .allowsHitTesting(true)

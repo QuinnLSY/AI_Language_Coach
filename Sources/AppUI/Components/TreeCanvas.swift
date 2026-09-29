@@ -62,6 +62,8 @@ public struct TreeCanvas: View {
     var wordTick: Int = 0
     /// 天空被点了一下（批次六 · E 可玩彩蛋）：树冠飘两片叶子回应。
     var skyTapTick: Int = 0
+    /// 首次进入欢迎脉冲（批次八 · H）：树冠飘几片叶子凑个热闹。
+    var welcomeTick: Int = 0
     /// 天空空白处的点击回调（连点计数在 `ForestStage`，画布只管上报）。
     var onSkyTap: (() -> Void)? = nil
     /// 点了学员 / 小伙伴（批次六 · F 轻音效：一声叫）。
@@ -93,7 +95,7 @@ public struct TreeCanvas: View {
                 companionAnimal: AnimalKind? = nil,
                 levelNotes: [String: TreeLevelNote] = [:],
                 ceremonyTick: Int = 0, practiceTick: Int = 0, wordTick: Int = 0,
-                skyTapTick: Int = 0,
+                skyTapTick: Int = 0, welcomeTick: Int = 0,
                 onSelectLevel: @escaping (TreeLevel) -> Void = { _ in },
                 onSkyTap: (() -> Void)? = nil,
                 onLearnerTap: (() -> Void)? = nil) {
@@ -106,6 +108,7 @@ public struct TreeCanvas: View {
         self.practiceTick = practiceTick
         self.wordTick = wordTick
         self.skyTapTick = skyTapTick
+        self.welcomeTick = welcomeTick
         self.onSelectLevel = onSelectLevel
         self.onSkyTap = onSkyTap
         self.onLearnerTap = onLearnerTap
@@ -237,7 +240,7 @@ public struct TreeCanvas: View {
                 // 盖在角色之上、不挡点击；reduceMotion 下完全静止（不生成叶子）。
                 LeafFallLayer(theme: theme, wordTick: wordTick,
                               practiceTick: practiceTick, ceremonyTick: ceremonyTick,
-                              skyTick: skyTapTick)
+                              skyTick: skyTapTick, welcomeTick: welcomeTick)
                     .frame(width: width, height: canvasHeight)
             }
             .frame(width: width, height: canvasHeight)
@@ -471,6 +474,8 @@ struct LeafFallLayer: View {
     var ceremonyTick: Int = 0
     /// 点天空的可玩回应（批次六 · E）：两片，比收词多一点、比练完少一截。
     var skyTick: Int = 0
+    /// 首次进入欢迎（批次八 · H）：四片，像树也挥了挥手。
+    var welcomeTick: Int = 0
 
     @State private var leaves: [FallLeaf] = []
     @State private var counter = 0
@@ -491,6 +496,7 @@ struct LeafFallLayer: View {
         .onChange(of: practiceTick) { _, tick in guard tick > 0 else { return }; spawn(4) }
         .onChange(of: ceremonyTick) { _, tick in guard tick > 0 else { return }; spawn(12) }
         .onChange(of: skyTick) { _, tick in guard tick > 0 else { return }; spawn(2) }
+        .onChange(of: welcomeTick) { _, tick in guard tick > 0 else { return }; spawn(4) }
     }
 
     /// 按脉冲生成 n 片叶子；每片自持生命周期（飘完自摘，父级无常驻计时器）。
@@ -780,6 +786,12 @@ struct ForestGroundBand: View {
     var previewSleepBubble: Bool = false
     /// 点了一只小动物（批次六 · F 轻音效：一声叫；气泡照旧由本视图冒）。
     var onResidentTap: (() -> Void)? = nil
+    /// 首次进入欢迎脉冲（批次八 · H）：居民依次跳一圈 + 一句欢迎词。
+    var welcomeTick: Int = 0
+    /// 错误举牌脉冲（批次八 · H）：老师联系不上时，最近的小动物举一块牌子。
+    var errorSignTick: Int = 0
+    /// 牌子上的那句话（与 tick 分开传：同一句话再举一次也要靠 tick 触发）。
+    var errorHeadline: String? = nil
 
     /// 离场告别语（轮换时随机抽一条）。
     static let leavePhrases = [
@@ -859,6 +871,13 @@ struct ForestGroundBand: View {
         "新单词到手，收好啦！",
     ]
 
+    /// 首次进入的欢迎词（批次八 · H）：全新学员第一次来，林子的见面礼。
+    nonisolated static let welcomePhrases = [
+        "欢迎来到语林！",
+        "新朋友来啦！这边请～",
+        "你来啦！树还小，一起把它养大吧！",
+    ]
+
     /// 每只小动物**独立拥有**一个气泡：`bubbleTexts[i]` 是槽位 i 当前的话（nil = 没在说话）。
     /// 多个气泡可以同时存在；`bubbleStamps[i]` 记录出现序号，序号越大画得越上层（最新出现的永远在最上方）。
     @State private var bubbleTexts: [String?] = Array(repeating: nil, count: Self.maxResidents)
@@ -888,6 +907,12 @@ struct ForestGroundBand: View {
     @State private var wordCard: (slot: Int, word: String)? = nil
     /// 安静期间已经打过盹了（学习上又有动静时解锁，见 `dozeOffIfQuiet`）。
     @State private var hasDozed = false
+    /// 正在举牌的居民槽位（批次八 · H 错误举牌；nil = 没在举）。
+    @State private var signHolder: Int? = nil
+    /// 本次举牌对应的脉冲序号：自动收起时对账，防止收掉下一场新举的牌。
+    @State private var signShownTick = 0
+    /// 欢迎演出是否已经演过（onAppear 补演与 onChange 二选一的闸）。
+    @State private var welcomePlayed = false
     /// 点草地冒出来的花（批次六 · E 可玩彩蛋；上限与挤掉规则见 `GroundFlowerBed`）。
     @State private var plantedFlowers: [PlantedFlower] = []
     @State private var plantedCounter = 0
@@ -904,11 +929,6 @@ struct ForestGroundBand: View {
         let x = sin(Double(index * 137 + salt * 61)) * 43758.5453
         let frac = x - floor(x)
         return CGFloat(frac)
-    }
-
-    /// 居民数量随宽度增减：300 → 3 只，~500 → 6 只，越宽越多；上限物种数 8。
-    private func residentCount(_ width: CGFloat) -> Int {
-        min(max(Int((width - 120) / 70) + 1, 3), Self.maxResidents)
     }
 
     /// 按宽度取前 N 只物种：伪随机打乱 8 个物种，前 N 个各不相同。
@@ -934,9 +954,12 @@ struct ForestGroundBand: View {
             // 连续量（坐标）仍跟随真实宽度平滑移动 —— 消除拖动时的逐帧重排抖动。
             let step: CGFloat = 28
             let qw = (width / step).rounded() * step
-            let count = residentCount(qw)
-            let bushCount = min(1 + Int(qw / 190), maxBushes)
-            let flowerCount = min(2 + Int(qw / 150), maxFlowers)
+            // 退化档（批次八 · H）：多宽配多少动物 / 灌木 / 小花，收成一个纯函数
+            // （正常 / 窄 / 极窄三档，树面板最小 300pt 时只留 1 只居中——林子不空也不挤）。
+            let plan = ForestGroundPlan.plan(width: qw)
+            let count = plan.residents
+            let bushCount = plan.bushes
+            let flowerCount = plan.flowers
             let order = speciesOrder()
 
             ZStack(alignment: .bottomLeading) {
@@ -1032,6 +1055,21 @@ struct ForestGroundBand: View {
                         .zIndex(2000)
                         .allowsHitTesting(false)
                 }
+
+                // 错误举牌（批次八 · H）：举在持牌小动物的头顶，5 秒自动收。
+                // 夜晚也举——错误不挑时候；牌子只是转述，完整错误在聊天区横幅。
+                if let holder = signHolder, holder < count, !away[holder],
+                   let headline = errorHeadline {
+                    let home = homePosition(index: holder, count: count, span: span,
+                                            inset: inset, groundLine: groundLine, quantizedWidth: qw)
+                    ForestSignBoard(theme: theme, text: headline)
+                        .position(
+                            x: home.x + offsets[holder].width,
+                            y: home.y - home.size * 0.5 - 40
+                        )
+                        .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .bottom)))
+                        .zIndex(2100)
+                }
             }
             .frame(width: width, height: height, alignment: .bottomLeading)
             // 档位切换时让位置/大小平滑过渡，而不是瞬移
@@ -1099,10 +1137,31 @@ struct ForestGroundBand: View {
                 guard tick > 0 else { return }
                 listenUp()
             }
+            // 错误举牌（批次八 · H）：老师联系不上，最近的小动物举一块牌子。
+            .onChange(of: errorSignTick) { _, tick in
+                guard tick > 0 else { return }
+                holdUpSign(tick)
+            }
+            // 首次进入欢迎（批次八 · H）：居民依次跳一圈 + 一句欢迎词。
+            // ⚠️ 脉冲可能在地面带上屏**前**就发出（启动流程里记名）——onChange
+            // 收不到第一拍，所以 onAppear 里对着已存在的 tick 补演一次（见下）。
+            .onChange(of: welcomeTick) { _, tick in
+                guard tick > 0 else { return }
+                welcomeParty()
+            }
+            // 错误举牌（批次八 · H）：老师联系不上，最近的小动物举一块牌子。
             // 学习上又有动静了 → 解除「已经打过盹」的标记（下次安静还能再演）
             .onChange(of: lastActivityAt) { _, _ in hasDozed = false }
         }
         .frame(maxWidth: .infinity)
+        .onAppear {
+            // 首次进入欢迎的补演：欢迎脉冲在启动流程里发出时本视图可能还没上屏
+            //（onChange 只对「出现之后的变化」负责）。tick 已存在而第一拍没演过 → 补上。
+            if welcomeTick > 0, !welcomePlayed {
+                welcomePlayed = true
+                welcomeParty()
+            }
+        }
         // 点草地（批次六 · E 可玩彩蛋）：落在草地上的点击冒一朵小花。
         // 小动物 / 右下角按钮各自的点击优先级更高，照常工作。
         .gesture(
@@ -1394,6 +1453,42 @@ struct ForestGroundBand: View {
         guard let index = present.randomElement() else { return }
         trigger(index, action: .tilt)
         requestRawBubble(index, pool: Self.comfortPhrases)
+    }
+
+    // MARK: 边界状态（批次八 · H）
+
+    /// 首次进入欢迎：居民从左到右依次跳一圈（像点名报到），队头冒一句欢迎词。
+    /// 夜晚 / 活动被关时**只冒气泡不跳**——睡着的小动物被吵醒跳就不礼貌了。
+    private func welcomeParty() {
+        welcomePlayed = true
+        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        if activityAllowed, !theme.isNight {
+            for (order, index) in present.enumerated() {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(Double(order) * 0.35))
+                    trigger(index, action: .hop)
+                }
+            }
+        }
+        if let first = present.first {
+            requestRawBubble(first, pool: Self.welcomePhrases, hold: 3.6)
+        }
+    }
+
+    /// 错误举牌：最近的一只在场小动物举起牌子，5 秒后自己收。
+    ///
+    /// 夜晚也举（错误不挑时候）；牌子举在头顶，详情在聊天区横幅——这里只喊一嗓子。
+    private func holdUpSign(_ tick: Int) {
+        guard let headline = errorHeadline, !headline.isEmpty else { return }
+        guard let index = (0..<Self.maxResidents).filter({ !away[$0] }).first else { return }
+        signShownTick = tick
+        withAnimation(.app(.panel)) { signHolder = index }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(5))
+            // 期间又出了新错（新一轮举牌）→ 本次收起作废，由新一轮自己收。
+            guard signHolder == index, signShownTick == tick else { return }
+            withAnimation(.app(.reveal)) { signHolder = nil }
+        }
     }
 
     // MARK: 分模块回应（批次四 · A）

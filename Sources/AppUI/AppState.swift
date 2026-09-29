@@ -130,6 +130,10 @@ public final class AppState {
     public let forest = ForestStage()
     /// 森林舞台对服务层总线的订阅凭证（释放即退订）。
     private var forestSubscription: LearningEventBus.Subscription?
+    /// 首次进入的欢迎待演标记（批次八 · H）：判据在 `start()` 里定（全新进度 +
+    /// 配置没记过欢迎），**消费**在 MainView（地面带在场后）—— 脉冲发早了
+    /// `onChange` 收不到第一拍，所以拆成「先记名、视图到场再演」两步。
+    public private(set) var pendingForestWelcome = false
     /// 轻音效中心（批次六 · F）：收词「叮」/ 通关小旋律 / 点小动物一声叫。
     /// 开关默认关（`ProductConfig.soundEffects`），启动与设置页切换时同步 `enabled`。
     public let sound = SoundCueCenter()
@@ -1239,6 +1243,9 @@ public final class AppState {
         chat.profile.learningLanguage = configuration.product.learningLanguage
         chat.profile.nativeLanguage = configuration.product.nativeLanguage
         progress = await services.loadProgress()
+        // 批次八 · H：全新学员的第一次进入 → 林子欢迎一下（只此一次，落库记名）。
+        // 这里只**记名**不演 —— 地面带还没上屏，现在发脉冲 onChange 收不到。
+        await markForestWelcomeIfNeeded()
         // 备份恢复（#209）：本轮启动若应用了待恢复内容，说明要让用户看见。
         restoreNote = await services.restoreNote
 
@@ -1619,6 +1626,22 @@ public final class AppState {
             return
         }
         await setThemeMode(Self.themeAfterCelestialTap(isNight: theme.isNight))
+    }
+
+    /// 首次进入欢迎：判据 = 配置没记过欢迎 **且** 进度全新（一颗星都没有）。
+    /// 老用户升级（有进度）永远不演；0 星老用户升级只演这一次。
+    private func markForestWelcomeIfNeeded() async {
+        guard !product.forestWelcomed, progress.totalStars == 0 else { return }
+        pendingForestWelcome = true
+        product.forestWelcomed = true
+        await persistProduct()
+    }
+
+    /// MainView 在地面带到场后调用：把待演的欢迎真正发到 `forest.welcome()`。
+    public func consumeForestWelcome() {
+        guard pendingForestWelcome else { return }
+        pendingForestWelcome = false
+        forest.welcome()
     }
 
     /// 切换「森林跟随时间与季节」。

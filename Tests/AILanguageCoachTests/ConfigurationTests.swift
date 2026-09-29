@@ -295,6 +295,19 @@ final class ConfigurationTests: XCTestCase {
         XCTAssertTrue(try JSONDecoder().decode(ProductConfig.self, from: data).soundEffects)
     }
 
+    func testForestWelcomedDefaultsOffAndRoundTrips() throws {
+        // 老配置没有 forestWelcomed 字段 → 补默认值 false（0 星老用户升级后会欢迎一次，
+        // 有进度的老用户由判据挡住 —— 见 AppState.markForestWelcomeIfNeeded）
+        let legacy = Data(#"{"learningLanguage":"en-US"}"#.utf8)
+        XCTAssertFalse(try JSONDecoder().decode(ProductConfig.self, from: legacy).forestWelcomed)
+
+        // 演过记名后能往返（欢迎只此一次的基础）
+        var config = ProductConfig()
+        config.forestWelcomed = true
+        let data = try JSONEncoder().encode(config)
+        XCTAssertTrue(try JSONDecoder().decode(ProductConfig.self, from: data).forestWelcomed)
+    }
+
     // MARK: - 解码 / 编码 / 属性三处漂移的兜底
 
     /// `ProductConfig` 三处手写（属性、`init(from:)`、`encode(to:)`）任一处漏改都会红。
@@ -321,6 +334,7 @@ final class ConfigurationTests: XCTestCase {
             studentCompanion: "fox",
             forestFollowsClock: true,
             soundEffects: true,
+            forestWelcomed: true,
             activeProviders: ["tts": "local.tts"],
             teacherBubbles: false,
             animalBubbles: false,
@@ -349,7 +363,7 @@ final class ConfigurationTests: XCTestCase {
             "learningLanguage", "nativeLanguage", "teacherVoice", "practiceMode", "themeMode",
             "motionMode",
             "selectedModels", "teacherAnimal", "teacherPersona", "studentAnimal", "studentCompanion",
-            "forestFollowsClock", "soundEffects", "activeProviders",
+            "forestFollowsClock", "soundEffects", "forestWelcomed", "activeProviders",
             "teacherBubbles", "animalBubbles", "animalActivity", "animalActivityFrequency",
             "voicePreview", "autoSpeak", "speechRate", "dailyGoalMinutes", "dailyGoalMode",
             "practiceReminderEnabled", "practiceReminderHour", "practiceReminderMinute",

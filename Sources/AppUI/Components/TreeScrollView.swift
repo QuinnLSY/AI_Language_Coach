@@ -21,6 +21,8 @@ struct TreeScrollView: View {
     var wordTick: Int = 0
     /// 天空被点了一下（批次六 · E 可玩彩蛋，透传给 `TreeCanvas`）。
     var skyTapTick: Int = 0
+    /// 首次进入欢迎（批次八 · H）：树冠飘几片叶子。
+    var welcomeTick: Int = 0
     var onSkyTap: (() -> Void)? = nil
     /// 点了学员 / 小伙伴（批次六 · F 轻音效）。
     var onLearnerTap: (() -> Void)? = nil
@@ -46,6 +48,7 @@ struct TreeScrollView: View {
                         practiceTick: practiceTick,
                         wordTick: wordTick,
                         skyTapTick: skyTapTick,
+                        welcomeTick: welcomeTick,
                         onSelectLevel: { level in
                             onSelectLevel(level)
                         },
