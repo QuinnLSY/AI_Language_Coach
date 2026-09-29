@@ -66,34 +66,80 @@ final class SoundCueTests: XCTestCase {
         }
     }
 
-    /// 时长排序：小旋律 > 收词叮 > 一声叫（语义上的长短关系钉住，防止配方被改反）。
-    func testFanfareIsLongerThanDingAndChirp() {
+    /// 时长排序：小旋律 > 收词叮（语义上的长短关系钉住，防止配方被改反）。
+    func testFanfareIsLongerThanDing() {
         let length = { (cue: SoundCue) -> Double in
             Double(WavTone.samples(for: cue).count) / Double(WavTone.sampleRate)
         }
         XCTAssertGreaterThan(length(.levelFanfare), length(.collectWord))
-        XCTAssertGreaterThan(length(.collectWord), length(.animalTap))
+    }
+
+    // MARK: - 物种叫声（2026-09-29 拆分：原来是全体共用一声啁啾）
+
+    /// 八个物种各自成形：非空、确定性、互不相同、都是点一下就完的短促一声。
+    ///
+    /// 反证：把任意两个物种的配方改成同一个（比如 bear 直接抄 fox 的）→ 红。
+    func testEachSpeciesHasItsOwnDeterministicShortVoice() {
+        let kinds = AnimalKind.allCases
+        XCTAssertEqual(kinds.count, 8, "物种表变了（增删了物种）就要补叫声配方")
+        var voices: [AnimalKind: [Double]] = [:]
+        for kind in kinds {
+            let samples = WavTone.samples(for: kind)
+            XCTAssertFalse(samples.isEmpty, "\(kind.rawValue) 的叫声不许是空波形")
+            XCTAssertEqual(samples, WavTone.samples(for: kind),
+                           "\(kind.rawValue) 两次合成必须逐样本一致（合成是纯函数）")
+            let seconds = Double(samples.count) / Double(WavTone.sampleRate)
+            XCTAssertLessThanOrEqual(seconds, 0.6,
+                                     "\(kind.rawValue) 的叫声太长（\(seconds)s）—— 点一下不该演一整段")
+            voices[kind] = samples
+        }
+        // 两两不同：叫声的意义就在「听得出是谁」，撞音等于没拆。
+        for (index, a) in kinds.enumerated() {
+            for b in kinds[(index + 1)...] {
+                XCTAssertNotEqual(voices[a], voices[b],
+                                  "\(a.rawValue) 与 \(b.rawValue) 的叫声撞了")
+            }
+        }
+    }
+
+    /// 叫声必须**收尾**：末段能量要低于全曲平均（不许切在半空、不许变成长鸣）。
+    ///
+    /// 为什么不是「尾 < 头 × 0.5」：多音节叫声（两声/两拍/四连音）后段会**重新起音**，
+    /// 那是节奏设计不是缺陷 —— 钉住的是「最后一刻确实是收掉-ending」这一个形态不变量。
+    func testSpeciesVoicesFadeOutAtTheEnd() {
+        for kind in AnimalKind.allCases {
+            let samples = WavTone.samples(for: kind)
+            let rms = { (range: Range<Int>) -> Double in
+                let slice = samples[range]
+                let energy = slice.reduce(0.0) { $0 + $1 * $1 }
+                return (energy / Double(slice.count)).squareRoot()
+            }
+            let overall = rms(0..<samples.count)
+            let ending = rms((samples.count * 97 / 100)..<samples.count)
+            XCTAssertLessThan(ending, overall,
+                              "\(kind.rawValue) 的叫声末段没收住（末 \(ending) vs 全曲 \(overall)）")
+        }
     }
 
     // MARK: - 开关分发
 
-    /// 记账 spy：只记 cue 名，不碰音频硬件。
+    /// 记账 spy：只记播放的数据，不碰音频硬件。
     private final class Recorder: SoundPlaying, @unchecked Sendable {
         private let lock = NSLock()
-        private var played: [SoundCue] = []
-        var cues: [SoundCue] {
+        private var played: [Data] = []
+        var datas: [Data] {
             lock.lock(); defer { lock.unlock() }
             return played
         }
-        func play(cue: SoundCue, data: Data) {
+        func play(data: Data) {
             lock.lock(); defer { lock.unlock() }
-            played.append(cue)
+            played.append(data)
         }
     }
 
     /// 开关默认关：没打开时发多少 cue 都是静默 no-op。
     ///
-    /// 反证：删掉 SoundCueCenter.cue 里的 `guard enabled` → 红。
+    /// 反证：删掉 SoundCueCenter.cue / animalVoice 里的 `guard enabled` → 红。
     @MainActor
     func testDisabledCenterStaysSilent() {
         let recorder = Recorder()
@@ -102,19 +148,26 @@ final class SoundCueTests: XCTestCase {
 
         center.cue(.collectWord)
         center.cue(.levelFanfare)
-        center.cue(.animalTap)
-        XCTAssertTrue(recorder.cues.isEmpty, "开关没开就出了声 —— 静默承诺被打破")
+        center.animalVoice(.fox)
+        XCTAssertTrue(recorder.datas.isEmpty, "开关没开就出了声 —— 静默承诺被打破")
     }
 
-    /// 打开后：发什么 cue 记什么 cue，一一对应不串音。
+    /// 打开后：cue 发什么播什么；叫声带的是**那只物种自己的**波形。
     @MainActor
-    func testEnabledCenterPlaysExactlyTheCuesItWasGiven() {
+    func testEnabledCenterPlaysExactlyTheCuesAndVoicesItWasGiven() {
         let recorder = Recorder()
         let center = SoundCueCenter(player: recorder)
         center.enabled = true
 
         center.cue(.collectWord)
         center.cue(.levelFanfare)
-        XCTAssertEqual(recorder.cues, [.collectWord, .levelFanfare])
+        center.animalVoice(.owl)
+        center.animalVoice(.rabbit)
+        XCTAssertEqual(recorder.datas, [
+            WavTone.data(for: .collectWord),
+            WavTone.data(for: .levelFanfare),
+            WavTone.data(for: .owl),
+            WavTone.data(for: .rabbit),
+        ], "每次播放的数据必须与配方一一对应（叫声不许再共用一份波形）")
     }
 }

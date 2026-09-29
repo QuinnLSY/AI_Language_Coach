@@ -67,7 +67,8 @@ public struct TreeCanvas: View {
     /// 天空空白处的点击回调（连点计数在 `ForestStage`，画布只管上报）。
     var onSkyTap: (() -> Void)? = nil
     /// 点了学员 / 小伙伴（批次六 · F 轻音效：一声叫）。
-    var onLearnerTap: (() -> Void)? = nil
+    /// ⚠️ 带着**被点那只**的物种出山：叫声随物种走（2026-09-29 拆分）。
+    var onLearnerTap: ((AnimalKind) -> Void)? = nil
 
     /// 树冠茂密度（纯函数，便于单测）：已得星 / 需求星，钳到 0…1。
     ///
@@ -98,7 +99,7 @@ public struct TreeCanvas: View {
                 skyTapTick: Int = 0, welcomeTick: Int = 0,
                 onSelectLevel: @escaping (TreeLevel) -> Void = { _ in },
                 onSkyTap: (() -> Void)? = nil,
-                onLearnerTap: (() -> Void)? = nil) {
+                onLearnerTap: ((AnimalKind) -> Void)? = nil) {
         self.theme = theme
         self.progress = progress
         self.studentAnimal = studentAnimal
@@ -196,7 +197,7 @@ public struct TreeCanvas: View {
                         size: 64,
                         accessory: StudentProgression.accessory(totalStars: progress.totalStars),
                         phrases: studentAnimal.phrases,
-                        onTap: onLearnerTap
+                        onTap: { onLearnerTap?(studentAnimal) }
                     )
                     .position(x: midX, y: learnerY)
 
@@ -207,7 +208,7 @@ public struct TreeCanvas: View {
                             size: ForestCompanion.size,
                             accessory: StudentProgression.accessory(totalStars: progress.totalStars),
                             phrases: companionAnimal.phrases,
-                            onTap: onLearnerTap
+                            onTap: { onLearnerTap?(companionAnimal) }
                         )
                         .position(
                             x: midX + ForestCompanion.besideLearner.width + companionDashX,
@@ -785,7 +786,8 @@ struct ForestGroundBand: View {
     /// 验证钩子：启动时先冒一句「它们在睡觉」（仅在 `--sleep-bubble` 下由主界面传入）。
     var previewSleepBubble: Bool = false
     /// 点了一只小动物（批次六 · F 轻音效：一声叫；气泡照旧由本视图冒）。
-    var onResidentTap: (() -> Void)? = nil
+    /// ⚠️ 带着**被点那只**的当前物种出山（轮换会换物种，叫声要跟着换 —— 2026-09-29）。
+    var onResidentTap: ((AnimalKind) -> Void)? = nil
     /// 首次进入欢迎脉冲（批次八 · H）：居民依次跳一圈 + 一句欢迎词。
     var welcomeTick: Int = 0
     /// 错误举牌脉冲（批次八 · H）：老师联系不上时，最近的小动物举一块牌子。
@@ -1763,7 +1765,7 @@ struct ForestGroundBand: View {
                 actionKind: actionKinds[index],
                 onTap: {
                     requestBubble(index)
-                    onResidentTap?()
+                    onResidentTap?(currentKind)
                 },
                 onSpontaneousBubble: { requestBubble(index) }
             )

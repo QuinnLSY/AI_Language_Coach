@@ -429,6 +429,11 @@ public struct ProductConfig: Sendable, Equatable {
     public var studentCompanion: String
     /// 森林跟随真实时间与季节（默认关：老用户开屏看到的还是原来的那片林子）。
     public var forestFollowsClock: Bool
+    /// 森林叶色随真实季节（春华秋实，默认关）。
+    ///
+    /// 老版本里「跟随时间」与「跟随季节」绑在同一个开关上（`forestFollowsClock`）；
+    /// 拆开后各管各的 —— 天黑切夜景是时间的事，换叶色是季节的事。
+    public var forestFollowsSeason: Bool
     /// 轻音效（批次六 · F：收词「叮」/ 通关小旋律 / 点小动物一声叫）。
     /// **默认关** —— 声音比动画更容易打扰，必须让用户主动选择要热闹。
     public var soundEffects: Bool
@@ -484,6 +489,7 @@ public struct ProductConfig: Sendable, Equatable {
         studentAnimal: String = "bear",
         studentCompanion: String = "",
         forestFollowsClock: Bool = false,
+        forestFollowsSeason: Bool = false,
         soundEffects: Bool = false,
         forestWelcomed: Bool = false,
         activeProviders: [String: String] = [:],
@@ -513,6 +519,7 @@ public struct ProductConfig: Sendable, Equatable {
         self.studentAnimal = studentAnimal
         self.studentCompanion = studentCompanion
         self.forestFollowsClock = forestFollowsClock
+        self.forestFollowsSeason = forestFollowsSeason
         self.soundEffects = soundEffects
         self.forestWelcomed = forestWelcomed
         self.activeProviders = activeProviders
@@ -548,7 +555,7 @@ extension ProductConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case learningLanguage, nativeLanguage, teacherVoice, practiceMode, themeMode, motionMode
         case selectedModels, teacherAnimal, teacherPersona, studentAnimal, studentCompanion
-        case forestFollowsClock, soundEffects, forestWelcomed, activeProviders
+        case forestFollowsClock, forestFollowsSeason, soundEffects, forestWelcomed, activeProviders
         case teacherBubbles, animalBubbles, animalActivity
         case animalActivityFrequency, voicePreview, autoSpeak, speechRate
         case dailyGoalMinutes, dailyGoalMode
@@ -588,6 +595,10 @@ extension ProductConfig: Codable {
         studentAnimal = try value(.studentAnimal, fallback.studentAnimal)
         studentCompanion = try value(.studentCompanion, fallback.studentCompanion)
         forestFollowsClock = try value(.forestFollowsClock, fallback.forestFollowsClock)
+        // ⚠️ 老配置没有这个字段：它原本与「跟随时间」绑在同一个开关里 —— 缺字段时
+        // 跟随**已解码**的 `forestFollowsClock`，升级不该悄悄改变用户已经看到的样子。
+        forestFollowsSeason = try container.decodeIfPresent(Bool.self, forKey: .forestFollowsSeason)
+            ?? forestFollowsClock
         soundEffects = try value(.soundEffects, fallback.soundEffects)
         forestWelcomed = try value(.forestWelcomed, fallback.forestWelcomed)
         activeProviders = try value(.activeProviders, fallback.activeProviders)
@@ -623,6 +634,7 @@ extension ProductConfig: Codable {
         try container.encode(studentAnimal, forKey: .studentAnimal)
         try container.encode(studentCompanion, forKey: .studentCompanion)
         try container.encode(forestFollowsClock, forKey: .forestFollowsClock)
+        try container.encode(forestFollowsSeason, forKey: .forestFollowsSeason)
         try container.encode(soundEffects, forKey: .soundEffects)
         try container.encode(forestWelcomed, forKey: .forestWelcomed)
         try container.encode(activeProviders, forKey: .activeProviders)

@@ -10,14 +10,15 @@ import Observation
 //   独立的 AVAudioPlayer 播放，播完自摘。
 // - 总开关默认**关**（`ProductConfig.soundEffects`）：有人喜欢安静，声音必须主动选择才有。
 
-/// 三种 UI 音效 cue。rawValue 同时是可读标识（测试与日志用）。
+/// 两种 UI 音效 cue。rawValue 同时是可读标识（测试与日志用）。
+///
+/// （小动物的叫声不在这张表上：叫声随**物种**走，见 `WavTone.samples(for: AnimalKind)` ——
+/// 每个物种自己的音区与节奏，不再共用一声「啁啾」。）
 public enum SoundCue: String, CaseIterable, Sendable {
     /// 收进一个生词：清脆的一声「叮」。
     case collectWord
     /// 通关：一小段上行的琶音小旋律。
     case levelFanfare
-    /// 点了一下小动物：短促上滑的一声叫。
-    case animalTap
 }
 
 /// 纯函数音色合成：波形 → 标准 16-bit 单声道 WAV（内存 Data，不落盘）。
@@ -59,9 +60,83 @@ public enum WavTone {
         return mixed
     }
 
-    /// 小动物的一声叫：频率上滑的短促啁啾。
-    static func animalTap() -> [Double] {
-        chirp(from: 720, to: 1_350, duration: 0.13, decay: 11.0)
+    // MARK: 八个物种的叫声（2026-09-29 拆分：原来是全体共用一声上滑啁啾）
+    //
+    // 卡通化原则：不求拟真采样（合成基元只有正弦），抓**音区 + 节奏**两个特征 ——
+    // 大兽低、小兽高、鸟快颤、猫头鹰两拍「咕咕」。全部确定性配方，可单测。
+
+    /// 小狐狸「呀咿」：两声急促的高频下滑。
+    static func foxVoice() -> [Double] {
+        chirp(from: 1_350, to: 780, duration: 0.09, decay: 9)
+            + silence(0.03)
+            + chirp(from: 1_180, to: 700, duration: 0.10, decay: 9)
+    }
+
+    /// 小熊猫「咪呜」：柔软的上滑长音。
+    static func pandaVoice() -> [Double] {
+        chirp(from: 430, to: 790, duration: 0.28, decay: 6.5)
+    }
+
+    /// 小老虎「嗷呜」：低音区的下行吼（大兽的分量感）。
+    static func tigerVoice() -> [Double] {
+        chirp(from: 190, to: 95, duration: 0.34, decay: 4.5)
+    }
+
+    /// 猫头鹰「咕——咕」：经典两拍低鸣，第二拍拖长。
+    static func owlVoice() -> [Double] {
+        let hoot = [(frequency: 392.0, gain: 1.0), (frequency: 784.0, gain: 0.12)]
+        return tone(duration: 0.13, decay: 6, partials: hoot)
+            + silence(0.06)
+            + tone(duration: 0.20, decay: 6, partials: hoot)
+    }
+
+    /// 小兔子「boing」：弹簧一样的快速上滑。
+    static func rabbitVoice() -> [Double] {
+        chirp(from: 300, to: 920, duration: 0.16, decay: 8)
+    }
+
+    /// 小熊「呼哧、呼哧」：两记低音鼻息，第二记更低更沉。
+    static func bearVoice() -> [Double] {
+        tone(duration: 0.15, decay: 7, partials: [(150, 1.0), (300, 0.25)])
+            + silence(0.05)
+            + tone(duration: 0.20, decay: 6, partials: [(125, 1.0), (250, 0.25)])
+    }
+
+    /// 小松鼠「咯咯咯咯」：四连快颤的小碎音，一声比一声尖。
+    static func squirrelVoice() -> [Double] {
+        var out: [Double] = []
+        for i in 0..<4 {
+            out += chirp(from: 1_050 + Double(i) * 90, to: 1_480 + Double(i) * 90,
+                         duration: 0.045, decay: 9)
+            if i < 3 { out += silence(0.028) }
+        }
+        return out
+    }
+
+    /// 小刺猬「哼唧」：短促一声上扬再落回（细碎的鼻音感）。
+    static func hedgehogVoice() -> [Double] {
+        chirp(from: 560, to: 930, duration: 0.09, decay: 8)
+            + silence(0.02)
+            + chirp(from: 780, to: 430, duration: 0.13, decay: 7)
+    }
+
+    /// 物种 → 叫声（唯一入口，测试与播放共用这一张映射表）。
+    public static func samples(for kind: AnimalKind) -> [Double] {
+        switch kind {
+        case .fox: foxVoice()
+        case .panda: pandaVoice()
+        case .tiger: tigerVoice()
+        case .owl: owlVoice()
+        case .rabbit: rabbitVoice()
+        case .bear: bearVoice()
+        case .squirrel: squirrelVoice()
+        case .hedgehog: hedgehogVoice()
+        }
+    }
+
+    /// 物种 → WAV Data（SoundCueCenter 播放用的成品）。
+    public static func data(for kind: AnimalKind) -> Data {
+        wav(samples: samples(for: kind))
     }
 
     /// cue → 波形（唯一入口，测试与播放共用这一张映射表）。
@@ -69,7 +144,6 @@ public enum WavTone {
         switch cue {
         case .collectWord: collectWord()
         case .levelFanfare: levelFanfare()
-        case .animalTap: animalTap()
         }
     }
 
@@ -111,6 +185,11 @@ public enum WavTone {
             out[i] = sin(phase) * envelope(t: t, duration: duration, decay: decay)
         }
         return normalized(out)
+    }
+
+    /// 静音段：叫声里的停顿（全零段直接拼接，不参与归一化）。
+    static func silence(_ duration: Double) -> [Double] {
+        [Double](repeating: 0, count: Int(duration * Double(sampleRate)))
     }
 
     /// 包络：起音斜坡 × 指数衰减 × 收音斜坡。
@@ -169,8 +248,9 @@ public enum WavTone {
 // MARK: - 播放通道
 
 /// 播放抽象：真身走 AVAudioPlayer，测试换记账 spy。
+/// 播什么由调用方合成好 `Data`（cue 表或物种叫声都行），通道只管播。
 public protocol SoundPlaying: AnyObject, Sendable {
-    func play(cue: SoundCue, data: Data)
+    func play(data: Data)
 }
 
 /// UI 音效播放器：发后即忘，播完自摘；最多同时挂 4 个实例防连点刷爆。
@@ -181,7 +261,7 @@ public final class UISoundPlayer: NSObject, SoundPlaying, AVAudioPlayerDelegate,
 
     public override init() { super.init() }
 
-    public func play(cue: SoundCue, data: Data) {
+    public func play(data: Data) {
         guard let player = try? AVAudioPlayer(data: data) else { return }
         player.volume = 0.4
         player.delegate = self
@@ -229,6 +309,13 @@ public final class SoundCueCenter {
     /// 发一条 cue：没开开关就是静默 no-op（调用方不必各自判断）。
     public func cue(_ cue: SoundCue) {
         guard enabled else { return }
-        player.play(cue: cue, data: WavTone.data(for: cue))
+        player.play(data: WavTone.data(for: cue))
+    }
+
+    /// 点了一只小动物：叫声随**物种**走 —— 每个物种自己的音区与节奏
+    /// （fox「呀咿」/ owl「咕咕」/ tiger 低吼…，配方见 `WavTone.samples(for: AnimalKind)`）。
+    public func animalVoice(_ kind: AnimalKind) {
+        guard enabled else { return }
+        player.play(data: WavTone.data(for: kind))
     }
 }

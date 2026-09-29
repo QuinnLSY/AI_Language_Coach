@@ -333,6 +333,7 @@ final class ConfigurationTests: XCTestCase {
             studentAnimal: "penguin",
             studentCompanion: "fox",
             forestFollowsClock: true,
+            forestFollowsSeason: true,
             soundEffects: true,
             forestWelcomed: true,
             activeProviders: ["tts": "local.tts"],
@@ -363,7 +364,7 @@ final class ConfigurationTests: XCTestCase {
             "learningLanguage", "nativeLanguage", "teacherVoice", "practiceMode", "themeMode",
             "motionMode",
             "selectedModels", "teacherAnimal", "teacherPersona", "studentAnimal", "studentCompanion",
-            "forestFollowsClock", "soundEffects", "forestWelcomed", "activeProviders",
+            "forestFollowsClock", "forestFollowsSeason", "soundEffects", "forestWelcomed", "activeProviders",
             "teacherBubbles", "animalBubbles", "animalActivity", "animalActivityFrequency",
             "voicePreview", "autoSpeak", "speechRate", "dailyGoalMinutes", "dailyGoalMode",
             "practiceReminderEnabled", "practiceReminderHour", "practiceReminderMinute",
@@ -376,5 +377,23 @@ final class ConfigurationTests: XCTestCase {
     func testLegacyDecodeFallsBackToDefaultInit() throws {
         let decoded = try JSONDecoder().decode(ProductConfig.self, from: Data("{}".utf8))
         XCTAssertEqual(decoded, ProductConfig(), "空配置应等价于默认 init（兜底值只此一份）")
+    }
+
+    /// 「跟随季节」是 2026-09-29 从「跟随时间与季节」拆出来的：**老配置没有这个字段**，
+    /// 缺字段时跟随已解码的 `forestFollowsClock` —— 升级不该悄悄改变用户已经看到的样子。
+    ///
+    /// 反证：把解码兜底改回 `?? fallback.forestFollowsSeason`（恒 false）→ 红。
+    func testLegacyConfigInheritsSeasonFromTheOldCombinedToggle() throws {
+        // 老配置：只有合并开关（开着），没有 forestFollowsSeason 键。
+        let legacy = Data(#"{"learningLanguage":"en-US","forestFollowsClock":true}"#.utf8)
+        let decoded = try JSONDecoder().decode(ProductConfig.self, from: legacy)
+        XCTAssertTrue(decoded.forestFollowsSeason,
+                      "老用户合并开关开着 → 升级后季节跟随要延续，不许悄悄关掉")
+
+        // 显式写过新键的以新键为准（不跟随时间也可以单独开季节）。
+        let explicit = Data(#"{"forestFollowsClock":false,"forestFollowsSeason":true}"#.utf8)
+        let explicitDecoded = try JSONDecoder().decode(ProductConfig.self, from: explicit)
+        XCTAssertFalse(explicitDecoded.forestFollowsClock)
+        XCTAssertTrue(explicitDecoded.forestFollowsSeason)
     }
 }

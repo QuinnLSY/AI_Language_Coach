@@ -25,7 +25,7 @@ struct TreeScrollView: View {
     var welcomeTick: Int = 0
     var onSkyTap: (() -> Void)? = nil
     /// 点了学员 / 小伙伴（批次六 · F 轻音效）。
-    var onLearnerTap: (() -> Void)? = nil
+    var onLearnerTap: ((AnimalKind) -> Void)? = nil
     var onSelectLevel: (TreeLevel) -> Void = { _ in }
 
     /// 内容顶部内边距（算滚动位置时要带上它）。

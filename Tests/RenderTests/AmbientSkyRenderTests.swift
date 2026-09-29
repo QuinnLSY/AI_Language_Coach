@@ -70,7 +70,7 @@ final class AmbientSkyRenderTests: XCTestCase {
     /// 反证：把 ForestSky 里 `if !ambientStill { Clouds() }` 的条件删掉（云常驻）→ 红。
     func testDaySkyDiffersBetweenPerformanceAndStill() throws {
         let theme = ForestThemeResolver.resolve(mode: .day, systemIsDark: false,
-                                                hour: 12, month: 6, followsClock: false)
+                                                hour: 12, month: 6, followsClock: false, followsSeason: false)
         let lively = try sky(theme, still: false)
         let still = try sky(theme, still: true)
         XCTAssertGreaterThan(differencePoints(lively, still), 40,
@@ -80,7 +80,7 @@ final class AmbientSkyRenderTests: XCTestCase {
     /// 夜里：演出档有萤火虫、星星在眨眼 —— 静态档同样必须有可见差异。
     func testNightSkyDiffersBetweenPerformanceAndStill() throws {
         let theme = ForestThemeResolver.resolve(mode: .night, systemIsDark: false,
-                                                hour: 22, month: 6, followsClock: false)
+                                                hour: 22, month: 6, followsClock: false, followsSeason: false)
         XCTAssertTrue(theme.isNight, "取的时刻必须是夜")
         let lively = try sky(theme, still: false)
         let still = try sky(theme, still: true)
@@ -91,7 +91,7 @@ final class AmbientSkyRenderTests: XCTestCase {
     /// 同一档位两帧必须零差异：氛围档不许引入随机（差出来的每一点墨都是 bug）。
     func testStillSkyRendersDeterministically() throws {
         let theme = ForestThemeResolver.resolve(mode: .day, systemIsDark: false,
-                                                hour: 12, month: 6, followsClock: false)
+                                                hour: 12, month: 6, followsClock: false, followsSeason: false)
         let first = try sky(theme, still: true)
         let second = try sky(theme, still: true)
         XCTAssertEqual(differencePoints(first, second), 0, "静态档渲染不许有任何抖动")

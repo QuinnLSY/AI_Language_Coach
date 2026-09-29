@@ -225,16 +225,31 @@ public struct SettingsView: View {
 
                 Divider().overlay(theme.divider)
 
-                // 跟随时间：天黑了自己切夜景、太阳沿弧线走、春夏秋冬换叶色。
+                // 跟随时间：天黑了自己切夜景、太阳沿弧线走（日夜档位的事）。
                 // ⚠️ 手动点右上角太阳/月亮会**收回**自动（否则那个按钮点了没反应）。
                 Toggle(isOn: Binding(
                     get: { state.forestFollowsClock },
                     set: { on in Task { await state.setForestFollowsClock(on) } }
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("跟随时间与季节")
+                        Text("跟随时间")
                             .font(.system(size: 13, design: .rounded))
                         Text(followClockHint)
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                }
+                .toggleStyle(.switch)
+
+                // 跟随季节：按月份换叶色/落花（春华秋实；日夜档位不受它影响）。
+                Toggle(isOn: Binding(
+                    get: { state.forestFollowsSeason },
+                    set: { on in Task { await state.setForestFollowsSeason(on) } }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("跟随季节")
+                            .font(.system(size: 13, design: .rounded))
+                        Text(followSeasonHint)
                             .font(.system(size: 11, design: .rounded))
                             .foregroundStyle(theme.secondaryText)
                     }
@@ -244,12 +259,18 @@ public struct SettingsView: View {
         }
     }
 
-    /// 「跟随时间与季节」的说明（抽成纯属性便于钉住措辞）。
+    /// 「跟随时间」的说明（抽成纯属性便于钉住措辞）。
     private var followClockHint: String {
         if !state.forestFollowsClock { return "关着时，日夜只由上面这一排决定。" }
-        let season = ForestAtmosphere.season(month: state.clockMonth).displayName
         let moment = ForestAtmosphere.moment(hour: Int(state.clockHour)).displayName
-        return "现在是\(season)季的\(moment)，太阳月亮会在天上慢慢走。"
+        return "现在是\(moment)，太阳月亮会在天上慢慢走。"
+    }
+
+    /// 「跟随季节」的说明。
+    private var followSeasonHint: String {
+        if !state.forestFollowsSeason { return "关着时，林子四季常青。" }
+        let season = ForestAtmosphere.season(month: state.clockMonth).displayName
+        return "林子正处在\(season)季，叶色与落花会跟着月份走。"
     }
 
     // MARK: - 动画效果（应用内动效开关，三态）

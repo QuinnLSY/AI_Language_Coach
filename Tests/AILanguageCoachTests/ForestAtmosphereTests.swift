@@ -116,28 +116,62 @@ final class ForestAtmosphereTests: XCTestCase {
 
     // MARK: - ③ 主题解析
 
-    /// 关着「跟随时间」时逐字等于老行为（时刻与季节都是 nil）——老用户开屏不该变样。
-    func testResolverWithoutFollowsClockIsTheOldBehavior() {
+    /// 两个开关都关时逐字等于老行为（时刻与季节都是 nil）——老用户开屏不该变样。
+    func testResolverWithoutFollowsIsTheOldBehavior() {
         let old = ForestThemeResolver.resolve(mode: .day, systemIsDark: true)
         let now = ForestThemeResolver.resolve(mode: .day, systemIsDark: true,
-                                              hour: 22, month: 10, followsClock: false)
+                                              hour: 22, month: 10,
+                                              followsClock: false, followsSeason: false)
         XCTAssertNil(now.moment)
         XCTAssertNil(now.season)
         XCTAssertEqual(now, old)
     }
 
-    /// 开着时：天黑切夜景、白天挑时刻、按月份换季节。
+    /// 开「跟随时间」：天黑切夜景、白天挑时刻；**季节跟着开关走**（拆分后各管各的）。
     func testResolverFollowsClockDrivesPaletteMomentAndSeason() {
         let night = ForestThemeResolver.resolve(mode: .day, systemIsDark: false,
-                                                hour: 22, month: 4, followsClock: true)
+                                                hour: 22, month: 4,
+                                                followsClock: true, followsSeason: true)
         XCTAssertTrue(night.isNight, "夜里就算手动选了白天，跟随时间也该切夜景")
         XCTAssertEqual(night.moment, .night)
 
         let morning = ForestThemeResolver.resolve(mode: .night, systemIsDark: true,
-                                                  hour: 9, month: 10, followsClock: true)
+                                                  hour: 9, month: 10,
+                                                  followsClock: true, followsSeason: true)
         XCTAssertFalse(morning.isNight)
         XCTAssertEqual(morning.moment, .morning)
         XCTAssertEqual(morning.season, .autumn)
+
+        // 拆分后的关键行为：只开时间不开季节 → 时刻照样切，叶色不动。
+        let clockOnly = ForestThemeResolver.resolve(mode: .day, systemIsDark: false,
+                                                    hour: 9, month: 10,
+                                                    followsClock: true, followsSeason: false)
+        XCTAssertEqual(clockOnly.moment, .morning)
+        XCTAssertNil(clockOnly.season, "季节开关关着就不许换叶色")
+    }
+
+    /// 只开「跟随季节」：叶色随月份走，**日夜档位仍由用户决定**（2026-09-29 拆分）。
+    ///
+    /// 反证：把 resolver 里 `followsSeason` 的分支删掉（season 恒 nil）→ 红。
+    func testSeasonOnlyFollowRetintsSceneryWithoutTouchingThePalette() {
+        let autumn = ForestThemeResolver.resolve(mode: .day, systemIsDark: false,
+                                                 hour: 9, month: 10,
+                                                 followsClock: false, followsSeason: true)
+        XCTAssertEqual(autumn.season, .autumn)
+        XCTAssertNil(autumn.moment, "只跟随季节时时刻不该被注入")
+        XCTAssertFalse(autumn.isNight, "日夜档位仍由档位开关决定（上午不该切成夜景）")
+
+        let nightMode = ForestThemeResolver.resolve(mode: .night, systemIsDark: false,
+                                                    hour: 9, month: 10,
+                                                    followsClock: false, followsSeason: true)
+        XCTAssertTrue(nightMode.isNight, "用户选的夜档不被季节开关顶掉")
+        XCTAssertEqual(nightMode.season, .autumn, "但叶色照样随季节走")
+
+        // 与常青档确实不同：季节是真的动了画面。
+        let evergreen = ForestThemeResolver.resolve(mode: .day, systemIsDark: false,
+                                                    hour: 9, month: 10,
+                                                    followsClock: false, followsSeason: false)
+        XCTAssertNotEqual(autumn.foliage, evergreen.foliage, "跟随季节必须真的换叶色")
     }
 
     // MARK: - ④ 季节只改插画层（硬约束）
@@ -222,15 +256,17 @@ final class ForestAtmosphereTests: XCTestCase {
         XCTAssertTrue(main.contains("state.forestFollowsClock"), "主界面要读跟随开关")
     }
 
-    /// AppState 的 `theme` 把小时/月份/开关一起交给解析器。
+    /// AppState 的 `theme` 把小时/月份/两个开关一起交给解析器。
     ///
-    /// 反证：改回只传 `mode` 与 `systemIsDark` → 红。
+    /// 反证：改回只传 `mode` 与 `systemIsDark`，或漏掉任一开关 → 红。
     func testAppStateFeedsTheClockIntoTheTheme() throws {
         let state = try source("AppUI/AppState.swift")
         XCTAssertTrue(state.contains("hour: Int(clockHour.rounded(.down)), month: clockMonth,"),
                       "主题解析要拿到小时与月份")
         XCTAssertTrue(state.contains("followsClock: product.forestFollowsClock"),
-                      "主题解析要拿到跟随开关")
+                      "主题解析要拿到跟随时间的开关")
+        XCTAssertTrue(state.contains("followsSeason: product.forestFollowsSeason"),
+                      "主题解析要拿到跟随季节的开关（拆分后各管各的）")
     }
 
     /// 手动点太阳/月亮必须**收回自动**，否则开了跟随后那个按钮点了没反应。
@@ -251,11 +287,16 @@ final class ForestAtmosphereTests: XCTestCase {
                       "收回自动之后还要真的切一次")
     }
 
-    /// 设置里有这个开关（且文案说清了「点太阳会收回自动」这层关系）。
-    func testSettingsExposesTheFollowClockToggle() throws {
+    /// 设置里要有**两个**开关（2026-09-29 拆分：原来是绑在一起的一个）。
+    func testSettingsExposesTheTwoFollowToggles() throws {
         let settings = try source("AppUI/Views/SettingsView.swift")
         XCTAssertTrue(settings.contains("await state.setForestFollowsClock(on)"),
-                      "设置里要有跟随时间与季节的开关")
-        XCTAssertTrue(settings.contains("跟随时间与季节"))
+                      "设置里要有「跟随时间」的开关")
+        XCTAssertTrue(settings.contains("await state.setForestFollowsSeason(on)"),
+                      "设置里要有「跟随季节」的开关")
+        XCTAssertTrue(settings.contains("跟随时间"), "开关文案不许再写「跟随时间与季节」的合并措辞之外缺了时间")
+        XCTAssertTrue(settings.contains("跟随季节"))
+        XCTAssertFalse(settings.contains("跟随时间与季节"),
+                       "拆分之后不许再出现合并措辞（两个开关各管各的）")
     }
 }

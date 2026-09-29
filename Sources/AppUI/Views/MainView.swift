@@ -114,18 +114,19 @@ public struct MainView: View {
                 // 模型启停 / 星星结算 / 课程覆盖度三张浮卡：抽成独立计算属性
                 //（body 贴着类型检查预算，这三段链留在 body 里就超时——编译器实测报过错）。
                 globalToastOverlays
-
-            // 划词气泡浮层：挂在**最外层** ZStack 上（2026-09-29 报障的修复）。
+            }
+            // 划词气泡浮层：挂在**最外层 ZStack** 上（2026-09-29 报障的修复）。
             //
-            // 用户口径：**任何浮卡都要显示在整个应用界面的最上方**。原先挂在中间栏
-            // （chatArea）上，侧栏抬到 zIndex(1) 后气泡就被压在侧栏底下——
-            // 挪到这里，sidebar(1) / CelestialToggle(2) / 各面板(18~50) 全在它底下；
+            // ⚠️ 位置纪律：必须在 ZStack 的**闭合括号之后**。写进括号里、紧跟在某个
+            // 孩子后面，ViewBuilder 会把它解析成「挂在那个孩子身上」——上一版挂在
+            // `globalToastOverlays`（无 toast 时是 EmptyView）上，锚点 preference 一个
+            // 都收不到，结果就是「任何地方都触发不了划词」（用户实测报障的根因）。
+            //
+            // 挂在这里，sidebar(1) / CelestialToggle(2) / 各面板(18~50) 全在它底下；
             // 面板打开时 `isContentCovered` 已把气泡收掉（见下方 onChange），互不打架。
-            //
             // anchor 的坐标是**相对浮层所在层级**实时解算的（`geo[anchor.bounds]`），
             // 换层只需要平移一次原点，摆位算式（`WordLookupLayerPlacement`）不用动。
             .wordLookupBubbleOverlay()
-        }
         }
         .frame(minWidth: 1080, minHeight: 720)
         .forestTheme(state.theme)
@@ -639,8 +640,8 @@ public struct MainView: View {
                     // 批次八 · H：首次进入欢迎，树冠也挥挥手
                     welcomeTick: state.forest.welcomeTick,
                     onSkyTap: { state.forest.registerSkyTap() },
-                    // 批次六 · F：点学员 / 小伙伴一声叫
-                    onLearnerTap: { state.sound.cue(.animalTap) }
+                    // 批次六 · F：点学员 / 小伙伴一声叫（叫声随物种走，2026-09-29 拆分）
+                    onLearnerTap: { kind in state.sound.animalVoice(kind) }
                 ) { level in
                     Task { await open(level) }
                 }
@@ -669,8 +670,8 @@ public struct MainView: View {
                     teacherTurnTick: state.forest.teacherTurnTick,
                     lastActivityAt: state.forest.lastActivityAt,
                     previewSleepBubble: CommandLine.arguments.contains("--sleep-bubble"),
-                    // 批次六 · F：点小动物一声叫（气泡照旧）
-                    onResidentTap: { state.sound.cue(.animalTap) },
+                    // 批次六 · F：点小动物一声叫（气泡照旧；叫声随物种走，2026-09-29 拆分）
+                    onResidentTap: { kind in state.sound.animalVoice(kind) },
                     // 批次八 · H：首次进入欢迎演出 / 错误举牌（老师联系不上时）
                     welcomeTick: state.forest.welcomeTick,
                     errorSignTick: state.forest.errorSignTick,

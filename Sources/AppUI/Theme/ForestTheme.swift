@@ -368,19 +368,30 @@ public enum ForestThemeResolver {
         }
     }
 
-    /// 「跟随时间与季节」打开后的主题（纯函数，便于单测）。
+    /// 「跟随时间」「跟随季节」两个开关（2026-09-29 拆分，原来是绑在一起的）下的主题
+    /// （纯函数，便于单测）。
     ///
-    /// 打开时**时刻说了算**：天黑了就切夜景、白天按小时挑天空色、按月份换季节。
-    /// 关掉时与老行为逐字相同（`moment` / `season` 都是 nil）。
+    /// - 跟随时间：**时刻说了算** —— 天黑了就切夜景、白天按小时挑天空色；
+    /// - 跟随季节：按月份换叶色/落花，日夜档位仍由用户自己决定；
+    /// - 两个都关：与老行为逐字相同（`moment` / `season` 都是 nil）。
     ///
     /// ⚠️ 手动点太阳/月亮走的是「收回到手动」那条路（见 `AppState.toggleDayNight`），
     /// 不是在这里跟自动打架 —— 否则开了自动之后那个按钮点了没反应。
     public static func resolve(mode: ThemeMode, systemIsDark: Bool,
-                               hour: Int, month: Int, followsClock: Bool) -> ForestTheme {
-        guard followsClock else { return resolve(mode: mode, systemIsDark: systemIsDark) }
-        let palette: ForestPalette = ForestAtmosphere.isNightHour(hour) ? .night : .day
-        return ForestTheme(palette: palette,
-                           moment: ForestAtmosphere.moment(hour: hour),
+                               hour: Int, month: Int,
+                               followsClock: Bool, followsSeason: Bool) -> ForestTheme {
+        guard followsClock || followsSeason else {
+            return resolve(mode: mode, systemIsDark: systemIsDark)
+        }
+        if followsClock {
+            let palette: ForestPalette = ForestAtmosphere.isNightHour(hour) ? .night : .day
+            return ForestTheme(palette: palette,
+                               moment: ForestAtmosphere.moment(hour: hour),
+                               season: followsSeason ? ForestAtmosphere.season(month: month) : nil)
+        }
+        // 只跟随季节：日夜仍由档位决定，叶色随月份走。
+        let base = resolve(mode: mode, systemIsDark: systemIsDark)
+        return ForestTheme(palette: base.palette, moment: base.moment,
                            season: ForestAtmosphere.season(month: month))
     }
 }

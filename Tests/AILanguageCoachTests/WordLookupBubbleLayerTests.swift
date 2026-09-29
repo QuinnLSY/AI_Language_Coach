@@ -210,13 +210,22 @@ final class WordLookupOverlayMountTests: XCTestCase {
         let mounts = main.filter { $0.text.contains(".wordLookupBubbleOverlay()") }
         XCTAssertEqual(mounts.count, 1, "浮层只允许挂一份")
 
-        let lastChild = main.first { $0.text.contains("globalToastOverlays") }
-        XCTAssertNotNil(lastChild, "找不到 ZStack 最后一个孩子的引用行（结构变了就改这条判据）")
+        // ⚠️ 结构判据（2026-09-29 二次报障的教训）：修饰符必须紧跟在 **ZStack 的闭合
+        // 括号**之后。写在括号里、跟在某个孩子后面，ViewBuilder 会把它解析成
+        // 「挂在那个孩子身上」——上一版就挂到了 `globalToastOverlays`（无 toast 时是
+        // EmptyView）上，锚点 preference 全丢，「任何地方都触发不了划词」。
+        // 所以判据不是「行序在谁之后」（那次就是这么漏的），而是**前一行必须是
+        // 闭合括号**（且不是 `globalToastOverlays` 本身）。
+        guard let mount = mounts.first else { return }
+        let index = main.firstIndex { $0.number == mount.number }!
+        XCTAssertGreaterThan(index, 0, "浮层挂载行不该是文件第一行")
+        let previous = main[index - 1].text.trimmingCharacters(in: .whitespaces)
+        XCTAssertEqual(previous, "}",
+                       "浮层必须紧跟在 ZStack 闭合括号之后（写进括号里会挂到前一个孩子身上，锚点全丢）")
+
         let geometryClose = main.first { $0.text.contains(".frame(minWidth: 1080") }
         XCTAssertNotNil(geometryClose, "找不到 GeometryReader 的收尾修饰（结构变了就改这条判据）")
-        XCTAssertGreaterThan(mounts[0].number, lastChild!.number,
-                             "浮层必须挂在 ZStack 最后一个孩子之后（挂低了就会被侧栏/面板压住）")
-        XCTAssertLessThan(mounts[0].number, geometryClose!.number,
+        XCTAssertLessThan(mount.number, geometryClose!.number,
                           "浮层必须挂在最外层 ZStack 上（挂在子视图属性里就到不了最上层）")
 
         let chat = try source("AppUI/Views/ChatView.swift")

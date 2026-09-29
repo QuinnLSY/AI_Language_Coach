@@ -1130,13 +1130,17 @@ public final class AppState {
     /// 当前月份（1...12）：季节的判据。
     public var clockMonth: Int { Calendar.current.component(.month, from: Date()) }
 
-    /// 森林是否跟随真实时间与季节（设置开关，默认关）。
+    /// 森林是否跟随真实时间（设置开关，默认关）。
     public var forestFollowsClock: Bool { product.forestFollowsClock }
+
+    /// 森林叶色是否随真实季节（设置开关，默认关；与时间开关各管各的）。
+    public var forestFollowsSeason: Bool { product.forestFollowsSeason }
 
     public var theme: ForestTheme {
         ForestThemeResolver.resolve(mode: themeMode, systemIsDark: systemIsDark,
                                     hour: Int(clockHour.rounded(.down)), month: clockMonth,
-                                    followsClock: product.forestFollowsClock)
+                                    followsClock: product.forestFollowsClock,
+                                    followsSeason: product.forestFollowsSeason)
     }
 
     // 供设置页读取的产品字段
@@ -1644,9 +1648,15 @@ public final class AppState {
         forest.welcome()
     }
 
-    /// 切换「森林跟随时间与季节」。
+    /// 切换「跟随时间」（天黑切夜景、太阳沿弧线走）。
     public func setForestFollowsClock(_ on: Bool) async {
         product.forestFollowsClock = on
+        await persistProduct()
+    }
+
+    /// 切换「跟随季节」（春华秋实换叶色，日夜档位不动）。
+    public func setForestFollowsSeason(_ on: Bool) async {
+        product.forestFollowsSeason = on
         await persistProduct()
     }
 
