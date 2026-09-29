@@ -54,6 +54,9 @@ public struct ForestSky: View {
             }
         }
         .clipped()
+        // 天空整体（云 / 星 / 萤火虫 / 山丘）是纯氛围装饰：VoiceOver 扫到 70 颗无名星星
+        // 只会淹没真正的控件。日夜切换走 CelestialToggle（独立控件，在内容层，不受这里影响）。
+        .accessibilityHidden(true)
     }
 }
 
@@ -256,7 +259,9 @@ private struct Fireflies: View {
                         y: point.y * proxy.size.height + (float ? -18 : 12)
                     )
                     .opacity(float ? 0.95 : 0.25)
-                    .animation(
+                    // ⚠️ 必须走 `.loopAnimation`（批次七·G）：裸 `.animation(.repeatForever)`
+                    // 是 reduceMotion 的法外之地 ——「减弱动态效果」开着它照样飘。
+                    .loopAnimation(
                         .easeInOut(duration: Double(3 + index % 4)).repeatForever(autoreverses: true),
                         value: float
                     )

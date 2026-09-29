@@ -133,23 +133,32 @@ public struct TreeCanvas: View {
                     .contentShape(Rectangle())
                     .onTapGesture { onSkyTap?() }
 
-                // 树干
-                TrunkShape()
-                    .fill(
-                        LinearGradient(
-                            colors: [theme.trunk, theme.trunkShade],
-                            startPoint: .leading,
-                            endPoint: .trailing
+                // 批次七 · G：树干 / 树冠 / 藤蔓是纯装饰（进度信息已由 LevelNode 的读屏
+                // 文案与 FruitLayer 的星数承载），对 VoiceOver 整体隐藏，别让它念「一棵树」。
+                Group {
+                    // 树干
+                    TrunkShape()
+                        .fill(
+                            LinearGradient(
+                                colors: [theme.trunk, theme.trunkShade],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
                         )
-                    )
-                    .frame(width: width, height: canvasHeight)
+                        .frame(width: width, height: canvasHeight)
 
-                // 树冠（茂密度随总进度；通关时抖三抖）
-                Canopy(theme: theme, density: density,
-                       fruitCount: min(earnedStars, FruitLayer.placements.count),
-                       shakeTick: ceremonyTick)
-                    .frame(width: width, height: 300)
-                    .offset(y: 20)
+                    // 树冠（茂密度随总进度；通关时抖三抖）
+                    Canopy(theme: theme, density: density,
+                           fruitCount: min(earnedStars, FruitLayer.placements.count),
+                           shakeTick: ceremonyTick)
+                        .frame(width: width, height: 300)
+                        .offset(y: 20)
+
+                    // 藤蔓叶子点缀
+                    Leaves(theme: theme)
+                        .frame(width: width, height: canvasHeight)
+                }
+                .accessibilityHidden(true)
 
                 // 树枝 + 关卡节点
                 ForEach(progress.levels) { level in
@@ -169,10 +178,6 @@ public struct TreeCanvas: View {
                         .position(x: nodeX, y: y)
                         .onTapGesture { onSelectLevel(level) }
                 }
-
-                // 藤蔓叶子点缀
-                Leaves(theme: theme)
-                    .frame(width: width, height: canvasHeight)
 
                 // 小学员（攀爬者）与他的小伙伴：配饰随攒星成长（红领巾→背包→望远镜→毕业帽）、
                 // 可点击说话；随进度沿树干上下。档位判据与各页面同源（`StudentProgression`）。
@@ -480,6 +485,8 @@ struct LeafFallLayer: View {
             }
         }
         .allowsHitTesting(false)
+        // 纯装饰的落叶：读屏不该读到「一片飘着的叶子」。
+        .accessibilityHidden(true)
         .onChange(of: wordTick) { _, tick in guard tick > 0 else { return }; spawn(1) }
         .onChange(of: practiceTick) { _, tick in guard tick > 0 else { return }; spawn(4) }
         .onChange(of: ceremonyTick) { _, tick in guard tick > 0 else { return }; spawn(12) }
@@ -680,7 +687,7 @@ private struct LevelNode: View {
         // 绑定了情景的关卡：挂一个小对话标，提示「点它就是进情景练」
         .overlay(alignment: .topTrailing) {
             if level.scenarioID != nil {
-                Image(systemName: "bubble.left.and.bubble.right.fill")
+                Image(systemName: "bubble.left.and.text.bubble.right.fill")
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 18, height: 18)
@@ -688,6 +695,22 @@ private struct LevelNode: View {
                     .offset(x: 4, y: -4)
             }
         }
+        // 批次七 · G：关卡点是 onTapGesture，默认不在 VoiceOver 树里 ——
+        // 不补这一段，读屏用户既看不见关卡也进不了练习。
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Self.voiceOverLine(level: level, note: note))
+        .accessibilityAddTraits(level.state == .locked ? [] : [.isButton])
+        .accessibilityHint(Self.voiceOverHint(isLocked: level.state == .locked))
+    }
+
+    /// 关卡节点的读屏提示（文案唯一出处见 `AccessibilityLines.levelHint`）。
+    static func voiceOverHint(isLocked: Bool) -> String {
+        AccessibilityLines.levelHint(isLocked: isLocked)
+    }
+
+    /// 关卡节点的读屏一句话（文案唯一出处见 `AccessibilityLines.levelLine`，可单测）。
+    static func voiceOverLine(level: TreeLevel, note: TreeLevelNote?) -> String {
+        AccessibilityLines.levelLine(level: level, note: note)
     }
 
     private var fill: Color {
@@ -917,48 +940,53 @@ struct ForestGroundBand: View {
             let order = speciesOrder()
 
             ZStack(alignment: .bottomLeading) {
-                // 草坡
-                HillCap()
-                    .fill(theme.hillNear)
-                    .frame(height: 96)
+                // 批次七 · G：下面这一段（草坡 / 草叶 / 灌木 / 小花 / 点出来的花 / 栖木桠）
+                // 全是纯装饰 —— 包成一个 Group 对 VoiceOver 整体隐藏，居民（动物）保留读屏。
+                Group {
+                    // 草坡
+                    HillCap()
+                        .fill(theme.hillNear)
+                        .frame(height: 96)
 
-                // 远处草丛（固定数量，按宽度均布；倾角只跟 index 走，不随宽度乱跳）
-                ForEach(0..<grassCount, id: \.self) { i in
-                    grassBlade(x: inset + CGFloat(i) / CGFloat(grassCount - 1) * span,
-                               h: 9 + pr(i, 1) * 11,
-                               w: 2.6 + pr(i, 2) * 1.6,
-                               seed: i,
-                               groundLine: groundLine)
+                    // 远处草丛（固定数量，按宽度均布；倾角只跟 index 走，不随宽度乱跳）
+                    ForEach(0..<grassCount, id: \.self) { i in
+                        grassBlade(x: inset + CGFloat(i) / CGFloat(grassCount - 1) * span,
+                                   h: 9 + pr(i, 1) * 11,
+                                   w: 2.6 + pr(i, 2) * 1.6,
+                                   seed: i,
+                                   groundLine: groundLine)
+                    }
+
+                    // 灌木丛（增加层次，压住「排排站」的感觉）
+                    ForEach(0..<maxBushes, id: \.self) { i in
+                        bush(x: inset + pr(i, 12) * span,
+                             groundLine: groundLine,
+                             seed: i)
+                            .opacity(i < bushCount ? 1 : 0)
+                            .appAnimation(.reveal, value: bushCount)
+                    }
+
+                    // 小花（错落 + 三种花色）
+                    ForEach(0..<maxFlowers, id: \.self) { i in
+                        flower(x: inset + pr(i, 8) * span,
+                               groundLine: groundLine,
+                               palette: i % 3)
+                            .opacity(i < flowerCount ? 1 : 0)
+                            .appAnimation(.reveal, value: flowerCount)
+                    }
+
+                    // 点草地冒出来的花（批次六 · E）：从点下的位置长出来，挤掉最早的
+                    ForEach(plantedFlowers) { planted in
+                        flower(x: min(max(planted.x, 16), width - 16),
+                               groundLine: groundLine,
+                               palette: planted.palette)
+                            .transition(.scale(scale: 0.4, anchor: .bottom).combined(with: .opacity))
+                    }
+
+                    // 树干底部的两根枝桠栖木（鸟类专用；画在树干透出区域的中心两侧）
+                    perchStubs(width: width)
                 }
-
-                // 灌木丛（增加层次，压住“排排站”的感觉）
-                ForEach(0..<maxBushes, id: \.self) { i in
-                    bush(x: inset + pr(i, 12) * span,
-                         groundLine: groundLine,
-                         seed: i)
-                        .opacity(i < bushCount ? 1 : 0)
-                        .appAnimation(.reveal, value: bushCount)
-                }
-
-                // 小花（错落 + 三种花色）
-                ForEach(0..<maxFlowers, id: \.self) { i in
-                    flower(x: inset + pr(i, 8) * span,
-                           groundLine: groundLine,
-                           palette: i % 3)
-                        .opacity(i < flowerCount ? 1 : 0)
-                        .appAnimation(.reveal, value: flowerCount)
-                }
-
-                // 点草地冒出来的花（批次六 · E）：从点下的位置长出来，挤掉最早的
-                ForEach(plantedFlowers) { planted in
-                    flower(x: min(max(planted.x, 16), width - 16),
-                           groundLine: groundLine,
-                           palette: planted.palette)
-                        .transition(.scale(scale: 0.4, anchor: .bottom).combined(with: .opacity))
-                }
-
-                // 树干底部的两根枝桠栖木（鸟类专用；画在树干透出区域的中心两侧）
-                perchStubs(width: width)
+                .accessibilityHidden(true)
 
                 // 林间居民：各物种独立个体，朝向/大小/站位/动与静各不相同
                 ForEach(0..<Self.maxResidents, id: \.self) { i in

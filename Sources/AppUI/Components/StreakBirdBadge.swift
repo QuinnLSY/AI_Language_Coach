@@ -34,6 +34,9 @@ struct StreakBirdBadge: View {
         }
         .buttonStyle(.appPressable)
         .help(badge.isAtRisk ? TodayPanel.streakGuardLine(badge) : "已连续学习 \(badge.days) 天，点按查看年度学习记录")
+        // 批次七 · G：读屏听到的要是有语义的一句话，不是孤零零「7 天」。
+        .accessibilityLabel(Self.voiceOverLine(badge: badge))
+        .accessibilityHint("查看年度学习记录")
         // 连胜 +1：扑一次翅膀庆祝（一次性，平时静止——动效预算最低）
         .onChange(of: badge.days) { oldValue, newValue in
             guard newValue > oldValue, !badge.isAtRisk else { return }
@@ -43,6 +46,11 @@ struct StreakBirdBadge: View {
                 withAnimation(.app(.panel)) { isFlapping = false }
             }
         }
+    }
+
+    /// 连胜徽章的读屏一句话（文案唯一出处见 `AccessibilityLines.streakLine`，可单测）。
+    static func voiceOverLine(badge: TodayPanel.StreakBadge) -> String {
+        AccessibilityLines.streakLine(badge: badge)
     }
 
     // MARK: - 小鸟（纯矢量，随徽章缩放）
