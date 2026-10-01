@@ -93,7 +93,7 @@ public struct WordLookupBubble: View {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
                     Text("正在查…")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
             }
@@ -105,14 +105,14 @@ public struct WordLookupBubble: View {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     if !card.pos.isEmpty {
                         Text(card.pos)
-                            .font(.system(size: 10, weight: .semibold, design: .rounded).italic())
+                            .appFont(10, weight: .semibold, design: .rounded, italic: true)
                             .foregroundStyle(theme.accent)
                             .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
+                            .appPadding(.vertical, 1)
                             .background(Capsule().fill(theme.accent.opacity(0.14)))
                     }
                     Text(card.translation)
-                        .font(.system(size: 12, design: .rounded))
+                        .appFont(12, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(2)
@@ -120,19 +120,19 @@ public struct WordLookupBubble: View {
             }
             if !card.formNote.isEmpty {
                 Text(card.formNote)
-                    .font(.system(size: 10.5, design: .rounded))
+                    .appFont(10.5, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let notice = card.notice, !notice.isEmpty {
                 Text(notice)
-                    .font(.system(size: 10.5, design: .rounded))
+                    .appFont(10.5, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.horizontal, 11)
-        .padding(.vertical, 9)
+        .appPadding(.vertical, 9)
         // ⚠️ 自适应增宽：maxWidth 抬到 `minCardWidth` 以上 —— 词比 268 还长时，
         // 卡片跟着词长，**绝不把单词折行**；正常词则维持 268 上限不变。
         .frame(
@@ -157,17 +157,17 @@ public struct WordLookupBubble: View {
     private var formRow: some View {
         HStack(spacing: 5) {
             Image(systemName: "arrow.turn.down.right")
-                .font(.system(size: 9, weight: .semibold))
+                .appFont(9, weight: .semibold)
                 .foregroundStyle(theme.secondaryText)
             Text(card.lemma)
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .appFont(12, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .textSelection(.disabled)
             Text(card.formLabel)
-                .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+                .appFont(9.5, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.accent)
                 .padding(.horizontal, 5)
-                .padding(.vertical, 1)
+                .appPadding(.vertical, 1)
                 .background(Capsule().fill(theme.accent.opacity(0.14)))
             Spacer(minLength: 0)
         }
@@ -180,7 +180,7 @@ public struct WordLookupBubble: View {
     private var titleRow: some View {
         HStack(spacing: 6) {
             Text(card.text)
-                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .appFont(14, weight: .bold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .fixedSize()
                 .lineLimit(1)
@@ -223,7 +223,7 @@ public struct WordLookupBubble: View {
     /// 挤在词头行会把长单词压折行；单独一行后超长音标自己截断，不牵连词头。
     private var phoneticRow: some View {
         Text(card.phonetic)
-            .font(.system(size: 11, design: .rounded))
+            .appFont(11, design: .rounded)
             .foregroundStyle(theme.secondaryText)
             .lineLimit(1)
     }
@@ -233,7 +233,7 @@ public struct WordLookupBubble: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .semibold))
+                .appFont(13, weight: .semibold)
                 .foregroundStyle(theme.accentCool)
                 .frame(width: Self.iconSide, height: Self.iconSide)
                 .contentShape(Rectangle())

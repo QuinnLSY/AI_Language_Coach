@@ -20,7 +20,7 @@ extension PromptBuilder {
         nativeLanguage: String
     ) -> String {
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/exam_examiner", withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: "Prompts/exam_examiner", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {
@@ -54,7 +54,7 @@ extension PromptBuilder {
         nativeLanguage: String
     ) -> String {
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/exam_opener", withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: "Prompts/exam_opener", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {
@@ -125,7 +125,7 @@ extension PromptBuilder {
         nativeLanguage: String
     ) -> String {
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/exam_sample_answers", withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: "Prompts/exam_sample_answers", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {

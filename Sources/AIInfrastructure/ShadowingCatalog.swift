@@ -82,12 +82,12 @@ public enum ShadowingCatalog {
 
     private static func loadBundled(logging: Bool) -> [ShadowingDrill] {
         // SwiftPM 把 `Resources` 整目录复制进资源 bundle，故素材在 `Shadowing/` 子目录下。
-        if let directory = AppResourceBundle.module.url(forResource: "Shadowing", withExtension: nil) {
+        if let directory = AppResourceBundle.url(forResource: "Shadowing", withExtension: nil) {
             let loaded = load(from: directory, logging: logging)
             if !loaded.isEmpty { return loaded }
         }
         // 兜底：直接按扩展名在子目录里找（不同打包方式对目录资源的处理略有差异）。
-        if let urls = AppResourceBundle.module.urls(forResourcesWithExtension: "json", subdirectory: "Shadowing"),
+        if let urls = AppResourceBundle.urls(forResourcesWithExtension: "json", subdirectory: "Shadowing"),
            !urls.isEmpty {
             let unique = deduplicated(urls.sorted { $0.lastPathComponent < $1.lastPathComponent }
                 .compactMap { url -> [ShadowingDrill]? in

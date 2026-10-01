@@ -16,6 +16,7 @@ import SwiftUI
 public struct VocabularyView: View {
 
     @Environment(\.forestTheme) private var theme
+    @Environment(\.appTypography) private var typography
     let state: AppState
 
     public init(state: AppState) { self.state = state }
@@ -52,7 +53,7 @@ public struct VocabularyView: View {
                         // 末尾锚点：给 `--vocabulary-tail` 验证钩子用（滚到列表最后几条）。
                         Color.clear.frame(height: 1).id(Self.tailAnchor)
                     }
-                    .padding(20)
+                    .appPadding(20)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     // 失败提示的触觉反馈（#358）：同 DictionaryView —— 挂常驻容器，
                     // 且只有带动作（失败可重试）的提示才触发。
@@ -103,16 +104,16 @@ public struct VocabularyView: View {
             CuteAnimalView(kind: state.studentAnimalKind, isSleeping: theme.isNight, size: 40, accessory: state.studentAccessory)
             VStack(alignment: .leading, spacing: 2) {
                 Text("词汇本")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .appFont(16, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text("复盘里出现的生词都会收进来，到期就来过一遍")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             Spacer(minLength: 0)
             if state.vocabularyStats.total > 0 {
                 Text("\(state.vocabularyStats.total) 词 · 待复习 \(state.vocabularyStats.due) · 已掌握 \(state.vocabularyStats.mastered)")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(state.vocabularyStats.due > 0 ? theme.accent : theme.secondaryText)
                     .monospacedDigit()
             }
@@ -158,13 +159,13 @@ public struct VocabularyView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     Image(systemName: "sparkles")
-                        .font(.system(size: 12, weight: .semibold))
+                        .appFont(12, weight: .semibold)
                         .foregroundStyle(theme.accent)
                     Text("每日推荐")
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .appFont(14, weight: .bold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     Text(dailyCompositionCaption)
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                     Spacer(minLength: 0)
                     Button {
@@ -175,7 +176,7 @@ public struct VocabularyView: View {
                             Image(systemName: "arrow.triangle.2.circlepath")
                             Text("换一批")
                         }
-                        .font(.system(size: 11, weight: .medium))
+                        .appFont(11, weight: .medium)
                         .foregroundStyle(theme.accent)
                     }
                     .buttonStyle(.appPressable)
@@ -184,7 +185,7 @@ public struct VocabularyView: View {
 
                 dailyGrid
             }
-            .padding(14)
+            .appPadding(14)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(theme.accent.opacity(0.05))
@@ -198,7 +199,7 @@ public struct VocabularyView: View {
             // 位置会偏上。
             // 展开 / 收起按钮骑在**下框线正中**（offset 半个胶囊高）。
             .overlay(alignment: .bottom) { dailyExpandToggle }
-            .padding(.bottom, 10)
+            .appPadding(.bottom, 10)
             // 换一批 / 重置后页码可能越界，收回第一页。
             .onChange(of: state.dailyWords) { _, _ in dailyPage = 0 }
         }
@@ -300,7 +301,7 @@ public struct VocabularyView: View {
         VStack(spacing: 6) {
             pagerButton("chevron.up", enabled: dailyPage > 0) { goToPage(dailyPage - 1) }
             Text("\(dailyPage + 1)/\(dailyPageCount)")
-                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .appFont(9, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .monospacedDigit()
             pagerButton("chevron.down", enabled: dailyPage < dailyPageCount - 1) { goToPage(dailyPage + 1) }
@@ -310,7 +311,7 @@ public struct VocabularyView: View {
     private func pagerButton(_ systemImage: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 10, weight: .semibold))
+                .appFont(10, weight: .semibold)
                 .foregroundStyle(enabled ? theme.accent : theme.secondaryText.opacity(0.35))
                 .frame(width: 20, height: 20)
                 .background(
@@ -336,10 +337,10 @@ public struct VocabularyView: View {
                 Image(systemName: dailyExpanded ? "chevron.up" : "chevron.down")
                 Text(dailyExpanded ? "收起" : "展开")
             }
-            .font(.system(size: 10, weight: .semibold))
+            .appFont(10, weight: .semibold)
             .foregroundStyle(theme.accent)
             .padding(.horizontal, 9)
-            .padding(.vertical, 2)
+            .appPadding(.vertical, 2)
             .background(Capsule().fill(theme.surface))
             .overlay(
                 Capsule().strokeBorder(theme.accent.opacity(0.35), lineWidth: 1)
@@ -355,7 +356,7 @@ public struct VocabularyView: View {
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(daily.word)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .appFont(14, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     // 单词优先占位：窄列时宁可整体缩小，也不要把单词拆成 technolog/y。
                     // 单个单词**只允许一行**（靠 minimumScaleFactor 收窄），
@@ -392,7 +393,7 @@ public struct VocabularyView: View {
                 Spacer(minLength: 0)
                 if inVocabulary(daily.word) {
                     Label("已在词表", systemImage: "checkmark")
-                        .font(.system(size: 10, weight: .medium))
+                        .appFont(10, weight: .medium)
                         .foregroundStyle(theme.secondaryText)
                 } else {
                     Button {
@@ -402,7 +403,7 @@ public struct VocabularyView: View {
                             Image(systemName: "plus.rectangle.on.folder")
                             Text("加入复习")
                         }
-                        .font(.system(size: 10, weight: .semibold))
+                        .appFont(10, weight: .semibold)
                         .foregroundStyle(theme.accent)
                     }
                     .buttonStyle(.appPressable)
@@ -410,7 +411,7 @@ public struct VocabularyView: View {
                 }
             }
         }
-        .padding(10)
+        .appPadding(10)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(theme.surface)
@@ -433,7 +434,7 @@ public struct VocabularyView: View {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         if !definition.pos.isEmpty { partOfSpeechTag(definition.pos) }
                         Text(definition.senses)
-                            .font(.system(size: 12, design: .rounded))
+                            .appFont(12, design: .rounded)
                             .foregroundStyle(theme.primaryText.opacity(0.95))
                             .fixedSize(horizontal: false, vertical: true)
                             .lineSpacing(2)
@@ -445,7 +446,7 @@ public struct VocabularyView: View {
                 // 解释另起一行 —— 与中文义项分开，方便义项一行多放几个多义。
                 if !definition.explanation.isEmpty {
                     Text(definition.explanation)
-                        .font(.system(size: 11.5, design: .rounded))
+                        .appFont(11.5, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(2)
@@ -454,7 +455,7 @@ public struct VocabularyView: View {
                 // 旧数据：没结构的一段中文，原样展示（可点「重新释义」升级）。
                 if !definition.legacyText.isEmpty {
                     Text(definition.legacyText)
-                        .font(.system(size: 11.5, design: .rounded))
+                        .appFont(11.5, design: .rounded)
                         .foregroundStyle(theme.primaryText.opacity(0.9))
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(2)
@@ -465,7 +466,7 @@ public struct VocabularyView: View {
                         HStack(alignment: .firstTextBaseline, spacing: 5) {
                             definitionLabel("例句")
                             Text(definition.example)
-                                .font(.system(size: 11, design: .rounded).italic())
+                                .appFont(11, design: .rounded, italic: true)
                                 .foregroundStyle(theme.secondaryText)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .lineSpacing(2)
@@ -478,7 +479,7 @@ public struct VocabularyView: View {
                                 // 用等宽的空标签占位，让译文与例句左对齐。
                                 definitionLabel("例句").hidden()
                                 Text(definition.exampleTranslation)
-                                    .font(.system(size: 11, design: .rounded))
+                                    .appFont(11, design: .rounded)
                                     .foregroundStyle(theme.secondaryText.opacity(0.85))
                                     .fixedSize(horizontal: false, vertical: true)
                                     .lineSpacing(2)
@@ -509,7 +510,7 @@ public struct VocabularyView: View {
     /// 黄字小标签（例句 / 近义词 / 反义词 / 重点单词共用同一套样式）。
     private func definitionLabel(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 10, weight: .semibold))
+            .appFont(10, weight: .semibold)
             .foregroundStyle(theme.accent.opacity(0.85))
     }
 
@@ -517,7 +518,7 @@ public struct VocabularyView: View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
             definitionLabel(title)
             Text(value)
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.primaryText.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
                 .lineSpacing(2)
@@ -561,13 +562,15 @@ public struct VocabularyView: View {
             }
             result = result + part
         }
-        return result.font(.system(size: 11, design: .rounded))
+        // ⚠️ 这里拼的是 `Text`（返回类型就是 Text），不能换成 `.appFont(...)`——
+        // 那是 View modifier，会把返回类型撑成 some View。用 Font 直拼，档位照样生效。
+        return result.font(typography.font(11, design: .rounded))
     }
 
     /// 词性小标签（斜体、主题色）。
     private func partOfSpeechTag(_ pos: String) -> some View {
         Text(pos)
-            .font(.system(size: 10, weight: .semibold, design: .rounded).italic())
+            .appFont(10, weight: .semibold, design: .rounded, italic: true)
             .foregroundStyle(theme.accent)
     }
 
@@ -576,7 +579,7 @@ public struct VocabularyView: View {
     private func phoneticLabel(_ phonetic: String?, word: String) -> some View {
         if let phonetic, !phonetic.isEmpty, showsPhonetic(word) {
             Text(phonetic)
-                .font(.system(size: 10, design: .rounded))
+                .appFont(10, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -617,7 +620,7 @@ public struct VocabularyView: View {
                 Image(systemName: acknowledged ? "arrow.uturn.backward" : "checkmark.circle.fill")
                 Text(acknowledged ? "再想想" : "认识")
             }
-            .font(.system(size: 11, weight: .semibold))
+            .appFont(11, weight: .semibold)
             .foregroundStyle(acknowledged ? theme.secondaryText : Color.green)
         }
         .buttonStyle(.appPressable)
@@ -658,7 +661,7 @@ public struct VocabularyView: View {
                 }
                 if showsTitle { Text(title) }
             }
-            .font(.system(size: 10, weight: .medium))
+            .appFont(10, weight: .medium)
             .contentShape(Rectangle())
         }
         .buttonStyle(.appPressable)
@@ -693,10 +696,10 @@ public struct VocabularyView: View {
         default: Color(hex: 0x8A7BF0)
         }
         return Text(DailyWord.difficultyLabel(for: difficulty))
-            .font(.system(size: 9, weight: .semibold))
+            .appFont(9, weight: .semibold)
             .foregroundStyle(.white)
             .padding(.horizontal, 5)
-            .padding(.vertical, 1)
+            .appPadding(.vertical, 1)
             .background(Capsule().fill(color.opacity(0.85)))
     }
 
@@ -716,16 +719,16 @@ public struct VocabularyView: View {
             let due = state.vocabularyStats.due
             HStack(alignment: .center, spacing: 12) {
                 Image(systemName: due > 0 ? "clock.badge.exclamationmark" : "checkmark.circle")
-                    .font(.system(size: 16))
+                    .appFont(16)
                     .foregroundStyle(due > 0 ? theme.accent : Color.green)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(due > 0 ? "今天有 \(due) 个词到期" : "今天没有到期的词")
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .appFont(13, weight: .bold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     Text(due > 0
                          ? "一轮最多过 \(VocabularyReviewSession.maxCards) 个：先自己想，再翻面；忘了的今天还会再见一面。"
                          : "复习过的词会按掌握度排下一次见面的时间，掌握度满 \(ReviewScheduler.maxMastery) 就不再出现。")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -737,10 +740,10 @@ public struct VocabularyView: View {
                         Image(systemName: "play.fill")
                         Text("开始复习")
                     }
-                    .font(.system(size: 12, weight: .semibold))
+                    .appFont(12, weight: .semibold)
                     .foregroundStyle(theme.onAccentFill)
                     .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
+                    .appPadding(.vertical, 7)
                     .background(
                         // 黄底上的字色跟着 `accentFill` 走（白档深墨、夜档白字）：
                         // 白档的黄已经提亮成金黄，再写死白字就整块读不出。
@@ -752,7 +755,7 @@ public struct VocabularyView: View {
                 .disabled(due == 0)
                 .help(due > 0 ? "开始一轮复习（最多 \(VocabularyReviewSession.maxCards) 个词）" : "今天没有到期的词")
             }
-            .padding(14)
+            .appPadding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -813,14 +816,14 @@ public struct VocabularyView: View {
     private var addHint: some View {
         HStack(spacing: 10) {
             Image(systemName: "character.book.closed.fill")
-                .font(.system(size: 14))
+                .appFont(14)
                 .foregroundStyle(theme.accent)
             VStack(alignment: .leading, spacing: 2) {
                 Text("加词去词典里查")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text("在词典页搜一个词，结果页右上角点「添加复习」，它就会出现在这里。")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -832,7 +835,7 @@ public struct VocabularyView: View {
                     Image(systemName: "magnifyingglass")
                     Text("去查词")
                 }
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .appFont(11, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.accent)
                 .padding(.horizontal, 10)
                 .frame(height: 24)
@@ -843,7 +846,7 @@ public struct VocabularyView: View {
             .buttonStyle(.appPressable)
             .help("打开词典页查词")
         }
-        .padding(12)
+        .appPadding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.surfaceAlt)
@@ -861,7 +864,7 @@ public struct VocabularyView: View {
         return VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(entry.word)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .appFont(14, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 phoneticLabel(definition.phonetic, word: entry.word)
@@ -869,30 +872,30 @@ public struct VocabularyView: View {
                 speakButton(entry.word)
                 if ReviewScheduler.isDue(entry) {
                     Text("待复习")
-                        .font(.system(size: 9, weight: .semibold))
+                        .appFont(9, weight: .semibold)
                         .foregroundStyle(theme.onAccentFill)
                         .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
+                        .appPadding(.vertical, 1)
                         .background(Capsule().fill(theme.accentFill))
                 }
                 if entry.isMastered {
                     Text("已掌握")
-                        .font(.system(size: 9, weight: .semibold))
+                        .appFont(9, weight: .semibold)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
+                        .appPadding(.vertical, 1)
                         .background(Capsule().fill(Color.green))
                 }
                 Spacer(minLength: 0)
                 Text(sourceLabel(entry.source))
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 // 删除（红色线条，醒目一些）
                 Button {
                     Task { await state.removeVocabulary(id: entry.id) }
                 } label: {
                     Image(systemName: "trash")
-                        .font(.system(size: 11, weight: .medium))
+                        .appFont(11, weight: .medium)
                         .foregroundStyle(Color.red.opacity(0.85))
                 }
                 .buttonStyle(.appPressable)
@@ -902,7 +905,7 @@ public struct VocabularyView: View {
             if !collapsed {
                 if entry.meaning.isEmpty {
                     Text("还没有释义")
-                        .font(.system(size: 12, design: .rounded))
+                        .appFont(12, design: .rounded)
                         .foregroundStyle(theme.secondaryText.opacity(0.7))
                 } else {
                     // 与每日推荐卡完全同一套排版，额外多一行「重点单词」。
@@ -913,7 +916,7 @@ public struct VocabularyView: View {
             HStack(spacing: 10) {
                 masteryBar(entry.mastery)
                 Text("复习 \(entry.reviewCount) 次")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .monospacedDigit()
                 Spacer(minLength: 0)
@@ -933,7 +936,7 @@ public struct VocabularyView: View {
                             }
                             Text("重新释义")
                         }
-                        .font(.system(size: 11, weight: .medium))
+                        .appFont(11, weight: .medium)
                     }
                     .buttonStyle(.appPressable)
                     .foregroundStyle(theme.secondaryText)
@@ -954,7 +957,7 @@ public struct VocabularyView: View {
                         }
                         Text(collapsed ? "看释义" : (entry.meaning.isEmpty ? "查释义" : "收起释义"))
                     }
-                    .font(.system(size: 11, weight: .medium))
+                    .appFont(11, weight: .medium)
                 }
                 .buttonStyle(.appPressable)
                 .foregroundStyle(theme.accent)
@@ -965,7 +968,7 @@ public struct VocabularyView: View {
                 }
             }
         }
-        .padding(12)
+        .appPadding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -985,7 +988,7 @@ public struct VocabularyView: View {
                 Image(systemName: systemImage)
                 Text(title)
             }
-            .font(.system(size: 11, weight: .semibold))
+            .appFont(11, weight: .semibold)
             .foregroundStyle(color)
         }
         .buttonStyle(.appPressable)
@@ -1017,18 +1020,18 @@ public struct VocabularyView: View {
     private var emptyHint: some View {
         VStack(spacing: 8) {
             Image(systemName: "text.book.closed")
-                .font(.system(size: 28))
+                .appFont(28)
                 .foregroundStyle(theme.secondaryText.opacity(0.6))
             Text("词表还是空的")
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .appFont(13, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             Text("每次练习结束后，复盘里标记的生词会自动收进这里；也可以在词典页查词，从结果页右上角「添加复习」加进来。")
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 60)
+        .appPadding(.vertical, 60)
     }
 
     /// 提示条（释义失败那条自带「重试」—— 见 `NoticeBanner`）。

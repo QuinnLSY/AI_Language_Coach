@@ -583,6 +583,60 @@ public actor LearningDatabase {
         return rows.compactMap { $0 }
     }
 
+    /// 在对话正文里搜关键词（#414 全局搜索）。
+    ///
+    /// ⚠️ 用 LIKE + 参数绑定，**绝不把用户输入拼进 SQL**：拼字符串时一个引号
+    /// 就能让整条查询变成语法错误（或更糟）。
+    /// ⚠️ `%` 与 `_` 是 LIKE 自己的通配符：用户搜「50%」不该命中一切含数字的消息，
+    /// 所以要先转义再包 `%…%`（`ESCAPE '\'` 与这里的转义符是同一套）。
+    /// ⚠️ 排除 `archive` 会话：那是复盘后归档的旧流水，不是用户练过的对话。
+    public func searchMessages(query: String, limit: Int = 30) throws -> [GlobalSearchMessage] {
+        let needle = GlobalSearch.normalize(query)
+        guard !needle.isEmpty else { return [] }
+        let pattern = "%" + Self.likeEscaped(needle) + "%"
+        let rows = try db.query(
+            """
+            SELECT m.id, m.session_id, m.role, m.content, m.created_at
+            FROM messages m
+            WHERE m.content LIKE ?1 ESCAPE '\\' AND m.session_id != 'archive'
+            ORDER BY m.created_at DESC
+            LIMIT ?2
+            """,
+            [.text(pattern), .int(limit)]
+        ) { row -> GlobalSearchMessage? in
+            guard let messageID = row.string(0),
+                  let sessionText = row.string(1),
+                  let sessionID = UUID(uuidString: sessionText),
+                  let role = row.string(2),
+                  let content = row.string(3),
+                  let created = row.double(4)
+            else { return nil }
+            return GlobalSearchMessage(
+                sessionID: sessionID,
+                messageID: messageID,
+                role: role,
+                snippet: GlobalSearch.snippet(text: content, query: needle),
+                createdAt: Date(timeIntervalSince1970: created)
+            )
+        }
+        return rows.compactMap { $0 }
+    }
+
+    /// LIKE 通配符转义（% / _ / 转义符本身）。
+    static func likeEscaped(_ text: String) -> String {
+        var out = ""
+        for character in text {
+            switch character {
+            case "%", "_", "\\":
+                out.append("\\")
+                out.append(character)
+            default:
+                out.append(character)
+            }
+        }
+        return out
+    }
+
     public func messageCount(sessionID: UUID) throws -> Int {
         try db.query(
             "SELECT COUNT(*) FROM messages WHERE session_id = ?1",

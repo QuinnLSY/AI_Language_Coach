@@ -104,7 +104,7 @@ public struct DictionaryWordDetailCard: View {
                 }
             }
         }
-        .padding(16)
+        .appPadding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -127,7 +127,7 @@ public struct DictionaryWordDetailCard: View {
             Spacer(minLength: 0)
             if isInVocabulary {
                 Label("已在词表", systemImage: "checkmark.circle.fill")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             } else {
                 pillButton("添加复习", systemImage: "plus.rectangle.on.folder", tint: theme.accent, action: onAddToReview)
@@ -136,7 +136,7 @@ public struct DictionaryWordDetailCard: View {
             if !detail.isEmpty {
                 Button(action: onRelookUp) {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 11, weight: .semibold))
+                        .appFont(11, weight: .semibold)
                         .foregroundStyle(theme.secondaryText)
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
@@ -158,7 +158,7 @@ public struct DictionaryWordDetailCard: View {
                 Image(systemName: systemImage)
                 Text(title)
             }
-            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .appFont(11, weight: .semibold, design: .rounded)
             .foregroundStyle(tint)
             .padding(.horizontal, 10)
             .frame(height: 24)
@@ -175,7 +175,7 @@ public struct DictionaryWordDetailCard: View {
     private var headword: some View {
         HStack(alignment: .center, spacing: 8) {
             Text(detail.word)
-                .font(.system(size: 26, weight: .heavy, design: .rounded))
+                .appFont(26, weight: .heavy, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
             speakButton(detail.word, label: "朗读单词")
@@ -191,24 +191,24 @@ public struct DictionaryWordDetailCard: View {
     private var formRow: some View {
         HStack(spacing: 6) {
             Image(systemName: "arrow.turn.down.right")
-                .font(.system(size: 10, weight: .semibold))
+                .appFont(10, weight: .semibold)
                 .foregroundStyle(theme.secondaryText)
             if !detail.baseForm.isEmpty {
                 Text(detail.baseForm)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .appFont(13, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
             }
             if let label = WordForm.label(surface: detail.word, lemma: detail.baseForm) {
                 Text(label)
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .appFont(10, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.accent)
                     .padding(.horizontal, 6)
-                    .padding(.vertical, 1.5)
+                    .appPadding(.vertical, 1.5)
                     .background(Capsule().fill(theme.accent.opacity(0.14)))
             }
             if !detail.formNote.isEmpty {
                 Text(detail.formNote)
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -226,10 +226,10 @@ public struct DictionaryWordDetailCard: View {
     private func phoneticTag(_ label: String, _ value: String) -> some View {
         HStack(spacing: 5) {
             Text(label)
-                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .appFont(10, weight: .bold, design: .rounded)
                 .foregroundStyle(theme.accent)
             Text(value)
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
         }
         .padding(.horizontal, 8)
@@ -250,9 +250,9 @@ public struct DictionaryWordDetailCard: View {
             }
             Spacer(minLength: 0)
         }
-        .font(.system(size: 12, design: .rounded))
+        .appFont(12, design: .rounded)
         .foregroundStyle(theme.secondaryText)
-        .padding(.vertical, 10)
+        .appPadding(.vertical, 10)
     }
 
     // MARK: - 释义
@@ -265,19 +265,19 @@ public struct DictionaryWordDetailCard: View {
                         HStack(alignment: .firstTextBaseline, spacing: 7) {
                             if !sense.pos.isEmpty {
                                 Text(sense.pos)
-                                    .font(.system(size: 11, weight: .bold, design: .rounded).italic())
+                                    .appFont(11, weight: .bold, design: .rounded, italic: true)
                                     .foregroundStyle(theme.accent)
                                     .frame(width: 40, alignment: .leading)
                             }
                             Text(sense.text)
-                                .font(.system(size: 13, design: .rounded))
+                                .appFont(13, design: .rounded)
                                 .foregroundStyle(theme.primaryText)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .lineSpacing(2)
                         }
                         if !sense.explanation.isEmpty {
                             Text(sense.explanation)
-                                .font(.system(size: 11, design: .rounded))
+                                .appFont(11, design: .rounded)
                                 .foregroundStyle(theme.secondaryText)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .lineSpacing(2)
@@ -316,7 +316,7 @@ public struct DictionaryWordDetailCard: View {
                             .fixedSize(horizontal: true, vertical: false)
                             if !item.translation.isEmpty {
                                 Text(item.translation)
-                                    .font(.system(size: 12, design: .rounded))
+                                    .appFont(12, design: .rounded)
                                     .foregroundStyle(theme.primaryText.opacity(0.85))
                             }
                             Spacer(minLength: 0)
@@ -364,7 +364,7 @@ public struct DictionaryWordDetailCard: View {
             }
             if !translation.isEmpty {
                 Text(translation)
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(2)
@@ -381,17 +381,17 @@ public struct DictionaryWordDetailCard: View {
                 ForEach(Array(detail.morphology.parts.enumerated()), id: \.offset) { index, part in
                     if index > 0 {
                         Text("+")
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .appFont(12, weight: .bold, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                     }
                     morphChip(part)
                 }
                 if !detail.morphology.result.isEmpty {
                     Image(systemName: "arrow.right")
-                        .font(.system(size: 10, weight: .bold))
+                        .appFont(10, weight: .bold)
                         .foregroundStyle(theme.accent)
                     Text(detail.morphology.result)
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -404,16 +404,16 @@ public struct DictionaryWordDetailCard: View {
     private func morphChip(_ part: DictionaryMorphPart) -> some View {
         VStack(spacing: 2) {
             Text(part.text)
-                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .appFont(13, weight: .bold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             if !part.label.isEmpty {
                 Text(part.label)
-                    .font(.system(size: 9, design: .rounded))
+                    .appFont(9, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }
         .padding(.horizontal, 9)
-        .padding(.vertical, 5)
+        .appPadding(.vertical, 5)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous).fill(theme.surfaceAlt)
         )
@@ -427,7 +427,7 @@ public struct DictionaryWordDetailCard: View {
     private var etymologySection: some View {
         sectionBox("词源") {
             Text(detail.etymology)
-                .font(.system(size: 11.5, design: .rounded))
+                .appFont(11.5, design: .rounded)
                 .foregroundStyle(theme.primaryText.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
                 .lineSpacing(3)
@@ -458,14 +458,14 @@ public struct DictionaryWordDetailCard: View {
                         .fill(theme.divider)
                         .frame(width: 1)
                         .frame(maxHeight: .infinity)
-                        .padding(.vertical, 2)
+                        .appPadding(.vertical, 2)
                 }
                 relatedColumn(title: column.title, words: column.words, tint: column.tint)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .padding(.horizontal, 10)
             }
         }
-        .padding(.vertical, 10)
+        .appPadding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.surfaceAlt.opacity(0.7))
@@ -478,7 +478,7 @@ public struct DictionaryWordDetailCard: View {
     private func relatedColumn(title: String, words: [DictionaryRelatedWord], tint: Color) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .appFont(11, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
             ForEach(words) { item in
                 VStack(alignment: .leading, spacing: 2) {
@@ -488,7 +488,7 @@ public struct DictionaryWordDetailCard: View {
                             onOpenRelated(item.word)
                         } label: {
                             Text(item.word)
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .appFont(13, weight: .semibold, design: .rounded)
                                 .foregroundStyle(hoveredWord == item.word ? tint.opacity(0.65) : tint)
                                 .underline(hoveredWord == item.word, color: tint.opacity(0.65))
                                 .contentShape(Rectangle())
@@ -504,12 +504,12 @@ public struct DictionaryWordDetailCard: View {
                     HStack(spacing: 5) {
                         if !item.pos.isEmpty {
                             Text(item.pos)
-                                .font(.system(size: 10, weight: .medium, design: .rounded).italic())
+                                .appFont(10, weight: .medium, design: .rounded, italic: true)
                                 .foregroundStyle(theme.accent)
                         }
                         if !item.translation.isEmpty {
                             Text(item.translation)
-                                .font(.system(size: 11, design: .rounded))
+                                .appFont(11, design: .rounded)
                                 .foregroundStyle(theme.primaryText.opacity(0.8))
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -529,11 +529,11 @@ public struct DictionaryWordDetailCard: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .appFont(11, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
             content()
         }
-        .padding(11)
+        .appPadding(11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.surfaceAlt.opacity(0.7))

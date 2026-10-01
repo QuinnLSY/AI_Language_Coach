@@ -81,7 +81,7 @@ struct AnnualDayDetailCard: View {
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                 HStack(spacing: Self.iconGap) {
                     Image(systemName: item.kind.symbolName)
-                        .font(.system(size: index == 0 ? 10 : 9, weight: .medium))
+                        .appFont(index == 0 ? 10 : 9, weight: .medium)
                         .foregroundStyle(theme.secondaryText)
                         .frame(width: Self.iconColumn)
                     Text(item.text)
@@ -95,7 +95,7 @@ struct AnnualDayDetailCard: View {
                 }
             }
         }
-        .padding(10)
+        .appPadding(10)
         .frame(width: Self.measuredWidth(items: items), alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)

@@ -23,24 +23,24 @@ struct AttachmentChip: View {
             thumbnail
             VStack(alignment: .leading, spacing: 1) {
                 Text(attachment.fileName)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Text("\(attachment.kind.displayName) · \(attachment.sizeText)")
-                    .font(.system(size: 9, design: .rounded))
+                    .appFont(9, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 11))
+                    .appFont(11)
                     .foregroundStyle(theme.secondaryText)
             }
             .buttonStyle(.appPressable)
             .help("移除这个附件")
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .appPadding(.vertical, 5)
         .frame(maxWidth: 210)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous).fill(theme.surfaceAlt)
@@ -61,7 +61,7 @@ struct AttachmentChip: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         } else {
             Image(systemName: attachment.kind.systemImage)
-                .font(.system(size: 12))
+                .appFont(12)
                 .foregroundStyle(theme.accent)
                 .frame(width: 26, height: 26)
                 .background(
@@ -139,7 +139,7 @@ struct MessageAttachmentView: View {
     private var fileBody: some View {
         HStack(spacing: 9) {
             Image(systemName: attachment.kind.systemImage)
-                .font(.system(size: 16))
+                .appFont(16)
                 .foregroundStyle(theme.accent)
                 .frame(width: 34, height: 34)
                 .background(
@@ -147,19 +147,19 @@ struct MessageAttachmentView: View {
                 )
             VStack(alignment: .leading, spacing: 2) {
                 Text(attachment.fileName)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Text(attachment.sizeText)
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             // 给右下角的下载按钮让出位置。
             Spacer(minLength: 26)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .appPadding(.vertical, 8)
         .frame(width: 240, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous).fill(theme.surfaceAlt)
@@ -174,15 +174,15 @@ struct MessageAttachmentView: View {
     private var missingCard: some View {
         HStack(spacing: 7) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 11))
+                .appFont(11)
                 .foregroundStyle(theme.warning)
             Text("\(attachment.fileName) 的本地文件已不可用")
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .lineLimit(1)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .appPadding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.surfaceAlt)
         )
@@ -191,14 +191,14 @@ struct MessageAttachmentView: View {
     private var downloadButton: some View {
         Button(action: onDownload) {
             Image(systemName: "arrow.down.circle.fill")
-                .font(.system(size: 17))
+                .appFont(17)
                 .symbolRenderingMode(.palette)
                 .foregroundStyle(.white, Color.black.opacity(0.45))
         }
         .buttonStyle(.appPressable)
         .disabled(fileURL == nil)
         .opacity(fileURL == nil ? 0.4 : 1)
-        .padding(7)
+        .appPadding(7)
         .help(fileURL == nil ? "本地文件已不可用" : "下载到本机")
     }
 }

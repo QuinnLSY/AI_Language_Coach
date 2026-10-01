@@ -57,13 +57,13 @@ public struct DictionaryBookCard: View {
             // 封面的**下方**显示词典名称（用户口径）。
             VStack(spacing: 1) {
                 Text(book.name)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                     .truncationMode(.middle)
                 Text(subtitle)
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .lineLimit(1)
             }
@@ -104,7 +104,7 @@ public struct DictionaryBookCard: View {
 
             VStack(spacing: 5) {
                 Text(book.coverLabel)
-                    .font(.system(size: 20, weight: .heavy, design: .rounded))
+                    .appFont(20, weight: .heavy, design: .rounded)
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -112,7 +112,7 @@ public struct DictionaryBookCard: View {
                     .fill(Color.white.opacity(0.5))
                     .frame(width: 24, height: 1)
                 Text("\(book.entryCount)")
-                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                    .appFont(9, weight: .medium, design: .rounded)
                     .foregroundStyle(.white.opacity(0.8))
                     .monospacedDigit()
             }
@@ -142,7 +142,7 @@ public struct DictionaryBookCard: View {
                         Image(systemName: isConfirmingDelete ? "checkmark" : "trash")
                         if isConfirmingDelete { Text("确认") }
                     }
-                    .font(.system(size: 10, weight: .bold))
+                    .appFont(10, weight: .bold)
                     .foregroundStyle(.white)
                     .padding(.horizontal, isConfirmingDelete ? 7 : 5)
                     .frame(height: 20)
@@ -160,7 +160,7 @@ public struct DictionaryBookCard: View {
                 if isConfirmingDelete {
                     Button(action: onCancelDelete) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .bold))
+                            .appFont(9, weight: .bold)
                             .foregroundStyle(.white)
                             .frame(width: 20, height: 20)
                             .background(Circle().fill(Color.black.opacity(0.45)))
@@ -171,7 +171,7 @@ public struct DictionaryBookCard: View {
                     .help("取消，不删了")
                 }
             }
-            .padding(6)
+            .appPadding(6)
         }
     }
 
@@ -202,12 +202,12 @@ public struct DictionaryBookCard: View {
                             .frame(width: 12, height: 12)
                         if let rank {
                             Text("\(rank)")
-                                .font(.system(size: 8, weight: .heavy, design: .rounded))
+                                .appFont(8, weight: .heavy, design: .rounded)
                                 .foregroundStyle(.black.opacity(0.75))
                         }
                     }
                     Text(rank == nil ? "推荐词源" : "优先级 \(rank ?? 0)")
-                        .font(.system(size: 9, weight: .semibold, design: .rounded))
+                        .appFont(9, weight: .semibold, design: .rounded)
                         .foregroundStyle(.white)
                         .lineLimit(1)
                 }
@@ -218,7 +218,7 @@ public struct DictionaryBookCard: View {
                 .contentShape(Capsule())
             }
             .buttonStyle(.appPressable)
-            .padding(6)
+            .appPadding(6)
             .help(rank == nil
                   ? "打勾：让这本词典参与每日推荐的选词"
                   : "优先级 \(rank ?? 0)。点一下取消（后面的名次自动补位）")
@@ -266,11 +266,11 @@ public struct DictionaryImportTile: View {
                         ProgressView().progressViewStyle(.circular).controlSize(.small)
                     } else {
                         Image(systemName: "square.and.arrow.down")
-                            .font(.system(size: 20, weight: .semibold))
+                            .appFont(20, weight: .semibold)
                             .foregroundStyle(isHovered ? theme.accent : theme.secondaryText)
                     }
                     Text("导入词典")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .appFont(11, weight: .semibold, design: .rounded)
                         .foregroundStyle(isHovered ? theme.accent : theme.secondaryText)
                 }
             }
@@ -280,10 +280,10 @@ public struct DictionaryImportTile: View {
 
             VStack(spacing: 1) {
                 Text("导入新词典")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text("JSON 文件")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }

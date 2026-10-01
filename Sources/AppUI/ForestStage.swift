@@ -77,6 +77,21 @@ public final class ForestStage {
     /// 牌子上的那句话（`ForestErrorSign.headline(for:)` 的产出）。
     public private(set) var lastErrorHeadline: String?
 
+    // MARK: 连续剧情（#418-C）
+
+    /// 事件历史（史官记录，封顶 `storyBeatCapacity` 条）：幕判定的原料。
+    public private(set) var beats: [ForestStoryBeat] = []
+    /// 已演过的幕（会话级记账：每一幕整个会话最多演一次）。
+    public private(set) var performedActs: Set<ForestStoryArc.Act> = []
+    /// 上一幕演出的时刻（幕间冷却的起点）。
+    public private(set) var lastStoryActAt: Date?
+    /// 出幕脉冲：+1 一次 = 该演一幕了（演不演、谁来演由树按自己的开关与居民定）。
+    public private(set) var storyActTick = 0
+    /// 这一脉冲对应的幕（树挑戏码用）。
+    public private(set) var lastStoryAct: ForestStoryArc.Act?
+    /// 历史封顶：幕判定只看最近这些条，再老的记忆就放下（会话级本就不需要全年）。
+    public static let storyBeatCapacity = 24
+
     /// 首次进入欢迎（只此一次的判定在 AppState；这里每次调用都演）。
     public func welcome() {
         welcomeTick += 1
@@ -97,6 +112,7 @@ public final class ForestStage {
     /// 地面的「久未发言就打盹」判的是**距今多久没动静**，不需要另行埋点。
     public func ingest(_ event: LearningEvent) {
         lastActivityAt = Date()
+        recordStoryBeat(for: event)
         switch event {
         case .wordCollected(let word):
             wordTick += 1
@@ -134,6 +150,39 @@ public final class ForestStage {
     public func attach(to bus: LearningEventBus) -> LearningEventBus.Subscription {
         bus.subscribe { [weak self] event in
             Task { @MainActor in self?.ingest(event) }
+        }
+    }
+
+    // MARK: 连续剧情（#418-C）
+
+    /// 事件 → 史官记录的唯一翻译表，随后顺手判一次出幕。
+    ///
+    /// ⚠️ 捡词与中途退出**不进剧情**：捡词是即时的物件叙事（叼卡回来），
+    /// 退出不评判 —— 它们都不构成「一段学习的故事」。
+    private func recordStoryBeat(for event: LearningEvent) {
+        let kind: ForestStoryBeat.Kind
+        switch event {
+        case .practiceCompleted: kind = .practiced
+        case .moduleCompleted: kind = .practiced
+        case .starsEarned: kind = .starEarned
+        case .levelCompleted: kind = .levelCleared
+        case .learnerTurn, .teacherTurn: kind = .spoke
+        case .correctionsRecorded: kind = .stumbled
+        case .wordCollected, .practiceAbandoned: return
+        }
+        beats.append(ForestStoryBeat(kind: kind, at: Date()))
+        if beats.count > Self.storyBeatCapacity {
+            beats.removeFirst(beats.count - Self.storyBeatCapacity)
+        }
+        // 出幕判定跟着新记录走：没有新事实就绝不凭空出幕。
+        let now = Date()
+        if let act = ForestStoryArc.pendingAct(beats: beats, now: now,
+                                               performedActs: performedActs,
+                                               lastActAt: lastStoryActAt) {
+            performedActs.insert(act)
+            lastStoryActAt = now
+            lastStoryAct = act
+            storyActTick += 1
         }
     }
 

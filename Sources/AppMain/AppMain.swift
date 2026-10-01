@@ -11,7 +11,10 @@ struct AILanguageCoachApp: App {
     var body: some Scene {
         WindowGroup {
             MainView(state: state)
-                .frame(minWidth: 1080, minHeight: 720)
+                // ⚠️ 与 MainView 里那份是**同一个常量**（AppLayoutMetrics）——
+                // 此前两处各写一遍 1080×720，改一处漏一处就是两边对不上的静默 bug。
+                .frame(minWidth: AppLayoutMetrics.minWindowWidth,
+                       minHeight: AppLayoutMetrics.minWindowHeight)
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)

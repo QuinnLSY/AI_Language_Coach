@@ -381,7 +381,7 @@ struct LookupText: View {
             )
         } else {
             Text(text)
-                .font(.system(size: fontSize, design: .rounded))
+                .appFont(fontSize, design: .rounded)
                 .italic(italic)
                 .foregroundStyle(color ?? theme.primaryText.opacity(0.92))
                 .fixedSize(horizontal: false, vertical: true)

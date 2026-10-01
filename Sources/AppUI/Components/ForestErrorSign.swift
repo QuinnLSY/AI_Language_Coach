@@ -46,10 +46,10 @@ struct ForestSignBoard: View {
     var body: some View {
         VStack(spacing: 0) {
             Text(text)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .appFont(11, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .appPadding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
                         .fill(theme.surface)

@@ -35,7 +35,7 @@ struct TeacherPreparingCard: View {
                 HStack(spacing: 8) {
                     CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
                     Text(TeacherWaitCopy.title(seconds: seconds))
-                        .font(.system(size: 12, design: .rounded))
+                        .appFont(12, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         // 秒数每秒变化：等宽数字，否则整行会随位数抖动。
                         .monospacedDigit()
@@ -44,7 +44,7 @@ struct TeacherPreparingCard: View {
                 stageRow
                 if let detail = TeacherWaitCopy.detail(seconds: seconds) {
                     Text(detail)
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText.opacity(0.85))
                         .fixedSize(horizontal: false, vertical: true)
                         // 与上一行的文字左边缘对齐（头像宽 30 + 间距 8）。
@@ -69,10 +69,10 @@ struct TeacherPreparingCard: View {
                 let current = step == stage
                 HStack(spacing: 4) {
                     Image(systemName: reached ? "circle.inset.filled" : "circle")
-                        .font(.system(size: 7))
+                        .appFont(7)
                         .foregroundStyle(current ? theme.accent : reached ? theme.secondaryText.opacity(0.6) : theme.secondaryText.opacity(0.3))
                     Text(step.displayName)
-                        .font(.system(size: 9, weight: current ? .semibold : .regular, design: .rounded))
+                        .appFont(9, weight: current ? .semibold : .regular, design: .rounded)
                         .foregroundStyle(current ? theme.accent : theme.secondaryText.opacity(current ? 1 : 0.6))
                 }
             }

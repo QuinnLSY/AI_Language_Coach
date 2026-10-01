@@ -45,7 +45,7 @@ public struct ReadingView: View {
                         noticeBanner(state.readingNotice)
                     }
                 }
-                .padding(20)
+                .appPadding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             // 内容不足一屏时不硬弹（#360，同聊天区）。
@@ -62,19 +62,19 @@ public struct ReadingView: View {
             CuteAnimalView(kind: state.studentAnimalKind, isSleeping: theme.isNight, size: 40, accessory: state.studentAccessory)
             VStack(alignment: .leading, spacing: 2) {
                 Text("阅读")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .appFont(16, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text("每天一篇短文几道题 —— 读不懂的词直接划词，生词随手收进词汇本")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             Spacer(minLength: 0)
             if state.readingPassage != nil {
                 Text(state.readingEntries.count > 1 ? "今日 \(state.readingEntries.count) 篇" : "今日一篇")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .appFont(10, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.accent)
                     .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
+                    .appPadding(.vertical, 2)
                     .background(Capsule().fill(theme.accent.opacity(0.14)))
                     .help("一天只自动出一篇；点「换一篇」可再加，当天每篇都能回看")
             }
@@ -89,10 +89,10 @@ public struct ReadingView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Label("今日短文", systemImage: "book.fill")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .appFont(10, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.accent)
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
+                    .appPadding(.vertical, 3)
                     .background(Capsule().fill(theme.accent.opacity(0.14)))
                 // 当天各篇的编号按钮：第 1 篇就是「1」，换一篇往右顺序加；
                 // 点谁切谁 —— 当天每一篇都回得去（#233）。
@@ -104,7 +104,7 @@ public struct ReadingView: View {
                                 state.selectReadingEntry(at: index)
                             } label: {
                                 Text("\(index + 1)")
-                                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                                    .appFont(10, weight: .bold, design: .rounded)
                                     .monospacedDigit()
                                     .foregroundStyle(isSelected ? theme.onAccentFill : theme.secondaryText)
                                     .frame(width: 20, height: 20)
@@ -131,7 +131,7 @@ public struct ReadingView: View {
                         Image(systemName: "arrow.triangle.2.circlepath")
                         Text("换一篇")
                     }
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .appFont(10, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.accentCool)
                 }
                 .buttonStyle(.appPressable)
@@ -163,7 +163,7 @@ public struct ReadingView: View {
                 hoverLookupEnabled: false
             )
         }
-        .padding(16)
+        .appPadding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -204,10 +204,10 @@ public struct ReadingView: View {
                 } label: {
                     HStack(alignment: .top, spacing: 8) {
                         Text("Q\(index + 1)")
-                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .appFont(10, weight: .bold, design: .rounded)
                             .foregroundStyle(reviewed ? rowColor : theme.accent)
                             .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .appPadding(.vertical, 2)
                             .background(
                                 RoundedRectangle(cornerRadius: 5)
                                     .fill((reviewed ? rowColor : theme.accent).opacity(0.14))
@@ -224,7 +224,7 @@ public struct ReadingView: View {
                         Spacer(minLength: 6)
                         if reviewed {
                             Image(systemName: isCorrect ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .font(.system(size: 14))
+                                .appFont(14)
                                 .foregroundStyle(rowColor)
                         }
                     }
@@ -264,7 +264,7 @@ public struct ReadingView: View {
                     .transition(.opacity)
             }
         }
-        .padding(14)
+        .appPadding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -298,7 +298,7 @@ public struct ReadingView: View {
             // SwiftUI 取不到它的 baseline，`.firstTextBaseline` 会把圆圈顶到字上面去（实测截图）。
             HStack(alignment: .center, spacing: 8) {
                 Text(String(Character(UnicodeScalar(65 + optionIndex)!)))
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .appFont(11, weight: .bold, design: .rounded)
                     .foregroundStyle(reviewed ? tint : (isSelected ? theme.onAccentFill : theme.secondaryText))
                     .frame(width: 24, height: 24)
                     .background(
@@ -318,17 +318,17 @@ public struct ReadingView: View {
                 Spacer(minLength: 0)
                 if isCorrectOption {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .bold))
+                        .appFont(10, weight: .bold)
                         .foregroundStyle(theme.success)
                 }
                 if isWrongChoice {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .bold))
+                        .appFont(10, weight: .bold)
                         .foregroundStyle(theme.danger)
                 }
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .appPadding(.vertical, 8)
             // 整行都可点（AppKit 子视图不参与 SwiftUI 命中，必须显式给 contentShape）。
             .contentShape(Rectangle())
             .background(
@@ -371,11 +371,11 @@ public struct ReadingView: View {
             if !question.quote.isEmpty {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "text.quote")
-                        .font(.system(size: 10))
+                        .appFont(10)
                         .foregroundStyle(isCorrect ? theme.success : theme.warning)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("原文依据")
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .appFont(10, weight: .semibold, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                         LookupText(
                             text: question.quote,
@@ -388,7 +388,7 @@ public struct ReadingView: View {
                         )
                         if question.quoteOffset(in: passage.text) == nil {
                             Text("（这句在原文里没有逐字对上，意思以原文为准）")
-                                .font(.system(size: 9, design: .rounded))
+                                .appFont(9, design: .rounded)
                                 .foregroundStyle(theme.secondaryText.opacity(0.8))
                         }
                     }
@@ -398,10 +398,10 @@ public struct ReadingView: View {
             if !question.explain.isEmpty {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "lightbulb.fill")
-                        .font(.system(size: 10))
+                        .appFont(10)
                         .foregroundStyle(theme.accent)
                     Text(question.explain)
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                         .lineSpacing(3)
                         .fixedSize(horizontal: false, vertical: true)
@@ -412,26 +412,26 @@ public struct ReadingView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 5) {
                         Image(systemName: "arrow.triangle.branch")
-                            .font(.system(size: 10))
+                            .appFont(10)
                             .foregroundStyle(theme.danger)
                         Text("错因复盘")
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .appFont(10, weight: .semibold, design: .rounded)
                             .foregroundStyle(theme.danger)
                         if let chosen {
                             Text("你选了 \(letter(optionIndex: chosen))")
-                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                .appFont(10, weight: .semibold, design: .rounded)
                                 .foregroundStyle(theme.danger)
                                 .padding(.horizontal, 5)
-                                .padding(.vertical, 1)
+                                .appPadding(.vertical, 1)
                                 .background(Capsule().fill(theme.danger.opacity(0.12)))
                         }
                     }
                     Text(question.trap)
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                         .lineSpacing(3)
                         .fixedSize(horizontal: false, vertical: true)
-                        .padding(10)
+                        .appPadding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -440,7 +440,7 @@ public struct ReadingView: View {
                 }
             }
         }
-        .padding(10)
+        .appPadding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -464,17 +464,17 @@ public struct ReadingView: View {
                         Image(systemName: "checkmark.seal.fill")
                         Text("交卷")
                     }
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.onAccentFill)
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .appPadding(.vertical, 8)
                     .background(Capsule().fill(theme.accentFill))
                 }
                 .buttonStyle(.appPressable)
                 .disabled(!state.readingAllAnswered)
                 .help("判分在本地完成，不花模型请求；交卷后逐题展开原文溯源与讲解")
                 Text("已答 \(state.readingChoices.count) / \(passage.questions.count) 题")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .monospacedDigit()
             }
@@ -487,20 +487,20 @@ public struct ReadingView: View {
         let correct = ReadingGrader.correctCount(passage, choices: state.readingChoices)
         return HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text("\(correct)")
-                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .appFont(30, weight: .bold, design: .rounded)
                 .foregroundStyle(correct == passage.questions.count ? theme.success : theme.accent)
                 .monospacedDigit()
             Text("/ \(passage.questions.count) 答对")
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
             if correct == passage.questions.count {
                 Image(systemName: "star.fill")
-                    .font(.system(size: 13))
+                    .appFont(13)
                     .foregroundStyle(theme.success)
             }
             Spacer(minLength: 0)
         }
-        .padding(16)
+        .appPadding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -520,22 +520,22 @@ public struct ReadingView: View {
     private var emptyCard: some View {
         VStack(spacing: 10) {
             Text("今天的短文还没取到")
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             Button {
                 Task { await state.loadReading() }
             } label: {
                 Text("请老师出一篇")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.onAccentFill)
                     .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
+                    .appPadding(.vertical, 7)
                     .background(Capsule().fill(theme.accentFill))
             }
             .buttonStyle(.appPressable)
             .help("一次阅读 = 一次模型请求，请确保老师的大脑已就绪")
         }
-        .padding(24)
+        .appPadding(24)
         .frame(maxWidth: .infinity, alignment: .center)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -547,11 +547,11 @@ public struct ReadingView: View {
 
     private func noticeBanner(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 11, design: .rounded))
+            .appFont(11, design: .rounded)
             .foregroundStyle(theme.primaryText)
             .lineSpacing(3)
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .appPadding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)

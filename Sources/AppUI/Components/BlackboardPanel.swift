@@ -67,7 +67,7 @@ struct BlackboardPanel: View {
             // 烟花要飞到板外面才像烟花：不裁切、不吃点击。
             if isCelebrating {
                 CelebrationFireworks(tint: theme.accent, secondary: theme.glow)
-                    .padding(-48)
+                    .appPadding(-48)
                     .allowsHitTesting(false)
             }
         }
@@ -81,11 +81,11 @@ struct BlackboardPanel: View {
                 .fill(BlackboardPalette.frame)
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(BlackboardPalette.board)
-                .padding(5)
+                .appPadding(5)
 
             ScrollView(.vertical, showsIndicators: false) {
                 content
-                    .padding(11)
+                    .appPadding(11)
                     .background(
                         GeometryReader { proxy in
                             Color.clear.preference(
@@ -148,14 +148,14 @@ struct BlackboardPanel: View {
     private var header: some View {
         HStack(alignment: .center, spacing: 6) {
             Image(systemName: plan.isAllDone ? "checkmark.seal.fill" : "scroll.fill")
-                .font(.system(size: 11))
+                .appFont(11)
                 .foregroundStyle(plan.isAllDone ? BlackboardPalette.chalkDone : BlackboardPalette.chalk)
             Text(TodayPanel.title(plan: plan))
-                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .appFont(12, weight: .bold, design: .rounded)
                 .foregroundStyle(BlackboardPalette.chalk)
             Spacer(minLength: 4)
             Text("连续 \(streakDays) 天")
-                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .appFont(9, weight: .semibold, design: .rounded)
                 .foregroundStyle(BlackboardPalette.chalkSoft)
                 .monospacedDigit()
             // 跳去「学习进度」看今日任务卡：板上放不下详情，但要留一条能去的地方。
@@ -163,7 +163,7 @@ struct BlackboardPanel: View {
                 onOpenProgress?()
             } label: {
                 Image(systemName: AppSection.progress.systemImage)
-                    .font(.system(size: 10, weight: .semibold))
+                    .appFont(10, weight: .semibold)
                     .foregroundStyle(BlackboardPalette.chalkSoft)
                     .frame(width: 18, height: 18)
                     .contentShape(Rectangle())
@@ -175,7 +175,7 @@ struct BlackboardPanel: View {
                 onCollapse?()
             } label: {
                 Image(systemName: Self.collapseIcon)
-                    .font(.system(size: 9, weight: .semibold))
+                    .appFont(9, weight: .semibold)
                     .foregroundStyle(BlackboardPalette.chalkSoft)
                     .frame(width: 16, height: 18)
                     .contentShape(Rectangle())
@@ -201,7 +201,7 @@ struct BlackboardPanel: View {
 
     private var emptyHint: some View {
         Text("今天还没有安排 —— 先开口说两句，或者去跟读一页，练完这里就会有进度。")
-            .font(.system(size: 10, design: .rounded))
+            .appFont(10, design: .rounded)
             .foregroundStyle(BlackboardPalette.chalkSoft)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -213,30 +213,30 @@ struct BlackboardPanel: View {
         } label: {
             HStack(alignment: .top, spacing: 7) {
                 Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 11))
+                    .appFont(11)
                     .foregroundStyle(done ? BlackboardPalette.chalkDone : BlackboardPalette.chalkPending)
-                    .padding(.top, 1)
+                    .appPadding(.top, 1)
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 5) {
                         Text(task.title)
-                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .appFont(11, weight: .medium, design: .rounded)
                             .foregroundStyle(BlackboardPalette.chalk)
                             .strikethrough(done, color: BlackboardPalette.chalkSoft)
                         Spacer(minLength: 2)
                         Text(task.progressText)
-                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                            .appFont(9, weight: .bold, design: .rounded)
                             .foregroundStyle(done ? BlackboardPalette.chalkDone : BlackboardPalette.chalk)
                             .monospacedDigit()
                     }
                     Text(task.reason)
-                        .font(.system(size: 9, design: .rounded))
+                        .appFont(9, design: .rounded)
                         .foregroundStyle(BlackboardPalette.chalkSoft)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(.horizontal, 7)
-            .padding(.vertical, 6)
+            .appPadding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -252,14 +252,14 @@ struct BlackboardPanel: View {
     private var dueRow: some View {
         HStack(spacing: 6) {
             Image(systemName: hasReviewWork ? "text.book.closed.fill" : "checkmark.circle")
-                .font(.system(size: 9))
+                .appFont(9)
                 .foregroundStyle(hasReviewWork ? BlackboardPalette.chalk : BlackboardPalette.chalkDone)
             Text(TodayPanel.dueLine(
                 dueAtDayStart: dueAtDayStart,
                 reviewedOfDue: reviewedOfDue,
                 reviewedToday: reviewedToday
             ))
-                .font(.system(size: 9, weight: .medium, design: .rounded))
+                .appFont(9, weight: .medium, design: .rounded)
                 .foregroundStyle(BlackboardPalette.chalkSoft)
             Spacer(minLength: 0)
         }
@@ -271,10 +271,10 @@ struct BlackboardPanel: View {
     private func remainingRow(_ text: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "hourglass")
-                .font(.system(size: 9))
+                .appFont(9)
                 .foregroundStyle(BlackboardPalette.chalkWarn)
             Text(text)
-                .font(.system(size: 9, design: .rounded))
+                .appFont(9, design: .rounded)
                 .foregroundStyle(BlackboardPalette.chalkSoft)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -286,7 +286,7 @@ struct BlackboardPanel: View {
         HStack(spacing: 6) {
             Spacer(minLength: 0)
             Text("今日 \(ChatView.tokenCount(todayTokens)) tokens")
-                .font(.system(size: 8, design: .rounded))
+                .appFont(8, design: .rounded)
                 .foregroundStyle(BlackboardPalette.chalkPending)
                 .monospacedDigit()
         }
@@ -295,10 +295,10 @@ struct BlackboardPanel: View {
     /// 全部完成时盖在板上的章（粉笔手写的那种歪一点更自然，但别真做随机 —— 图对不上）。
     private var stamp: some View {
         Text("今日完成")
-            .font(.system(size: 13, weight: .bold, design: .rounded))
+            .appFont(13, weight: .bold, design: .rounded)
             .foregroundStyle(BlackboardPalette.chalkDone.opacity(0.9))
             .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            .appPadding(.vertical, 4)
             .overlay(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .strokeBorder(BlackboardPalette.chalkDone.opacity(0.8), lineWidth: 1.2)

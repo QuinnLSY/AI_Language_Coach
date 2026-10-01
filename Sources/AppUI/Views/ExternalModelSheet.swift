@@ -108,7 +108,7 @@ struct ExternalModelSheet: View {
                     if !modelOptions.isEmpty { modelStep }
                     if let statusMessage { statusLine(statusMessage) }
                 }
-                .padding(20)
+                .appPadding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
@@ -134,20 +134,20 @@ struct ExternalModelSheet: View {
     private var header: some View {
         HStack(spacing: 10) {
             Image(systemName: "cloud.fill")
-                .font(.system(size: 15))
+                .appFont(15)
                 .foregroundStyle(theme.accent)
             VStack(alignment: .leading, spacing: 2) {
                 Text("接入外部模型")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .appFont(15, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text("用于「\(kind.displayName)」· 选厂商 → 填 API Key → 选模型")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             Spacer()
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .semibold))
+                    .appFont(12, weight: .semibold)
                     .foregroundStyle(theme.secondaryText)
             }
             .buttonStyle(.appPressable)
@@ -164,7 +164,7 @@ struct ExternalModelSheet: View {
             stepTitle(index: "1", text: "选择 API 厂商")
             if vendors.isEmpty {
                 Text("该能力暂未配置外部供应商。")
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             } else {
                 // 流式布局：厂商再多也只是换行，不会把卡片撑爆。
@@ -185,9 +185,9 @@ struct ExternalModelSheet: View {
             selectedVendor = vendor.id
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: "cloud.fill").font(.system(size: 9))
+                Image(systemName: "cloud.fill").appFont(9)
                 Text(vendor.name)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
             }
             .foregroundStyle(selected ? theme.onAccentFill : theme.primaryText)
             .padding(.horizontal, 11)
@@ -233,7 +233,7 @@ struct ExternalModelSheet: View {
                         .buttonStyle(.appPressable)
                         .disabled(state.isFetchingExternal)
                         Text("免密钥公共服务，无需 API Key")
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                     }
                 } else {
@@ -243,7 +243,7 @@ struct ExternalModelSheet: View {
                             set: { state.setKeyDraft($0, providerID: selectedVendor, kind: kind) }
                         ))
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12, design: .rounded))
+                        .appFont(12, design: .rounded)
                         // 显式绑焦点：点外面能收起（见 `releaseKeyboardFocusOnOutsideClick`），
                         // 应用/切换厂商时也能主动放开。
                         .focused($isKeyFieldFocused)
@@ -254,7 +254,7 @@ struct ExternalModelSheet: View {
                                 isKeyFieldFocused = false
                                 state.setKeyDraft("", providerID: selectedVendor, kind: kind)
                             }
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .buttonStyle(.appPressable)
                             .foregroundStyle(theme.secondaryText)
                             .help("清空输入框（同时清除已保存的旧密钥），然后重新粘贴一把完整的 Key")
@@ -275,7 +275,7 @@ struct ExternalModelSheet: View {
                     // 界面看上去却「明明填了」。给出长度与末四位，一眼就能核对。
                     keyStatusLine(selectedVendor)
                     Text("Key 只存在本机配置里，不会随对话内容外发。填入后点左侧按钮验证并拉取该账号可用的模型。")
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
             }
@@ -291,7 +291,7 @@ struct ExternalModelSheet: View {
             }
             Text(fetchActionTitle)
         }
-        .font(.system(size: 12, weight: .semibold, design: .rounded))
+        .appFont(12, weight: .semibold, design: .rounded)
         .foregroundStyle(theme.accent)
     }
 
@@ -311,7 +311,7 @@ struct ExternalModelSheet: View {
             let saved = state.externalKeyFingerprints[vendor]
             let suffixFingerprint = "••••" + String(draft.suffix(4))
             HStack(spacing: 5) {
-                Image(systemName: "key.horizontal").font(.system(size: 9))
+                Image(systemName: "key.horizontal").appFont(9)
                 Text("输入框内：\(CredentialText.safeDescription(draft))")
                 if CredentialText.needsCleaning(state.keyDraft(for: vendor)) {
                     // 粘进来的引号 / 「Bearer 」前缀 / 换行会被自动去掉：
@@ -329,7 +329,7 @@ struct ExternalModelSheet: View {
                     Text("· 尚未保存，点「确认配置」后生效")
                 }
             }
-            .font(.system(size: 10.5, design: .monospaced))
+            .appFont(10.5, design: .monospaced)
             .foregroundStyle(theme.secondaryText)
         }
     }
@@ -369,7 +369,7 @@ struct ExternalModelSheet: View {
                     Spacer(minLength: 0)
                 }
                 Text(modelHint)
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }
@@ -406,12 +406,12 @@ struct ExternalModelSheet: View {
     private func stepTitle(index: String, text: String) -> some View {
         HStack(spacing: 6) {
             Text(index)
-                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .appFont(10, weight: .bold, design: .rounded)
                 .foregroundStyle(theme.onAccentFill)
                 .frame(width: 16, height: 16)
                 .background(Circle().fill(theme.accentFill))
             Text(text)
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .appFont(12, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
         }
     }
@@ -419,7 +419,7 @@ struct ExternalModelSheet: View {
     private func statusLine(_ message: String) -> some View {
         let ok = message.contains("成功") || message.contains("已启用")
         return Text(message)
-            .font(.system(size: 11, design: .rounded))
+            .appFont(11, design: .rounded)
             .foregroundStyle(ok ? Color.green : theme.warning)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -430,16 +430,16 @@ struct ExternalModelSheet: View {
         HStack(spacing: 10) {
             if didApplyCurrentSelection {
                 HStack(spacing: 4) {
-                    Image(systemName: "checkmark.circle.fill").font(.system(size: 10))
+                    Image(systemName: "checkmark.circle.fill").appFont(10)
                     Text("已应用到模型卡片")
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                 }
                 .foregroundStyle(Color.green)
             }
             Spacer()
 
             Button("关闭") { onClose() }
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .buttonStyle(.appPressable)
                 .foregroundStyle(theme.secondaryText)
 
@@ -447,7 +447,7 @@ struct ExternalModelSheet: View {
                 Task { await applySelection() }
             } label: {
                 Text("确认配置")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)
                     .frame(height: 30)

@@ -334,6 +334,7 @@ final class ConfigurationTests: XCTestCase {
             studentCompanion: "fox",
             forestFollowsClock: true,
             forestFollowsSeason: true,
+            forestFollowsWeather: true,
             soundEffects: true,
             forestWelcomed: true,
             activeProviders: ["tts": "local.tts"],
@@ -364,11 +365,13 @@ final class ConfigurationTests: XCTestCase {
             "learningLanguage", "nativeLanguage", "teacherVoice", "practiceMode", "themeMode",
             "motionMode",
             "selectedModels", "teacherAnimal", "teacherPersona", "studentAnimal", "studentCompanion",
-            "forestFollowsClock", "forestFollowsSeason", "soundEffects", "forestWelcomed", "activeProviders",
+            "forestFollowsClock", "forestFollowsSeason", "forestFollowsWeather",
+            "soundEffects", "forestWelcomed", "activeProviders",
             "teacherBubbles", "animalBubbles", "animalActivity", "animalActivityFrequency",
             "voicePreview", "autoSpeak", "speechRate", "dailyGoalMinutes", "dailyGoalMode",
             "practiceReminderEnabled", "practiceReminderHour", "practiceReminderMinute",
-            "activeVoiceProfileID",
+            "activeVoiceProfileID", "autoBackupEnabled", "autoBackupIntervalDays",
+            "typeSize", "interfaceDensity",
         ]
         XCTAssertEqual(Set(json.keys), Set(expectedKeys), "写出的键与字段清单对不上")
     }

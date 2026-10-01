@@ -37,7 +37,7 @@ struct DailyTasksCard: View {
                 focusRow(focus)
             }
         }
-        .padding(18)
+        .appPadding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -51,15 +51,15 @@ struct DailyTasksCard: View {
     private var header: some View {
         HStack(spacing: 6) {
             Image(systemName: plan.isAllDone ? "checkmark.seal.fill" : "list.bullet.clipboard.fill")
-                .font(.system(size: 12))
+                .appFont(12)
                 .foregroundStyle(plan.isAllDone ? doneGreen : theme.accent)
             Text("今日任务")
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .appFont(13, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             Spacer(minLength: 8)
             if !plan.tasks.isEmpty {
                 Text(plan.isAllDone ? "今天都做完了" : plan.progressText)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(plan.isAllDone ? doneGreen : theme.secondaryText)
                     .monospacedDigit()
             }
@@ -68,7 +68,7 @@ struct DailyTasksCard: View {
 
     private var emptyHint: some View {
         Text("今天没有安排 —— 要么该做的都做完了，要么还没有足够的记录可以推荐。")
-            .font(.system(size: 11, design: .rounded))
+            .appFont(11, design: .rounded)
             .foregroundStyle(theme.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -82,22 +82,22 @@ struct DailyTasksCard: View {
         } label: {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: task.isDone ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 13))
+                    .appFont(13)
                     .foregroundStyle(tint)
-                    .padding(.top, 1)
+                    .appPadding(.top, 1)
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Image(systemName: task.kind.systemImage)
-                            .font(.system(size: 10))
+                            .appFont(10)
                             .foregroundStyle(theme.secondaryText)
                         Text(task.title)
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .appFont(12, weight: .medium, design: .rounded)
                             .foregroundStyle(theme.primaryText)
                             .strikethrough(task.isDone, color: theme.secondaryText)
                         Spacer(minLength: 6)
                         Text(task.progressText)
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .appFont(10, weight: .semibold, design: .rounded)
                             .foregroundStyle(tint)
                             .monospacedDigit()
                     }
@@ -114,19 +114,19 @@ struct DailyTasksCard: View {
                     .frame(height: 4)
 
                     Text(task.reason)
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if onOpen != nil {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
+                        .appFont(9, weight: .semibold)
                         .foregroundStyle(theme.secondaryText.opacity(0.7))
-                        .padding(.top, 3)
+                        .appPadding(.top, 3)
                 }
             }
-            .padding(10)
+            .appPadding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -145,18 +145,18 @@ struct DailyTasksCard: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 Image(systemName: "scope")
-                    .font(.system(size: 10))
+                    .appFont(10)
                     .foregroundStyle(theme.accentCool)
                 Text(focus.title)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
             }
             Text(focus.reason)
-                .font(.system(size: 10, design: .rounded))
+                .appFont(10, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(10)
+        .appPadding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)

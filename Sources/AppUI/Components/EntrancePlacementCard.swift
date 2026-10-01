@@ -29,7 +29,7 @@ struct EntrancePlacementCard: View {
                 notTaken
             }
         }
-        .padding(16)
+        .appPadding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -43,18 +43,18 @@ struct EntrancePlacementCard: View {
     private var header: some View {
         HStack(spacing: 6) {
             Image(systemName: "figure.walk.arrival")
-                .font(.system(size: 12))
+                .appFont(12)
                 .foregroundStyle(theme.accent)
             Text("入学定级")
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .appFont(13, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             Spacer(minLength: 8)
             Button(action: onStart) {
                 Text(result == nil ? "开始摸底" : "重测")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.accent)
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
+                    .appPadding(.vertical, 5)
                     .background(
                         Capsule(style: .continuous).strokeBorder(theme.accent.opacity(0.5), lineWidth: 1)
                     )
@@ -70,10 +70,10 @@ struct EntrancePlacementCard: View {
     private var notTaken: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text("还没定级：先花几分钟摸个底，我按你的水平出题")
-                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .appFont(12, weight: .medium, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             Text("十来道选择题（认词 + 语法），从入门到自如四档各抽几道；全在本地判分，不联网。")
-                .font(.system(size: 10, design: .rounded))
+                .appFont(10, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -85,15 +85,15 @@ struct EntrancePlacementCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 10) {
                 Text(result.level.code)
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .appFont(30, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.accent)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("起点 · \(result.level.displayName)（\(result.level.canDo)）")
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .appFont(12, weight: .medium, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                         .fixedSize(horizontal: false, vertical: true)
                     Text("\(result.headline) · 正确率 \(result.accuracyPercent)%")
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .monospacedDigit()
                 }
@@ -110,17 +110,17 @@ struct EntrancePlacementCard: View {
             }
 
             Text(adviceText(result))
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
             if let comparison = comparisonText(result) {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "arrow.left.arrow.right")
-                        .font(.system(size: 9))
+                        .appFont(9)
                         .foregroundStyle(theme.accentCool)
                     Text(comparison)
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.accentCool)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -143,14 +143,14 @@ struct EntrancePlacementCard: View {
     private func levelChip(_ score: PlacementLevelScore) -> some View {
         HStack(spacing: 4) {
             Image(systemName: score.isPassed ? "checkmark.circle.fill" : "circle.dashed")
-                .font(.system(size: 9))
+                .appFont(9)
             Text(score.text)
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .appFont(10, weight: .semibold, design: .rounded)
                 .monospacedDigit()
         }
         .foregroundStyle(score.isPassed ? theme.success : theme.secondaryText)
         .padding(.horizontal, 7)
-        .padding(.vertical, 3)
+        .appPadding(.vertical, 3)
         .background(
             Capsule(style: .continuous)
                 .fill(score.isPassed ? theme.success.opacity(0.14) : theme.hover)

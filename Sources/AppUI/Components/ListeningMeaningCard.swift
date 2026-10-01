@@ -79,7 +79,7 @@ public struct ListeningMeaningCard: View {
         VStack(alignment: .leading, spacing: 14) {
             header
             Text(chrome.subtitle)
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
             ListeningPlaybackControls(
@@ -95,15 +95,15 @@ public struct ListeningMeaningCard: View {
                 reveal
                 HStack(spacing: 10) {
                     Text(selection == question.correctIndex ? "听对了。" : "再听一遍这句，注意主干词。")
-                        .font(.system(size: 12, design: .rounded))
+                        .appFont(12, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     Spacer(minLength: 0)
                     Button(action: onAdvance) {
                         HStack(spacing: 5) {
                             Text(isLast ? "看总结" : "下一句")
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .appFont(12, weight: .semibold, design: .rounded)
                             Image(systemName: "arrow.right")
-                                .font(.system(size: 10, weight: .semibold))
+                                .appFont(10, weight: .semibold)
                         }
                         .foregroundStyle(theme.accent)
                         .padding(.horizontal, 14)
@@ -120,7 +120,7 @@ public struct ListeningMeaningCard: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
-        .padding(18)
+        .appPadding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -134,19 +134,19 @@ public struct ListeningMeaningCard: View {
     private var header: some View {
         HStack(spacing: 6) {
             Image(systemName: ListeningMode.meaning.symbol)
-                .font(.system(size: 12))
+                .appFont(12)
                 .foregroundStyle(theme.accent)
             Text(chrome.title)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .appFont(14, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             Text(chrome.counterText)
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .monospacedDigit()
             Spacer(minLength: 8)
             Button(action: onCancel) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
+                    .appFont(11, weight: .semibold)
                     .foregroundStyle(theme.secondaryText)
                     .frame(width: 20, height: 20)
                     .contentShape(Rectangle())
@@ -190,19 +190,19 @@ public struct ListeningMeaningCard: View {
                         .frame(width: 18, height: 18)
                     if answered, isCorrect || isPicked {
                         Image(systemName: isCorrect ? "checkmark" : "xmark")
-                            .font(.system(size: 9, weight: .bold))
+                            .appFont(9, weight: .bold)
                             .foregroundStyle(tint)
                     }
                 }
                 Text(text)
-                    .font(.system(size: 13, design: .rounded))
+                    .appFont(13, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 9)
+            .appPadding(.vertical, 9)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -246,7 +246,7 @@ public struct ListeningMeaningCard: View {
                 context: wordLookup
             )
         }
-        .padding(10)
+        .appPadding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)

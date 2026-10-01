@@ -45,7 +45,7 @@ public struct PhonemeWeaknessCard: View {
                 exitRow
             }
         }
-        .padding(16)
+        .appPadding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -60,14 +60,14 @@ public struct PhonemeWeaknessCard: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 Image(systemName: "waveform")
-                    .font(.system(size: 11))
+                    .appFont(11)
                     .foregroundStyle(theme.accent)
                 Text("老发错的音")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .appFont(13, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
             }
             Text("挑一个音，用只差这一个音的词对来练")
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
         }
     }
@@ -75,16 +75,16 @@ public struct PhonemeWeaknessCard: View {
     private func row(_ weakness: PhonemeWeakness) -> some View {
         HStack(alignment: .center, spacing: 10) {
             Text(weakness.display)
-                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .appFont(22, weight: .bold, design: .rounded)
                 .foregroundStyle(theme.accent)
                 .frame(width: 34, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text("\(weakness.sampleCount) 次里错了 \(weakness.missCount) 次")
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .appFont(12, weight: .medium, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text(pairPreview(weakness))
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .lineLimit(1)
             }
@@ -109,10 +109,10 @@ public struct PhonemeWeaknessCard: View {
             onStart(weakness)
         } label: {
             Text(isDrillActive && activePhoneme == weakness.phoneme ? "正在练" : "练这个音")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .appFont(11, weight: .semibold, design: .rounded)
                 .foregroundStyle(hasPairs ? theme.accentCool : theme.secondaryText)
                 .padding(.horizontal, 10)
-                .padding(.vertical, 5)
+                .appPadding(.vertical, 5)
                 .background(
                     Capsule(style: .continuous)
                         .strokeBorder(hasPairs ? theme.accentCool.opacity(0.5) : theme.divider, lineWidth: 1)
@@ -128,10 +128,10 @@ public struct PhonemeWeaknessCard: View {
     private var exitRow: some View {
         HStack(spacing: 6) {
             Image(systemName: "arrow.uturn.left")
-                .font(.system(size: 10))
+                .appFont(10)
                 .foregroundStyle(theme.secondaryText)
             Text("练完这一轮可以回到今日跟读")
-                .font(.system(size: 10, design: .rounded))
+                .appFont(10, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .lineLimit(1)
             Spacer(minLength: 8)
@@ -139,11 +139,11 @@ public struct PhonemeWeaknessCard: View {
                 onExit()
             } label: {
                 Text("回到今日跟读")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.accent)
             }
             .buttonStyle(.appPressable)
         }
-        .padding(.top, 2)
+        .appPadding(.top, 2)
     }
 }

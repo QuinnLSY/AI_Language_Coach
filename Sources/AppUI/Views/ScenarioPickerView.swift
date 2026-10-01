@@ -55,7 +55,7 @@ public struct ScenarioPickerView: View {
                         ForEach(Scenario.groups(state.scenarios), id: \.category) { group in
                             VStack(alignment: .leading, spacing: 10) {
                                 Text(group.category)
-                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                    .appFont(12, weight: .semibold, design: .rounded)
                                     .foregroundStyle(theme.secondaryText)
                                 ForEach(group.items) { scenario in
                                     card(scenario)
@@ -63,7 +63,7 @@ public struct ScenarioPickerView: View {
                             }
                         }
                     }
-                    .padding(20)
+                    .appPadding(20)
                 }
             }
         }
@@ -79,7 +79,7 @@ public struct ScenarioPickerView: View {
     private var header: some View {
         HStack(spacing: 12) {
             Image(systemName: "map.fill")
-                .font(.system(size: 18))
+                .appFont(18)
                 .foregroundStyle(theme.accent)
                 .frame(width: 38, height: 38)
                 .background(
@@ -89,10 +89,10 @@ public struct ScenarioPickerView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("情景对话")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .appFont(16, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text("点卡片看任务与重点；想练的没有，就自己描述一个")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
 
@@ -104,13 +104,13 @@ public struct ScenarioPickerView: View {
                 Task { await state.openScenarioComposer() }
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: "sparkles").font(.system(size: 10, weight: .semibold))
+                    Image(systemName: "sparkles").appFont(10, weight: .semibold)
                     Text("描述场景")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                 }
                 .foregroundStyle(theme.accent)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .appPadding(.vertical, 6)
                 .background(Capsule().strokeBorder(theme.accent.opacity(0.5), lineWidth: 1))
                 .contentShape(Capsule())
             }
@@ -123,13 +123,13 @@ public struct ScenarioPickerView: View {
                 Task { await state.openMaterialUpload() }
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: "doc.badge.plus").font(.system(size: 10, weight: .semibold))
+                    Image(systemName: "doc.badge.plus").appFont(10, weight: .semibold)
                     Text("上传材料")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                 }
                 .foregroundStyle(theme.accent)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .appPadding(.vertical, 6)
                 .background(Capsule().strokeBorder(theme.accent.opacity(0.5), lineWidth: 1))
                 .contentShape(Capsule())
             }
@@ -139,7 +139,7 @@ public struct ScenarioPickerView: View {
 
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
+                    .appFont(11, weight: .semibold)
                     .foregroundStyle(theme.secondaryText)
                     .frame(width: 28, height: 28)
                     .background(Circle().fill(theme.hover))
@@ -156,18 +156,18 @@ public struct ScenarioPickerView: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             Image(systemName: "questionmark.folder")
-                .font(.system(size: 30))
+                .appFont(30)
                 .foregroundStyle(theme.secondaryText)
             Text("没有找到情景与考卷资源")
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .appFont(14, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             Text("请确认 App 资源中的 Scenarios 与 Exams 目录存在且包含 JSON 文件。")
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(40)
+        .appPadding(40)
     }
 
     // MARK: - 我的材料（上传材料自动出题，#208）
@@ -176,13 +176,13 @@ public struct ScenarioPickerView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: "doc.text.fill")
-                    .font(.system(size: 11, weight: .semibold))
+                    .appFont(11, weight: .semibold)
                     .foregroundStyle(theme.accent)
                 Text("我的材料")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 Text("从你上传的文章拆出来：情景 + 跟读句 + 生词表")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText.opacity(0.85))
             }
             ForEach(state.materialKits) { kit in
@@ -197,13 +197,13 @@ public struct ScenarioPickerView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: "timer")
-                    .font(.system(size: 11, weight: .semibold))
+                    .appFont(11, weight: .semibold)
                     .foregroundStyle(theme.accent)
                 Text("考试模式")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 Text("按考官流程一题一题走，考完给参考分（不记星星）")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText.opacity(0.85))
             }
             ForEach(state.examBlueprints) { blueprint in
@@ -231,14 +231,14 @@ public struct ScenarioPickerView: View {
             .accessibilityHint(isExpanded ? "收起考卷详情" : "展开考卷详情")
 
             if isExpanded {
-                Divider().overlay(theme.divider).padding(.vertical, 12)
+                Divider().overlay(theme.divider).appPadding(.vertical, 12)
                 // 与情景卡片同款：只淡入不位移（`.move(edge: .top)` 会从别的卡片上方滑进来）。
                 DisclosureBlock {
                     examDetail(blueprint)
                 }
             }
         }
-        .padding(14)
+        .appPadding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -258,7 +258,7 @@ public struct ScenarioPickerView: View {
     private func examHeader(_ blueprint: ExamBlueprint, isActive: Bool, isExpanded: Bool) -> some View {
         HStack(alignment: .top, spacing: 14) {
             Image(systemName: blueprint.format.icon)
-                .font(.system(size: 17))
+                .appFont(17)
                 .foregroundStyle(theme.accent)
                 .frame(width: 42, height: 42)
                 .background(
@@ -269,14 +269,14 @@ public struct ScenarioPickerView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Text(blueprint.title)
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .appFont(14, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     if isActive {
                         badge("进行中", tint: theme.accent)
                     }
                     Spacer(minLength: 0)
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 10, weight: .semibold))
+                        .appFont(10, weight: .semibold)
                         .foregroundStyle(theme.secondaryText)
                 }
                 HStack(spacing: 8) {
@@ -286,7 +286,7 @@ public struct ScenarioPickerView: View {
                 }
                 if !blueprint.summary.isEmpty {
                     Text(blueprint.summary)
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                         .multilineTextAlignment(.leading)
@@ -301,15 +301,15 @@ public struct ScenarioPickerView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
                         Text(stage.title)
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .appFont(11, weight: .semibold, design: .rounded)
                             .foregroundStyle(theme.primaryText)
                         Spacer(minLength: 0)
                         Text("\(stage.prompts.count) 问 · 每题 \(stage.timeLimitSeconds) 秒 · 至少 \(stage.minimumWords) 词")
-                            .font(.system(size: 10, design: .rounded))
+                            .appFont(10, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                     }
                     Text(stage.instructions)
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                         .multilineTextAlignment(.leading)
@@ -317,20 +317,20 @@ public struct ScenarioPickerView: View {
             }
             HStack(spacing: 10) {
                 Text("题目来自考卷文件，答完自动进下一题；中途可跳过或提前交卷。")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 Spacer(minLength: 0)
                 Button {
                     Task { await state.startExam(blueprint) }
                 } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: "flag.checkered").font(.system(size: 9, weight: .bold))
+                        Image(systemName: "flag.checkered").appFont(9, weight: .bold)
                         Text("开始考试")
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .appFont(12, weight: .semibold, design: .rounded)
                     }
                     .foregroundStyle(theme.onAccentFill)
                     .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
+                    .appPadding(.vertical, 7)
                     .background(Capsule().fill(theme.accentFill))
                     .contentShape(Capsule())
                 }
@@ -367,7 +367,7 @@ public struct ScenarioPickerView: View {
             .accessibilityHint(isExpanded ? "收起详情" : "展开详情")
 
             if isExpanded {
-                Divider().overlay(theme.divider).padding(.vertical, 12)
+                Divider().overlay(theme.divider).appPadding(.vertical, 12)
                 // ⚠️ 出现方式与学习记录页的复盘展开同一套（DisclosureBlock：只淡入不位移）：
                 // `.move(edge: .top)` 的位移量等于内容自身高度 —— 展开区很高时整块会从
                 // **别的卡片上方**滑进来，用户看到的就是「文字从界面顶部出来」
@@ -378,7 +378,7 @@ public struct ScenarioPickerView: View {
                 .padding(.horizontal, 0)
             }
         }
-        .padding(14)
+        .appPadding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -399,7 +399,7 @@ public struct ScenarioPickerView: View {
     private func cardHeader(_ scenario: Scenario, isActive: Bool, isExpanded: Bool) -> some View {
         HStack(alignment: .top, spacing: 14) {
             Image(systemName: scenario.icon)
-                .font(.system(size: 17))
+                .appFont(17)
                 .foregroundStyle(theme.accent)
                 .frame(width: 42, height: 42)
                 .background(
@@ -410,10 +410,10 @@ public struct ScenarioPickerView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Text(scenario.titleZh)
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .appFont(14, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     Text(scenario.title)
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                     if isActive {
                         badge("进行中", tint: theme.accent)
@@ -423,7 +423,7 @@ public struct ScenarioPickerView: View {
                     }
                     Spacer(minLength: 0)
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 10, weight: .semibold))
+                        .appFont(10, weight: .semibold)
                         .foregroundStyle(theme.secondaryText)
                 }
 
@@ -436,7 +436,7 @@ public struct ScenarioPickerView: View {
 
                 if !scenario.objective.isEmpty {
                     Text(scenario.objective)
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                         .multilineTextAlignment(.leading)
@@ -447,10 +447,10 @@ public struct ScenarioPickerView: View {
                 if progress.total > 0 {
                     HStack(spacing: 6) {
                         Image(systemName: "flag.checkered")
-                            .font(.system(size: 9))
+                            .appFont(9)
                             .foregroundStyle(theme.accent)
                         Text("\(progress.summary) · \(progress.isComplete ? "已完成" : progress.currentText)")
-                            .font(.system(size: 10, design: .rounded))
+                            .appFont(10, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -485,14 +485,14 @@ public struct ScenarioPickerView: View {
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: confirming ? "trash.fill" : "trash")
-                                .font(.system(size: 9, weight: .semibold))
+                                .appFont(9, weight: .semibold)
                             Text(confirming ? "确认删除" : "删除")
-                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                .appFont(11, weight: .semibold, design: .rounded)
                         }
                         // 常态描边、确认态红底：两级视觉强度，让人一眼看出「这一步不一样」。
                         .foregroundStyle(confirming ? .white : theme.secondaryText)
                         .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
+                        .appPadding(.vertical, 6)
                         .background(Capsule().fill(confirming ? theme.danger : Color.clear))
                         .overlay(
                             Capsule().strokeBorder(
@@ -510,20 +510,20 @@ public struct ScenarioPickerView: View {
                 Text(scenario.origin == .custom
                     ? "删除只影响这个情景，词汇本里的词留着。"
                     : "展开只是先看清楚；准备好就按右边开始。")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 Spacer(minLength: 0)
                 Button {
                     Task { await state.startScenario(scenario) }
                 } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: "play.fill").font(.system(size: 9, weight: .bold))
+                        Image(systemName: "play.fill").appFont(9, weight: .bold)
                         Text(progress.doneCount > 0 && !progress.isComplete ? "继续任务" : "开始任务")
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .appFont(12, weight: .semibold, design: .rounded)
                     }
                     .foregroundStyle(theme.onAccentFill)
                     .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
+                    .appPadding(.vertical, 7)
                     .background(Capsule().fill(theme.accentFill))
                     .contentShape(Capsule())
                 }
@@ -546,7 +546,7 @@ public struct ScenarioPickerView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(theme.danger)
             Text("再点一次「确认删除」就会删掉「\(scenario.titleZh)」和它的目标句，无法恢复。已经收进词汇本的词会保留。")
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.danger)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -557,7 +557,7 @@ public struct ScenarioPickerView: View {
                     Image(systemName: "arrow.uturn.backward")
                     Text("取消")
                 }
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .appFont(11, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .padding(.horizontal, 12)
                 .frame(height: 24)
@@ -568,7 +568,7 @@ public struct ScenarioPickerView: View {
             .buttonStyle(.appPressable)
             .help("什么都不删，退回原来的样子")
         }
-        .padding(10)
+        .appPadding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -585,14 +585,14 @@ public struct ScenarioPickerView: View {
             sectionTitle("主线任务", trailing: progress.total > 0 ? progress.summary : "")
             if !progress.title.isEmpty {
                 Text(progress.title)
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .appFont(11, weight: .medium, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)
             }
             if progress.steps.isEmpty {
                 Text("这一关没有分步任务，练完按「教学重点」判定。")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             } else {
                 ForEach(progress.steps) { step in
@@ -605,28 +605,28 @@ public struct ScenarioPickerView: View {
     private func questStepRow(_ step: QuestStepState) -> some View {
         HStack(alignment: .top, spacing: 7) {
             Image(systemName: step.isDone ? "checkmark.circle.fill" : (step.isCurrent ? "circle.dotted" : "circle"))
-                .font(.system(size: 11))
+                .appFont(11)
                 .foregroundStyle(step.isDone ? theme.accent : (step.isCurrent ? theme.accentCool : theme.secondaryText.opacity(0.6)))
             VStack(alignment: .leading, spacing: 1) {
                 Text("\(step.marker) \(step.text)")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(step.isDone ? theme.secondaryText : theme.primaryText)
                     .strikethrough(step.isDone, color: theme.secondaryText.opacity(0.5))
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)
                 if step.isCurrent, !step.hint.isEmpty {
                     Text(step.hint)
-                        .font(.system(size: 9, design: .rounded))
+                        .appFont(9, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
             }
             Spacer(minLength: 0)
             if step.isCurrent {
                 Text("当前")
-                    .font(.system(size: 9, weight: .semibold, design: .rounded))
+                    .appFont(9, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.accentCool)
                     .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
+                    .appPadding(.vertical, 1)
                     .background(Capsule().fill(theme.hover))
             }
         }
@@ -661,7 +661,7 @@ public struct ScenarioPickerView: View {
             )
             if sentences.isEmpty && words.isEmpty {
                 Text("这一关没有设定重点，自由发挥就好。")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             ForEach(sentences, id: \.self) { sentence in
@@ -671,18 +671,18 @@ public struct ScenarioPickerView: View {
                 HStack(spacing: 6) {
                     ForEach(words.prefix(8), id: \.self) { word in
                         Text(word)
-                            .font(.system(size: 10, design: .rounded))
+                            .appFont(10, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                             .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
+                            .appPadding(.vertical, 3)
                             .background(Capsule().fill(theme.hover))
                     }
                 }
-                .padding(.top, 1)
+                .appPadding(.top, 1)
             }
             if !scenario.targetGrammar.isEmpty {
                 Text("语法点（提示，不参与判定）：\(scenario.targetGrammar.joined(separator: "、"))")
-                    .font(.system(size: 9, design: .rounded))
+                    .appFont(9, design: .rounded)
                     .foregroundStyle(theme.secondaryText.opacity(0.9))
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)
@@ -697,25 +697,25 @@ public struct ScenarioPickerView: View {
             if let level {
                 HStack(spacing: 8) {
                     Image(systemName: "tree.fill")
-                        .font(.system(size: 11))
+                        .appFont(11)
                         .foregroundStyle(theme.accent)
                     Text(level.title)
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .appFont(11, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     Text(level.subtitle)
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                     Spacer(minLength: 0)
                     Text("★ \(level.earnedStars)/\(level.requiredStars)")
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
                 Text("过关条件：完成主线任务 + 教学重点达标（星星只记开口量）")
-                    .font(.system(size: 9, design: .rounded))
+                    .appFont(9, design: .rounded)
                     .foregroundStyle(theme.secondaryText.opacity(0.9))
             } else {
                 Text("这个情景还没挂到大树上，练完只给判定、不加关卡进度。")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }
@@ -726,12 +726,12 @@ public struct ScenarioPickerView: View {
     private func sectionTitle(_ text: String, trailing: String) -> some View {
         HStack(spacing: 8) {
             Text(text)
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .appFont(10, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
             Spacer(minLength: 0)
             if !trailing.isEmpty {
                 Text(trailing)
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }
@@ -742,9 +742,9 @@ public struct ScenarioPickerView: View {
             Circle()
                 .fill(theme.accent.opacity(0.7))
                 .frame(width: 3, height: 3)
-                .padding(.top, 5)
+                .appPadding(.top, 5)
             Text(text)
-                .font(.system(size: 10, design: .rounded))
+                .appFont(10, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
                 .multilineTextAlignment(.leading)
@@ -753,19 +753,19 @@ public struct ScenarioPickerView: View {
 
     private func badge(_ text: String, tint: Color) -> some View {
         Text(text)
-            .font(.system(size: 9, weight: .semibold, design: .rounded))
+            .appFont(9, weight: .semibold, design: .rounded)
             .foregroundStyle(tint)
             .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .appPadding(.vertical, 2)
             .background(Capsule().fill(theme.selection))
     }
 
     private func chip(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 10, design: .rounded))
+            .appFont(10, design: .rounded)
             .foregroundStyle(theme.secondaryText)
             .padding(.horizontal, 8)
-            .padding(.vertical, 3)
+            .appPadding(.vertical, 3)
             .background(Capsule().fill(theme.hover))
     }
 }

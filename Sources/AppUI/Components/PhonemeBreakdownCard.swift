@@ -34,12 +34,12 @@ struct PhonemeBreakdownCard: View {
             }
             if let explanation = report.phonemeSource.explanation {
                 Text(explanation)
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(12)
+        .appPadding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(container)
     }
@@ -57,14 +57,14 @@ struct PhonemeBreakdownCard: View {
     private var header: some View {
         HStack(spacing: 6) {
             Text("逐音素明细")
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .appFont(12, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             if let label = report.phonemeSource.displayName {
                 Text(label)
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .appFont(10, weight: .semibold, design: .rounded)
                     .foregroundStyle(report.phonemeSource == .acoustic ? theme.accent : theme.secondaryText)
                     .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
+                    .appPadding(.vertical, 3)
                     .background(
                         Capsule().fill(
                             (report.phonemeSource == .acoustic ? theme.accent : theme.secondaryText).opacity(0.14)
@@ -82,9 +82,9 @@ struct PhonemeBreakdownCard: View {
             ForEach(PhonemeMark.allCases, id: \.self) { mark in
                 HStack(spacing: 2) {
                     Text(mark.symbol)
-                        .font(.system(size: 8, weight: .bold))
+                        .appFont(8, weight: .bold)
                     Text(markName(mark))
-                        .font(.system(size: 9, design: .rounded))
+                        .appFont(9, design: .rounded)
                 }
                 .foregroundStyle(markColor(mark))
             }
@@ -96,11 +96,11 @@ struct PhonemeBreakdownCard: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
                 Text(item.word)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 if item.status == .missing {
                     Text("漏读")
-                        .font(.system(size: 9, weight: .semibold, design: .rounded))
+                        .appFont(9, weight: .semibold, design: .rounded)
                         .foregroundStyle(.red)
                 }
             }
@@ -112,7 +112,7 @@ struct PhonemeBreakdownCard: View {
                 missingPhonemes(item)
             } else if item.phonemes.isEmpty {
                 Text("无音素")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             } else {
                 HStack(spacing: 5) {
@@ -123,7 +123,7 @@ struct PhonemeBreakdownCard: View {
             }
         }
         .padding(.horizontal, 9)
-        .padding(.vertical, 6)
+        .appPadding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(theme.surface)
@@ -148,7 +148,7 @@ struct PhonemeBreakdownCard: View {
     private func missingPhonemes(_ item: PhonemeWordAssessment) -> some View {
         if item.phonemes.isEmpty {
             Text("—")
-                .font(.system(size: 10, design: .rounded))
+                .appFont(10, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
         } else {
             HStack(spacing: 5) {
@@ -179,7 +179,7 @@ struct PhonemeBreakdownCard: View {
                 ))
                 .foregroundStyle(color)
             Text(mark.symbol)
-                .font(.system(size: 8, weight: .bold))
+                .appFont(8, weight: .bold)
                 .foregroundStyle(color)
         }
         .help("\(rating.phoneme) · \(Int((rating.score * 100).rounded())) 分")

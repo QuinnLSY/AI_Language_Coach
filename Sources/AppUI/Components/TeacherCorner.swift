@@ -1,4 +1,5 @@
 import AIDomain
+import Combine
 import SwiftUI
 
 /// 侧边栏底部的「老师角落」：老师背后挂一块小黑板，黑板上是**今天要交的作业**。
@@ -179,7 +180,7 @@ public struct TeacherCorner: View {
             .frame(width: 176, height: BlackboardLayout.teacherBox)
 
             Text(kind.displayName + "老师")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .appFont(11, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 // ⚠️ 这一行的高度写死成 `nameHeight`：座位总高必须是
                 // `BlackboardLayout.seatHeight` 这个**算出来的数** ——
@@ -276,7 +277,7 @@ public struct TeacherCorner: View {
         if let nudge {
             SpeechBubble(segments: nudge.segments, maxWidth: 150)
                 .fixedSize()
-                .padding(.bottom, 112)
+                .appPadding(.bottom, 112)
                 .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .bottom)))
         }
     }
@@ -498,15 +499,15 @@ struct BlackboardSmall: View {
                 .fill(BlackboardPalette.frame)
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .fill(BlackboardPalette.board)
-                .padding(5)
+                .appPadding(5)
             VStack(spacing: 1) {
                 Text("今日")
-                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                    .appFont(9, weight: .medium, design: .rounded)
                 Text(text)
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .appFont(15, weight: .bold, design: .rounded)
                     .monospacedDigit()
                 Text("tokens")
-                    .font(.system(size: 8, design: .rounded))
+                    .appFont(8, design: .rounded)
             }
             .foregroundStyle(BlackboardPalette.chalk)
             .shadow(color: .white.opacity(0.25), radius: 1.2, x: 0, y: 0)
@@ -534,7 +535,7 @@ struct TaskDot: View {
             if isDone {
                 // 圈只有 14pt，勾再小就被抗锯齿吃掉了（实测 7pt 的勾几乎看不出绿）。
                 Image(systemName: "checkmark")
-                    .font(.system(size: 8, weight: .bold))
+                    .appFont(8, weight: .bold)
                     .foregroundStyle(theme.success)
             }
         }

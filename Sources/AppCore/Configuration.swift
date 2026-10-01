@@ -50,6 +50,42 @@ public enum MotionMode: String, Codable, Sendable, CaseIterable, Identifiable {
     }
 }
 
+/// 字号档位（#416）。档位只存名字；倍率在 AppUI 的 `AppTypography` 里
+/// （数值是排版决策，UI 层负责；这里只保证「存得住、编码得回来」）。
+public enum FontSizeMode: String, Codable, Sendable, CaseIterable, Identifiable {
+    case small
+    case regular
+    case large
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .small: "小"
+        case .regular: "标准"
+        case .large: "大"
+        }
+    }
+}
+
+/// 界面密度档（#416）：只改**纵向**留白松紧。
+/// 横向不缩放的理由（固定宽度卡片会裁字）记在 `AppTypography.horizontal` 的注释里。
+public enum DensityMode: String, Codable, Sendable, CaseIterable, Identifiable {
+    case compact
+    case regular
+    case spacious
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .compact: "紧凑"
+        case .regular: "标准"
+        case .spacious: "宽松"
+        }
+    }
+}
+
 public enum PracticeMode: String, Codable, Sendable, CaseIterable, Identifiable {
     case conversation
     case pronunciation
@@ -434,6 +470,11 @@ public struct ProductConfig: Sendable, Equatable {
     /// 老版本里「跟随时间」与「跟随季节」绑在同一个开关上（`forestFollowsClock`）；
     /// 拆开后各管各的 —— 天黑切夜景是时间的事，换叶色是季节的事。
     public var forestFollowsSeason: Bool
+    /// 森林天气随真实日期（#418-A：晴 / 多云 / 雨，按年内日序确定性判定，默认关）。
+    ///
+    /// 与时间 / 季节开关一样**只改插画层**（天上多不多云、下不下雨），
+    /// 语义色一行不碰。判据在 `ForestAtmosphere.weather(dayOfYear:)`（AppUI 侧）。
+    public var forestFollowsWeather: Bool
     /// 轻音效（批次六 · F：收词「叮」/ 通关小旋律 / 点小动物一声叫）。
     /// **默认关** —— 声音比动画更容易打扰，必须让用户主动选择要热闹。
     public var soundEffects: Bool
@@ -475,6 +516,18 @@ public struct ProductConfig: Sendable, Equatable {
     /// 这里只存 id —— 档案本体（参考音频路径 + 授权记录）在 `VoiceProfileStore` 里。
     /// 在配置里再放一份拷贝，迟早会与档案本体不一致，而那种不一致正是「明明没授权却在用」的雏形。
     public var activeVoiceProfileID: String?
+    /// 自动备份（#415）：**每次启动检查一次**，距上次备份超过 `autoBackupIntervalDays` 天就补一份。
+    ///
+    /// 默认关：备份会占磁盘，不该替用户做这个决定 —— 开了才自动。
+    public var autoBackupEnabled: Bool
+    /// 自动备份的间隔天数（1...30，默认 7）。只在 `autoBackupEnabled` 为真时生效。
+    ///
+    /// 钳位而不是信任取值：配成 0 会让「每次启动都备份一份」，一天开十次就是十份。
+    public var autoBackupIntervalDays: Int
+    /// 字号档（#416）。默认标准 = 与设计基准逐字一致。
+    public var typeSize: FontSizeMode
+    /// 界面密度档（#416）：纵向留白松紧。默认标准 = 与设计基准逐字一致。
+    public var interfaceDensity: DensityMode
 
     public init(
         learningLanguage: String = "en-US",
@@ -490,6 +543,7 @@ public struct ProductConfig: Sendable, Equatable {
         studentCompanion: String = "",
         forestFollowsClock: Bool = false,
         forestFollowsSeason: Bool = false,
+        forestFollowsWeather: Bool = false,
         soundEffects: Bool = false,
         forestWelcomed: Bool = false,
         activeProviders: [String: String] = [:],
@@ -505,7 +559,11 @@ public struct ProductConfig: Sendable, Equatable {
         practiceReminderEnabled: Bool = false,
         practiceReminderHour: Int = 20,
         practiceReminderMinute: Int = 0,
-        activeVoiceProfileID: String? = nil
+        activeVoiceProfileID: String? = nil,
+        autoBackupEnabled: Bool = false,
+        autoBackupIntervalDays: Int = 7,
+        typeSize: FontSizeMode = .regular,
+        interfaceDensity: DensityMode = .regular
     ) {
         self.learningLanguage = learningLanguage
         self.nativeLanguage = nativeLanguage
@@ -520,6 +578,7 @@ public struct ProductConfig: Sendable, Equatable {
         self.studentCompanion = studentCompanion
         self.forestFollowsClock = forestFollowsClock
         self.forestFollowsSeason = forestFollowsSeason
+        self.forestFollowsWeather = forestFollowsWeather
         self.soundEffects = soundEffects
         self.forestWelcomed = forestWelcomed
         self.activeProviders = activeProviders
@@ -536,6 +595,10 @@ public struct ProductConfig: Sendable, Equatable {
         self.practiceReminderHour = min(max(practiceReminderHour, 0), 23)
         self.practiceReminderMinute = min(max(practiceReminderMinute, 0), 59)
         self.activeVoiceProfileID = activeVoiceProfileID
+        self.autoBackupEnabled = autoBackupEnabled
+        self.autoBackupIntervalDays = min(max(autoBackupIntervalDays, 1), 30)
+        self.typeSize = typeSize
+        self.interfaceDensity = interfaceDensity
     }
 
     public func selectedModel(for kind: AIProviderKind) -> String? { selectedModels[kind.rawValue] }
@@ -555,12 +618,15 @@ extension ProductConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case learningLanguage, nativeLanguage, teacherVoice, practiceMode, themeMode, motionMode
         case selectedModels, teacherAnimal, teacherPersona, studentAnimal, studentCompanion
-        case forestFollowsClock, forestFollowsSeason, soundEffects, forestWelcomed, activeProviders
+        case forestFollowsClock, forestFollowsSeason, forestFollowsWeather
+        case soundEffects, forestWelcomed, activeProviders
         case teacherBubbles, animalBubbles, animalActivity
         case animalActivityFrequency, voicePreview, autoSpeak, speechRate
         case dailyGoalMinutes, dailyGoalMode
         case practiceReminderEnabled, practiceReminderHour, practiceReminderMinute
         case activeVoiceProfileID
+        case autoBackupEnabled, autoBackupIntervalDays
+        case typeSize, interfaceDensity
     }
 
     /// 向后兼容解码：**缺省值表就是 `ProductConfig()` 本身**。
@@ -599,6 +665,7 @@ extension ProductConfig: Codable {
         // 跟随**已解码**的 `forestFollowsClock`，升级不该悄悄改变用户已经看到的样子。
         forestFollowsSeason = try container.decodeIfPresent(Bool.self, forKey: .forestFollowsSeason)
             ?? forestFollowsClock
+        forestFollowsWeather = try value(.forestFollowsWeather, fallback.forestFollowsWeather)
         soundEffects = try value(.soundEffects, fallback.soundEffects)
         forestWelcomed = try value(.forestWelcomed, fallback.forestWelcomed)
         activeProviders = try value(.activeProviders, fallback.activeProviders)
@@ -616,6 +683,10 @@ extension ProductConfig: Codable {
         practiceReminderHour = min(max(try value(.practiceReminderHour, fallback.practiceReminderHour), 0), 23)
         practiceReminderMinute = min(max(try value(.practiceReminderMinute, fallback.practiceReminderMinute), 0), 59)
         activeVoiceProfileID = try container.decodeIfPresent(String.self, forKey: .activeVoiceProfileID)
+        autoBackupEnabled = try value(.autoBackupEnabled, fallback.autoBackupEnabled)
+        autoBackupIntervalDays = min(max(try value(.autoBackupIntervalDays, fallback.autoBackupIntervalDays), 1), 30)
+        typeSize = try value(.typeSize, fallback.typeSize)
+        interfaceDensity = try value(.interfaceDensity, fallback.interfaceDensity)
     }
 
     /// 写入侧仍是显式列举：`activeVoiceProfileID` 要 `encodeIfPresent`（缺省不写空值），
@@ -635,6 +706,7 @@ extension ProductConfig: Codable {
         try container.encode(studentCompanion, forKey: .studentCompanion)
         try container.encode(forestFollowsClock, forKey: .forestFollowsClock)
         try container.encode(forestFollowsSeason, forKey: .forestFollowsSeason)
+        try container.encode(forestFollowsWeather, forKey: .forestFollowsWeather)
         try container.encode(soundEffects, forKey: .soundEffects)
         try container.encode(forestWelcomed, forKey: .forestWelcomed)
         try container.encode(activeProviders, forKey: .activeProviders)
@@ -651,6 +723,10 @@ extension ProductConfig: Codable {
         try container.encode(practiceReminderHour, forKey: .practiceReminderHour)
         try container.encode(practiceReminderMinute, forKey: .practiceReminderMinute)
         try container.encodeIfPresent(activeVoiceProfileID, forKey: .activeVoiceProfileID)
+        try container.encode(autoBackupEnabled, forKey: .autoBackupEnabled)
+        try container.encode(autoBackupIntervalDays, forKey: .autoBackupIntervalDays)
+        try container.encode(typeSize, forKey: .typeSize)
+        try container.encode(interfaceDensity, forKey: .interfaceDensity)
     }
 }
 

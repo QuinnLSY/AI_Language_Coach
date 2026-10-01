@@ -47,7 +47,7 @@ public struct MarkdownText: View {
                     weight: .bold, design: .rounded
                 ))
                 .foregroundStyle(color)
-                .padding(.top, 2)
+                .appPadding(.top, 2)
 
         case .bullet(let items):
             VStack(alignment: .leading, spacing: 3) {
@@ -57,7 +57,7 @@ public struct MarkdownText: View {
                             .frame(width: fontSize * 0.28, height: fontSize * 0.28)
                             .padding(.top, fontSize * 0.42)
                         inlineView(item)
-                            .font(.system(size: fontSize, design: .rounded))
+                            .appFont(fontSize, design: .rounded)
                             .foregroundStyle(color)
                     }
                 }
@@ -67,28 +67,28 @@ public struct MarkdownText: View {
             HStack(alignment: .top, spacing: 8) {
                 RoundedRectangle(cornerRadius: 2).fill(color.opacity(0.35)).frame(width: 3)
                 inlineView(content)
-                    .font(.system(size: fontSize, design: .rounded))
+                    .appFont(fontSize, design: .rounded)
                     .foregroundStyle(color.opacity(0.85))
             }
 
         case .paragraph(let content):
             inlineView(content)
-                .font(.system(size: fontSize, design: .rounded))
+                .appFont(fontSize, design: .rounded)
                 .foregroundStyle(color)
 
         case .code(let language, let code):
             VStack(alignment: .leading, spacing: 4) {
                 if let language, !language.isEmpty {
                     Text(language.uppercased())
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .appFont(9, weight: .semibold, design: .monospaced)
                         .foregroundStyle(color.opacity(0.55))
                 }
                 Text(code)
-                    .font(.system(size: fontSize - 1.5, design: .monospaced))
+                    .appFont(fontSize - 1.5, design: .monospaced)
                     .foregroundStyle(color)
                     .textSelection(.enabled)
             }
-            .padding(10)
+            .appPadding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)

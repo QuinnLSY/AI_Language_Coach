@@ -17,10 +17,10 @@ struct NoticeBanner: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: hasAction ? "exclamationmark.triangle.fill" : "info.circle")
-                .font(.system(size: 11))
+                .appFont(11)
                 .foregroundStyle(hasAction ? theme.warning : theme.accent)
             Text(notice.text)
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.primaryText.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -33,14 +33,14 @@ struct NoticeBanner: View {
             }
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
+                    .appFont(9, weight: .semibold)
                     .foregroundStyle(theme.secondaryText)
             }
             .buttonStyle(.appPressable)
             .help("关掉这条提示")
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .appPadding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(theme.accent.opacity(0.08))
@@ -67,10 +67,10 @@ struct NoticeActionButton: View {
     var body: some View {
         Button(action: action.run) {
             Text(action.title)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .appFont(11, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.onAccentFill)
                 .padding(.horizontal, 10)
-                .padding(.vertical, 3)
+                .appPadding(.vertical, 3)
                 .background(Capsule().fill(theme.accentFill))
                 .contentShape(Capsule())
         }

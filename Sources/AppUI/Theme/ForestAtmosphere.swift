@@ -50,6 +50,25 @@ public enum ForestSeason: String, CaseIterable, Sendable, Identifiable {
     }
 }
 
+/// 天气（#418-A）。与时刻 / 季节一样**只改插画层** —— 天上多不多云、下不下雨，
+/// 语义色一行不碰。夜里也下雨（雨丝换暗一档的颜色），「跟随天气」不挑时候。
+public enum ForestWeather: String, CaseIterable, Sendable, Identifiable {
+
+    case clear
+    case cloudy
+    case rain
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .clear: "晴"
+        case .cloudy: "多云"
+        case .rain: "雨"
+        }
+    }
+}
+
 /// 天体在窗口顶部的位置（左上角坐标；`y` 是上边距）。
 public struct CelestialAnchor: Equatable, Sendable {
     public var x: CGFloat
@@ -101,6 +120,24 @@ public enum ForestAtmosphere {
         case 9...11: return .autumn
         default: return .winter
         }
+    }
+
+    // MARK: - 天气（#418-A）
+
+    /// 年内日序（1...366）→ 当天的天气。
+    ///
+    /// 为什么是**日期**不是随机数：天气不能在一天里翻来覆去 —— 同一天打开应用
+    /// 一百次，看到的必须是同一种天气。判据用 Knuth 乘法散列把日子摊开：
+    /// 相邻两天相差 `multiplier % 100 = 61`（与 100 互质），整年铺满后
+    /// 大约五成晴、三成多云、两成雨 —— 落进哪档只看散列值，没有玄学。
+    ///
+    /// 越界钳回 1...366：平年 2 月没有 366 也照算，不至于崩。
+    public static func weather(dayOfYear: Int) -> ForestWeather {
+        let day = min(max(dayOfYear, 1), 366)
+        let hash = (day * 2_654_435_761) % 100
+        if hash < 50 { return .clear }
+        if hash < 80 { return .cloudy }
+        return .rain
     }
 
     /// 这一小时算不算夜里（日落之后、日出之前）。

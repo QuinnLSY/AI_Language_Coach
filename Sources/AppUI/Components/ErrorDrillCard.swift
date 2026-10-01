@@ -46,7 +46,7 @@ public struct ErrorDrillCard: View {
                 prompt(error)
             }
         }
-        .padding(16)
+        .appPadding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -65,15 +65,15 @@ public struct ErrorDrillCard: View {
             Image(systemName: "arrow.triangle.2.circlepath")
                 .foregroundStyle(theme.accent)
             Text("改错练习")
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .appFont(14, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             Text("\(session.progress.done + 1) / \(session.progress.total)")
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
             Spacer(minLength: 8)
             Button(action: onCancel) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
+                    .appFont(11, weight: .semibold)
                     .foregroundStyle(theme.secondaryText)
                     .frame(width: 20, height: 20)
                     .contentShape(Rectangle())
@@ -89,17 +89,17 @@ public struct ErrorDrillCard: View {
         VStack(alignment: .leading, spacing: 10) {
             sentence(error.original, tint: theme.danger)
             Text("把它改成正确的说法（大小写和标点不影响判定）")
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
             if error.count > 1 {
                 Text("这处错你犯过 \(error.count) 次")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.warning)
             }
             HStack(spacing: 8) {
                 TextField("", text: $answer)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+                    .appFont(13)
                     .foregroundStyle(theme.primaryText)
                     .padding(.horizontal, 10)
                     .frame(height: 30)
@@ -125,7 +125,7 @@ public struct ErrorDrillCard: View {
                 Image(systemName: outcome.isCorrect ? "checkmark.circle.fill" : "xmark.circle.fill")
                     .foregroundStyle(outcome.isCorrect ? theme.success : theme.danger)
                 Text(outcome.isCorrect ? "改对了" : "还差一点")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .appFont(13, weight: .semibold, design: .rounded)
                     .foregroundStyle(outcome.isCorrect ? theme.success : theme.danger)
             }
             if !outcome.isCorrect {
@@ -138,7 +138,7 @@ public struct ErrorDrillCard: View {
             }
             if let note = session.previous?.explanation, !note.isEmpty {
                 Text(note)
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             HStack {
@@ -152,7 +152,7 @@ public struct ErrorDrillCard: View {
 
     private func sentence(_ text: String, tint: Color) -> some View {
         Text(text)
-            .font(.system(size: 15, weight: .medium, design: .rounded))
+            .appFont(15, weight: .medium, design: .rounded)
             .foregroundStyle(tint)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -160,10 +160,10 @@ public struct ErrorDrillCard: View {
     private func labelled(_ label: String, _ value: String, tint: Color? = nil) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
             Text(value)
-                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .appFont(13, weight: .medium, design: .rounded)
                 .foregroundStyle(tint ?? theme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -172,7 +172,7 @@ public struct ErrorDrillCard: View {
     private func actionButton(_ title: String, isDisabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .appFont(12, weight: .semibold, design: .rounded)
                 .foregroundStyle(isDisabled ? theme.secondaryText : .white)
                 .padding(.horizontal, 14)
                 .frame(height: 30)

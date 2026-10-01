@@ -120,13 +120,13 @@ public struct SpeechBubble: View {
 
     public var body: some View {
         bubbleText
-            .font(.system(size: 11, weight: .medium, design: .rounded))
+            .appFont(11, weight: .medium, design: .rounded)
             .foregroundStyle(theme.primaryText)
             .multilineTextAlignment(.center)
             .lineLimit(4)
             .frame(width: estimatedWidth)
             .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .appPadding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .fill(theme.panel)

@@ -18,7 +18,7 @@ struct MaterialKitCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "doc.text.fill")
-                    .font(.system(size: 15))
+                    .appFont(15)
                     .foregroundStyle(theme.accent)
                     .frame(width: 36, height: 36)
                     .background(
@@ -28,7 +28,7 @@ struct MaterialKitCard: View {
 
                 VStack(alignment: .leading, spacing: 5) {
                     Text(title)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .appFont(13, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     HStack(spacing: 8) {
                         chip("\(kit.drills.count) 句跟读")
@@ -42,20 +42,20 @@ struct MaterialKitCard: View {
                 Spacer(minLength: 0)
 
                 Text(Self.dateText(kit.createdAt))
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText.opacity(0.8))
             }
 
             if !kit.excerpt.isEmpty {
                 Text(kit.excerpt)
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText.opacity(0.9))
                     .lineLimit(2)
             }
 
             HStack(spacing: 10) {
                 Text("生词已自动收进词汇本。")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText.opacity(0.85))
                 Spacer(minLength: 0)
                 if confirmingDelete {
@@ -65,7 +65,7 @@ struct MaterialKitCard: View {
                         }
                     } label: {
                         Text("确认删除")
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .appFont(11, weight: .semibold, design: .rounded)
                             .foregroundStyle(theme.warning)
                     }
                     .buttonStyle(.appPressable)
@@ -74,7 +74,7 @@ struct MaterialKitCard: View {
                         confirmingDelete = false
                     } label: {
                         Text("取消")
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                     }
                     .buttonStyle(.appPressable)
@@ -83,7 +83,7 @@ struct MaterialKitCard: View {
                         confirmingDelete = true
                     } label: {
                         Image(systemName: "trash")
-                            .font(.system(size: 10))
+                            .appFont(10)
                             .foregroundStyle(theme.secondaryText)
                     }
                     .buttonStyle(.appPressable)
@@ -95,13 +95,13 @@ struct MaterialKitCard: View {
                         Task { await state.startMaterialScenario(kit) }
                     } label: {
                         HStack(spacing: 5) {
-                            Image(systemName: "play.fill").font(.system(size: 9, weight: .bold))
+                            Image(systemName: "play.fill").appFont(9, weight: .bold)
                             Text("开始情景")
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .appFont(12, weight: .semibold, design: .rounded)
                         }
                         .foregroundStyle(theme.onAccentFill)
                         .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
+                        .appPadding(.vertical, 7)
                         .background(Capsule().fill(theme.accentFill))
                         .contentShape(Capsule())
                     }
@@ -112,13 +112,13 @@ struct MaterialKitCard: View {
                     state.useMaterialDrills(kit)
                 } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: "waveform").font(.system(size: 9, weight: .bold))
+                        Image(systemName: "waveform").appFont(9, weight: .bold)
                         Text("练跟读句")
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .appFont(12, weight: .semibold, design: .rounded)
                     }
                     .foregroundStyle(theme.accent)
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
+                    .appPadding(.vertical, 7)
                     .background(Capsule().strokeBorder(theme.accent.opacity(0.5), lineWidth: 1))
                     .contentShape(Capsule())
                 }
@@ -126,7 +126,7 @@ struct MaterialKitCard: View {
                 .help("去跟读页逐句磨这 \(kit.drills.count) 句")
             }
         }
-        .padding(14)
+        .appPadding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -140,10 +140,10 @@ struct MaterialKitCard: View {
 
     private func chip(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 10, design: .rounded))
+            .appFont(10, design: .rounded)
             .foregroundStyle(theme.secondaryText)
             .padding(.horizontal, 8)
-            .padding(.vertical, 3)
+            .appPadding(.vertical, 3)
             .background(Capsule().fill(theme.hover))
     }
 

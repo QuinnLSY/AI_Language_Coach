@@ -45,9 +45,9 @@ struct StreakBadgeView: View {
         Button(action: onTap) {
             HStack(spacing: 3) {
                 Image(systemName: "flame.fill")
-                    .font(.system(size: 10, weight: .semibold))
+                    .appFont(10, weight: .semibold)
                 Text("\(badge.days) 天")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .monospacedDigit()
                     // 数字滚动推入而不是跳变（#356）：跨天 / 完成练习后连续天数
                     // 变化时，旧数字往上推出、新数字从下推入。monospacedDigit 防
@@ -57,7 +57,7 @@ struct StreakBadgeView: View {
             }
             .foregroundStyle(tint)
             .padding(.horizontal, 8)
-            .padding(.vertical, 3)
+            .appPadding(.vertical, 3)
             .background(Capsule().fill(tint.opacity(0.12)))
             .overlay(Capsule().strokeBorder(tint.opacity(badge.isAtRisk ? 0.85 : 0.4), lineWidth: 1))
             // ⚠️ 命中区必须是整枚胶囊：胶囊里的文字有墨、周围那圈淡底没有 ——
@@ -101,9 +101,9 @@ struct StreakBadgeView: View {
             Text("点一下看整年的学习记录")
                 .foregroundStyle(theme.secondaryText)
         }
-        .font(.system(size: 11))
+        .appFont(11)
         .padding(.horizontal, 9)
-        .padding(.vertical, 6)
+        .appPadding(.vertical, 6)
         // 浮层材质（#361）：侧栏悬浮卡悬在导航条目上方，毛玻璃透出底下还有内容；
         // 「降低透明度」下退回实底。
         .floatingSurface(in: RoundedRectangle(cornerRadius: 7, style: .continuous))

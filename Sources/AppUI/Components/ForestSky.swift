@@ -30,7 +30,7 @@ public struct ForestSky: View {
                         .frame(width: 120, height: 120)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                         .padding(.trailing, 64)
-                        .padding(.top, 44)
+                        .appPadding(.top, 44)
                 }
                 if !ambientStill {
                     Fireflies()
@@ -41,11 +41,18 @@ public struct ForestSky: View {
                         .frame(width: 130, height: 130)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                         .padding(.trailing, 64)
-                        .padding(.top, 44)
+                        .appPadding(.top, 44)
                 }
                 if !ambientStill {
-                    Clouds()
+                    // 多云（#418-A）：云量加一倍 —— 还是同一朵云的形状，只是天更挤。
+                    Clouds(dense: theme.weather == .cloudy)
                 }
+            }
+
+            // 雨（#418-A）：日夜都下，颜色跟 `theme.rainColor` 走；
+            // 静态档（连点天空 5 次）整个雨层也收 —— 「林子完全安静」包含雨停。
+            if theme.weather == .rain, !ambientStill {
+                RainLayer(color: theme.rainColor)
             }
 
             VStack {
@@ -178,6 +185,8 @@ private struct SunView: View {
 }
 
 private struct Clouds: View {
+    /// 多云档（#418-A）：在基础三朵之上再添三朵 —— 还是同一套云的形状，只是天更挤。
+    var dense: Bool = false
     @State private var drift = false
 
     var body: some View {
@@ -185,6 +194,11 @@ private struct Clouds: View {
             Cloud(scale: 1.0, opacity: 0.95).offset(x: drift ? 60 : -40, y: -210).padding(.leading, 90)
             Cloud(scale: 0.7, opacity: 0.8).offset(x: drift ? -50 : 40, y: -280).padding(.leading, 320)
             Cloud(scale: 0.55, opacity: 0.7).offset(x: drift ? 40 : -30, y: -170).padding(.leading, 520)
+            if dense {
+                Cloud(scale: 0.9, opacity: 0.9).offset(x: drift ? 30 : -20, y: -240).padding(.leading, 210)
+                Cloud(scale: 0.65, opacity: 0.85).offset(x: drift ? -35 : 25, y: -185).padding(.leading, 430)
+                Cloud(scale: 0.75, opacity: 0.9).offset(x: drift ? 45 : -45, y: -300).padding(.leading, 620)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .loopAnimation(.easeInOut(duration: 26).repeatForever(autoreverses: true), value: drift)
@@ -201,6 +215,49 @@ private struct Clouds: View {
                 Circle().fill(.white.opacity(opacity)).frame(width: 42 * scale, height: 42 * scale).offset(x: 22 * scale, y: -15 * scale)
             }
         }
+    }
+}
+
+// MARK: - 雨（#418-A）
+
+/// 雨丝层：细长胶囊从天而降（各自错峰、匀速下落、循环）。日夜共用，
+/// 颜色由 `theme.rainColor` 给（夜里暗一档）。位置用种子随机 —— 与星星一样，
+/// 布局必须稳定，不能每次布局都换一场新雨。
+private struct RainLayer: View {
+    let color: Color
+
+    private static let drops: [CGPoint] = {
+        var generator = SeededRandom(seed: 20_260_430)
+        return (0..<26).map { _ in
+            CGPoint(x: Double(generator.next()), y: Double(generator.next()) * 0.72)
+        }
+    }()
+
+    @State private var falling = false
+
+    private var animates: Bool { AmbientMotion.animates(armed: falling, still: false) }
+
+    var body: some View {
+        GeometryReader { proxy in
+            ForEach(0..<Self.drops.count, id: \.self) { index in
+                let point = Self.drops[index]
+                Capsule()
+                    .fill(color)
+                    .frame(width: 2, height: 13)
+                    .position(
+                        x: point.x * proxy.size.width,
+                        y: point.y * proxy.size.height + (animates ? 30 : 0)
+                    )
+                    .opacity(animates ? 0.6 : 0.25)
+                    // 匀速直落、不回弹（autoreverses: false）—— 雨不是荡秋千。
+                    .loopAnimation(
+                        .linear(duration: Double(88 + (index % 5) * 14) / 100)
+                            .repeatForever(autoreverses: false),
+                        value: animates
+                    )
+            }
+        }
+        .onAppear { falling = true }
     }
 }
 

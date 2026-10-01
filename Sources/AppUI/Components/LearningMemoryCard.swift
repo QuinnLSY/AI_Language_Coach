@@ -47,7 +47,7 @@ public struct LearningMemoryCard: View {
             }
             if let notice { noticeLine(notice) }
         }
-        .padding(16)
+        .appPadding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -63,7 +63,7 @@ public struct LearningMemoryCard: View {
             Image(systemName: "brain")
                 .foregroundStyle(theme.accent)
             Text("老师记住了你什么")
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .appFont(14, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             Spacer(minLength: 8)
             clearButton
@@ -83,7 +83,7 @@ public struct LearningMemoryCard: View {
                 Image(systemName: confirmingClear ? "trash.fill" : "trash")
                 Text(confirmingClear ? "确认清除" : "清除记忆")
             }
-            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .appFont(12, weight: .semibold, design: .rounded)
             // 常态描边、确认态实底：两级视觉强度，让人一眼看出「这一步不一样」。
             .foregroundStyle(confirmingClear ? .white : theme.danger)
             .padding(.horizontal, 12)
@@ -144,13 +144,13 @@ public struct LearningMemoryCard: View {
                     Image(systemName: trendIcon)
                         .foregroundStyle(theme.accent)
                     Text(trend)
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
             }
 
             Text("累计练过 \(memory.sessionsPracticed) 次 · 纠错 \(memory.totalCorrections) 条")
-                .font(.system(size: 10, design: .rounded))
+                .appFont(10, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
         }
     }
@@ -167,30 +167,30 @@ public struct LearningMemoryCard: View {
                     .strikethrough()
                     .foregroundStyle(theme.secondaryText)
                 Image(systemName: "arrow.right")
-                    .font(.system(size: 9))
+                    .appFont(9)
                     .foregroundStyle(theme.accent)
                 Text(error.corrected)
                     .foregroundStyle(theme.primaryText)
                 if error.count > 1 {
                     Text("×\(error.count)")
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .appFont(10, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.accentAlt)
                 }
                 Spacer(minLength: 0)
             }
-            .font(.system(size: 12, design: .rounded))
+            .appFont(12, design: .rounded)
             // 长句必须能折行：原来没有 `fixedSize` 时，长原句会被压成一行截断。
             .fixedSize(horizontal: false, vertical: true)
 
             if !error.explanation.isEmpty {
                 Text(error.explanation)
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .appPadding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -207,10 +207,10 @@ public struct LearningMemoryCard: View {
             Image(systemName: "sparkles")
                 .foregroundStyle(theme.accent)
             Text("老师还没记住什么。多练几次，这里会长出你常犯的错、该复习的词和练过的话题。")
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
         }
-        .padding(.vertical, 10)
+        .appPadding(.vertical, 10)
     }
 
     /// 二次确认横幅：**必须自带「取消」**。
@@ -224,7 +224,7 @@ public struct LearningMemoryCard: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(theme.danger)
                 Text("再点一次「确认清除」就会删掉纠错记录、练习复盘、跟读记录与复习流水，无法恢复。单词本和对话记录会保留。")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.danger)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
@@ -238,7 +238,7 @@ public struct LearningMemoryCard: View {
                         Image(systemName: "arrow.uturn.backward")
                         Text("取消")
                     }
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .padding(.horizontal, 12)
                     .frame(height: 24)
@@ -254,7 +254,7 @@ public struct LearningMemoryCard: View {
                 .help("什么都不删，退回原来的样子")
             }
         }
-        .padding(10)
+        .appPadding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -264,7 +264,7 @@ public struct LearningMemoryCard: View {
 
     private func noticeLine(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 11, design: .rounded))
+            .appFont(11, design: .rounded)
             .foregroundStyle(theme.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -279,10 +279,10 @@ public struct LearningMemoryCard: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 5) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 10))
+                    .appFont(10)
                     .foregroundStyle(theme.accent)
                 Text(title)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 Spacer(minLength: 4)
                 trailing()
@@ -299,10 +299,10 @@ public struct LearningMemoryCard: View {
         Button(action: action) {
             HStack(spacing: 4) {
                 Image(systemName: "pencil.and.scribble")
-                    .font(.system(size: 10))
+                    .appFont(10)
                 Text("练一遍")
             }
-            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .appFont(11, weight: .semibold, design: .rounded)
             .foregroundStyle(theme.accent)
             .padding(.horizontal, 8)
             .frame(height: 20)
@@ -316,12 +316,12 @@ public struct LearningMemoryCard: View {
         FlowRow(spacing: 6, lineSpacing: 6, wrapsLongItems: true) {
             ForEach(items, id: \.self) { item in
                 Text(item)
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .appFont(11, weight: .medium, design: .rounded)
                     .foregroundStyle(tint)
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
+                    .appPadding(.vertical, 3)
                     .background(Capsule().fill(tint.opacity(0.14)))
             }
         }

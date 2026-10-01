@@ -24,11 +24,11 @@ struct StreakBirdBadge: View {
             HStack(spacing: 5) {
                 bird
                 Text("\(badge.days) 天")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .appFont(10, weight: .semibold, design: .rounded)
             }
             .foregroundStyle(tint)
             .padding(.horizontal, 9)
-            .padding(.vertical, 4)
+            .appPadding(.vertical, 4)
             .background(Capsule().fill(tint.opacity(0.12)))
             .overlay(Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 1))
         }

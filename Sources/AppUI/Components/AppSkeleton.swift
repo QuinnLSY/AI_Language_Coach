@@ -93,9 +93,9 @@ struct SkeletonReadingCard: View {
                 SkeletonBar(width: 132, height: 24)
                 SkeletonBar(width: 158, height: 24)
             }
-            .padding(.top, 2)
+            .appPadding(.top, 2)
         }
-        .padding(24)
+        .appPadding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -127,9 +127,9 @@ struct SkeletonShadowingCard: View {
                 SkeletonBar(width: 92, height: 26)
                 SkeletonBar(width: 92, height: 26)
             }
-            .padding(.top, 2)
+            .appPadding(.top, 2)
         }
-        .padding(20)
+        .appPadding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)

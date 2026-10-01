@@ -1559,6 +1559,37 @@ public actor CoachServices {
         }
     }
 
+    /// 记忆索引的「通没通 + 多少维」（设置页「运行环境」卡）。
+    ///
+    /// 维度单独给出来，是因为「已接通」三个字回答不了用户的下一个问题：
+    /// **用的是哪个索引、换模型后会不会变**。装配成功但 runtime 是 mock 时
+    /// `isSemanticMemoryEnabled` 为 false，这里如实回 0 维。
+    public func semanticMemoryInfo() async -> (enabled: Bool, dimensions: Int) {
+        let enabled = await isSemanticMemoryEnabled
+        let dimensions = await embedding.dimensions
+        return (enabled, dimensions)
+    }
+
+    /// 跑一轮本地 LLM 基准（设置页「本地模型测速」）。
+    ///
+    /// ⚠️ 只打**本地 runtime**（Ollama），零云端费用 —— 所以这里不走计费闸门。
+    /// 以前这条链路只有 `alc-bench` 命令行在用，界面上一个入口都没有，
+    /// 于是「我的机器跑这个模型到底快不快」只能靠体感。
+    ///
+    /// - Parameter rounds: 每个提示词重复几轮（默认 2：够看方差，又不至于跑一分钟）。
+    public func runLocalBenchmark(rounds: Int = 2) async throws -> LocalLLMBenchmark.Result {
+        let configuration = await config.current
+        return try await LocalLLMBenchmark(rounds: rounds).run(configuration: configuration)
+    }
+
+    /// 本机当前可用内存（字节；nil = 取不到）。
+    ///
+    /// 本地模型是**吃内存**的：7B 量化模型加载后占几 GB。界面上给一个数，
+    /// 用户才能把「卡」和「内存不够」对上，而不是盲猜模型不行。
+    public func availableMemoryBytes() -> UInt64? {
+        OSMemoryPressureMonitor().availableMemoryBytes()
+    }
+
     /// 当前生效的 LLM 能不能**真的读图**。
     ///
     /// 谁在用：对话区带了图片附件时提醒用户「老师看不到这张图，只会知道文件名」。
@@ -1719,6 +1750,15 @@ public actor CoachServices {
     public func sessionSummary(id: UUID) async -> SessionSummary? {
         guard let learning else { return nil }
         return try? await learning.sessionSummary(id: id)
+    }
+
+    /// 在对话正文里搜关键词（#414 全局搜索）。
+    ///
+    /// 库不可用 / SQL 出错都返回空：**搜索失败不该弹错误框**，它是锦上添花的那一路，
+    /// 静默少一个来源，好过吓用户一跳。
+    public func searchMessages(query: String, limit: Int = 30) async -> [GlobalSearchMessage] {
+        guard let learning else { return [] }
+        return (try? await learning.searchMessages(query: query, limit: limit)) ?? []
     }
 
     // MARK: - 练习复盘（学习记忆）

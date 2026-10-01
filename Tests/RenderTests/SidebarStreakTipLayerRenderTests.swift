@@ -28,7 +28,9 @@ final class SidebarStreakTipLayerRenderTests: XCTestCase {
 
     private var window: NSWindow?
     /// 侧栏展开尺寸（与 `AppSidebar.expandedWidth` 一致）。
-    private let canvas = CGSize(width: 220, height: 700)
+    /// 900 而不是 700：Xcode 27 SDK 下侧栏自然高度长过了 700，画布不够时
+    /// VStack 居中 → 整条内容上移、上下被裁，几何判据全部失真（2026-10-01）。
+    private let canvas = CGSize(width: 220, height: 900)
 
     /// 头栏总高（`AppSidebar.body` 里定的 64pt）—— 浮卡从这里往下溢出。
     private let headerHeight = 64

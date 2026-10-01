@@ -134,7 +134,7 @@ struct ForestSelect<Value: Hashable>: View {
         HStack(spacing: 6) {
             if let label {
                 Text("\(label)：")
-                    .font(.system(size: metrics.fontSize, weight: .medium, design: .rounded))
+                    .appFont(metrics.fontSize, weight: .medium, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize()
             }
@@ -165,11 +165,11 @@ struct ForestSelect<Value: Hashable>: View {
         HStack(spacing: metrics.spacing) {
             if let icon {
                 Image(systemName: icon)
-                    .font(.system(size: metrics.iconSize))
+                    .appFont(metrics.iconSize)
                     .foregroundStyle(theme.accent)
             }
             Text(currentTitle)
-                .font(.system(size: metrics.fontSize, weight: .medium, design: .rounded))
+                .appFont(metrics.fontSize, weight: .medium, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .lineLimit(1)
                 // 模型名往往前半段相同（`agnes-2.5-flash` / `agnes-2.5-pro`），
@@ -184,7 +184,7 @@ struct ForestSelect<Value: Hashable>: View {
         .background(shape.fill(theme.surfaceAlt))
         .overlay(alignment: .trailing) {
             Image(systemName: "chevron.down")
-                .font(.system(size: metrics.iconSize - 1, weight: .semibold))
+                .appFont(metrics.iconSize - 1, weight: .semibold)
                 .foregroundStyle(theme.secondaryText)
                 .padding(.trailing, metrics.horizontalPadding)
         }

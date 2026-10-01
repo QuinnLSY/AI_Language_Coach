@@ -33,7 +33,7 @@ struct LookupDictionaryButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: Self.symbol)
-                .font(.system(size: Self.pointSize, weight: Self.weight))
+                .appFont(Self.pointSize, weight: Self.weight)
                 // ⚠️ 冷紫而不是喇叭那个橘：同一行里两个按钮抢同一个颜色时，
                 // 用户分不出哪个是「读」哪个是「查」。冷紫是主题里留给
                 // 「跳去别处」这类次要动作的那一支。

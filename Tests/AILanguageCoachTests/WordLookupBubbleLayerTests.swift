@@ -223,9 +223,14 @@ final class WordLookupOverlayMountTests: XCTestCase {
         XCTAssertEqual(previous, "}",
                        "浮层必须紧跟在 ZStack 闭合括号之后（写进括号里会挂到前一个孩子身上，锚点全丢）")
 
-        let geometryClose = main.first { $0.text.contains(".frame(minWidth: 1080") }
-        XCTAssertNotNil(geometryClose, "找不到 GeometryReader 的收尾修饰（结构变了就改这条判据）")
-        XCTAssertLessThan(mount.number, geometryClose!.number,
+        // ⚠️ #417 起窗口下限走 AppLayoutMetrics 单一真相（不再写字面量），判据跟着改；
+        // ⚠️ 这里必须用 `try XCTUnwrap`：早先 `XCTAssertNotNil` + `!` 强解的组合，
+        // 判据一失效就把整个 xctest 进程崩掉（Trace/BPT trap），殃及后面所有用例。
+        let geometryClose = try XCTUnwrap(
+            main.first { $0.text.contains(".frame(minWidth: AppLayoutMetrics.minWindowWidth") },
+            "找不到 GeometryReader 的收尾修饰（结构变了就改这条判据）"
+        )
+        XCTAssertLessThan(mount.number, geometryClose.number,
                           "浮层必须挂在最外层 ZStack 上（挂在子视图属性里就到不了最上层）")
 
         let chat = try source("AppUI/Views/ChatView.swift")

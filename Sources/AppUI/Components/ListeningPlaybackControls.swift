@@ -23,7 +23,7 @@ struct ListeningPlaybackControls: View {
             playButton
             slowToggle
             Text(chrome.playsText)
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .monospacedDigit()
             Spacer(minLength: 0)
@@ -34,9 +34,9 @@ struct ListeningPlaybackControls: View {
         Button(action: onPlay) {
             HStack(spacing: 6) {
                 Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                    .font(.system(size: 11, weight: .semibold))
+                    .appFont(11, weight: .semibold)
                 Text(isPlaying ? chrome.stopButton : (playCount == 0 ? chrome.playButton : chrome.replayButton))
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
             }
             .foregroundStyle(theme.accent)
             .padding(.horizontal, 14)
@@ -60,9 +60,9 @@ struct ListeningPlaybackControls: View {
         Button(action: onToggleSlow) {
             HStack(spacing: 5) {
                 Image(systemName: isSlow ? "tortoise.fill" : "hare.fill")
-                    .font(.system(size: 10, weight: .semibold))
+                    .appFont(10, weight: .semibold)
                 Text(chrome.slowLabel)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
             }
             .foregroundStyle(isSlow ? theme.accentCool : theme.secondaryText)
             .padding(.horizontal, 10)

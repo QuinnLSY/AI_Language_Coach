@@ -54,7 +54,7 @@ struct BubbleIconButton: View {
             action()
         } label: {
             Image(systemName: systemImage)
-                .font(.system(size: 11, weight: .semibold))
+                .appFont(11, weight: .semibold)
                 .foregroundStyle(isLit ? litColor : idleColor)
                 .frame(width: 20, height: 20)
                 .background(Circle().fill(isLit ? litColor.opacity(0.14) : Color.clear))
@@ -288,9 +288,9 @@ struct MessageEditBox: View {
 
             HStack(alignment: .center, spacing: 8) {
                 Image(systemName: "info.circle")
-                    .font(.system(size: 11))
+                    .appFont(11)
                 Text(Self.consequenceHint)
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 cancelButton
@@ -299,7 +299,7 @@ struct MessageEditBox: View {
             .foregroundStyle(theme.secondaryText)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .appPadding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(theme.surfaceAlt)
@@ -317,10 +317,10 @@ struct MessageEditBox: View {
             onCancel()
         } label: {
             Text("取消")
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .appFont(12, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 5)
+                .appPadding(.vertical, 5)
                 .background(Capsule().fill(theme.surface))
                 .overlay(Capsule().strokeBorder(theme.divider, lineWidth: 1))
         }
@@ -334,10 +334,10 @@ struct MessageEditBox: View {
             onSend()
         } label: {
             Text("发送")
-                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .appFont(12, weight: .bold, design: .rounded)
                 .foregroundStyle(theme.onAccentFill)
                 .padding(.horizontal, 14)
-                .padding(.vertical, 5)
+                .appPadding(.vertical, 5)
                 .background(Capsule().fill(canSend ? theme.accentFill : theme.accentFill.opacity(0.45)))
         }
         .buttonStyle(.appPressable)

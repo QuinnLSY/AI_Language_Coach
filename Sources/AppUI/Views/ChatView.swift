@@ -458,7 +458,7 @@ public struct ChatView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(teacherKind.displayName)老师")
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .appFont(16, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 HStack(spacing: 5) {
                     // 「老师正在准备」时状态行跟着转：顶栏与对话区必须说同一件事，
@@ -470,7 +470,7 @@ public struct ChatView: View {
                             .frame(width: 10, height: 10)
                     }
                     Text(statusLine)
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
             }
@@ -487,13 +487,13 @@ public struct ChatView: View {
             if let voiceIndicator {
                 HStack(spacing: 4) {
                     Image(systemName: "waveform.badge.mic")
-                        .font(.system(size: 9, weight: .semibold))
+                        .appFont(9, weight: .semibold)
                     Text(voiceIndicator)
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .appFont(10, weight: .semibold, design: .rounded)
                 }
                 .foregroundStyle(theme.accent)
                 .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .appPadding(.vertical, 4)
                 .background(Capsule().fill(theme.accent.opacity(0.14)))
                 .help("当前使用的是克隆音色，不是内置音色")
             }
@@ -501,28 +501,28 @@ public struct ChatView: View {
             if let scenario {
                 HStack(spacing: 6) {
                     Image(systemName: scenario.scenario.icon)
-                        .font(.system(size: 10, weight: .semibold))
+                        .appFont(10, weight: .semibold)
                     Text("\(scenario.scenario.titleZh) · \(scenario.turnsText)")
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .appFont(10, weight: .semibold, design: .rounded)
                     if scenario.isFinalTurn {
                         Text("收尾")
-                            .font(.system(size: 9, weight: .semibold, design: .rounded))
+                            .appFont(9, weight: .semibold, design: .rounded)
                             .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
+                            .appPadding(.vertical, 1)
                             .background(Capsule().fill(theme.accent.opacity(0.22)))
                     }
                     Button {
                         onEndScenario?()
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
+                            .appFont(11)
                     }
                     .buttonStyle(.appPressable)
                     .help("结束情景对话")
                 }
                 .foregroundStyle(theme.accent)
                 .padding(.horizontal, 9)
-                .padding(.vertical, 4)
+                .appPadding(.vertical, 4)
                 .background(Capsule().fill(theme.selection))
             } else {
                 Button {
@@ -530,13 +530,13 @@ public struct ChatView: View {
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "map.fill")
-                            .font(.system(size: 10, weight: .semibold))
+                            .appFont(10, weight: .semibold)
                         Text("情景")
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .appFont(10, weight: .semibold, design: .rounded)
                     }
                     .foregroundStyle(theme.secondaryText)
                     .padding(.horizontal, 9)
-                    .padding(.vertical, 4)
+                    .appPadding(.vertical, 4)
                     .background(Capsule().fill(theme.hover))
                 }
                 .buttonStyle(.appPressable)
@@ -545,10 +545,10 @@ public struct ChatView: View {
 
             if let modelName, !modelName.isEmpty {
                 Text(headerModelCaption(modelName))
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .appPadding(.vertical, 4)
                     .background(Capsule().fill(theme.surfaceAlt))
             }
 
@@ -560,13 +560,13 @@ public struct ChatView: View {
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "sparkles")
-                        .font(.system(size: 10, weight: .semibold))
+                        .appFont(10, weight: .semibold)
                     Text(practiceMode == .freeTalk ? "重开随口练" : "开启新练习")
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .appFont(10, weight: .semibold, design: .rounded)
                 }
                 .foregroundStyle(theme.onAccentFill)
                 .padding(.horizontal, 10)
-                .padding(.vertical, 4)
+                .appPadding(.vertical, 4)
                 .background(Capsule().fill(theme.accentFill))
                 .contentShape(Capsule())
             }
@@ -586,17 +586,17 @@ public struct ChatView: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 10, weight: .semibold))
+                    .appFont(10, weight: .semibold)
                     .foregroundStyle(theme.accent)
                 Text(briefing.isFirstTime ? "今天的任务" : "前情提要")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 if briefing.quest.total > 0 {
                     Text(briefing.quest.summary)
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .appFont(10, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.accentCool)
                         .padding(.horizontal, 6)
-                        .padding(.vertical, 1)
+                        .appPadding(.vertical, 1)
                         .background(Capsule().fill(theme.hover))
                 }
                 Spacer(minLength: 0)
@@ -606,9 +606,9 @@ public struct ChatView: View {
                     Circle()
                         .fill(theme.accent.opacity(0.7))
                         .frame(width: 3, height: 3)
-                        .padding(.top, 5)
+                        .appPadding(.top, 5)
                     Text(line)
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                         .multilineTextAlignment(.leading)
@@ -616,7 +616,7 @@ public struct ChatView: View {
             }
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 8)
+        .appPadding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.selection.opacity(0.5))
     }
@@ -631,10 +631,10 @@ public struct ChatView: View {
         if let practiceNotice {
             HStack(spacing: 8) {
                 Image(systemName: "checkmark.seal.fill")
-                    .font(.system(size: 11))
+                    .appFont(11)
                     .foregroundStyle(theme.accent)
                 Text(practiceNotice.text)
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 Spacer(minLength: 0)
                 if let action = practiceNotice.action {
@@ -646,13 +646,13 @@ public struct ChatView: View {
                 }
                 Button { onDismissPracticeNotice?() } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
+                        .appFont(9, weight: .semibold)
                         .foregroundStyle(theme.secondaryText)
                 }
                 .buttonStyle(.appPressable)
             }
             .padding(.horizontal, 18)
-            .padding(.vertical, 6)
+            .appPadding(.vertical, 6)
             .background(theme.surfaceAlt.opacity(0.9))
             .overlay(alignment: .top) { Divider().overlay(theme.divider) }
             .overlay(alignment: .bottom) { Divider().overlay(theme.divider) }
@@ -665,21 +665,21 @@ public struct ChatView: View {
         let scenario = progress.scenario
         return HStack(alignment: .top, spacing: 10) {
             Image(systemName: "target")
-                .font(.system(size: 11))
+                .appFont(11)
                 .foregroundStyle(theme.accent)
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
                     Text("你是 \(scenario.learnerRole)")
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .appFont(10, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     Text("· \(scenario.level) · 纠错\(scenario.correctionMode.displayName)")
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
                 if !scenario.objective.isEmpty {
                     Text(scenario.objective)
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -687,10 +687,10 @@ public struct ChatView: View {
                     HStack(spacing: 5) {
                         ForEach(scenario.targetVocabulary.prefix(6), id: \.self) { word in
                             Text(word)
-                                .font(.system(size: 9, design: .rounded))
+                                .appFont(9, design: .rounded)
                                 .foregroundStyle(theme.secondaryText)
                                 .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
+                                .appPadding(.vertical, 2)
                                 .background(Capsule().fill(theme.surfaceAlt))
                         }
                     }
@@ -699,7 +699,7 @@ public struct ChatView: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 8)
+        .appPadding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.selection.opacity(0.35))
     }
@@ -777,7 +777,7 @@ public struct ChatView: View {
                         }
                     }
                     .padding(.horizontal, 18)
-                    .padding(.vertical, 16)
+                    .appPadding(.vertical, 16)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     // 消息插入/移除的动画事务（#357）：没有它，上面的 .transition
                     // 从不带动画、新消息是瞬间蹦出来的。挂在 count 上 —— 追加新消息
@@ -834,7 +834,7 @@ public struct ChatView: View {
                 scrollToBottom(proxy)
             } label: {
                 Image(systemName: "arrow.down")
-                    .font(.system(size: 12, weight: .semibold))
+                    .appFont(12, weight: .semibold)
                     .foregroundStyle(theme.secondaryText)
                     .frame(width: 28, height: 28)
                     .background(Circle().fill(theme.surface))
@@ -843,7 +843,7 @@ public struct ChatView: View {
             }
             .buttonStyle(.appPressable)
             .help("回到最新消息")
-            .padding(.bottom, 10)
+            .appPadding(.bottom, 10)
             .transition(.opacity.combined(with: .scale(scale: 0.85)))
         }
     }
@@ -914,7 +914,7 @@ public struct ChatView: View {
             HStack(spacing: 8) {
                 CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
                 Text("思考中…")
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 TypingDots(color: theme.secondaryText)
             }
@@ -948,10 +948,10 @@ public struct ChatView: View {
     /// 每条消息上方的时间戳：`9月9日 周三 18:57`（仅间隔 > 5 分钟才出现）。
     private func timestamp(_ date: Date) -> some View {
         Text(Self.stamp(date))
-            .font(.system(size: 10, design: .rounded))
+            .appFont(10, design: .rounded)
             .foregroundStyle(theme.secondaryText.opacity(0.85))
             .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.top, 4)
+            .appPadding(.top, 4)
     }
 
     /// 手写格式化：避免 DateFormatter 的 locale/并发坑，输出顺序固定为「月日 周 时分」。
@@ -964,10 +964,10 @@ public struct ChatView: View {
         return VStack(spacing: 10) {
             CuteAnimalView(kind: studentKind, isSleeping: theme.isNight, size: 92, accessory: studentAccessory)
             Text(copy.greeting)
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .appFont(15, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             Text(copy.invite)
-                .font(.system(size: 14, design: .rounded))
+                .appFont(14, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
         }
     }
@@ -977,11 +977,11 @@ public struct ChatView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(theme.warning)
             Text(message)
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             Spacer()
         }
-        .padding(12)
+        .appPadding(12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(theme.warning.opacity(0.14))
@@ -1083,7 +1083,7 @@ public struct ChatView: View {
                                 alignment: .leading
                             )
                             .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
+                            .appPadding(.vertical, 10)
                             .background(
                                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                                     .fill(isUser ? theme.bubbleUser : theme.bubbleCoach)
@@ -1229,7 +1229,7 @@ public struct ChatView: View {
             }
         }
         .padding(.horizontal, Self.translationPadding)
-        .padding(.vertical, 8)
+        .appPadding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(theme.surfaceAlt.opacity(0.9))
@@ -1244,14 +1244,14 @@ public struct ChatView: View {
     /// 引号方向跟着卡片走：老师在**左**用左引号，学员在**右**用右引号。
     private func translationMark(isUser: Bool) -> some View {
         Image(systemName: isUser ? "quote.closing" : "quote.opening")
-            .font(.system(size: 9, weight: .semibold))
+            .appFont(9, weight: .semibold)
             .foregroundStyle(theme.accent)
-            .padding(.top, 2)
+            .appPadding(.top, 2)
     }
 
     private func translationText(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 12, design: .rounded))
+            .appFont(12, design: .rounded)
             .foregroundStyle(theme.primaryText)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -1289,7 +1289,7 @@ public struct ChatView: View {
                             .tint(theme.accent)
                     } else {
                         Image(systemName: "translate")
-                            .font(.system(size: 11, weight: .semibold))
+                            .appFont(11, weight: .semibold)
                             .foregroundStyle(isOn ? theme.accent : theme.secondaryText.opacity(0.75))
                     }
                 }
@@ -1307,14 +1307,14 @@ public struct ChatView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 5) {
                 Image(systemName: "pencil.and.list.clipboard")
-                    .font(.system(size: 10, weight: .semibold))
+                    .appFont(10, weight: .semibold)
                 Text("改一改")
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .appFont(10, weight: .bold, design: .rounded)
             }
             .foregroundStyle(theme.accent)
 
             Text(correction.original)
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .strikethrough()
                 .foregroundStyle(theme.secondaryText)
             // 「改一改」里的改后句是最值得划词的：它就是要学员记住的那一句。
@@ -1327,12 +1327,12 @@ public struct ChatView: View {
             )
             if !correction.explanation.isEmpty {
                 Text(correction.explanation)
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .appPadding(.vertical, 8)
         .frame(maxWidth: 320, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -1381,10 +1381,10 @@ public struct ChatView: View {
                     icon
                     Text(labelText)
                 }
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .appFont(10, weight: .semibold, design: .rounded)
                 .foregroundStyle(isHighlighted ? theme.onAccentFill : theme.secondaryText)
                 .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .appPadding(.vertical, 4)
                 .background(
                     Capsule().fill(isHighlighted ? theme.accentFill : theme.surfaceAlt)
                 )
@@ -1467,16 +1467,16 @@ public struct ChatView: View {
     private func modelStoppedBanner(_ message: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "pause.circle.fill")
-                .font(.system(size: 12))
+                .appFont(12)
                 .foregroundStyle(.red)
             Text(message)
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .appPadding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color.red.opacity(0.10))
@@ -1486,7 +1486,7 @@ public struct ChatView: View {
                 .strokeBorder(Color.red.opacity(0.35), lineWidth: 1)
         )
         .padding(.horizontal, 18)
-        .padding(.top, 10)
+        .appPadding(.top, 10)
     }
 
     /// 语音输入失败提示（录音/识别出错时贴在输入框上方，可关闭）。
@@ -1496,10 +1496,10 @@ public struct ChatView: View {
         if let voiceError {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11))
+                    .appFont(11)
                     .foregroundStyle(theme.warning)
                 Text(voiceError)
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
@@ -1507,14 +1507,14 @@ public struct ChatView: View {
                     onDismissVoiceError?()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
+                        .appFont(10, weight: .semibold)
                         .foregroundStyle(theme.secondaryText)
                 }
                 .buttonStyle(.appPressable)
                 .help("关闭提示")
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .appPadding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(theme.warning.opacity(0.12))
@@ -1524,7 +1524,7 @@ public struct ChatView: View {
                     .strokeBorder(theme.warning.opacity(0.35), lineWidth: 1)
             )
             .padding(.horizontal, 18)
-            .padding(.top, 10)
+            .appPadding(.top, 10)
             .transition(.opacity)
         }
     }
@@ -1535,10 +1535,10 @@ public struct ChatView: View {
         if let translationError {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11))
+                    .appFont(11)
                     .foregroundStyle(theme.warning)
                 Text(translationError)
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
@@ -1546,14 +1546,14 @@ public struct ChatView: View {
                     onDismissTranslationError?()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
+                        .appFont(10, weight: .semibold)
                         .foregroundStyle(theme.secondaryText)
                 }
                 .buttonStyle(.appPressable)
                 .help("关闭提示")
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .appPadding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(theme.warning.opacity(0.12))
@@ -1563,7 +1563,7 @@ public struct ChatView: View {
                     .strokeBorder(theme.warning.opacity(0.35), lineWidth: 1)
             )
             .padding(.horizontal, 18)
-            .padding(.top, 10)
+            .appPadding(.top, 10)
             .transition(.opacity)
         }
     }
@@ -1574,10 +1574,10 @@ public struct ChatView: View {
         if let attachmentNotice {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11))
+                    .appFont(11)
                     .foregroundStyle(theme.warning)
                 Text(attachmentNotice)
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
@@ -1585,14 +1585,14 @@ public struct ChatView: View {
                     onDismissAttachmentNotice?()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
+                        .appFont(10, weight: .semibold)
                         .foregroundStyle(theme.secondaryText)
                 }
                 .buttonStyle(.appPressable)
                 .help("关闭提示")
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .appPadding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(theme.warning.opacity(0.12))
@@ -1602,7 +1602,7 @@ public struct ChatView: View {
                     .strokeBorder(theme.warning.opacity(0.35), lineWidth: 1)
             )
             .padding(.horizontal, 18)
-            .padding(.top, 10)
+            .appPadding(.top, 10)
             .transition(.opacity)
         }
     }
@@ -1616,10 +1616,10 @@ public struct ChatView: View {
         if !llmSupportsVision, pendingAttachments.contains(where: { $0.isImage }) {
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "eye.slash.fill")
-                    .font(.system(size: 10))
+                    .appFont(10)
                     .foregroundStyle(theme.warning)
                 Text("当前模型不读图：这些图片会以文件名告诉老师。想让它真的看图，去设置里换一个声明了视觉能力的模型。")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
@@ -1635,10 +1635,10 @@ public struct ChatView: View {
         if let attachmentSaveNotice {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 11))
+                    .appFont(11)
                     .foregroundStyle(.green)
                 Text(attachmentSaveNotice)
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
@@ -1646,14 +1646,14 @@ public struct ChatView: View {
                     onDismissAttachmentSaveNotice?()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
+                        .appFont(10, weight: .semibold)
                         .foregroundStyle(theme.secondaryText)
                 }
                 .buttonStyle(.appPressable)
                 .help("关闭回执")
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .appPadding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(Color.green.opacity(0.12))
@@ -1663,7 +1663,7 @@ public struct ChatView: View {
                     .strokeBorder(Color.green.opacity(0.35), lineWidth: 1)
             )
             .padding(.horizontal, 18)
-            .padding(.top, 10)
+            .appPadding(.top, 10)
             .transition(.opacity)
         }
     }
@@ -1705,8 +1705,8 @@ public struct ChatView: View {
                 .strokeBorder(theme.divider, lineWidth: 1)
         )
         .padding(.horizontal, 18)
-        .padding(.top, 10)
-        .padding(.bottom, 10)
+        .appPadding(.top, 10)
+        .appPadding(.bottom, 10)
     }
 
     /// 上下两段之间的浅灰分隔线（需求 3：添加项与输入区之间要有线以示区分）。
@@ -1771,9 +1771,9 @@ public struct ChatView: View {
                     Button(action: onClearAttachments) {
                         HStack(spacing: 4) {
                             Image(systemName: "trash")
-                                .font(.system(size: 9))
+                                .appFont(9)
                             Text("全部移除")
-                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                .appFont(10, weight: .semibold, design: .rounded)
                         }
                         .foregroundStyle(theme.secondaryText)
                         .padding(.horizontal, 8)
@@ -1789,8 +1789,8 @@ public struct ChatView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
-        .padding(.top, 12)
-        .padding(.bottom, 10)
+        .appPadding(.top, 12)
+        .appPadding(.bottom, 10)
     }
 
     /// 下排：功能按钮 + 信息显示。
@@ -1809,7 +1809,7 @@ public struct ChatView: View {
             if !contextSummary.isEmpty {
                 HStack(spacing: 6) {
                     Text(contextSummary)
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -1838,7 +1838,7 @@ public struct ChatView: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .appPadding(.vertical, 8)
     }
 
     /// 发送 / 停止。与左侧按钮**同形状同大小**，只靠「实心强调色」表达主操作。
@@ -1847,7 +1847,7 @@ public struct ChatView: View {
             chat.isGenerating ? chat.cancel() : send()
         } label: {
             Image(systemName: chat.isGenerating ? "stop.fill" : "paperplane.fill")
-                .font(.system(size: 13, weight: .semibold))
+                .appFont(13, weight: .semibold)
                 .modifier(ComposerButtonChrome(
                     tint: chat.isGenerating ? .white : theme.onAccentFill,
                     fill: chat.isGenerating ? Color.red.opacity(0.85) : theme.accentFill,
@@ -1927,7 +1927,7 @@ public struct ChatView: View {
                     ProgressView().controlSize(.small)
                 } else {
                     Image(systemName: "plus")
-                        .font(.system(size: 14, weight: .semibold))
+                        .appFont(14, weight: .semibold)
                         .foregroundStyle(theme.accent)
                 }
             }
@@ -2003,30 +2003,30 @@ public struct ChatView: View {
             )
             // ⚠️ frame 的高度就是**滚动的可视区**高度，必须与上报值**一模一样**：
             // 曾经在这里额外 +20（想给文字留上下呼吸位），结果可视区比封顶高 20pt，
-            // 「最多 5 行」实际显示成 6 行 —— 呼吸位由外层 `.padding(.vertical, 10)` 给，
+            // 「最多 5 行」实际显示成 6 行 —— 呼吸位由外层 `.appPadding(.vertical, 10)` 给，
             // 不能再叠一层，否则封顶形同虚设。
             .frame(height: max(inputHeight, ComposerMetrics.lineHeight(fontSize: 14)))
             .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .appPadding(.vertical, 10)
 
             if input.isEmpty, let hint = currentStarterQuestion {
                 rollingQuestion(hint)
                     .padding(.leading, 14)
                     .padding(.trailing, 20)
-                    .padding(.top, 10)
+                    .appPadding(.top, 10)
                     .allowsHitTesting(false)
             }
 
             // 考试模式：输入框里写的是「这一问的要求」，不是一句可以照念的话。
             if input.isEmpty, let exam {
                 Text(Self.examComposerHint(exam))
-                    .font(.system(size: 13, design: .rounded))
+                    .appFont(13, design: .rounded)
                     .foregroundStyle(theme.secondaryText.opacity(0.7))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .padding(.leading, 14)
                     .padding(.trailing, 20)
-                    .padding(.top, 10)
+                    .appPadding(.top, 10)
                     .allowsHitTesting(false)
             }
         }
@@ -2036,7 +2036,7 @@ public struct ChatView: View {
     /// 上下滚动的预设提问：新的一条从下方滚上来，旧的一条往上滚出去。
     private func rollingQuestion(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 14, design: .rounded))
+            .appFont(14, design: .rounded)
             .foregroundStyle(theme.secondaryText.opacity(0.62))
             .lineLimit(1)
             .truncationMode(.tail)
@@ -2071,7 +2071,7 @@ public struct ChatView: View {
             onCancelVoiceInput?()
         } label: {
             Image(systemName: "xmark")
-                .font(.system(size: 12, weight: .semibold))
+                .appFont(12, weight: .semibold)
                 .modifier(ComposerButtonChrome(
                     tint: theme.secondaryText,
                     fill: theme.surfaceAlt,
@@ -2125,7 +2125,7 @@ public struct ChatView: View {
                     ProgressView().controlSize(.small)
                 } else {
                     Image(systemName: voicePhase.isCapturing ? "waveform" : "mic.fill")
-                        .font(.system(size: 14, weight: .semibold))
+                        .appFont(14, weight: .semibold)
                         // 录音中波形做迭代变色（#358）：不用 ProgressView 也看得出「正在采」。
                         .symbolEffect(.variableColor.iterative, options: .repeating,
                                       isActive: voicePhase.isCapturing)
@@ -2284,16 +2284,16 @@ struct ThinkingPanel: View {
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .bold))
+                        .appFont(9, weight: .bold)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                     Text(isStreaming ? "正在思考…" : "思考过程")
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .appFont(10, weight: .semibold, design: .rounded)
                     Spacer()
                 }
                 .foregroundStyle(theme.secondaryText)
                 .contentShape(Rectangle())
                 .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .appPadding(.vertical, 6)
             }
             .buttonStyle(.appPressable)
 
@@ -2301,7 +2301,7 @@ struct ThinkingPanel: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         Text(reasoning)
-                            .font(.system(size: bodyFontSize, design: .rounded))
+                            .appFont(bodyFontSize, design: .rounded)
                             .foregroundStyle(theme.primaryText.opacity(0.82))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, horizontalPadding)
@@ -2323,7 +2323,7 @@ struct ThinkingPanel: View {
         .background(alignment: .topLeading) {
             // 隐藏的 6 行参考文本：仅用于实测「6 行」高度上限（不参与布局）。
             Text(String(repeating: "\n", count: maxLines - 1) + "M")
-                .font(.system(size: bodyFontSize, design: .rounded))
+                .appFont(bodyFontSize, design: .rounded)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, horizontalPadding)
                 .padding(.bottom, bottomPadding)
@@ -2406,7 +2406,7 @@ struct TypingDots: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .appPadding(.vertical, 12)
         .background(RoundedRectangle(cornerRadius: 16).fill(color.opacity(0.10)))
         .onAppear {
             // 「减弱动态效果」下三点**静止**：这一排点本身已经把「正在等待」说清楚了，

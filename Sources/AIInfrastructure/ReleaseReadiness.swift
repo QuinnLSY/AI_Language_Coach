@@ -31,7 +31,7 @@ public struct ReleaseRuleSet: Sendable, Decodable {
     }
 
     public static func load() throws -> ReleaseRuleSet {
-        guard let url = AppResourceBundle.module.url(
+        guard let url = AppResourceBundle.url(
             forResource: "Config/release-lint-rules",
             withExtension: "json"
         ) else {

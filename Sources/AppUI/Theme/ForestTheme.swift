@@ -49,11 +49,16 @@ public struct ForestTheme: Sendable, Equatable {
     public let moment: ForestMoment?
     /// 季节（nil = 不分季节）。同样只改插画层。
     public let season: ForestSeason?
+    /// 天气（nil = 不跟随天气）。同样只改插画层：多云多几朵云、雨天多一层雨丝，
+    /// 天空渐变**本色不变**（ThemeContrastTests 钉的语义色与对比度更是一概不看它）。
+    public let weather: ForestWeather?
 
-    public init(palette: ForestPalette, moment: ForestMoment? = nil, season: ForestSeason? = nil) {
+    public init(palette: ForestPalette, moment: ForestMoment? = nil, season: ForestSeason? = nil,
+                weather: ForestWeather? = nil) {
         self.palette = palette
         self.moment = moment
         self.season = season
+        self.weather = weather
     }
 
     public var isNight: Bool { palette == .night }
@@ -135,6 +140,9 @@ public struct ForestTheme: Sendable, Equatable {
         default: return foliage
         }
     }
+
+    /// 雨丝的颜色（#418-A，插画层专用）。夜里换暗一档 —— 夜雨不该比星星还亮。
+    public var rainColor: Color { isNight ? Color(hex: 0x6E88A8) : Color(hex: 0x8FB9DC) }
 
     // 强调
     /// 主强调色（琥珀金）：用于**文字 / 图标 / 描边 / 淡底**。
@@ -373,25 +381,32 @@ public enum ForestThemeResolver {
     ///
     /// - 跟随时间：**时刻说了算** —— 天黑了就切夜景、白天按小时挑天空色；
     /// - 跟随季节：按月份换叶色/落花，日夜档位仍由用户自己决定；
-    /// - 两个都关：与老行为逐字相同（`moment` / `season` 都是 nil）。
+    /// - 跟随天气（#418-A）：按年内日序定晴 / 多云 / 雨，日夜档位不受它影响；
+    /// - 都关：与老行为逐字相同（`moment` / `season` / `weather` 都是 nil）。
     ///
     /// ⚠️ 手动点太阳/月亮走的是「收回到手动」那条路（见 `AppState.toggleDayNight`），
     /// 不是在这里跟自动打架 —— 否则开了自动之后那个按钮点了没反应。
     public static func resolve(mode: ThemeMode, systemIsDark: Bool,
                                hour: Int, month: Int,
-                               followsClock: Bool, followsSeason: Bool) -> ForestTheme {
-        guard followsClock || followsSeason else {
-            return resolve(mode: mode, systemIsDark: systemIsDark)
-        }
+                               followsClock: Bool, followsSeason: Bool,
+                               followsWeather: Bool = false, dayOfYear: Int = 1) -> ForestTheme {
+        let base: ForestTheme
         if followsClock {
             let palette: ForestPalette = ForestAtmosphere.isNightHour(hour) ? .night : .day
-            return ForestTheme(palette: palette,
+            base = ForestTheme(palette: palette,
                                moment: ForestAtmosphere.moment(hour: hour),
                                season: followsSeason ? ForestAtmosphere.season(month: month) : nil)
+        } else if followsSeason {
+            // 只跟随季节：日夜仍由档位决定，叶色随月份走。
+            let manual = resolve(mode: mode, systemIsDark: systemIsDark)
+            base = ForestTheme(palette: manual.palette, moment: manual.moment,
+                               season: ForestAtmosphere.season(month: month))
+        } else {
+            base = resolve(mode: mode, systemIsDark: systemIsDark)
         }
-        // 只跟随季节：日夜仍由档位决定，叶色随月份走。
-        let base = resolve(mode: mode, systemIsDark: systemIsDark)
-        return ForestTheme(palette: base.palette, moment: base.moment,
-                           season: ForestAtmosphere.season(month: month))
+        // 天气只在开关打开时落字段：关着时 theme 与旧版逐字相等（Equatable 钉得住）。
+        guard followsWeather else { return base }
+        return ForestTheme(palette: base.palette, moment: base.moment, season: base.season,
+                           weather: ForestAtmosphere.weather(dayOfYear: dayOfYear))
     }
 }

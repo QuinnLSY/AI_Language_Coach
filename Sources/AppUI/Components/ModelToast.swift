@@ -31,11 +31,11 @@ struct ModelToastView: View {
     var body: some View {
         HStack(spacing: 9) {
             Image(systemName: toast.isSuccess ? "checkmark.circle.fill" : "xmark.octagon.fill")
-                .font(.system(size: 14, weight: .semibold))
+                .appFont(14, weight: .semibold)
                 .foregroundStyle(.white)
 
             Text(toast.message)
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .appFont(13, weight: .semibold, design: .rounded)
                 .foregroundStyle(.white)
                 .fixedSize(horizontal: false, vertical: true)
                 .lineLimit(3)
@@ -43,7 +43,7 @@ struct ModelToastView: View {
             if let onClose {
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .bold))
+                        .appFont(10, weight: .bold)
                         .foregroundStyle(.white.opacity(0.85))
                         .frame(width: 20, height: 20)
                 }
@@ -52,7 +52,7 @@ struct ModelToastView: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .appPadding(.vertical, 10)
         .frame(maxWidth: 520)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)

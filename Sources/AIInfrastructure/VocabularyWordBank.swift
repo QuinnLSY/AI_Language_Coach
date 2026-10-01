@@ -16,12 +16,12 @@ public enum VocabularyWordBank {
 
     /// 读词库文件（两种打包布局都试一遍）。
     private static func resourceData() -> Data? {
-        if let url = AppResourceBundle.module.url(forResource: "Vocabulary/ielts_words", withExtension: "json"),
+        if let url = AppResourceBundle.url(forResource: "Vocabulary/ielts_words", withExtension: "json"),
            let data = try? Data(contentsOf: url) {
             return data
         }
         // 兜底：不同打包方式对子目录资源的处理略有差异。
-        if let url = AppResourceBundle.module.url(forResource: "ielts_words", withExtension: "json"),
+        if let url = AppResourceBundle.url(forResource: "ielts_words", withExtension: "json"),
            let data = try? Data(contentsOf: url) {
             return data
         }

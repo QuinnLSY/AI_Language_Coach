@@ -135,11 +135,11 @@ public enum DictionaryCatalog {
 
         /// 两种打包布局都试一遍（与词汇本词库同一套兜底）。
         private static func resourceData(file: String) -> Data? {
-            if let url = AppResourceBundle.module.url(forResource: "Dictionaries/\(file)", withExtension: "json"),
+            if let url = AppResourceBundle.url(forResource: "Dictionaries/\(file)", withExtension: "json"),
                let data = try? Data(contentsOf: url) {
                 return data
             }
-            if let url = AppResourceBundle.module.url(forResource: file, withExtension: "json"),
+            if let url = AppResourceBundle.url(forResource: file, withExtension: "json"),
                let data = try? Data(contentsOf: url) {
                 return data
             }

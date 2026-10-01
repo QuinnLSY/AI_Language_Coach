@@ -17,7 +17,7 @@ extension PromptBuilder {
         nativeLanguage: String
     ) -> String {
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/material_kit", withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: "Prompts/material_kit", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {

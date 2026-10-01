@@ -73,7 +73,7 @@ public struct LearningProgressView: View {
                         skillsCard
                         mistakesCard
                     }
-                    .padding(20)
+                    .appPadding(20)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 // ⚠️ 两条路都要：`onChange` 管「已经在这一页时再点一次」；
@@ -169,7 +169,7 @@ public struct LearningProgressView: View {
                 }
             } else {
                 Text("攒一周的记录，这里就会开始说人话 —— 现在还没有足够的数据。")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .lineSpacing(3)
             }
@@ -180,24 +180,24 @@ public struct LearningProgressView: View {
     private func monthChangeRow(_ insight: WeeklyInsight) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "chart.line.uptrend.xyaxis")
-                .font(.system(size: 11, weight: .semibold))
+                .appFont(11, weight: .semibold)
                 .foregroundStyle(theme.secondaryText)
             if let percent = insight.monthChangePercent {
                 let rounded = Int(percent.rounded())
                 HStack(spacing: 4) {
                     Image(systemName: percent >= 0 ? "arrow.up.right" : "arrow.down.right")
-                        .font(.system(size: 10, weight: .bold))
+                        .appFont(10, weight: .bold)
                     Text("开口时长 \(abs(rounded))%")
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .appFont(13, weight: .bold, design: .rounded)
                         .monospacedDigit()
                 }
                 .foregroundStyle(percent >= 0 ? theme.success : theme.warning)
                 Text("本月至今 vs 上月整月")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             } else {
                 Text("开口时长环比：还不够 —— 上个月练满 5 分钟，下个月再来比")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             Spacer(minLength: 0)
@@ -218,23 +218,23 @@ public struct LearningProgressView: View {
                 if estimate.isConfident, let level = estimate.level {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(level.code)
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                            .appFont(28, weight: .bold, design: .rounded)
                             .foregroundStyle(theme.accent)
                         Text("· \(level.displayName)")
-                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .appFont(14, weight: .semibold, design: .rounded)
                             .foregroundStyle(theme.primaryText)
                         Spacer(minLength: 0)
                     }
                     Text(level.canDo)
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .lineSpacing(3)
                 } else {
                     Text("还在观察中")
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .appFont(18, weight: .bold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     Text("再多聊几轮、收几个词，我就能比较有把握地告诉你现在站在哪一档。")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .lineSpacing(3)
                 }
@@ -247,7 +247,7 @@ public struct LearningProgressView: View {
                                 .fill(theme.accent.opacity(0.7))
                                 .frame(width: 4, height: 4)
                             Text(signal)
-                                .font(.system(size: 11, design: .rounded))
+                                .appFont(11, design: .rounded)
                                 .foregroundStyle(theme.secondaryText)
                                 .monospacedDigit()
                         }
@@ -257,11 +257,11 @@ public struct LearningProgressView: View {
                 if !estimate.gaps.isEmpty, let next = estimate.nextLevel {
                     Divider().overlay(theme.divider)
                     Text("距 \(next.code)（\(next.displayName)）还差")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .appFont(11, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     ForEach(Array(estimate.gaps.enumerated()), id: \.offset) { _, gap in
                         Text("· \(gap)")
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                             .lineSpacing(2)
                             .fixedSize(horizontal: false, vertical: true)
@@ -285,9 +285,9 @@ public struct LearningProgressView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 10, weight: .semibold))
+                            .appFont(10, weight: .semibold)
                         Text("导出图片")
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .appFont(11, weight: .semibold, design: .rounded)
                     }
                     .foregroundStyle(theme.secondaryText)
                 }
@@ -332,10 +332,10 @@ public struct LearningProgressView: View {
             CuteAnimalView(kind: state.studentAnimalKind, isSleeping: theme.isNight, size: 40, accessory: state.studentAccessory)
             VStack(alignment: .leading, spacing: 2) {
                 Text("学习进度")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .appFont(16, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text("今天的每一句话，都在树上多长一片叶子")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             Spacer()
@@ -347,7 +347,7 @@ public struct LearningProgressView: View {
                         Task { await state.setProgressWindow(days) }
                     } label: {
                         Text("\(days) 天")
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .appFont(10, weight: .semibold, design: .rounded)
                             .foregroundStyle(state.progressWindowDays == days ? .white : theme.secondaryText)
                             .padding(.horizontal, 8)
                             .frame(height: 22)
@@ -393,29 +393,28 @@ public struct LearningProgressView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Image(systemName: snapshot.goalReached ? "checkmark.seal.fill" : "target")
-                            .font(.system(size: 11))
+                            .appFont(11)
                             .foregroundStyle(snapshot.goalReached ? Color(hex: 0x8FD694) : theme.accent)
                         Text(snapshot.goalReached ? "今天的目标已完成" : "每日目标")
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .appFont(12, weight: .semibold, design: .rounded)
                             .foregroundStyle(theme.primaryText)
                         if state.dailyGoalMode == .baseline {
                             // 保底档：判定口径就是 5 分钟（与黑板计划的量一致）。
                             Text("保底 \(snapshot.today.minutes) / 5 分钟")
-                                .font(.system(size: 11, design: .rounded))
+                                .appFont(11, design: .rounded)
                                 .foregroundStyle(theme.secondaryText)
                                 .monospacedDigit()
                         } else {
                             Text("\(snapshot.today.minutes) / \(snapshot.goalMinutes) 分钟")
-                                .font(.system(size: 11, design: .rounded))
+                                .appFont(11, design: .rounded)
                                 .foregroundStyle(theme.secondaryText)
                                 .monospacedDigit()
                         }
                         Spacer(minLength: 4)
-                        if state.dailyGoalMode == .advanced {
-                            goalStepper
-                        }
-                        goalModePicker
                     }
+                    // 档位 + 分钟步进器：与设置页「每日目标」卡同源（`DailyGoalControls`），
+                    // 两处各写一份必然漂移（一边改了显示口径、另一边不跟）。
+                    DailyGoalControls(state: state)
 
                     GeometryReader { proxy in
                         ZStack(alignment: .leading) {
@@ -431,70 +430,11 @@ public struct LearningProgressView: View {
                     .frame(height: 8)
 
                     Text("连续练习 \(snapshot.streakDays) 天 · 近 \(snapshot.days) 天里有 \(snapshot.activeDays) 天开过口")
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
             }
         }
-    }
-
-    /// 目标档位切换（保底 5 分钟 / 进阶目标）。
-    ///
-    /// ⚠️ 不用系统 `Picker`（macOS 命中区退化），沿用两个小圆钮的自绘口径。
-    private var goalModePicker: some View {
-        HStack(spacing: 4) {
-            ForEach(DailyGoalMode.allCases, id: \.id) { mode in
-                let isSelected = state.dailyGoalMode == mode
-                Button {
-                    guard !isSelected else { return }
-                    Task { await state.setDailyGoalMode(mode) }
-                } label: {
-                    Text(mode.displayName)
-                        .font(.system(size: 10, weight: isSelected ? .bold : .regular, design: .rounded))
-                        .foregroundStyle(isSelected ? theme.accent : theme.secondaryText)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(
-                            Capsule().fill(theme.accent.opacity(isSelected ? 0.14 : 0))
-                        )
-                        .overlay(
-                            Capsule().strokeBorder(
-                                isSelected ? theme.accent.opacity(0.6) : theme.divider,
-                                lineWidth: 1
-                            )
-                        )
-                }
-                .buttonStyle(.appPressable)
-                .help(mode == .baseline
-                      ? "保底档：5 分钟内做完即算今日完成，保住连续"
-                      : "进阶档：按每日目标分钟数排计划")
-            }
-        }
-    }
-
-    /// 目标分钟数的加减（5 分钟一档，5...180）。仅进阶档显示 —— 保底档没有可调的分钟数。
-    private var goalStepper: some View {
-        HStack(spacing: 6) {
-            goalButton(systemImage: "minus", enabled: snapshot.goalMinutes > 5) {
-                Task { await state.setDailyGoalMinutes(snapshot.goalMinutes - 5) }
-            }
-            goalButton(systemImage: "plus", enabled: snapshot.goalMinutes < 180) {
-                Task { await state.setDailyGoalMinutes(snapshot.goalMinutes + 5) }
-            }
-        }
-    }
-
-    private func goalButton(systemImage: String, enabled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(enabled ? theme.primaryText : theme.secondaryText.opacity(0.5))
-                .frame(width: 20, height: 20)
-                .background(Circle().fill(theme.hover))
-        }
-        .buttonStyle(.appPressable)
-        .disabled(!enabled)
-        .help(systemImage == "plus" ? "调高每日目标 5 分钟" : "调低每日目标 5 分钟")
     }
 
     // MARK: - Practice frequency / speaking time
@@ -511,7 +451,7 @@ public struct LearningProgressView: View {
                 } else {
                     ProgressBarChart(points: rhythmPoints, tint: theme.accent, showsValueOnTop: true)
                     Text(rhythmCaption)
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
             }
@@ -525,7 +465,7 @@ public struct LearningProgressView: View {
                     rhythmMode = mode
                 } label: {
                     Text(mode.title)
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .appFont(10, weight: .semibold, design: .rounded)
                         .foregroundStyle(rhythmMode == mode ? .white : theme.secondaryText)
                         .padding(.horizontal, 8)
                         .frame(height: 22)
@@ -583,7 +523,7 @@ public struct LearningProgressView: View {
                 } else {
                     ProgressLineChart(points: snapshot.grammarTrend, tint: Color(hex: 0x6FB1FC), valueSuffix: " 处")
                     Text("柱线越低说明老师批注越少。近 \(snapshot.days) 天共 \(snapshot.activity.reduce(0) { $0 + $1.corrections }) 处，累计 \(snapshot.totalCorrections) 处。")
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
             }
@@ -608,7 +548,7 @@ public struct LearningProgressView: View {
                 } else {
                     ProgressLineChart(points: snapshot.vocabularyGrowth, tint: Color(hex: 0xF2A65A), valueSuffix: " 词")
                     Text("已配中文释义 \(snapshot.vocabulary.defined) / \(snapshot.vocabulary.total) 词。")
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
             }
@@ -636,7 +576,7 @@ public struct LearningProgressView: View {
                 } else {
                     ProgressLineChart(points: snapshot.pronunciationTrend, tint: Color(hex: 0xC08BF0), valueSuffix: " 分")
                     Text("共跟读 \(snapshot.shadowing.attempts) 次，平均匹配率 \(Int((snapshot.shadowing.averageAccuracy * 100).rounded()))%。")
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
             }
@@ -665,7 +605,7 @@ public struct LearningProgressView: View {
                              value: "\(words)", label: "累计词数")
                     }
                     Text("近 \(snapshot.days) 天写了 \(writings) 篇。批改分数只记交卷的那次。")
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
             }
@@ -691,7 +631,7 @@ public struct LearningProgressView: View {
                              value: questions > 0 ? "\(correct)/\(questions)" : "—", label: "答对题数")
                     }
                     Text("近 \(snapshot.days) 天交卷 \(readings) 篇，答对 \(correct) / \(questions) 题。只统计交过卷的阅读。")
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
             }
@@ -707,7 +647,7 @@ public struct LearningProgressView: View {
                     SkillBar(skill: skill)
                 }
                 Text("分数口径：语法按每轮批注密度，词汇按掌握度与释义完成度，发音/流利度取自跟读评测，跟读模仿取匹配率。没有数据的维度不评分。")
-                    .font(.system(size: 9, design: .rounded))
+                    .appFont(9, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -730,7 +670,7 @@ public struct LearningProgressView: View {
                         mistakeRow(mistake)
                     }
                     Text("完整错题本在「学习记录」里。")
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
             }
@@ -752,7 +692,7 @@ public struct LearningProgressView: View {
                 Image(systemName: "arrowshape.turn.up.right.fill")
                 Text("前往学习记录巩固")
             }
-            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .appFont(12, weight: .semibold, design: .rounded)
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
             .frame(height: 26)
@@ -768,25 +708,25 @@ public struct LearningProgressView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text(mistake.original)
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .strikethrough()
                     .foregroundStyle(theme.secondaryText)
                 Image(systemName: "arrow.right")
-                    .font(.system(size: 9, weight: .bold))
+                    .appFont(9, weight: .bold)
                     .foregroundStyle(theme.accent)
                 Text(mistake.corrected)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Spacer(minLength: 0)
             }
             if !mistake.explanation.isEmpty {
                 Text(mistake.explanation)
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .appPadding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -799,24 +739,24 @@ public struct LearningProgressView: View {
     private func tile(icon: String, value: String, label: String) -> some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
-                .font(.system(size: 15))
+                .appFont(15)
                 .foregroundStyle(theme.accent)
                 .frame(width: 34, height: 34)
                 .background(Circle().fill(theme.accent.opacity(0.12)))
             VStack(alignment: .leading, spacing: 1) {
                 Text(value)
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .appFont(15, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                 Text(label)
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             Spacer(minLength: 0)
         }
-        .padding(10)
+        .appPadding(10)
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 13, style: .continuous)
@@ -829,12 +769,12 @@ public struct LearningProgressView: View {
             Image(systemName: "sparkles")
                 .foregroundStyle(theme.accent)
             Text(text)
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 8)
+        .appPadding(.vertical, 8)
     }
 
     private func card<Content: View>(title: String, systemImage: String, @ViewBuilder content: () -> Content) -> some View {
@@ -852,14 +792,14 @@ public struct LearningProgressView: View {
                 Image(systemName: systemImage)
                     .foregroundStyle(theme.accent)
                 Text(title)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .appFont(14, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Spacer(minLength: 8)
                 trailing()
             }
             content()
         }
-        .padding(16)
+        .appPadding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)

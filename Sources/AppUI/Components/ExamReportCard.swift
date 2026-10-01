@@ -39,7 +39,7 @@ struct ExamReportCard: View {
                     if !report.improvements.isEmpty { listSection("可以改进的地方", report.improvements, tint: theme.warning) }
                     sampleSection
                 }
-                .padding(18)
+                .appPadding(18)
             }
             Divider().overlay(theme.divider)
             footer
@@ -51,7 +51,7 @@ struct ExamReportCard: View {
     private var header: some View {
         HStack(spacing: 12) {
             Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 17))
+                .appFont(17)
                 .foregroundStyle(theme.accent)
                 .frame(width: 38, height: 38)
                 .background(
@@ -60,12 +60,12 @@ struct ExamReportCard: View {
                 )
             VStack(alignment: .leading, spacing: 2) {
                 Text(report.title)
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .appFont(16, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text(report.isComplete
                      ? "整场考完 · 下面是按可量化指标折出来的参考分，不是官方成绩"
                      : "这一场没考完 · 参考分只反映已经答过的部分")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -81,23 +81,23 @@ struct ExamReportCard: View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text("总评")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 if let overall = report.overall {
                     Text(overall.displayName)
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                        .appFont(30, weight: .bold, design: .rounded)
                         .foregroundStyle(theme.accent)
                     Text("/ 9")
-                        .font(.system(size: 12, design: .rounded))
+                        .appFont(12, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 } else {
                     Text("没考到分")
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .appFont(14, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
                 Spacer(minLength: 0)
                 Text("各项均值，缺数据的维度不计入")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             ForEach(report.scores, id: \.dimension.id) { score in
@@ -105,7 +105,7 @@ struct ExamReportCard: View {
             }
             if report.scores.isEmpty {
                 Text("这次没有记录到任何作答 —— 至少完整答完一题，报告才有意义。")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }
@@ -115,30 +115,30 @@ struct ExamReportCard: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 8) {
                 Text(score.dimension.displayName)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 // 「实测」与「文本代理指标」必须分开说：语速是量出来的，
                 // 用词多样性只是文本上的代理，两者的可信度不是一回事。
                 Text(score.dimension.isMeasured ? "实测" : "文本指标")
-                    .font(.system(size: 9, weight: .semibold, design: .rounded))
+                    .appFont(9, weight: .semibold, design: .rounded)
                     .foregroundStyle(score.dimension.isMeasured ? theme.accentCool : theme.secondaryText)
                     .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
+                    .appPadding(.vertical, 1)
                     .background(Capsule().fill(theme.hover))
                 Spacer(minLength: 0)
                 Text(score.band.displayName)
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .appFont(13, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.accent)
                     .monospacedDigit()
             }
             bar(score.band)
             Text(score.evidence)
-                .font(.system(size: 10, design: .rounded))
+                .appFont(10, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
                 .multilineTextAlignment(.leading)
         }
-        .padding(10)
+        .appPadding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 11, style: .continuous)
@@ -190,14 +190,14 @@ struct ExamReportCard: View {
     private func metric(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font(.system(size: 9, design: .rounded))
+                .appFont(9, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
             Text(value)
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .appFont(12, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .appPadding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -210,9 +210,9 @@ struct ExamReportCard: View {
             sectionTitle(title, trailing: "")
             ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                 HStack(alignment: .top, spacing: 6) {
-                    Circle().fill(tint).frame(width: 4, height: 4).padding(.top, 5)
+                    Circle().fill(tint).frame(width: 4, height: 4).appPadding(.top, 5)
                     Text(line)
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                         .fixedSize(horizontal: false, vertical: true)
                         .multilineTextAlignment(.leading)
@@ -235,23 +235,23 @@ struct ExamReportCard: View {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.mini)
                         Text("正在写示范答案…")
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                     }
                 }
                 if let sampleNotice {
                     HStack(spacing: 8) {
                         Text(sampleNotice)
-                            .font(.system(size: 10, design: .rounded))
+                            .appFont(10, design: .rounded)
                             .foregroundStyle(theme.warning)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
                         Button(action: onRetrySamples) {
                             Text("重试")
-                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                .appFont(10, weight: .semibold, design: .rounded)
                                 .foregroundStyle(theme.accent)
                                 .padding(.horizontal, 9)
-                                .padding(.vertical, 4)
+                                .appPadding(.vertical, 4)
                                 .background(Capsule().fill(theme.hover))
                                 .contentShape(Capsule())
                         }
@@ -264,7 +264,7 @@ struct ExamReportCard: View {
                 }
             } else {
                 Text("这场考试的每一问都达到了期望长度，不再另给示范答案。")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }
@@ -275,10 +275,10 @@ struct ExamReportCard: View {
         return VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .top, spacing: 6) {
                 Text("第 \(target.questionNumber) 问")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .appFont(10, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.accent)
                 Text(target.prompt)
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)
@@ -288,7 +288,7 @@ struct ExamReportCard: View {
                         onSpeak(answer)
                     } label: {
                         Image(systemName: "speaker.wave.2.fill")
-                            .font(.system(size: 10))
+                            .appFont(10)
                             .foregroundStyle(theme.accent)
                             .frame(width: 22, height: 22)
                             .background(Circle().fill(theme.hover))
@@ -300,21 +300,21 @@ struct ExamReportCard: View {
             }
             if let answer {
                 Text(answer)
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)
             } else if isGeneratingSamples {
                 Text("…")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             } else {
                 Text("这一问的示范答案没拿到。")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }
-        .padding(10)
+        .appPadding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 11, style: .continuous)
@@ -327,15 +327,15 @@ struct ExamReportCard: View {
     private var footer: some View {
         HStack(spacing: 10) {
             Text("这场考试不记星星：星星说的是参与度，考试说的是参考分。")
-                .font(.system(size: 10, design: .rounded))
+                .appFont(10, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
             Spacer(minLength: 0)
             Button(action: onRetake) {
                 Text("再来一次")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
+                    .appPadding(.vertical, 7)
                     .background(Capsule().fill(theme.hover))
                     .contentShape(Capsule())
             }
@@ -344,10 +344,10 @@ struct ExamReportCard: View {
 
             Button(action: onClose) {
                 Text("完成")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.onAccentFill)
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 7)
+                    .appPadding(.vertical, 7)
                     .background(Capsule().fill(theme.accentFill))
                     .contentShape(Capsule())
             }
@@ -361,12 +361,12 @@ struct ExamReportCard: View {
     private func sectionTitle(_ text: String, trailing: String) -> some View {
         HStack(spacing: 8) {
             Text(text)
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .appFont(10, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
             Spacer(minLength: 0)
             if !trailing.isEmpty {
                 Text(trailing)
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }

@@ -86,6 +86,44 @@ public struct RegistryCheckRow: Sendable, Equatable, Identifiable {
     }
 }
 
+/// 语义记忆索引此刻的状态（设置页「运行环境」卡的一行）。
+///
+/// 「已接通 / 未接通」在模型管理中心的嵌入区块已经说过了，这里补的是它没说的两件事：
+/// **用的是多少维的索引**，以及**没接通时该去哪儿接通**——后者才是用户真正的下一步动作。
+public struct SemanticMemoryStatus: Sendable, Equatable {
+    /// 是否接通了真实（非 mock）的嵌入 runtime。
+    public let isEnabled: Bool
+    /// 向量维度（0 = 没装索引）。
+    public let dimensions: Int
+
+    public static let unknown = SemanticMemoryStatus(isEnabled: false, dimensions: 0)
+
+    public init(isEnabled: Bool, dimensions: Int) {
+        self.isEnabled = isEnabled
+        // 维度不可能为负；给负数说明上游算错了，静默改 0 会让「已接通但 0 维」看起来正常。
+        self.dimensions = max(dimensions, 0)
+    }
+
+    /// 主行：一眼看出通没通。
+    public var headline: String {
+        guard isEnabled else { return "未接通 · 记忆按结构化顺序取回" }
+        return dimensions > 0 ? "已接通 · \(dimensions) 维语义检索" : "已接通 · 按相关度取回记忆"
+    }
+
+    /// 副行：没接通时给「下一步做什么」，而不是只报一个状态。
+    ///
+    /// ⚠️ 这里不写「请安装」这类指使句，也不夸大后果 —— 记忆检索是增强，
+    /// 缺席时练习照常，把它说成故障会让用户以为应用坏了。
+    public var detail: String {
+        guard isEnabled else {
+            return "不影响练习：记不住的旧话题会按时间顺序取回。想接通就在本地 runtime 装一个嵌入模型（如 nomic-embed-text），下次启动自动接上。"
+        }
+        return dimensions > 0
+            ? "当前索引 \(dimensions) 维；换嵌入模型后维度会跟着变。"
+            : "索引已装配，但没报维度——换一个嵌入模型可以拿到更准的相关度排序。"
+    }
+}
+
 /// 跟读的粒度（#232）。
 public enum ShadowingMode: String, Sendable, CaseIterable, Identifiable {
     /// 一句一练：听一句 → 跟读一句 → 看这一句的逐词反馈。
@@ -145,6 +183,10 @@ public final class AppState {
     /// 应用内动效档位（设置页「动画效果」）。启动时从配置加载并写进
     /// `AppMotionDescriptor.appOverride`（非 View 上下文的动画链路靠它）。
     public var motionMode: MotionMode = .followSystem
+    /// 字号档（#416，设置页「字号」）。根视图据此注入排版环境。
+    public var typeSize: FontSizeMode = .regular
+    /// 界面密度档（#416，设置页「界面密度」）。
+    public var interfaceDensity: DensityMode = .regular
     /// 侧边栏展开/收起（供主界面参与宽度分配）。
     public var isSidebarExpanded = true
     /// 真实进度：来自学习数据库；首次启动为种子关卡。
@@ -459,6 +501,17 @@ public final class AppState {
     public internal(set) var registryCheckRows: [RegistryCheckRow] = []
     /// 记忆索引的健康态（比「装配过没有」更进一步：能看出服务后来是不是关了）。
     public internal(set) var embeddingHealth: ProviderHealth = .configurationInvalid(reason: "尚未检查")
+    /// 语义记忆索引「通没通 + 多少维」（设置页「运行环境」卡；刷新见 `refreshSemanticMemory`）。
+    public internal(set) var semanticMemoryStatus = SemanticMemoryStatus.unknown
+    /// 本地模型测速进行中（按钮 loading，同时挡住重复点击）。
+    public internal(set) var isRunningBenchmark = false
+    /// 最近一次本地测速的结果（nil = 还没测过 / 这次没采到样本）。
+    public internal(set) var benchmarkSnapshot: BenchmarkSnapshot?
+    /// 最近一次测速失败的原因（nil = 没失败过）。**必须显示出来**：
+    /// 静默失败会让用户以为「测过了、就是这个速度」。
+    public internal(set) var benchmarkError: String?
+    /// 本机可用内存（设置页「运行环境」；取不到时为空串）。
+    public internal(set) var availableMemoryText = ""
     /// 关卡 → 情景 绑定（来自资源文件；随情景一起加载）。
     var levelBindings: [String: String] = [:]
 
@@ -468,6 +521,11 @@ public final class AppState {
     public internal(set) var isExportingBackup = false
     /// 最近一次导出失败的原因（nil = 没失败过）。
     public internal(set) var backupError: String?
+    /// 自动备份（#415）自己没做成时的提示（nil = 一切正常）。
+    ///
+    /// 与 `backupError` 分开：前者是用户点了「导出备份」的回执，界面当场看得见；
+    /// 自动备份在后台跑，失败不出声就等于「一直在备份、其实早停了」。
+    public internal(set) var autoBackupNotice: AppNotice?
     /// 学习库被隔离重建时的说明（nil = 一切正常）——**必须让用户看见**。
     public internal(set) var databaseRecoveryNote: String?
     /// 备份导入：已通过校验、等用户确认的恢复计划（nil = 没在导入流程中）。
@@ -855,6 +913,15 @@ public final class AppState {
     /// 给了 `= []` 就等于允许「哪天加载那行被删掉、最近查过一个都不剩」这种静默退化。
     public internal(set) var recentDictionaryWords: [String]
     /// 搜索输入框内容。**搜索后不清空**（用户口径：搜索时输入框中内容不清除）。
+    /// 跨页全局搜索面板（#414）开着没有。
+    public var showingGlobalSearch = false
+    /// 搜索框里的原文（用户正在敲的那个，不是归一化后的）。
+    public var globalSearchQuery = ""
+    /// 最近一次搜索的结果（四个来源合并后）。
+    public internal(set) var globalSearchHits: [GlobalSearchHit] = []
+    /// 搜索进行中（词典要读内置库，不是瞬时的）。
+    public internal(set) var isSearchingGlobally = false
+
     public var dictionaryQuery = ""
     /// 模糊匹配结果（最多 10 条，每项带单词 / 音标 / 翻译）。
     public internal(set) var dictionaryMatches: [DictionaryWord] = []
@@ -928,6 +995,11 @@ public final class AppState {
     /// 初值是**一整张全空的网格**而不是空数组：年度卡一进页面就有正确的尺寸，
     /// 数据到了只是把格子染上色，Layout 不会跳一下。
     public internal(set) var annualRecap: AnnualRecap = .empty()
+    /// 树根年轮徽记的原料（#418-B）：从年度缓存里折出的两个字段（练了多少天 / 最长连续）。
+    ///
+    /// 年度数据**按需加载**（树面板到场后由 MainView 拉起一次，见 `ensureAnnualRecapLoaded`），
+    /// 没加载 / 全年没练时是空摘要 —— 徽记不画，树根干干净净。
+    public var annualTreeSummary: TreeAnnualSummary { TreeAnnualSummary(recap: annualRecap) }
     /// 正在汇总进度（首次进入时的 loading 态）。
     public internal(set) var isLoadingProgress = false
     /// 统计窗口天数（7 / 14 / 30 天，UI 可切换）。
@@ -1130,17 +1202,27 @@ public final class AppState {
     /// 当前月份（1...12）：季节的判据。
     public var clockMonth: Int { Calendar.current.component(.month, from: Date()) }
 
+    /// 年内日序（1...366）：天气的判据（#418-A）。
+    public var clockDayOfYear: Int {
+        Calendar.current.ordinality(of: .day, in: .year, for: Date()) ?? 1
+    }
+
     /// 森林是否跟随真实时间（设置开关，默认关）。
     public var forestFollowsClock: Bool { product.forestFollowsClock }
 
     /// 森林叶色是否随真实季节（设置开关，默认关；与时间开关各管各的）。
     public var forestFollowsSeason: Bool { product.forestFollowsSeason }
 
+    /// 森林天气是否随真实日期（#418-A，默认关）。
+    public var forestFollowsWeather: Bool { product.forestFollowsWeather }
+
     public var theme: ForestTheme {
         ForestThemeResolver.resolve(mode: themeMode, systemIsDark: systemIsDark,
                                     hour: Int(clockHour.rounded(.down)), month: clockMonth,
                                     followsClock: product.forestFollowsClock,
-                                    followsSeason: product.forestFollowsSeason)
+                                    followsSeason: product.forestFollowsSeason,
+                                    followsWeather: product.forestFollowsWeather,
+                                    dayOfYear: clockDayOfYear)
     }
 
     // 供设置页读取的产品字段
@@ -1239,6 +1321,8 @@ public final class AppState {
         product = configuration.product
         themeMode = configuration.product.themeMode
         motionMode = configuration.product.motionMode
+        typeSize = configuration.product.typeSize
+        interfaceDensity = configuration.product.interfaceDensity
         // 非 View 上下文（withAnimation(.app(...))）读不到环境，走这个静态覆盖档。
         AppMotionDescriptor.appOverride = motionMode
         autoSpeak = configuration.product.autoSpeak
@@ -1252,6 +1336,9 @@ public final class AppState {
         await markForestWelcomeIfNeeded()
         // 备份恢复（#209）：本轮启动若应用了待恢复内容，说明要让用户看见。
         restoreNote = await services.restoreNote
+        // 自动备份（#415）：开了才查一次，且只在「距上次备份超过间隔」时补一份。
+        // 后台跑 —— 备份要读整个学习库，绝不能挡在开屏路径上。
+        Task { [weak self] in await self?.ensureAutoBackupIfNeeded() }
 
         isBooting = true
         do {
@@ -1621,6 +1708,20 @@ public final class AppState {
         await persistProduct()
     }
 
+    /// 切换字号档（#416）。只改档位与持久化：实际缩放由根视图的环境注入传导。
+    public func setTypeSize(_ mode: FontSizeMode) async {
+        typeSize = mode
+        product.typeSize = mode
+        await persistProduct()
+    }
+
+    /// 切换界面密度档（#416）。
+    public func setInterfaceDensity(_ mode: DensityMode) async {
+        interfaceDensity = mode
+        product.interfaceDensity = mode
+        await persistProduct()
+    }
+
     public func toggleDayNight() async {
         // ⚠️ 开着「跟随时间」时，手动点太阳/月亮必须先**收回自动**：
         // 否则时刻说了算，点了跟没点一样（按钮看着是活的，实际是死的）。
@@ -1657,6 +1758,12 @@ public final class AppState {
     /// 切换「跟随季节」（春华秋实换叶色，日夜档位不动）。
     public func setForestFollowsSeason(_ on: Bool) async {
         product.forestFollowsSeason = on
+        await persistProduct()
+    }
+
+    /// 切换「跟随天气」（#418-A：晴 / 多云 / 雨，只改插画层）。
+    public func setForestFollowsWeather(_ on: Bool) async {
+        product.forestFollowsWeather = on
         await persistProduct()
     }
 

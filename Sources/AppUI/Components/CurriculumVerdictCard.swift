@@ -50,7 +50,7 @@ struct CurriculumVerdictCard: View {
         VStack(alignment: .leading, spacing: 8) {
             header
             Text(assessment.summary)
-                .font(.system(size: 10, design: .rounded))
+                .appFont(10, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .monospacedDigit()
             VStack(alignment: .leading, spacing: 3) {
@@ -61,7 +61,7 @@ struct CurriculumVerdictCard: View {
             // 需求 3 的口径写死在卡上：**过不过关看两件事**，星星只是开口量。
             // 不写这一句，学员会以为「星星没满 = 没过关」，然后去刷轮次。
             Text("过关条件：完成主线任务 + 教学重点达标（\(assessment.level.code) 档的门槛是 \(assessment.focus.requiredSentences) 句目标句、\(assessment.focus.requiredWords) 个目标词）。星星只记开口量，不决定过不过关。")
-                .font(.system(size: 9, design: .rounded))
+                .appFont(9, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -87,23 +87,23 @@ struct CurriculumVerdictCard: View {
     private var header: some View {
         HStack(spacing: 8) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
+                .appFont(13, weight: .semibold)
                 .foregroundStyle(tint)
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
                     Text(assessment.level.code)
-                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .appFont(9, weight: .bold, design: .rounded)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 6)
                         .frame(height: 15)
                         .background(Capsule().fill(tint))
                     Text("\(scenarioTitle) · \(assessment.verdict.headline)")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                 }
                 Text("这一关怎么算过")
-                    .font(.system(size: 9, design: .rounded))
+                    .appFont(9, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
 
@@ -112,7 +112,7 @@ struct CurriculumVerdictCard: View {
             if let onClose {
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .bold))
+                        .appFont(9, weight: .bold)
                         .foregroundStyle(theme.secondaryText)
                         .frame(width: 20, height: 20)
                         .background(Circle().fill(theme.hover))
@@ -130,9 +130,9 @@ struct CurriculumVerdictCard: View {
             Circle()
                 .fill(tint.opacity(0.75))
                 .frame(width: 3, height: 3)
-                .padding(.top, 5)
+                .appPadding(.top, 5)
             Text(reason)
-                .font(.system(size: 10, design: .rounded))
+                .appFont(10, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
                 .multilineTextAlignment(.leading)

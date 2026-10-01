@@ -29,7 +29,7 @@ public struct ListeningView: View {
                         noticeBanner(notice)
                     }
                 }
-                .padding(20)
+                .appPadding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -79,10 +79,10 @@ public struct ListeningView: View {
     /// 页头那枚小标（与跟读页同一套写法：胶囊 + 悬浮解释）。
     private func badge(_ text: String, color: Color, help: String) -> some View {
         Text(text)
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .appFont(10, weight: .semibold, design: .rounded)
             .foregroundStyle(color)
             .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .appPadding(.vertical, 2)
             .background(Capsule().fill(color.opacity(0.14)))
             .help(help)
     }
@@ -162,7 +162,7 @@ public struct ListeningView: View {
             } else {
                 // 走在「找下一句能出题的句子」那条路上才会短暂看到它。
                 Text("这一句出不了选择题（缺释义或选项不够），正在找下一句…")
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }
@@ -205,16 +205,16 @@ public struct ListeningView: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "ear.badge.waveform")
-                    .font(.system(size: 14))
+                    .appFont(14)
                     .foregroundStyle(theme.accent)
                 Text(hasMaterial ? "这一轮结束了" : "还没有可练的句子")
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .appFont(14, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
             }
             Text(hasMaterial
                 ? "今天的素材已经就位（\(state.shadowingDrills.count) 句）。点下面的按钮就能再开一轮，三种形式随便挑。"
                 : "听力的素材与跟读是同一批（今天那几个情景里的句子）。先去跟读页拿到今日素材，回来就能开始。")
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
             Button {
@@ -226,9 +226,9 @@ public struct ListeningView: View {
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: hasMaterial ? "play.fill" : "waveform.badge.mic")
-                        .font(.system(size: 11, weight: .semibold))
+                        .appFont(11, weight: .semibold)
                     Text(hasMaterial ? "再开一轮" : "去跟读页")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                 }
                 .foregroundStyle(theme.accentCool)
                 .padding(.horizontal, 12)
@@ -242,7 +242,7 @@ public struct ListeningView: View {
             .buttonStyle(.appPressable)
             .help(hasMaterial ? "重新开一轮（今天的成绩已经记在账本里）" : "听力与跟读共用今天的素材")
         }
-        .padding(16)
+        .appPadding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -263,7 +263,7 @@ public struct ListeningView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text("听力")
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .appFont(16, weight: .bold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     // 这枚小标说的是**素材是哪来的**（与跟读页同一套说法），
                     // ⚠️ 不是「现在练哪种形式」：形式由下面的切换条与卡片标题说，
@@ -283,13 +283,13 @@ public struct ListeningView: View {
                 // ⚠️ 这里**不写**「这一形式练什么」：有练习卡时卡片自己说，
                 // 没有卡时（空态 / 结算）那两张卡也都把话说完了。
                 Text(headerSubtitle)
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             Spacer(minLength: 0)
             if state.listeningLog.resolvedCount > 0 {
                 Text(todayText)
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .monospacedDigit()
                     .help("今天练过的句数（三种形式记在同一本账上）")
@@ -312,10 +312,10 @@ public struct ListeningView: View {
     private func noticeBanner(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "info.circle")
-                .font(.system(size: 11))
+                .appFont(11)
                 .foregroundStyle(theme.accent)
             Text(text)
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
@@ -323,7 +323,7 @@ public struct ListeningView: View {
                 state.dismissListeningNotice()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
+                    .appFont(10, weight: .semibold)
                     .foregroundStyle(theme.secondaryText)
                     .frame(width: 18, height: 18)
                     .contentShape(Rectangle())
@@ -331,7 +331,7 @@ public struct ListeningView: View {
             .buttonStyle(.appPressable)
             .help("知道了")
         }
-        .padding(12)
+        .appPadding(12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(theme.accent.opacity(0.12))

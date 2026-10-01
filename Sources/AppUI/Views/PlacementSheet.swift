@@ -35,7 +35,7 @@ struct PlacementSheet: View {
                         noticeBanner(notice)
                     }
                 }
-                .padding(20)
+                .appPadding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -61,21 +61,21 @@ struct PlacementSheet: View {
     private var header: some View {
         HStack(spacing: 10) {
             Image(systemName: "figure.walk.arrival")
-                .font(.system(size: 14))
+                .appFont(14)
                 .foregroundStyle(theme.accent)
             VStack(alignment: .leading, spacing: 1) {
                 Text("入学定级")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .appFont(15, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text(headerSubtitle)
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .monospacedDigit()
             }
             Spacer(minLength: 8)
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
+                    .appFont(11, weight: .semibold)
                     .foregroundStyle(theme.secondaryText)
                     .frame(width: 22, height: 22)
                     .contentShape(Rectangle())
@@ -95,7 +95,7 @@ struct PlacementSheet: View {
             // ⚠️ 别用 `**` 想显示粗体：这里的 `Text` 不会把星号当 markdown 解析，
             // 屏幕上会**原样打出两个星号**（离屏出图抓到过一次）。要强调就改 weight。
             Text("这一轮是摸底，不是考试：")
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .appFont(12, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
             bullet("一共十来道选择题：认词 + 语法，从入门到自如四档各抽几道")
@@ -108,7 +108,7 @@ struct PlacementSheet: View {
                     Task { await state.startPlacement() }
                 } label: {
                     Text("开始摸底")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.onAccentFill)
                         .padding(.horizontal, 16)
                         .frame(height: 32)
@@ -125,7 +125,7 @@ struct PlacementSheet: View {
 
                 if let level = state.placementLevel {
                     Text("上次定级：\(level.code) \(level.displayName)")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
                 Spacer(minLength: 0)
@@ -136,11 +136,11 @@ struct PlacementSheet: View {
     private func bullet(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 6) {
             Image(systemName: "circle.fill")
-                .font(.system(size: 4))
+                .appFont(4)
                 .foregroundStyle(theme.accent)
-                .padding(.top, 5)
+                .appPadding(.top, 5)
             Text(text)
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -153,15 +153,15 @@ struct PlacementSheet: View {
             progressBar
             if let question = state.currentPlacementQuestion {
                 Text(question.kind.displayName)
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .appFont(10, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.accentCool)
                     .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
+                    .appPadding(.vertical, 2)
                     .background(Capsule().fill(theme.accentCool.opacity(0.14)))
 
                 Text(question.prompt)
-                    .font(.system(size: question.kind == .vocabulary ? 30 : 17,
-                                  weight: .semibold, design: .rounded))
+                    .appFont(question.kind == .vocabulary ? 30 : 17,
+                             weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
@@ -196,18 +196,18 @@ struct PlacementSheet: View {
         } label: {
             HStack(spacing: 10) {
                 Text(letter(index))
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .appFont(11, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .frame(width: 18, height: 18)
                     .background(Circle().fill(theme.hover))
                 Text(option)
-                    .font(.system(size: 13, design: .rounded))
+                    .appFont(13, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 9)
+            .appPadding(.vertical, 9)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -236,14 +236,14 @@ struct PlacementSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center, spacing: 12) {
                 Text(result.level.code)
-                    .font(.system(size: 40, weight: .bold, design: .rounded))
+                    .appFont(40, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.accent)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("你的起点：\(result.level.displayName)")
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .appFont(14, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     Text("\(result.headline) · 正确率 \(result.accuracyPercent)%")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .monospacedDigit()
                 }
@@ -251,7 +251,7 @@ struct PlacementSheet: View {
             }
 
             Text(result.level.canDo)
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -259,23 +259,23 @@ struct PlacementSheet: View {
                 ForEach(result.perLevel, id: \.level) { score in
                     HStack(spacing: 8) {
                         Image(systemName: score.isPassed ? "checkmark.circle.fill" : "xmark.circle")
-                            .font(.system(size: 10))
+                            .appFont(10)
                             .foregroundStyle(score.isPassed ? theme.success : theme.warning)
                         Text("\(score.level.code) · \(score.level.displayName)")
-                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .appFont(11, weight: .medium, design: .rounded)
                             .foregroundStyle(theme.primaryText)
                         Text("\(score.correct) / \(score.total)")
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                             .monospacedDigit()
                         Spacer(minLength: 0)
                         Text(score.isPassed ? "过了" : "没过")
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .appFont(10, weight: .semibold, design: .rounded)
                             .foregroundStyle(score.isPassed ? theme.success : theme.warning)
                     }
                 }
             }
-            .padding(12)
+            .appPadding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -283,7 +283,7 @@ struct PlacementSheet: View {
             )
 
             Text(conclusion(result))
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -293,7 +293,7 @@ struct PlacementSheet: View {
                     state.dismissPlacementOutcome()
                 } label: {
                     Text("去练这一档的情景")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.onAccentFill)
                         .padding(.horizontal, 14)
                         .frame(height: 32)
@@ -309,7 +309,7 @@ struct PlacementSheet: View {
                     Task { await state.startPlacement() }
                 } label: {
                     Text("重测一轮")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.accent)
                         .padding(.horizontal, 14)
                         .frame(height: 32)
@@ -326,7 +326,7 @@ struct PlacementSheet: View {
                     state.dismissPlacementOutcome()
                 } label: {
                     Text("知道了")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .padding(.horizontal, 14)
                         .frame(height: 32)
@@ -359,10 +359,10 @@ struct PlacementSheet: View {
     private func noticeBanner(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 10))
+                .appFont(10)
                 .foregroundStyle(theme.warning)
             Text(text)
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.warning)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
@@ -370,14 +370,14 @@ struct PlacementSheet: View {
                 state.dismissPlacementNotice()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
+                    .appFont(9, weight: .semibold)
                     .foregroundStyle(theme.warning)
                     .frame(width: 16, height: 16)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.appPressable)
         }
-        .padding(10)
+        .appPadding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)

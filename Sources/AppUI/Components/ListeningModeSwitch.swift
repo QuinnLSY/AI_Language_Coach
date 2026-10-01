@@ -31,9 +31,9 @@ struct ListeningModeSwitch: View {
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: mode.symbol)
-                    .font(.system(size: 11, weight: .semibold))
+                    .appFont(11, weight: .semibold)
                 Text(mode.title)
-                    .font(.system(size: 12, weight: isOn ? .semibold : .regular, design: .rounded))
+                    .appFont(12, weight: isOn ? .semibold : .regular, design: .rounded)
             }
             .foregroundStyle(isOn ? theme.accent : theme.secondaryText)
             .padding(.horizontal, 12)

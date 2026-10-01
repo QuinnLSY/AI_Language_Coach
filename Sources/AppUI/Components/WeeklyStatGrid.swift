@@ -40,11 +40,11 @@ struct WeeklyStatGrid: View {
     private func chip(_ item: Item) -> some View {
         VStack(spacing: 2) {
             Text(item.value)
-                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .appFont(16, weight: .bold, design: .rounded)
                 .foregroundStyle(item.tint ?? theme.primaryText)
                 .monospacedDigit()
             Text(item.label)
-                .font(.system(size: 10, design: .rounded))
+                .appFont(10, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
         }
         .frame(maxWidth: .infinity)

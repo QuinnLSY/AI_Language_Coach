@@ -68,14 +68,14 @@ struct ExamSessionBar: View {
             topRow
             if !model.instructions.isEmpty {
                 Text(model.instructions)
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 9)
+        .appPadding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.accent.opacity(0.07))
         // 一条顶边：与「普通练习」的对话区一眼区分开（考场上这点区分很重要）。
@@ -101,20 +101,20 @@ struct ExamSessionBar: View {
     private var topRow: some View {
         HStack(spacing: 10) {
             Image(systemName: "timer")
-                .font(.system(size: 12, weight: .semibold))
+                .appFont(12, weight: .semibold)
                 .foregroundStyle(theme.accent)
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
                     Text(model.title)
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     Text("第 \(model.questionNumber)/\(model.totalQuestions) 问")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .appFont(11, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.accent)
                     if !model.stageTitle.isEmpty {
                         Text(model.stageTitle)
-                            .font(.system(size: 10, design: .rounded))
+                            .appFont(10, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                             .lineLimit(1)
                     }
@@ -134,10 +134,10 @@ struct ExamSessionBar: View {
 
             Button(action: onSkip) {
                 Text("跳过")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
+                    .appPadding(.vertical, 5)
                     .background(Capsule().fill(theme.hover))
                     .contentShape(Capsule())
             }
@@ -147,10 +147,10 @@ struct ExamSessionBar: View {
 
             Button(action: onFinish) {
                 Text("结束考试")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.onAccentFill)
                     .padding(.horizontal, 11)
-                    .padding(.vertical, 5)
+                    .appPadding(.vertical, 5)
                     .background(Capsule().fill(theme.accentFill))
                     .contentShape(Capsule())
             }
@@ -167,7 +167,7 @@ struct ExamSessionBar: View {
             TimelineView(.periodic(from: .now, by: 0.5)) { context in
                 let remaining = max(Int(deadline.timeIntervalSince(context.date).rounded(.up)), 0)
                 Text(Self.clock(remaining))
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .appFont(13, weight: .bold, design: .rounded)
                     // ⚠️ 黄（accent）不能当实心底，但**可以当文字色** ——
                     // 这里正是文字/图标那一档的用法。
                     .foregroundStyle(tint(remaining))
@@ -177,7 +177,7 @@ struct ExamSessionBar: View {
             }
         } else {
             Text("等待考官提问…")
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
         }
     }
@@ -193,10 +193,10 @@ struct ExamSessionBar: View {
 
     private func chip(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 10, design: .rounded))
+            .appFont(10, design: .rounded)
             .foregroundStyle(theme.secondaryText)
             .padding(.horizontal, 7)
-            .padding(.vertical, 3)
+            .appPadding(.vertical, 3)
             .background(Capsule().fill(theme.hover))
     }
 }

@@ -77,7 +77,7 @@ public struct WordFamilyCard: View {
                     rowView(row)
                 }
             }
-        }        .padding(12)
+        }        .appPadding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.surfaceAlt.opacity(0.7))
@@ -92,20 +92,20 @@ public struct WordFamilyCard: View {
     private var header: some View {
         HStack(spacing: 8) {
             Text("词族树")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .appFont(11, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
 
             if !family.root.isEmpty {
                 HStack(spacing: 5) {
                     Text("词根")
-                        .font(.system(size: 9, weight: .semibold, design: .rounded))
+                        .appFont(9, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.foliage)
                     Text(family.root)
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .appFont(11, weight: .bold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     if !family.rootMeaning.isEmpty {
                         Text(family.rootMeaning)
-                            .font(.system(size: 10, design: .rounded))
+                            .appFont(10, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                     }
                 }
@@ -125,9 +125,9 @@ public struct WordFamilyCard: View {
                 HStack(spacing: 3) {
                     Text(expansion.wrappedValue ? "收起关联词" : "展开关联词")
                     Image(systemName: expansion.wrappedValue ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
+                        .appFont(9, weight: .semibold)
                 }
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .appFont(11, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.accentCool)
                 .contentShape(Rectangle())
             }
@@ -165,7 +165,7 @@ public struct WordFamilyCard: View {
         HStack(alignment: .top, spacing: 6) {
             connector(depth: row.depth, isLastChild: row.isLastChild)
             nodeCard(row.node, depth: row.depth)
-                .padding(.bottom, 8)
+                .appPadding(.bottom, 8)
         }
     }
 
@@ -187,7 +187,7 @@ public struct WordFamilyCard: View {
             Circle()
                 .fill(theme.foliage.opacity(depth == 0 ? 0.9 : 0.55))
                 .frame(width: 6, height: 6)
-                .padding(.top, 10)
+                .appPadding(.top, 10)
         }
         .frame(width: 16, alignment: .center)
         .padding(.leading, CGFloat(depth) * 18)
@@ -204,7 +204,7 @@ public struct WordFamilyCard: View {
                     onOpenRelated(node.word)
                 } label: {
                     Text(node.word)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .appFont(13, weight: .semibold, design: .rounded)
                         .foregroundStyle(hoveredWord == node.word ? tint.opacity(0.65) : theme.primaryText)
                         .underline(hoveredWord == node.word, color: tint.opacity(0.65))
                         .contentShape(Rectangle())
@@ -224,12 +224,12 @@ public struct WordFamilyCard: View {
                 }
                 if !node.pos.isEmpty {
                     Text(node.pos)
-                        .font(.system(size: 10, weight: .medium, design: .rounded).italic())
+                        .appFont(10, weight: .medium, design: .rounded, italic: true)
                         .foregroundStyle(theme.accent)
                 }
                 if !node.translation.isEmpty {
                     Text(node.translation)
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.primaryText.opacity(0.85))
                 }
                 Spacer(minLength: 0)
@@ -240,7 +240,7 @@ public struct WordFamilyCard: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .appPadding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -259,22 +259,22 @@ public struct WordFamilyCard: View {
             ForEach(Array(Self.segments(of: text).enumerated()), id: \.offset) { index, segment in
                 if index > 0 {
                     Text("+")
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .appFont(10, weight: .bold, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
                 let pieces = Self.splitMorpheme(segment)
                 HStack(spacing: 4) {
                     Text(pieces.morpheme)
-                        .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                        .appFont(10.5, weight: .bold, design: .rounded)
                         .foregroundStyle(theme.foliage)
                     if !pieces.meaning.isEmpty {
                         Text(pieces.meaning)
-                            .font(.system(size: 10, design: .rounded))
+                            .appFont(10, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                     }
                 }
                 .padding(.horizontal, 6)
-                .padding(.vertical, 2)
+                .appPadding(.vertical, 2)
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous).fill(theme.surface.opacity(0.9))
                 )
@@ -288,10 +288,10 @@ public struct WordFamilyCard: View {
 
     private func badge(_ text: String, tint: Color) -> some View {
         Text(text)
-            .font(.system(size: 9, weight: .semibold, design: .rounded))
+            .appFont(9, weight: .semibold, design: .rounded)
             .foregroundStyle(tint)
             .padding(.horizontal, 5)
-            .padding(.vertical, 1)
+            .appPadding(.vertical, 1)
             .background(Capsule().fill(tint.opacity(0.14)))
     }
 

@@ -11,16 +11,27 @@ import Foundation
 ///
 /// 并发说明：`NSLock` 只允许在同步函数里使用（Swift 6 禁止在 async 上下文持锁），
 /// 因此所有状态读写都收敛到下面的同步私有访问器。
+///
+/// ⚠️ 采纳 `AVAudioPlayerDelegate` 会把整个类推断成主 actor 类型（Swift 6.4 起，
+/// 连"在别的 actor 里持有它"都成了错误）。**只有** `stop()` 被标成 `nonisolated`：
+/// 打断播放必须能从语音服务（actor）的同步方法里立刻生效，而它内部全程持锁、
+/// 不碰任何主 actor 状态 —— 这才是这条豁免站得住的理由。
 public final class AudioPlayback: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
 
     private let lock = NSLock()
-    private var player: AVAudioPlayer?
-    private var engine: AVAudioEngine?
-    private var tempFileURL: URL?
+    // ⚠️ 下面这批状态标 `nonisolated(unsafe)`：它们一律在 `lock` 保护下读写（见文件头），
+    // 而打断播放（`stop()`）必须能从非主 actor 的**同步**上下文里生效。留作主 actor 属性时
+    // Swift 6.4 会把这些读写全判成跨 actor 访问；锁就是这里自己担起来的那份责任。
+    private nonisolated(unsafe) var player: AVAudioPlayer?
+    private nonisolated(unsafe) var engine: AVAudioEngine?
+    private nonisolated(unsafe) var tempFileURL: URL?
     /// 等待播放结束的挂起者；resume 后立即置空，保证只恢复一次。
-    private var finishContinuation: CheckedContinuation<Void, Never>?
+    private nonisolated(unsafe) var finishContinuation: CheckedContinuation<Void, Never>?
 
-    public override init() { super.init() }
+    /// `nonisolated` 是刻意的：本类因采纳 `AVAudioPlayerDelegate` 被推断成主 actor 类型，
+    /// 于是连 `AudioPlayback()` 都只能在主 actor 上求 —— 语音服务（actor）根本拿不到实例。
+    /// 构造期间对象还没被共享，此时豁免是安全的。
+    public nonisolated override init() { super.init() }
 
     public var isPlaying: Bool {
         lock.lock(); defer { lock.unlock() }
@@ -45,7 +56,9 @@ public final class AudioPlayback: NSObject, AVAudioPlayerDelegate, @unchecked Se
         try await playWithEngine(wavData: wavData, rate: rate)
     }
 
-    public func stop() {
+    /// ⚠️ `nonisolated` 是刻意的：打断播放要能从语音服务的**同步**方法里立刻生效
+    /// （不能等一次 `await MainActor.run`），而本方法全程持锁、不碰主 actor 状态。
+    public nonisolated func stop() {
         lock.lock()
         player?.stop()
         player = nil
@@ -73,7 +86,10 @@ public final class AudioPlayback: NSObject, AVAudioPlayerDelegate, @unchecked Se
     }
 
     /// 唤醒等待者（幂等：只有第一个调用者能取到 continuation）。
-    private func finishCurrent() {
+    ///
+    /// `nonisolated`：播放结束的回调（引擎的 completion / 播放器的 delegate）不在主 actor 上打来，
+    /// 而这里只走锁保护的 `takeContinuation()`，不碰任何主 actor 状态。
+    private nonisolated func finishCurrent() {
         takeContinuation()?.resume()
     }
 
@@ -89,7 +105,7 @@ public final class AudioPlayback: NSObject, AVAudioPlayerDelegate, @unchecked Se
         finishContinuation = continuation
     }
 
-    private func takeContinuation() -> CheckedContinuation<Void, Never>? {
+    private nonisolated func takeContinuation() -> CheckedContinuation<Void, Never>? {
         lock.lock(); defer { lock.unlock() }
         let continuation = finishContinuation
         finishContinuation = nil

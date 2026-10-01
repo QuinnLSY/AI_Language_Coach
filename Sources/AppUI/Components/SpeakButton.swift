@@ -42,7 +42,7 @@ public struct SpeakButton: View {
                         .frame(width: size, height: size)
                 } else {
                     Image(systemName: isActive ? "speaker.wave.3.fill" : "speaker.wave.2.fill")
-                        .font(.system(size: size * 0.75))
+                        .appFont(size * 0.75)
                         // 走主题令牌，别用 `Color.yellow`：纯黄在白天卡片上只有 1.07:1，
                         // 等于没画；夜晚又亮得扎眼。`accent` 两档都是同一支压暗的琥珀。
                         .foregroundStyle(theme.accent)

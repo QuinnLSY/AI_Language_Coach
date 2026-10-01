@@ -44,14 +44,14 @@ public struct WritingView: View {
                         }
                     } else {
                         Text("今天的题目还在路上…")
-                            .font(.system(size: 12, design: .rounded))
+                            .appFont(12, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                     }
                     if !state.writingNotice.isEmpty {
                         noticeBanner(state.writingNotice)
                     }
                 }
-                .padding(20)
+                .appPadding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -68,19 +68,19 @@ public struct WritingView: View {
             CuteAnimalView(kind: state.studentAnimalKind, isSleeping: theme.isNight, size: 40, accessory: state.studentAccessory)
             VStack(alignment: .leading, spacing: 2) {
                 Text("写作")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .appFont(16, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text("每天一小篇，写完老师当面批 —— 批改里的词可以一键收进词汇本")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             Spacer(minLength: 0)
             if state.writingTopic != nil {
                 Text("今日一题")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .appFont(10, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.accent)
                     .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
+                    .appPadding(.vertical, 2)
                     .background(Capsule().fill(theme.accent.opacity(0.14)))
                     .help("题目按天轮换，同一天内不会变")
             }
@@ -95,13 +95,13 @@ public struct WritingView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Label(topic.kind.displayName, systemImage: topic.kind.systemImage)
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .appFont(10, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.accent)
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
+                    .appPadding(.vertical, 3)
                     .background(Capsule().fill(theme.accent.opacity(0.14)))
                 Text("\(topic.minWords)–\(topic.maxWords) 词")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .appFont(10, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .monospacedDigit()
                 Spacer(minLength: 0)
@@ -116,12 +116,12 @@ public struct WritingView: View {
                 context: state.wordLookupContext
             )
             Text("提示：\(topic.hint)")
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(16)
+        .appPadding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -139,12 +139,12 @@ public struct WritingView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Text("你的作文")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Spacer(minLength: 0)
                 // 词数进度：目标 80–120，够 30 才能交（少一点也能先改）。
                 Text("\(state.writingWordCount) 词")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(wordCountColor)
                     .monospacedDigit()
             }
@@ -153,11 +153,11 @@ public struct WritingView: View {
                     get: { state.writingDraft },
                     set: { state.writingDraft = $0 }
                 ))
-                .font(.system(size: 13, design: .rounded))
+                .appFont(13, design: .rounded)
                 .scrollContentBackground(.hidden)
                 .foregroundStyle(theme.primaryText)
                 .frame(height: Self.editorHeight)
-                .padding(6)
+                .appPadding(6)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(theme.hover.opacity(0.6))
@@ -168,16 +168,16 @@ public struct WritingView: View {
                 )
                 if state.writingDraft.isEmpty {
                     Text("Write in English here…")
-                        .font(.system(size: 13, design: .rounded))
+                        .appFont(13, design: .rounded)
                         .foregroundStyle(theme.secondaryText.opacity(0.6))
                         .padding(.horizontal, 14)
-                        .padding(.top, 14)
+                        .appPadding(.top, 14)
                         // 占位符不接事件，点击要落到下面的编辑器上。
                         .allowsHitTesting(false)
                 }
             }
         }
-        .padding(16)
+        .appPadding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -210,10 +210,10 @@ public struct WritingView: View {
                         Text("交给老师批改")
                     }
                 }
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .appFont(12, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.onAccentFill)
                 .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .appPadding(.vertical, 8)
                 .background(Capsule().fill(theme.accentFill))
                 .opacity(state.isWritingReviewing ? 0.7 : 1)
             }
@@ -229,7 +229,7 @@ public struct WritingView: View {
                         Image(systemName: "arrow.counterclockwise")
                         Text("改一改再写")
                     }
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.accentCool)
                 }
                 .buttonStyle(.appPressable)
@@ -246,24 +246,24 @@ public struct WritingView: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 if let score = review.score {
                     Text("\(score)")
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                        .appFont(30, weight: .bold, design: .rounded)
                         .foregroundStyle(theme.accent)
                         .monospacedDigit()
                     Text("/ 100")
-                        .font(.system(size: 12, design: .rounded))
+                        .appFont(12, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
                 Spacer(minLength: 0)
             }
             if !review.advice.isEmpty {
                 Text(review.advice)
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(16)
+        .appPadding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -277,7 +277,7 @@ public struct WritingView: View {
         cardContainer {
             VStack(alignment: .leading, spacing: 12) {
                 Text("逐条批改")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 ForEach(Array(review.fixes.enumerated()), id: \.offset) { _, fix in
                     VStack(alignment: .leading, spacing: 4) {
@@ -292,13 +292,13 @@ public struct WritingView: View {
                             )
                             .strikethrough(fix.offset != nil, color: theme.danger.opacity(0.8))
                             .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .appPadding(.vertical, 2)
                             .background(
                                 RoundedRectangle(cornerRadius: 5)
                                     .fill(theme.danger.opacity(fix.offset != nil ? 0.14 : 0.06))
                             )
                             Image(systemName: "arrow.right")
-                                .font(.system(size: 9, weight: .bold))
+                                .appFont(9, weight: .bold)
                                 .foregroundStyle(theme.secondaryText)
                             LookupText(
                                 text: fix.corrected,
@@ -308,7 +308,7 @@ public struct WritingView: View {
                                 context: state.wordLookupContext
                             )
                             .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .appPadding(.vertical, 2)
                             .background(
                                 RoundedRectangle(cornerRadius: 5)
                                     .fill(theme.accent.opacity(0.14))
@@ -316,7 +316,7 @@ public struct WritingView: View {
                         }
                         if !fix.note.isEmpty {
                             Text(fix.note)
-                                .font(.system(size: 11, design: .rounded))
+                                .appFont(11, design: .rounded)
                                 .foregroundStyle(theme.secondaryText)
                                 .lineSpacing(2)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -334,7 +334,7 @@ public struct WritingView: View {
         cardContainer {
             VStack(alignment: .leading, spacing: 10) {
                 Text("改写对比（删除线 = 改掉，加重 = 新写，其余原样保留）")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 diffText(review)
             }
@@ -393,21 +393,21 @@ public struct WritingView: View {
         cardContainer {
             VStack(alignment: .leading, spacing: 10) {
                 Text("值得记下来的词")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 ForEach(review.words) { word in
                     HStack(spacing: 8) {
                         Text(word.word)
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .appFont(12, weight: .semibold, design: .rounded)
                             .foregroundStyle(theme.primaryText)
                         if !word.pos.isEmpty {
                             Text(word.pos)
-                                .font(.system(size: 10, design: .rounded))
+                                .appFont(10, design: .rounded)
                                 .foregroundStyle(theme.secondaryText)
                         }
                         if !word.meaning.isEmpty {
                             Text(word.meaning)
-                                .font(.system(size: 11, design: .rounded))
+                                .appFont(11, design: .rounded)
                                 .foregroundStyle(theme.secondaryText)
                                 .lineLimit(1)
                         }
@@ -416,10 +416,10 @@ public struct WritingView: View {
                             Task { await state.addWritingWord(word) }
                         } label: {
                             Text("收进词汇本")
-                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                .appFont(10, weight: .semibold, design: .rounded)
                                 .foregroundStyle(theme.accent)
                                 .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
+                                .appPadding(.vertical, 3)
                                 .overlay(
                                     Capsule().strokeBorder(theme.accent.opacity(0.7), lineWidth: 1)
                                 )
@@ -437,7 +437,7 @@ public struct WritingView: View {
 
     private func cardContainer(@ViewBuilder content: () -> some View) -> some View {
         content()
-            .padding(16)
+            .appPadding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -447,11 +447,11 @@ public struct WritingView: View {
 
     private func noticeBanner(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 11, design: .rounded))
+            .appFont(11, design: .rounded)
             .foregroundStyle(theme.primaryText)
             .lineSpacing(3)
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .appPadding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)

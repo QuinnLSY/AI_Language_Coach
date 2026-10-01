@@ -67,7 +67,7 @@ struct VocabularyReviewCard: View {
                 noticeBanner(notice)
             }
         }
-        .padding(14)
+        .appPadding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -103,19 +103,19 @@ struct VocabularyReviewCard: View {
     private var progressHeader: some View {
         HStack(spacing: 8) {
             Image(systemName: "book.closed.fill")
-                .font(.system(size: 12, weight: .semibold))
+                .appFont(12, weight: .semibold)
                 .foregroundStyle(theme.accent)
             Text("复习中")
-                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .appFont(13, weight: .bold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             Text("第 \(min(session.reviewed + 1, session.total)) / \(session.total) 个")
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .monospacedDigit()
             progressDots
             Spacer(minLength: 0)
             Text("还剩 \(session.remaining) 个")
-                .font(.system(size: 10, design: .rounded))
+                .appFont(10, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .monospacedDigit()
             // ⚠️ 这里原来是「结束」两个灰字，用户实测反馈「进了复习回不去词表了」——
@@ -151,12 +151,12 @@ struct VocabularyReviewCard: View {
         return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(entry.word)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .appFont(22, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 if showsPhonetic(entry.word), !definition.phonetic.isEmpty {
                     Text(definition.phonetic)
-                        .font(.system(size: 12, design: .rounded))
+                        .appFont(12, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
                 speakButton()
@@ -170,14 +170,14 @@ struct VocabularyReviewCard: View {
             } else {
                 HStack(spacing: 8) {
                     Text("先想一下它的意思")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                     Button(action: onReveal) {
                         HStack(spacing: 4) {
                             Image(systemName: "eye")
                             Text("看释义")
                         }
-                        .font(.system(size: 11, weight: .medium))
+                        .appFont(11, weight: .medium)
                         .foregroundStyle(theme.accent)
                     }
                     .buttonStyle(.appPressable)
@@ -200,24 +200,24 @@ struct VocabularyReviewCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Text("这个词还没有释义")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                     VocabularyReviewDefineButton(isDefining: isDefining, onDefine: onDefine)
                     Spacer(minLength: 0)
                 }
                 Text("查完直接显示在这里，词表里也会同步 —— 不用退出复习。")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText.opacity(0.85))
             }
         } else if let headline = headline(for: definition) {
             HStack(spacing: 6) {
                 if !definition.pos.isEmpty {
                     Text(definition.pos)
-                        .font(.system(size: 11, weight: .semibold, design: .rounded).italic())
+                        .appFont(11, weight: .semibold, design: .rounded, italic: true)
                         .foregroundStyle(theme.accent)
                 }
                 Text(headline)
-                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .appFont(13, weight: .medium, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -251,17 +251,17 @@ struct VocabularyReviewCard: View {
                 ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(row.title)
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .appFont(10, weight: .semibold, design: .rounded)
                             .foregroundStyle(theme.accent)
                             .frame(width: 40, alignment: .leading)
                         Text(row.text)
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.primaryText.opacity(0.88))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
-            .padding(10)
+            .appPadding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -323,7 +323,7 @@ struct VocabularyReviewCard: View {
                         }
                         Text(isRecording ? "停止并评分" : "读一遍")
                     }
-                    .font(.system(size: 11, weight: .semibold))
+                    .appFont(11, weight: .semibold)
                 }
                 .buttonStyle(.appPressable)
                 .foregroundStyle(isRecording ? Color.red : theme.accentCool)
@@ -336,7 +336,7 @@ struct VocabularyReviewCard: View {
                             Image(systemName: "play.circle")
                             Text("听我的")
                         }
-                        .font(.system(size: 11, weight: .medium))
+                        .appFont(11, weight: .medium)
                         .foregroundStyle(theme.secondaryText)
                     }
                     .buttonStyle(.appPressable)
@@ -345,7 +345,7 @@ struct VocabularyReviewCard: View {
                 }
                 Spacer(minLength: 0)
                 Text("朗读分只作参考，等级由你自己定")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText.opacity(0.85))
             }
 
@@ -359,18 +359,18 @@ struct VocabularyReviewCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Text("\(report.overallPercent) 分")
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .appFont(14, weight: .bold, design: .rounded)
                     .foregroundStyle(scoreColor(report.verdict))
                     .monospacedDigit()
                 Text(report.verdict.displayName)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(scoreColor(report.verdict))
                 if let label = report.phonemeSource.displayName {
                     Text(label)
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .appFont(10, weight: .semibold, design: .rounded)
                         .foregroundStyle(report.phonemeSource == .acoustic ? theme.accent : theme.secondaryText)
                         .padding(.horizontal, 7)
-                        .padding(.vertical, 2)
+                        .appPadding(.vertical, 2)
                         .background(
                             Capsule().fill(
                                 (report.phonemeSource == .acoustic ? theme.accent : theme.secondaryText).opacity(0.14)
@@ -385,7 +385,7 @@ struct VocabularyReviewCard: View {
             // 必须原样摆出来，否则用户只看到「分低」却不知道为什么。
             if let recognized, !recognized.isEmpty, !sameWord(recognized, word) {
                 Text("系统听成：\(recognized)")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -394,7 +394,7 @@ struct VocabularyReviewCard: View {
                 PhonemeBreakdownCard(report: report)
             }
         }
-        .padding(10)
+        .appPadding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -424,7 +424,7 @@ struct VocabularyReviewCard: View {
     private var gradeRow: some View {
         HStack(spacing: 10) {
             Text("刚才想对了吗")
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
             Spacer(minLength: 0)
             gradeButton(remembered: true, title: "认识", systemImage: "checkmark.circle.fill", color: .green)
@@ -439,7 +439,7 @@ struct VocabularyReviewCard: View {
     private func shortcutHintRow(_ hints: ReviewShortcutHints) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "keyboard")
-                .font(.system(size: 10))
+                .appFont(10)
                 .foregroundStyle(theme.secondaryText)
             hintChip(hints.reveal, "翻面")
             hintChip(hints.remembered, "认识")
@@ -454,16 +454,16 @@ struct VocabularyReviewCard: View {
     private func hintChip(_ key: String, _ label: String) -> some View {
         HStack(spacing: 3) {
             Text(key)
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .appFont(10, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .padding(.horizontal, 5)
-                .padding(.vertical, 1)
+                .appPadding(.vertical, 1)
                 .background(
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
                         .fill(theme.surfaceAlt)
                 )
             Text(label)
-                .font(.system(size: 10, design: .rounded))
+                .appFont(10, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
         }
     }
@@ -481,10 +481,10 @@ struct VocabularyReviewCard: View {
                 Image(systemName: systemImage)
                 Text(title)
             }
-            .font(.system(size: 12, weight: .semibold))
+            .appFont(12, weight: .semibold)
             .foregroundStyle(color)
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .appPadding(.vertical, 6)
             .background(Capsule().fill(color.opacity(0.12)))
             .contentShape(Capsule())
         }
@@ -508,22 +508,22 @@ struct VocabularyReviewCard: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "checkmark.seal.fill")
-                    .font(.system(size: 15))
+                    .appFont(15)
                     .foregroundStyle(theme.accent)
                 Text("这一轮复习完了")
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .appFont(14, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Spacer(minLength: 0)
                 Button(action: onFinish) {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.left")
-                            .font(.system(size: 9, weight: .bold))
+                            .appFont(9, weight: .bold)
                         Text("回到词表")
-                            .font(.system(size: 11, weight: .semibold))
+                            .appFont(11, weight: .semibold)
                     }
                     .foregroundStyle(theme.onAccentFill)
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 5)
+                    .appPadding(.vertical, 5)
                     .background(Capsule().fill(theme.accentFill))
                     .contentShape(Capsule())
                 }
@@ -532,7 +532,7 @@ struct VocabularyReviewCard: View {
             }
 
             Text(summary.headline)
-                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .appFont(12, weight: .medium, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -549,7 +549,7 @@ struct VocabularyReviewCard: View {
 
             if !summary.detail.isEmpty {
                 Text(summary.detail)
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -559,10 +559,10 @@ struct VocabularyReviewCard: View {
     private func statTile(_ title: String, _ value: String, _ color: Color) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(title)
-                .font(.system(size: 9, design: .rounded))
+                .appFont(9, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
             Text(value)
-                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .appFont(15, weight: .bold, design: .rounded)
                 .foregroundStyle(color)
                 .monospacedDigit()
         }
@@ -585,7 +585,7 @@ struct VocabularyReviewCard: View {
                         .frame(width: 14, height: 14)
                 } else {
                     Image(systemName: isSpeaking ? "speaker.wave.3.fill" : "speaker.wave.2.fill")
-                        .font(.system(size: 12))
+                        .appFont(12)
                         // 与 `SpeakButton` 同一个黄：`Color.yellow` 在白天卡片上等于看不见。
                         .foregroundStyle(theme.accent)
                         .symbolEffect(.variableColor.iterative, isActive: isSpeaking)
@@ -650,13 +650,13 @@ struct VocabularyReviewExitButton: View {
         Button(action: onFinish) {
             HStack(spacing: 4) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 9, weight: .bold))
+                    .appFont(9, weight: .bold)
                 Text("退出复习")
-                    .font(.system(size: 11, weight: .semibold))
+                    .appFont(11, weight: .semibold)
             }
             .foregroundStyle(theme.primaryText)
             .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .appPadding(.vertical, 5)
             .background(Capsule().fill(theme.surfaceAlt.opacity(0.85)))
             .overlay(Capsule().strokeBorder(theme.divider, lineWidth: 1))
             .contentShape(Capsule())
@@ -688,14 +688,14 @@ struct VocabularyReviewDefineButton: View {
                         .frame(width: 12, height: 12)
                 } else {
                     Image(systemName: "character.book.closed")
-                        .font(.system(size: 10, weight: .semibold))
+                        .appFont(10, weight: .semibold)
                 }
                 Text(isDefining ? "正在查…" : "查释义")
-                    .font(.system(size: 11, weight: .semibold))
+                    .appFont(11, weight: .semibold)
             }
             .foregroundStyle(theme.accent)
             .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            .appPadding(.vertical, 4)
             .background(Capsule().fill(theme.accent.opacity(0.12)))
             .overlay(Capsule().strokeBorder(theme.accent.opacity(0.35), lineWidth: 1))
             .contentShape(Capsule())

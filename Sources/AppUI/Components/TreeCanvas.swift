@@ -37,6 +37,11 @@ public struct TreeCanvas: View {
     let studentAnimal: AnimalKind
     /// 学员的小伙伴（陪着一起爬树的那一只；nil = 不画，兼容不需要伙伴的场景）。
     let companionAnimal: AnimalKind?
+    /// 年度回顾的轻量摘要（#418-B）：树根年轮徽记的原料。
+    ///
+    /// 为什么是摘要不是整张 `AnnualRecap`：树只关心「练了多少天、最长连了多久」，
+    /// 整张 53×7 网格拖进来只会让渲染层背着不属于自己的数据。
+    var annualSummary: TreeAnnualSummary = .empty()
     /// 关卡 → 它在树上要额外显示的一行（对应情景 + 主线任务进度）。
     ///
     /// 需求 2：**情景与大树要一眼看出关系** —— 光有一个小对话标，
@@ -94,6 +99,7 @@ public struct TreeCanvas: View {
 
     public init(theme: ForestTheme, progress: LearnerProgress, studentAnimal: AnimalKind = .bear,
                 companionAnimal: AnimalKind? = nil,
+                annualSummary: TreeAnnualSummary = .empty(),
                 levelNotes: [String: TreeLevelNote] = [:],
                 ceremonyTick: Int = 0, practiceTick: Int = 0, wordTick: Int = 0,
                 skyTapTick: Int = 0, welcomeTick: Int = 0,
@@ -104,6 +110,7 @@ public struct TreeCanvas: View {
         self.progress = progress
         self.studentAnimal = studentAnimal
         self.companionAnimal = companionAnimal
+        self.annualSummary = annualSummary
         self.levelNotes = levelNotes
         self.ceremonyTick = ceremonyTick
         self.practiceTick = practiceTick
@@ -163,6 +170,19 @@ public struct TreeCanvas: View {
                         .frame(width: width, height: canvasHeight)
                 }
                 .accessibilityHidden(true)
+
+                // 年轮徽记（#418-B）：树根上的一圈圈年轮 —— 近一年练得越久圈越多，
+                // 中心是连续练习的火苗。什么都没练就不画（树根等第一天）。
+                // ⚠️ 不在装饰 Group 里：那组整体 accessibilityHidden，而徽记承载进度信息，
+                // 要有自己的读屏文案。画在关卡节点之前（树干上、学员身后，不抢点击）。
+                if TreeRings.showsEmblem(practicedDays: annualSummary.practicedDays) {
+                    TreeRingEmblem(theme: theme, summary: annualSummary)
+                        .position(x: midX, y: canvasHeight - 34)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(TreeRings.accessibilityLabel(
+                            practicedDays: annualSummary.practicedDays,
+                            longestStreak: annualSummary.longestStreak) ?? "")
+                }
 
                 // 树枝 + 关卡节点
                 ForEach(progress.levels) { level in
@@ -282,7 +302,97 @@ public struct TreeCanvas: View {
     }
 }
 
-// MARK: - 视口定位（把学员摆到视口哪里）
+// MARK: - 年轮徽记（#418-B：树 × 年度回顾联动）
+
+/// 年度回顾的轻量摘要：树根年轮徽记只吃这两个数。
+///
+/// 由 `AppState` 从已加载的 `AnnualRecap` 里折出来（`init(recap:)`），
+/// 树是纯渲染层，不自己去找年度数据。
+public struct TreeAnnualSummary: Sendable, Equatable {
+
+    /// 近一年练过的天数。
+    public var practicedDays: Int
+    /// 这一年里最长的一段连续练习。
+    public var longestStreak: Int
+
+    public init(practicedDays: Int = 0, longestStreak: Int = 0) {
+        self.practicedDays = practicedDays
+        self.longestStreak = longestStreak
+    }
+
+    /// 从整张年度记录折出摘要（只取徽记需要的两个字段）。
+    public init(recap: AnnualRecap) {
+        self.init(practicedDays: recap.practicedDays, longestStreak: recap.longestStreak)
+    }
+
+    /// 空摘要（年度数据还没加载 / 全年没练过）。
+    public static func empty() -> Self { Self() }
+}
+
+/// 年轮徽记的判据（纯函数，便于单测）：把「近一年练了多少」物化进风景。
+///
+/// 圈 = 练满 30 天长一圈（封顶 6 圈 —— 再多就糊成一团了）；
+/// 中心的「火苗」= 最长连续 ≥ 3 天（用 `streak` 色，与打卡徽章同一支红）。
+/// 什么都没练就不画徽记（树根干干净净，等第一天）。
+public enum TreeRings {
+
+    public static let daysPerRing = 30
+    public static let maxRings = 6
+    /// 最长连续多少天以上点亮中心的火苗。
+    public static let flameStreakThreshold = 3
+
+    public static func showsEmblem(practicedDays: Int) -> Bool { practicedDays > 0 }
+
+    public static func ringCount(practicedDays: Int) -> Int {
+        guard practicedDays > 0 else { return 0 }
+        return min(practicedDays / daysPerRing, maxRings)
+    }
+
+    public static func showsFlame(longestStreak: Int) -> Bool {
+        longestStreak >= flameStreakThreshold
+    }
+
+    /// 读屏文案（practicedDays 为 0 时返回 nil = 整个徽记不存在）。
+    public static func accessibilityLabel(practicedDays: Int, longestStreak: Int) -> String? {
+        guard practicedDays > 0 else { return nil }
+        var parts = ["近一年练习 \(practicedDays) 天"]
+        if longestStreak > 0 { parts.append("最长连续 \(longestStreak) 天") }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// 树根的年轮徽记：一圈圈同心圆（颜色随日夜档走 `foliageDeep`），
+/// 中心是「最长连续 ≥ 3 天」的火苗点（`streak` 色，与打卡徽章同一支红）。
+/// 判据全在 `TreeRings`，这里只照着画。
+private struct TreeRingEmblem: View {
+
+    let theme: ForestTheme
+    let summary: TreeAnnualSummary
+
+    var body: some View {
+        let rings = TreeRings.ringCount(practicedDays: summary.practicedDays)
+        ZStack {
+            ForEach(0..<rings, id: \.self) { index in
+                let side = CGFloat(14 + index * 8)
+                Circle()
+                    .stroke(theme.foliageDeep.opacity(0.7), lineWidth: 2)
+                    .frame(width: side, height: side)
+            }
+            // 中心点：有火苗亮火苗（streak 红），没有就一颗素净的叶心。
+            if TreeRings.showsFlame(longestStreak: summary.longestStreak) {
+                Circle()
+                    .fill(theme.streak)
+                    .frame(width: 9, height: 9)
+            } else {
+                Circle()
+                    .fill(theme.foliageDeep.opacity(0.7))
+                    .frame(width: 6, height: 6)
+            }
+        }
+    }
+}
+
+/// 视口定位（把学员摆到视口哪里）
 
 /// 右侧栏「开屏把学员摆到视口哪个位置」的纯函数。
 ///
@@ -659,30 +769,30 @@ private struct LevelNode: View {
             VStack(spacing: 2) {
                 if level.state == .locked {
                     Image(systemName: "lock.fill")
-                        .font(.system(size: 15, weight: .semibold))
+                        .appFont(15, weight: .semibold)
                         .foregroundStyle(.white.opacity(0.85))
                 } else {
                     Image(systemName: iconName)
-                        .font(.system(size: 15, weight: .semibold))
+                        .appFont(15, weight: .semibold)
                         .foregroundStyle(iconColor)
                 }
                 Text("\(level.earnedStars)/\(level.requiredStars)")
-                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .appFont(9, weight: .bold, design: .rounded)
                     .foregroundStyle(iconColor.opacity(0.9))
             }
         }
         .overlay(alignment: .bottom) {
             VStack(spacing: 1) {
                 Text(level.title)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text(level.subtitle)
-                    .font(.system(size: 9, design: .rounded))
+                    .appFont(9, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 // 需求 2：这一格对应哪个情景、主线任务做到哪 —— 一句话说清两者的关系。
                 if let note {
                     Text(note.summaryLine)
-                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .appFont(9, weight: .medium, design: .rounded)
                         .foregroundStyle(theme.accent)
                         .lineLimit(1)
                         .fixedSize()
@@ -695,7 +805,7 @@ private struct LevelNode: View {
         .overlay(alignment: .topTrailing) {
             if level.scenarioID != nil {
                 Image(systemName: "bubble.left.and.text.bubble.right.fill")
-                    .font(.system(size: 8, weight: .bold))
+                    .appFont(8, weight: .bold)
                     .foregroundStyle(.white)
                     .frame(width: 18, height: 18)
                     .background(Circle().fill(theme.accentAlt))
@@ -797,6 +907,14 @@ struct ForestGroundBand: View {
     /// 学员在当前会话开口的次数（`ChatService.learnerTurnCount`）：
     /// 大树下草坪上「对话种下的植物」长几株（2026-09-29 从中间栏搬进林子）。
     var conversationRounds: Int = 0
+    /// 连续剧情（#418-C）：出幕脉冲 + 这一幕是哪一幕。判定与记账在 `ForestStage`
+    /// （它有事件历史），这里只管挑角演 —— 判定在舞台、演在草坪，两边各管各的。
+    var storyActTick: Int = 0
+    var lastStoryAct: ForestStoryArc.Act? = nil
+
+    /// 连续剧情的主角（#418-C）：一旦绑定，这一轮学习里的各幕都由它领衔
+    /// （在场才认；暂离了就换角重绑）。会话级 @State，重启自然换人。
+    @State private var storyLead: Int? = nil
 
     /// 离场告别语（轮换时随机抽一条）。
     static let leavePhrases = [
@@ -1165,6 +1283,13 @@ struct ForestGroundBand: View {
                 guard tick > 0 else { return }
                 welcomeParty()
             }
+            // 连续剧情（#418-C）：舞台判定出幕 → 树上挑角演。
+            // ⚠️ 判定（该不该出幕）在 ForestStage，这里不做二次判断 ——
+            // 与「簇拥安慰的门槛在舞台」同一条纪律，两处门槛迟早不一致。
+            .onChange(of: storyActTick) { _, tick in
+                guard tick > 0, let act = lastStoryAct else { return }
+                performStoryAct(act)
+            }
             // 错误举牌（批次八 · H）：老师联系不上，最近的小动物举一块牌子。
             // 学习上又有动静了 → 解除「已经打过盹」的标记（下次安静还能再演）
             .onChange(of: lastActivityAt) { _, _ in hasDozed = false }
@@ -1197,7 +1322,7 @@ struct ForestGroundBand: View {
                 activityButton
             }
             .padding(.trailing, 12)
-            .padding(.bottom, 10)
+            .appPadding(.bottom, 10)
         }
         // 与动物气泡一致的收起逻辑：连点会取消上一次计时，停手 3 秒后自动消失
         .task(id: sleepTick) {
@@ -1606,6 +1731,38 @@ struct ForestGroundBand: View {
         let cast = Array(present.shuffled().prefix(min(2, present.count)))
         for index in cast {
             trigger(index, action: .listen)
+        }
+    }
+
+    // MARK: 连续剧情（#418-C）
+
+    /// 各幕的台词池（每幕自己的语气，别混用）。
+    private static let storyLines: [ForestStoryArc.Act: [String]] = [
+        .harvest: ["枝头又结果子啦！", "看，那是你攒下的星星。"],
+        .encore: ["还想再来一段？先让我热热身！", "通关了还练，佩服佩服！"],
+        .focus: ["你练得真专注，我都不好意思打闹了。", "这么认真，我陪你一块儿。"],
+    ]
+
+    /// 演一幕：主角演动作 + 冒一句幕词。
+    ///
+    /// ⚠️ **演员绑定**：这一轮学习里的各幕由同一位领衔（`storyLead`）——
+    /// 剧情感来自「是同一个小伙伴在陪你」，每次换角就成了随机点播。
+    /// 主角暂离（轮换出去了）就换角重绑，不能让画外的角色凭空演戏。
+    /// 夜晚 / 活动被关时不演（舞台的记账照走，这一幕会话里就此错过）。
+    private func performStoryAct(_ act: ForestStoryArc.Act) {
+        guard activityAllowed, !theme.isNight else { return }
+        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        if let lead = storyLead, !present.contains(lead) { storyLead = nil }
+        let lead = storyLead ?? present.randomElement()
+        if storyLead == nil { storyLead = lead }
+        guard let lead else { return }
+        switch act {
+        case .harvest: trigger(lead, action: .hop)
+        case .encore: trigger(lead, action: .wiggle)
+        case .focus: trigger(lead, action: .nod)
+        }
+        if bubblesAllowed, let lines = Self.storyLines[act] {
+            requestRawBubble(lead, pool: lines)
         }
     }
 
@@ -2024,7 +2181,7 @@ struct ForestGroundBand: View {
         } label: {
             Image(systemName: theme.isNight ? "moon.zzz.fill"
                   : (activityAllowed ? "face.smiling" : "face.dashed"))
-                .font(.system(size: 13, weight: .semibold))
+                .appFont(13, weight: .semibold)
                 .foregroundStyle(activityAllowed && !theme.isNight ? theme.accent : theme.secondaryText)
                 .frame(width: 30, height: 30)
                 .background(Circle().fill(theme.surface.opacity(0.9)))
@@ -2074,16 +2231,16 @@ private struct CarriedWordCard: View {
     var body: some View {
         VStack(spacing: 2) {
             Image(systemName: "leaf.fill")
-                .font(.system(size: 8, weight: .bold))
+                .appFont(8, weight: .bold)
                 .foregroundStyle(theme.accent)
             Text(word)
-                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .appFont(11, weight: .bold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .lineLimit(1)
                 .fixedSize()
         }
         .padding(.horizontal, 9)
-        .padding(.vertical, 5)
+        .appPadding(.vertical, 5)
         .background(RoundedRectangle(cornerRadius: 9).fill(theme.surface))
         .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(theme.accent.opacity(0.55), lineWidth: 1))
         .shadow(color: theme.shadow, radius: 4, x: 0, y: 2)

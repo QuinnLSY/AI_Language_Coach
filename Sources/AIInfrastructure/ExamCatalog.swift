@@ -62,12 +62,12 @@ public enum ExamCatalog {
 
     private static func loadBundled(logging: Bool) -> [ExamBlueprint] {
         // SwiftPM 会把 `Resources` 整目录复制进资源 bundle，故考卷在 `Exams/` 子目录下。
-        if let directory = AppResourceBundle.module.url(forResource: "Exams", withExtension: nil) {
+        if let directory = AppResourceBundle.url(forResource: "Exams", withExtension: nil) {
             let loaded = load(from: directory, logging: logging)
             if !loaded.isEmpty { return loaded }
         }
         // 兜底：直接按扩展名在子目录中查找（不同打包方式对目录资源的处理略有差异）。
-        if let urls = AppResourceBundle.module.urls(
+        if let urls = AppResourceBundle.urls(
             forResourcesWithExtension: "json", subdirectory: "Exams"
         ), !urls.isEmpty {
             let decoder = JSONDecoder()

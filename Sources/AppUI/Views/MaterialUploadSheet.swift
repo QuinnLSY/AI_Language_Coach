@@ -16,7 +16,7 @@ struct MaterialUploadSheet: View {
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 14) {
                     Text("把一篇课文 / 文章交给老师，拆成一套能练的东西：一个情景对话、一批跟读句、一张生词表（生词自动收进词汇本）。")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
 
@@ -27,13 +27,13 @@ struct MaterialUploadSheet: View {
                             importFile()
                         } label: {
                             HStack(spacing: 5) {
-                                Image(systemName: "folder").font(.system(size: 10, weight: .semibold))
+                                Image(systemName: "folder").appFont(10, weight: .semibold)
                                 Text("导入 txt / md")
-                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                    .appFont(12, weight: .semibold, design: .rounded)
                             }
                             .foregroundStyle(theme.accent)
                             .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
+                            .appPadding(.vertical, 7)
                             .background(Capsule().strokeBorder(theme.accent.opacity(0.5), lineWidth: 1))
                             .contentShape(Capsule())
                         }
@@ -44,7 +44,7 @@ struct MaterialUploadSheet: View {
 
                         if let issue = MaterialKitRule.inputIssue(for: state.materialDraft) {
                             Text(issueText(issue))
-                                .font(.system(size: 10, design: .rounded))
+                                .appFont(10, design: .rounded)
                                 .foregroundStyle(theme.secondaryText)
                         }
                         Button {
@@ -55,14 +55,14 @@ struct MaterialUploadSheet: View {
                                     ProgressView()
                                         .controlSize(.small)
                                 } else {
-                                    Image(systemName: "wand.and.stars").font(.system(size: 10, weight: .bold))
+                                    Image(systemName: "wand.and.stars").appFont(10, weight: .bold)
                                 }
                                 Text(state.isGeneratingMaterial ? "拆解中…" : "生成练习")
-                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                    .appFont(12, weight: .semibold, design: .rounded)
                             }
                             .foregroundStyle(theme.onAccentFill)
                             .padding(.horizontal, 16)
-                            .padding(.vertical, 7)
+                            .appPadding(.vertical, 7)
                             .background(Capsule().fill(theme.accentFill))
                             .contentShape(Capsule())
                         }
@@ -75,7 +75,7 @@ struct MaterialUploadSheet: View {
                         resultBanner(notice)
                     }
                 }
-                .padding(20)
+                .appPadding(20)
             }
         }
     }
@@ -85,7 +85,7 @@ struct MaterialUploadSheet: View {
     private var header: some View {
         HStack(spacing: 12) {
             Image(systemName: "doc.badge.plus")
-                .font(.system(size: 18))
+                .appFont(18)
                 .foregroundStyle(theme.accent)
                 .frame(width: 38, height: 38)
                 .background(
@@ -95,10 +95,10 @@ struct MaterialUploadSheet: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("上传材料")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .appFont(16, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text("材料 → 情景 + 跟读句 + 生词表")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
 
@@ -106,7 +106,7 @@ struct MaterialUploadSheet: View {
 
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
+                    .appFont(11, weight: .semibold)
                     .foregroundStyle(theme.secondaryText)
                     .frame(width: 28, height: 28)
                     .background(Circle().fill(theme.hover))
@@ -126,11 +126,11 @@ struct MaterialUploadSheet: View {
                 get: { state.materialDraft },
                 set: { state.materialDraft = $0 }
             ))
-            .font(.system(size: 12, design: .rounded))
+            .appFont(12, design: .rounded)
             .scrollContentBackground(.hidden)
             .foregroundStyle(theme.primaryText)
             .frame(height: 180)
-            .padding(8)
+            .appPadding(8)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(theme.surfaceAlt.opacity(0.6))
@@ -143,10 +143,10 @@ struct MaterialUploadSheet: View {
 
             if state.materialDraft.isEmpty {
                 Text("把材料正文粘贴到这里（至少 \(MaterialKitRule.minimumLength) 字）…")
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .foregroundStyle(theme.secondaryText.opacity(0.6))
                     .padding(.horizontal, 16)
-                    .padding(.top, 16)
+                    .appPadding(.top, 16)
                     .allowsHitTesting(false)
             }
         }
@@ -155,10 +155,10 @@ struct MaterialUploadSheet: View {
     private func resultBanner(_ notice: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: state.lastGeneratedKit != nil ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .font(.system(size: 12))
+                .appFont(12)
                 .foregroundStyle(state.lastGeneratedKit != nil ? theme.accent : theme.warning)
             Text(notice)
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -166,13 +166,13 @@ struct MaterialUploadSheet: View {
                 state.dismissMaterialResult()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
+                    .appFont(9, weight: .semibold)
                     .foregroundStyle(theme.secondaryText)
             }
             .buttonStyle(.appPressable)
             .accessibilityLabel("关闭提示")
         }
-        .padding(12)
+        .appPadding(12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(theme.surfaceAlt.opacity(0.6))

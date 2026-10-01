@@ -253,10 +253,16 @@ public protocol SoundPlaying: AnyObject, Sendable {
     func play(data: Data)
 }
 
-/// UI 音效播放器：发后即忘，播完自摘；最多同时挂 4 个实例防连点刷爆。
-public final class UISoundPlayer: NSObject, SoundPlaying, AVAudioPlayerDelegate, @unchecked Sendable {
+/// UI 音效播放器：发后即忘；最多同时挂 4 个实例防连点刷爆。
+///
+/// ⚠️ **这里不能采纳 `AVAudioPlayerDelegate`**：那是主 actor 协议，谁采纳谁整个类型被
+/// 推断成 `@MainActor`（Swift 6.4 起连「让它符合非隔离的 `SoundPlaying`」都直接 error）。
+/// 而音效要从actor 隔离之外的地方触发，所以改成「数组强持有 + 超量挤掉最老的」：
+/// 播完的播放器留在数组里也只是占着引用，数组本身有 4 个的上限，不会累积。
+public final class UISoundPlayer: NSObject, SoundPlaying, @unchecked Sendable {
 
     private let lock = NSLock()
+    /// 只为撑住强引用（`AVAudioPlayer.delegate` 是 weak，不自己拿就会提前释放）。
     private var players: [AVAudioPlayer] = []
 
     public override init() { super.init() }
@@ -264,26 +270,11 @@ public final class UISoundPlayer: NSObject, SoundPlaying, AVAudioPlayerDelegate,
     public func play(data: Data) {
         guard let player = try? AVAudioPlayer(data: data) else { return }
         player.volume = 0.4
-        player.delegate = self
         lock.lock()
         players.append(player)
         if players.count > 4 { players.removeFirst(players.count - 4) }
         lock.unlock()
         player.play()
-    }
-
-    private func remove(_ player: AVAudioPlayer) {
-        lock.lock()
-        players.removeAll { $0 === player }
-        lock.unlock()
-    }
-
-    public func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        remove(player)
-    }
-
-    public func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-        remove(player)
     }
 }
 

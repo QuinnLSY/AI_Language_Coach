@@ -102,7 +102,7 @@ public struct ListeningDrillCard: View {
                 prompt
             }
         }
-        .padding(18)
+        .appPadding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -123,19 +123,19 @@ public struct ListeningDrillCard: View {
     private var header: some View {
         HStack(spacing: 6) {
             Image(systemName: "ear.badge.waveform")
-                .font(.system(size: 12))
+                .appFont(12)
                 .foregroundStyle(theme.accent)
             Text(chrome.title)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .appFont(14, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             Text(chrome.counterText)
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .monospacedDigit()
             Spacer(minLength: 8)
             Button(action: onCancel) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
+                    .appFont(11, weight: .semibold)
                     .foregroundStyle(theme.secondaryText)
                     .frame(width: 20, height: 20)
                     .contentShape(Rectangle())
@@ -151,7 +151,7 @@ public struct ListeningDrillCard: View {
     private var prompt: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(chrome.subtitle)
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -172,9 +172,9 @@ public struct ListeningDrillCard: View {
                 Button(action: onSubmit) {
                     HStack(spacing: 5) {
                         Image(systemName: "text.magnifyingglass")
-                            .font(.system(size: 11, weight: .semibold))
+                            .appFont(11, weight: .semibold)
                         Text(chrome.submitButton)
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .appFont(12, weight: .semibold, design: .rounded)
                     }
                     .foregroundStyle(theme.onAccentFill)
                     .padding(.horizontal, 14)
@@ -212,14 +212,14 @@ public struct ListeningDrillCard: View {
 
             if typed.isEmpty {
                 Text(chrome.answerPlaceholder)
-                    .font(.system(size: 14, design: .rounded))
+                    .appFont(14, design: .rounded)
                     .foregroundStyle(theme.secondaryText.opacity(0.62))
-                    .padding(.top, 1)
+                    .appPadding(.top, 1)
                     .allowsHitTesting(false)
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .appPadding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(theme.surfaceAlt.opacity(0.55))
@@ -236,21 +236,21 @@ public struct ListeningDrillCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 12) {
                 Text("\(attempt.accuracyPercent)%")
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .appFont(32, weight: .bold, design: .rounded)
                     .foregroundStyle(stepColor(attempt.step))
                     .monospacedDigit()
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 5) {
                         Image(systemName: attempt.step.symbol)
-                            .font(.system(size: 11))
+                            .appFont(11)
                         Text(attempt.step.displayName)
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .appFont(13, weight: .semibold, design: .rounded)
                     }
                     .foregroundStyle(stepColor(attempt.step))
 
                     Text(playedText(attempt))
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .monospacedDigit()
                 }
@@ -273,14 +273,14 @@ public struct ListeningDrillCard: View {
             )
 
             Text(attempt.step.advice)
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 10) {
                 if !attempt.missedWords.isEmpty {
                     Text("没听出来：\(attempt.missedWords.prefix(6).joined(separator: "、"))")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.warning)
                         .lineLimit(1)
                 }
@@ -302,21 +302,21 @@ public struct ListeningDrillCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 12) {
                 Text("\(capture.hitPercent)%")
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .appFont(32, weight: .bold, design: .rounded)
                     .foregroundStyle(hitColor(capture.hitRatio))
                     .monospacedDigit()
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 5) {
                         Image(systemName: hitSymbol(capture))
-                            .font(.system(size: 11))
+                            .appFont(11)
                         Text(capture.scoreText)
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .appFont(13, weight: .semibold, design: .rounded)
                     }
                     .foregroundStyle(hitColor(capture.hitRatio))
 
                     Text(playedText(capture.playCount))
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .monospacedDigit()
                 }
@@ -324,7 +324,7 @@ public struct ListeningDrillCard: View {
             }
 
             Text("这一句该抓住的信息词：")
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
 
             FlowRow(spacing: 6, lineSpacing: 6) {
@@ -340,14 +340,14 @@ public struct ListeningDrillCard: View {
             )
 
             Text(hitAdvice(capture))
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 10) {
                 if !capture.missed.isEmpty {
                     Text("没抓住：\(capture.missed.prefix(6).joined(separator: "、"))")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.warning)
                         .lineLimit(1)
                 }
@@ -397,22 +397,22 @@ public struct ListeningDrillCard: View {
             )
             if !translation.isEmpty {
                 Text(translation)
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "pencil.line")
-                    .font(.system(size: 10))
+                    .appFont(10)
                     .foregroundStyle(theme.secondaryText)
                 Text("我写的：\(typed)")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
         }
-        .padding(10)
+        .appPadding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -423,10 +423,10 @@ public struct ListeningDrillCard: View {
     /// 关键词的「抓住 / 没抓住」小片。
     private func wordChip(_ word: String, isHit: Bool) -> some View {
         Text(word)
-            .font(.system(size: 12, weight: .medium, design: .rounded))
+            .appFont(12, weight: .medium, design: .rounded)
             .foregroundStyle(isHit ? theme.primaryText : theme.danger)
             .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .appPadding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill((isHit ? theme.success : theme.danger).opacity(isHit ? 0.14 : 0.18))
@@ -439,9 +439,9 @@ public struct ListeningDrillCard: View {
         Button(action: onAdvance) {
             HStack(spacing: 5) {
                 Text(isLast ? "看总结" : "下一句")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                 Image(systemName: "arrow.right")
-                    .font(.system(size: 10, weight: .semibold))
+                    .appFont(10, weight: .semibold)
             }
             .foregroundStyle(theme.accent)
             .padding(.horizontal, 14)
@@ -473,11 +473,11 @@ public struct ListeningDrillCard: View {
         }
         let prefix = token.status == .extra ? "+" : ""
         return Text(prefix + token.word)
-            .font(.system(size: 12, weight: .medium, design: .rounded))
+            .appFont(12, weight: .medium, design: .rounded)
             .foregroundStyle(token.status == .matched ? theme.primaryText : color)
             .strikethrough(token.status == .missing, color: color)
             .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .appPadding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(color.opacity(token.status == .matched ? 0.14 : 0.18))

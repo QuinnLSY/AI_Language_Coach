@@ -38,7 +38,7 @@ struct ShortcutCenterCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("点一个键位，再按下你想要的新组合，改完立刻生效。Esc 取消。")
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -47,10 +47,10 @@ struct ShortcutCenterCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Text(group.title)
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .appFont(12, weight: .semibold, design: .rounded)
                             .foregroundStyle(theme.primaryText)
                         Text(group.scopeNote)
-                            .font(.system(size: 10, design: .rounded))
+                            .appFont(10, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                     }
                     LazyVGrid(columns: Self.columns, alignment: .leading, spacing: Self.rowSpacing) {
@@ -75,16 +75,16 @@ struct ShortcutCenterCard: View {
             if let notice = state.shortcutNotice {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 10))
+                        .appFont(10)
                         .foregroundStyle(theme.warning)
                     Text(notice)
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.warning)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     Button("知道了") { state.dismissShortcutNotice() }
                         .buttonStyle(.appPressable)
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.accent)
                 }
             }
@@ -93,7 +93,7 @@ struct ShortcutCenterCard: View {
                 state.resetAllShortcutBindings()
             } label: {
                 Text("全部恢复出厂")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             .buttonStyle(.appPressable)
@@ -116,7 +116,7 @@ struct ShortcutCenterCard: View {
         let conflicts = state.shortcutConflicts(for: action)
         return HStack(spacing: 5) {
             Text(action.title)
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -125,7 +125,7 @@ struct ShortcutCenterCard: View {
             if !conflicts.isEmpty {
                 // 撞键：不标出来，这一格的键看着好端端的，按下去却没反应。
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 10))
+                    .appFont(10)
                     .foregroundStyle(theme.warning)
                     .help("与「\(conflicts.map(\.title).joined(separator: "、"))」撞键，其中一个不会生效")
             }
@@ -137,11 +137,11 @@ struct ShortcutCenterCard: View {
                 }
             } label: {
                 Text(isCapturing ? "按下新的键…" : binding.displayString)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(isCapturing ? theme.onAccentFill : theme.primaryText)
                     .lineLimit(1)
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
+                    .appPadding(.vertical, 3)
                     .background(Capsule().fill(isCapturing ? theme.accentFill : theme.surfaceAlt))
                     .contentShape(Capsule())
             }
@@ -152,7 +152,7 @@ struct ShortcutCenterCard: View {
                 state.resetShortcutBinding(action)
             } label: {
                 Image(systemName: "arrow.counterclockwise")
-                    .font(.system(size: 10))
+                    .appFont(10)
                     .foregroundStyle(theme.secondaryText)
                     .frame(width: 16, height: 16)
                     .contentShape(Rectangle())

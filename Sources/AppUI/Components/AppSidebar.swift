@@ -36,13 +36,23 @@ public struct AppSidebar: View {
     /// 而「浮卡到底画在导航条目之上还是之下」恰恰只有出图能证（源码哨兵证不了绘制顺序）。
     public var previewShowsStreakTip = false
 
-    public static let expandedWidth: CGFloat = 220
-    public static let collapsedWidth: CGFloat = 76
+    /// ⚠️ 纯常量标 `nonisolated`：`View` 是 `@MainActor` 协议，实现类型整体被推断成主
+    /// actor，连这两个纯算术常量一起 —— 布局测试（非隔离上下文）一读就刷警告。
+    nonisolated public static let expandedWidth: CGFloat = 220
+    nonisolated public static let collapsedWidth: CGFloat = 76
 
-    public init(state: AppState, previewShowsStreakTip: Bool = false) {
+    public init(state: AppState, previewShowsStreakTip: Bool = false, widthAllowsExpansion: Bool = true) {
         self.state = state
         self.previewShowsStreakTip = previewShowsStreakTip
+        self.widthAllowsExpansion = widthAllowsExpansion
     }
+
+    /// 窗口宽够不够展开侧栏（#417 窄窗降级）。`false` = 窗口太窄，**临时**收成图标栏。
+    ///
+    /// 为什么是派生值而不是写回 `state.isSidebarExpanded`：窗口拉宽要自动还原，
+    /// 用户的收起/展开偏好不能被窗口尺寸悄悄改掉。
+    private var widthAllowsExpansion: Bool
+    private var isExpanded: Bool { state.isSidebarExpanded && widthAllowsExpansion }
 
     public var body: some View {
         VStack(spacing: 0) {
@@ -86,8 +96,6 @@ public struct AppSidebar: View {
         .overlay(alignment: .bottom) { teacherOverlay }
     }
 
-    private var isExpanded: Bool { state.isSidebarExpanded }
-
     // MARK: - 头部（与其他两栏 64pt 顶栏对齐）
 
     private var header: some View {
@@ -97,10 +105,10 @@ public struct AppSidebar: View {
                     AppLogo(size: 36)
                     VStack(alignment: .leading, spacing: 1) {
                         Text("语林")
-                            .font(.system(size: 17, weight: .bold, design: .rounded))
+                            .appFont(17, weight: .bold, design: .rounded)
                             .foregroundStyle(theme.primaryText)
                         Text("AI 语言私教")
-                            .font(.system(size: 10, design: .rounded))
+                            .appFont(10, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                     }
                     Spacer(minLength: 0)
@@ -129,7 +137,13 @@ public struct AppSidebar: View {
     // MARK: - 导航
 
     private var navList: some View {
-        VStack(spacing: 4) {
+        // ⚠️ 必须套 ScrollView（#417，也是 Xcode 27 SDK 的真回归修复）：
+        // 新 SDK 下导航列表 + 底部三件套的自然高度 ≈744pt，高过最小窗高的内容区
+        // （720 窗 ≈690）。没有 ScrollView 时整个 VStack 放不下，SwiftUI 会把
+        // 64pt 头栏压扁 —— 徽章/标题贴到窗口顶边（渲染回归 SidebarShortHeight
+        // 钉的就是它）。套上之后矮窗时**导航列表自己滚**，头部与老师角落完好。
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 4) {
             // 页面条目由 `AppSection.allCases` 生成：顺序、图标、文案、高亮判断、快捷键编号
             // 全来自同一处。旧写法是这里手写 7 段 navItem，高亮还要靠 7 个布尔量反推 ——
             // 结果是「学习记录 + 情景对话」会同时亮（`openScenarios()` 漏清了一个标记）。
@@ -157,10 +171,22 @@ public struct AppSidebar: View {
                 state.showingSettings = true
             }
 
+            // 全局搜索（#414）：同样是浮层。放在设置下面 —— 它是「找东西」的入口，
+            // 不占 `AppSection`（找不到它该属于哪一页，它恰恰是为了不用先选页）。
+            navItem(
+                icon: "magnifyingglass",
+                title: "搜索",
+                isActive: state.showingGlobalSearch,
+                shortcutDigit: nil
+            ) {
+                state.openGlobalSearch()
+            }
+
             Divider().overlay(theme.divider)
-                .padding(.vertical, 6)
+                .appPadding(.vertical, 6)
+            }
         }
-        .padding(.top, 10)
+        .appPadding(.top, 10)
         // 高亮条的滑动动画挂在这里（而不是各条目上）：activeSection / showingSettings
         // 变化的同一次更新里，旧条目的高亮移除、新条目的高亮插入，matched geometry
         // 才有「两边都在场」的一帧可比。reduceMotion 下 motion.animation 自动退化。
@@ -189,7 +215,11 @@ public struct AppSidebar: View {
 
             Divider().overlay(theme.divider)
 
-            collapseButton
+            // ⚠️ 窗口强制收起（#417）时藏起收拉按钮：点了也只会改偏好、
+            // 窗口宽度说了算，按钮看着能动实际没用 —— 这种「假开关」比没有更糟。
+            if widthAllowsExpansion {
+                collapseButton
+            }
         }
         .background(
             GeometryReader { proxy in
@@ -300,18 +330,18 @@ public struct AppSidebar: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: icon)
-                    .font(.system(size: 15))
+                    .appFont(15)
                     .foregroundStyle(isActive ? theme.accent : (isEnabled ? theme.primaryText : theme.secondaryText))
                     .frame(width: 22, height: 22)
 
                 if isExpanded {
                     Text(title)
-                        .font(.system(size: 13, weight: isActive ? .semibold : .regular, design: .rounded))
+                        .appFont(13, weight: isActive ? .semibold : .regular, design: .rounded)
                         .foregroundStyle(isEnabled ? theme.primaryText : theme.secondaryText)
                     Spacer(minLength: 0)
                     if !isEnabled {
                         Text("soon")
-                            .font(.system(size: 9, design: .rounded))
+                            .appFont(9, design: .rounded)
                             .foregroundStyle(theme.secondaryText.opacity(0.8))
                     }
                 }
@@ -371,10 +401,10 @@ public struct AppSidebar: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: isExpanded ? "chevron.left" : "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .appFont(12, weight: .semibold)
                 if isExpanded {
                     Text("收起")
-                        .font(.system(size: 12, design: .rounded))
+                        .appFont(12, design: .rounded)
                 }
             }
             .foregroundStyle(theme.secondaryText)

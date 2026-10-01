@@ -34,7 +34,7 @@ struct CurriculumLadderCard: View {
                 emptyHint
             } else {
                 Text(subtitle)
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 VStack(spacing: 8) {
@@ -60,15 +60,15 @@ struct CurriculumLadderCard: View {
     private var header: some View {
         HStack(spacing: 6) {
             Image(systemName: "stairs")
-                .font(.system(size: 12))
+                .appFont(12)
                 .foregroundStyle(theme.accent)
             Text("课程阶梯")
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .appFont(13, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             Spacer(minLength: 8)
             if !stages.isEmpty {
                 Text("整体 \(Int((overallProgress * 100).rounded()))%")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .monospacedDigit()
             }
@@ -77,7 +77,7 @@ struct CurriculumLadderCard: View {
 
     private var emptyHint: some View {
         Text("还没有可显示的分级 —— 情景素材里必须写清 `level`（如 `B1`）才会出现在阶梯上。")
-            .font(.system(size: 11, design: .rounded))
+            .appFont(11, design: .rounded)
             .foregroundStyle(theme.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -124,17 +124,17 @@ struct CurriculumLadderCard: View {
                 HStack(spacing: 8) {
                     levelChip(stage.level, tint: tint, filled: unlocked)
                     Text(stage.level.displayName)
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                         .foregroundStyle(unlocked ? theme.primaryText : theme.secondaryText)
                     Spacer(minLength: 6)
                     Text(starsText(stage))
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .appFont(10, weight: .semibold, design: .rounded)
                         .foregroundStyle(tint)
                         .monospacedDigit()
                 }
 
                 Text(stage.level.canDo)
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)
@@ -152,25 +152,25 @@ struct CurriculumLadderCard: View {
 
                 HStack(spacing: 6) {
                     Text(scenarioListText(stage))
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Spacer(minLength: 4)
                     if completed {
                         Label("已练完", systemImage: "checkmark.seal.fill")
-                            .font(.system(size: 9, weight: .semibold, design: .rounded))
+                            .appFont(9, weight: .semibold, design: .rounded)
                             .foregroundStyle(doneGreen)
                             .labelStyle(.titleAndIcon)
                     } else if !unlocked {
                         Label("未解锁", systemImage: "lock.fill")
-                            .font(.system(size: 9, weight: .semibold, design: .rounded))
+                            .appFont(9, weight: .semibold, design: .rounded)
                             .foregroundStyle(lockedTint)
                             .labelStyle(.titleAndIcon)
                     }
                 }
             }
-            .padding(10)
+            .appPadding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -185,7 +185,7 @@ struct CurriculumLadderCard: View {
 
     private func levelChip(_ level: CEFRLevel, tint: Color, filled: Bool) -> some View {
         Text(level.code)
-            .font(.system(size: 10, weight: .bold, design: .rounded))
+            .appFont(10, weight: .bold, design: .rounded)
             .foregroundStyle(filled ? .white : theme.secondaryText)
             .padding(.horizontal, 7)
             .frame(height: 17)

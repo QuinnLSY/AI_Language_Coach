@@ -163,7 +163,7 @@ final class ExternalModelEntryTests: XCTestCase {
 
     private func jsonRoot() throws -> [String: Any] {
         let url = try XCTUnwrap(
-            AppResourceBundle.module.url(forResource: "Config/default-config", withExtension: "json")
+            AppResourceBundle.url(forResource: "Config/default-config", withExtension: "json")
         )
         return try XCTUnwrap(
             try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]

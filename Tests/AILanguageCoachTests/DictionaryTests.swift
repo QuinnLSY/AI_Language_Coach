@@ -197,8 +197,8 @@ final class DictionaryTests: XCTestCase {
     /// 表现是「固定搭配怎么老是空的」——查起来极其费劲。
     func testPromptKeysAreAllUnderstoodByTheParser() throws {
         let url = try XCTUnwrap(
-            AppResourceBundle.module.url(forResource: "Prompts/dictionary_lookup", withExtension: "txt")
-                ?? AppResourceBundle.module.url(forResource: "dictionary_lookup", withExtension: "txt"),
+            AppResourceBundle.url(forResource: "Prompts/dictionary_lookup", withExtension: "txt")
+                ?? AppResourceBundle.url(forResource: "dictionary_lookup", withExtension: "txt"),
             "查词提示词模板必须随包发布"
         )
         let template = try String(contentsOf: url, encoding: .utf8)

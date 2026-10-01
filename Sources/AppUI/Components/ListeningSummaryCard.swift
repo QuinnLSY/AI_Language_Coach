@@ -35,12 +35,12 @@ public struct ListeningSummaryCard: View {
                 if !summary.missedWords.isEmpty { missedWords }
             }
             Text(summary.verdict)
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
             actions
         }
-        .padding(18)
+        .appPadding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -53,14 +53,14 @@ public struct ListeningSummaryCard: View {
     private var header: some View {
         HStack(spacing: 6) {
             Image(systemName: summary.isFirstPassPerfect ? "checkmark.seal.fill" : "ear.badge.waveform")
-                .font(.system(size: 12))
+                .appFont(12)
                 .foregroundStyle(summary.isFirstPassPerfect ? theme.success : theme.accent)
             Text("这一轮听完了")
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .appFont(14, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             Spacer(minLength: 0)
             Text(summary.headline)
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .monospacedDigit()
         }
@@ -114,11 +114,11 @@ public struct ListeningSummaryCard: View {
     private func metric(_ value: String, _ label: String, _ color: Color) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value)
-                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .appFont(22, weight: .bold, design: .rounded)
                 .foregroundStyle(color)
                 .monospacedDigit()
             Text(label)
-                .font(.system(size: 10, design: .rounded))
+                .appFont(10, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
         }
     }
@@ -127,21 +127,21 @@ public struct ListeningSummaryCard: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: "ear.trianglebadge.exclamationmark")
-                    .font(.system(size: 10))
+                    .appFont(10)
                     .foregroundStyle(theme.warning)
                 Text(missedWordsTitle)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text("这些词是耳朵真正卡住的地方")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 Spacer(minLength: 8)
                 Button(action: onCollectWords) {
                     Text("收进词汇本")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .appFont(11, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.accentCool)
                         .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
+                        .appPadding(.vertical, 5)
                         .background(
                             Capsule(style: .continuous)
                                 .strokeBorder(theme.accentCool.opacity(0.5), lineWidth: 1)
@@ -153,10 +153,10 @@ public struct ListeningSummaryCard: View {
             FlowRow(spacing: 6, lineSpacing: 6) {
                 ForEach(Array(summary.missedWords.prefix(24).enumerated()), id: \.offset) { _, word in
                     Text(word)
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .appFont(12, weight: .medium, design: .rounded)
                         .foregroundStyle(theme.warning)
                         .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .appPadding(.vertical, 4)
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .fill(theme.warning.opacity(0.16))
@@ -164,7 +164,7 @@ public struct ListeningSummaryCard: View {
                 }
             }
         }
-        .padding(10)
+        .appPadding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -177,9 +177,9 @@ public struct ListeningSummaryCard: View {
             Button(action: onRestart) {
                 HStack(spacing: 5) {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 10, weight: .semibold))
+                        .appFont(10, weight: .semibold)
                     Text("再练一轮")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                 }
                 .foregroundStyle(theme.accent)
                 .padding(.horizontal, 14)
@@ -197,7 +197,7 @@ public struct ListeningSummaryCard: View {
                 // ⚠️ #308 起听力是**独立一页**，点它不再回到跟读页，只是结束这一轮；
                 // 文案写着「回到跟读」会把用户指向一个不会发生的事。
                 Text("先不练了")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .padding(.horizontal, 14)
                     .frame(height: 30)

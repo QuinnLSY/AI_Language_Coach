@@ -250,11 +250,11 @@ public struct AnnualRecapCard: View {
             Image(systemName: "calendar")
                 .foregroundStyle(theme.accent)
             Text("年度学习记录")
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .appFont(14, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             Spacer(minLength: 8)
             Text(recap.headline)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .appFont(11, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.accent)
                 .monospacedDigit()
         }
@@ -399,7 +399,7 @@ public struct AnnualRecapCard: View {
         HStack(alignment: .center, spacing: 10) {
             HStack(spacing: 4) {
                 Text("少")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 ForEach(PracticeIntensity.allCases) { intensity in
                     RoundedRectangle(cornerRadius: 2, style: .continuous)
@@ -408,7 +408,7 @@ public struct AnnualRecapCard: View {
                         .help(intensity.displayName)
                 }
                 Text("多")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
 
@@ -417,7 +417,7 @@ public struct AnnualRecapCard: View {
             // #5 起当日明细改在悬停浮卡里逐条展示（一行式会被截断）；
             // footer 恒定说这一年，不再跟着焦点切换。
             Text(recap.summaryText)
-                .font(.system(size: 10, design: .rounded))
+                .appFont(10, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .monospacedDigit()
                 .lineLimit(1)
@@ -427,7 +427,7 @@ public struct AnnualRecapCard: View {
 
     private var footnote: some View {
         Text("深浅按那天的「每日目标」与「今日任务」两件事分四档：开过口 / 达标 / 全清。复习一项按当天有复习流水记（历史每天的到期词数还原不出来）。")
-            .font(.system(size: 9, design: .rounded))
+            .appFont(9, design: .rounded)
             .foregroundStyle(theme.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
     }

@@ -35,7 +35,7 @@ struct ProgressBarChart: View {
                     VStack(spacing: 3) {
                         if showsValueOnTop, point.value > 0 {
                             Text(String(Int(point.value.rounded())))
-                                .font(.system(size: 8, weight: .semibold, design: .rounded))
+                                .appFont(8, weight: .semibold, design: .rounded)
                                 .foregroundStyle(theme.secondaryText)
                                 .monospacedDigit()
                         }
@@ -45,7 +45,7 @@ struct ProgressBarChart: View {
                             .frame(maxWidth: .infinity)
                             .help(point.detail.isEmpty ? point.label : point.detail)
                         Text(axisLabel(point))
-                            .font(.system(size: 8, design: .rounded))
+                            .appFont(8, design: .rounded)
                             .foregroundStyle(theme.secondaryText.opacity(0.9))
                             .lineLimit(1)
                             .fixedSize()
@@ -156,7 +156,7 @@ struct ProgressLineChart: View {
                     Text(last.label)
                 }
             }
-            .font(.system(size: 9, design: .rounded))
+            .appFont(9, design: .rounded)
             .foregroundStyle(theme.secondaryText)
             .monospacedDigit()
         }
@@ -220,15 +220,15 @@ struct SkillBar: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Image(systemName: skill.kind.systemImage)
-                    .font(.system(size: 10))
+                    .appFont(10)
                     .foregroundStyle(tint)
                     .frame(width: 14)
                 Text(skill.kind.displayName)
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .appFont(11, weight: .medium, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Spacer(minLength: 4)
                 Text(skill.hasData ? "\(skill.percent)" : "—")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(skill.hasData ? tint : theme.secondaryText)
                     .monospacedDigit()
             }
@@ -245,7 +245,7 @@ struct SkillBar: View {
             .frame(height: 6)
 
             Text(skill.detail)
-                .font(.system(size: 9, design: .rounded))
+                .appFont(9, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .lineLimit(2)
         }

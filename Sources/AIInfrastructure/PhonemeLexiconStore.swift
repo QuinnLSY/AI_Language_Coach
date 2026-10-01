@@ -50,12 +50,12 @@ public enum PhonemeLexiconStore {
 
     private static func load() -> PhonemeLexicon {
         // SwiftPM 把 `Resources` 整目录复制进资源 bundle，故词库在 `Pronunciation/` 子目录下。
-        if let directory = AppResourceBundle.module.url(forResource: "Pronunciation", withExtension: nil) {
+        if let directory = AppResourceBundle.url(forResource: "Pronunciation", withExtension: nil) {
             let url = directory.appendingPathComponent("lexicon.json")
             if FileManager.default.fileExists(atPath: url.path) { return load(from: url) }
         }
         // 兜底：直接在资源 bundle 里按名字找（不同打包方式对目录资源的处理略有差异）。
-        if let url = AppResourceBundle.module.url(forResource: "lexicon", withExtension: "json") {
+        if let url = AppResourceBundle.url(forResource: "lexicon", withExtension: "json") {
             return load(from: url)
         }
         AppLog.warning(

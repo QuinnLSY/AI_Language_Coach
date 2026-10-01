@@ -20,7 +20,7 @@ struct ScenarioComposerSheet: View {
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 14) {
                     Text("用一句话说说你想练什么。老师会把它变成一个能直接开练的情景：一句开场白、几句你要说的话（练完逐句核对说没说到）、一批这个场景该用上的词（自动收进词汇本）。")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
 
@@ -32,7 +32,7 @@ struct ScenarioComposerSheet: View {
                         resultBanner(notice)
                     }
                 }
-                .padding(20)
+                .appPadding(20)
             }
         }
     }
@@ -42,7 +42,7 @@ struct ScenarioComposerSheet: View {
     private var header: some View {
         HStack(spacing: 12) {
             Image(systemName: "sparkles")
-                .font(.system(size: 18))
+                .appFont(18)
                 .foregroundStyle(theme.accent)
                 .frame(width: 38, height: 38)
                 .background(
@@ -52,10 +52,10 @@ struct ScenarioComposerSheet: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("描述场景")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .appFont(16, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text("一句话 → 一个能开练的情景")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
 
@@ -63,7 +63,7 @@ struct ScenarioComposerSheet: View {
 
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
+                    .appFont(11, weight: .semibold)
                     .foregroundStyle(theme.secondaryText)
                     .frame(width: 28, height: 28)
                     .background(Circle().fill(theme.hover))
@@ -83,11 +83,11 @@ struct ScenarioComposerSheet: View {
                 get: { state.scenarioPromptText },
                 set: { state.scenarioPromptText = $0 }
             ))
-            .font(.system(size: 12, design: .rounded))
+            .appFont(12, design: .rounded)
             .scrollContentBackground(.hidden)
             .foregroundStyle(theme.primaryText)
             .frame(height: 104)
-            .padding(8)
+            .appPadding(8)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(theme.surfaceAlt.opacity(0.6))
@@ -100,10 +100,10 @@ struct ScenarioComposerSheet: View {
 
             if state.scenarioPromptText.isEmpty {
                 Text("比如：在咖啡店点一杯拿铁，想换成燕麦奶")
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .foregroundStyle(theme.secondaryText.opacity(0.6))
                     .padding(.horizontal, 16)
-                    .padding(.top, 16)
+                    .appPadding(.top, 16)
                     .allowsHitTesting(false)
             }
         }
@@ -113,7 +113,7 @@ struct ScenarioComposerSheet: View {
     private var examples: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("试试这些")
-                .font(.system(size: 10, design: .rounded))
+                .appFont(10, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
             FlowRow(spacing: 6, lineSpacing: 6, wrapsLongItems: true) {
                 ForEach(ScenarioDraftRule.examples, id: \.self) { example in
@@ -121,10 +121,10 @@ struct ScenarioComposerSheet: View {
                         state.scenarioPromptText = example
                     } label: {
                         Text(example)
-                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .appFont(11, weight: .medium, design: .rounded)
                             .foregroundStyle(theme.accent)
                             .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
+                            .appPadding(.vertical, 3)
                             .background(Capsule().fill(theme.accent.opacity(0.10)))
                             .contentShape(Capsule())
                     }
@@ -141,7 +141,7 @@ struct ScenarioComposerSheet: View {
 
             if let issue = ScenarioDraftRule.inputIssue(for: state.scenarioPromptText) {
                 Text(issueText(issue))
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
 
@@ -153,14 +153,14 @@ struct ScenarioComposerSheet: View {
                         ProgressView()
                             .controlSize(.small)
                     } else {
-                        Image(systemName: "wand.and.stars").font(.system(size: 10, weight: .bold))
+                        Image(systemName: "wand.and.stars").appFont(10, weight: .bold)
                     }
                     Text(state.isGeneratingScenario ? "生成中…" : "生成情景")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                 }
                 .foregroundStyle(theme.onAccentFill)
                 .padding(.horizontal, 16)
-                .padding(.vertical, 7)
+                .appPadding(.vertical, 7)
                 .background(Capsule().fill(theme.accentFill))
                 .contentShape(Capsule())
             }
@@ -177,10 +177,10 @@ struct ScenarioComposerSheet: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: state.lastGeneratedScenarioDraft != nil
                 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .font(.system(size: 12))
+                .appFont(12)
                 .foregroundStyle(state.lastGeneratedScenarioDraft != nil ? theme.accent : theme.warning)
             Text(notice)
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -188,13 +188,13 @@ struct ScenarioComposerSheet: View {
                 state.dismissScenarioResult()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
+                    .appFont(9, weight: .semibold)
                     .foregroundStyle(theme.secondaryText)
             }
             .buttonStyle(.appPressable)
             .accessibilityLabel("关闭提示")
         }
-        .padding(12)
+        .appPadding(12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(theme.surfaceAlt.opacity(0.6))

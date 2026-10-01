@@ -83,7 +83,8 @@ final class ListeningLookupWiringTests: XCTestCase {
         let view = try source("Sources/AppUI/Views/MainView.swift")
         let lines = view.components(separatedBy: .newlines)
         let index = try XCTUnwrap(
-            lines.firstIndex { $0.contains("AppSidebar(state: state)") },
+            // #417 起挂载点带 `widthAllowsExpansion:` 参数 → 前缀匹配，别钉死旧签名。
+            lines.firstIndex { $0.contains("AppSidebar(state: state") },
             "MainView 里找不到 AppSidebar 的挂载点"
         )
         let mount = lines[index..<min(index + 8, lines.count)].joined(separator: "\n")

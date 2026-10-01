@@ -62,6 +62,8 @@ public struct SettingsView: View {
     @State private var showVocabularyResetConfirm = false
     /// 重置闯关进度（全新起点）的二次确认。
     @State private var showQuestResetConfirm = false
+    /// 使用说明（#413）。
+    @State private var showingHelp = false
     /// 配置里的 LLM Provider 标签（本地 / 云端）。
     @State private var providerOptions: [(id: String, name: String, isRemote: Bool)] = []
     /// 「外部模型」面板（统一接入入口）：
@@ -84,6 +86,8 @@ public struct SettingsView: View {
             Divider().overlay(theme.divider)
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    helpCenterCard
+                    displayCard
                     themeCard
                     motionCard
                     soundCard
@@ -93,16 +97,18 @@ public struct SettingsView: View {
                     voiceModelCenterCard
                     learningCard
                     practiceReminderCard
+                    dailyGoalCard
                     vocabularyCard
                     scenarioCard
                     privacyCard
                     cacheCard
                     runtimeCard
+                    localSpeedCard
                     shortcutCenterCard
                     advancedCard
                     logsCard
                 }
-                .padding(20)
+                .appPadding(20)
                 .frame(maxWidth: 620, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .center)
             }
@@ -125,7 +131,8 @@ public struct SettingsView: View {
             // 「运行环境」卡的体检区（#275 接通）：打开设置页时刷一次；此后
             // 「重新载入配置」按钮会自带重刷（见 reloadConfigurationFromDisk）。
             await state.refreshRegistryCheck()
-            await state.refreshRegistryCheck()
+            await state.refreshSemanticMemory()
+            await state.refreshMemoryPressure()
             await state.loadVocabularyBankIfNeeded()
         }
         // 外部模型统一面板：一份面板服务所有能力，卡片上因此只有一个按钮。
@@ -178,10 +185,10 @@ public struct SettingsView: View {
     private var headerBar: some View {
         HStack(spacing: 12) {
             Image(systemName: "gearshape.fill")
-                .font(.system(size: 15))
+                .appFont(15)
                 .foregroundStyle(theme.accent)
             Text("设置")
-                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .appFont(16, weight: .bold, design: .rounded)
                 .foregroundStyle(theme.primaryText)
 
             Spacer()
@@ -190,7 +197,7 @@ public struct SettingsView: View {
                 state.showingSettings = false
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .bold))
+                    .appFont(12, weight: .bold)
                     .foregroundStyle(theme.secondaryText)
                     .frame(width: 30, height: 30)
                     .background(Circle().fill(theme.surfaceAlt))
@@ -200,10 +207,99 @@ public struct SettingsView: View {
             .help("关闭设置 (Esc)")
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 14)
+        .appPadding(.vertical, 14)
     }
 
     // MARK: - 森林时刻（日夜切换在此，不再单独拎出）
+
+    /// 使用说明（#413）。
+    ///
+    /// 此前全应用只有悬浮提示（`help(...)`）：想知道「这个功能到底怎么用」时
+    /// 没有任何地方可查 —— 悬浮提示只在鼠标恰好停在那儿的一刻才存在。
+    private var helpCenterCard: some View {
+        card(title: "使用说明", systemImage: "questionmark.circle.fill") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("第一次用、或者忘了某个功能怎么用，点开按节查（支持搜索）。")
+                    .appFont(12, design: .rounded)
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    showingHelp = true
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "book.fill").appFont(11)
+                        Text("打开使用说明")
+                            .appFont(12, weight: .semibold, design: .rounded)
+                    }
+                    .foregroundStyle(theme.primaryText)
+                    .padding(.horizontal, 14)
+                    .frame(height: 30)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(theme.surface)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .strokeBorder(theme.divider, lineWidth: 1)
+                            )
+                    )
+                }
+                .buttonStyle(.appPressable)
+            }
+        }
+        .sheet(isPresented: $showingHelp) {
+            HelpCenterView { showingHelp = false }
+        }
+    }
+
+    /// 显示卡（#416）：字号档 + 界面密度档。
+    ///
+    /// 档位只改「倍率」，实际字号/留白由 `AppTypography` 在全树统一换算 ——
+    /// 所以这里切档即全应用生效，不需要各页面各自监听。
+    private var displayCard: some View {
+        card(title: "显示", systemImage: "textformat.size") {
+            VStack(alignment: .leading, spacing: 10) {
+                Picker("字号", selection: Binding(
+                    get: { state.typeSize },
+                    set: { mode in Task { await state.setTypeSize(mode) } }
+                )) {
+                    ForEach(FontSizeMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+
+                Picker("界面密度", selection: Binding(
+                    get: { state.interfaceDensity },
+                    set: { mode in Task { await state.setInterfaceDensity(mode) } }
+                )) {
+                    ForEach(DensityMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+
+                Text(displayHint)
+                    .appFont(12, design: .rounded)
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// 档位说明（抽成纯属性便于钉住措辞）：写清「密度只松紧纵向」这个刻意取舍，
+    /// 免得用户横向没变以为开关是坏的。
+    private var displayHint: String {
+        switch (state.typeSize, state.interfaceDensity) {
+        case (.regular, .regular):
+            return "标准档就是设计基准。字号整体放大缩小，密度只松紧上下留白（横向不变，避免文字被裁）。"
+        case let (t, d):
+            let size = t == .regular ? "字号保持标准" : "字号\(t.displayName)一档"
+            let density = d == .regular ? "留白保持标准" : "上下留白更\(d == .compact ? "紧凑" : "宽松")"
+            return "\(size)，\(density)。只影响界面排版，不改动任何内容。"
+        }
+    }
 
     private var themeCard: some View {
         card(title: "森林时刻", systemImage: theme.isNight ? "moon.stars.fill" : "sun.max.fill") {
@@ -220,7 +316,7 @@ public struct SettingsView: View {
                 .labelsHidden()
 
                 Text(theme.isNight ? "夜晚的森林很安静，星星陪着小动物们睡觉，也陪你练习。" : "阳光正好，小动物们都醒着，一起爬树学英语吧！")
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
 
                 Divider().overlay(theme.divider)
@@ -233,9 +329,9 @@ public struct SettingsView: View {
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("跟随时间")
-                            .font(.system(size: 13, design: .rounded))
+                            .appFont(13, design: .rounded)
                         Text(followClockHint)
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                     }
                 }
@@ -248,9 +344,24 @@ public struct SettingsView: View {
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("跟随季节")
-                            .font(.system(size: 13, design: .rounded))
+                            .appFont(13, design: .rounded)
                         Text(followSeasonHint)
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                }
+                .toggleStyle(.switch)
+
+                // 跟随天气（#418-A）：按日期定晴 / 多云 / 雨（同一天不会变卦）。
+                Toggle(isOn: Binding(
+                    get: { state.forestFollowsWeather },
+                    set: { on in Task { await state.setForestFollowsWeather(on) } }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("跟随天气")
+                            .appFont(13, design: .rounded)
+                        Text(followWeatherHint)
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                     }
                 }
@@ -273,6 +384,13 @@ public struct SettingsView: View {
         return "林子正处在\(season)季，叶色与落花会跟着月份走。"
     }
 
+    /// 「跟随天气」的说明（#418-A）。
+    private var followWeatherHint: String {
+        if !state.forestFollowsWeather { return "关着时，天上永远是老样子。" }
+        let weather = ForestAtmosphere.weather(dayOfYear: state.clockDayOfYear).displayName
+        return "今天是\(weather)，云量和雨丝会跟着日子走（一天之内不变卦）。"
+    }
+
     // MARK: - 动画效果（应用内动效开关，三态）
 
     private var motionCard: some View {
@@ -290,7 +408,7 @@ public struct SettingsView: View {
                 .labelsHidden()
 
                 Text(motionHint)
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }
@@ -319,9 +437,9 @@ public struct SettingsView: View {
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("开启轻音效")
-                            .font(.system(size: 13, design: .rounded))
+                            .appFont(13, design: .rounded)
                         Text("收进生词一声「叮」、通关一段小旋律、点小动物一声叫。默认关着，想要热闹再打开。")
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                     }
                 }
@@ -343,9 +461,9 @@ public struct SettingsView: View {
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: role.icon)
-                                    .font(.system(size: 12))
+                                    .appFont(12)
                                 Text(role.title)
-                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                    .appFont(13, weight: .semibold, design: .rounded)
                             }
                             .foregroundStyle(partnerRole == role ? theme.onAccentFill : theme.primaryText)
                             .padding(.horizontal, 14)
@@ -363,10 +481,10 @@ public struct SettingsView: View {
                 // 当前角色说明
                 HStack(spacing: 8) {
                     Image(systemName: partnerRole.icon)
-                        .font(.system(size: 11))
+                        .appFont(11)
                         .foregroundStyle(theme.accent)
                     Text(partnerRole.caption)
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
 
@@ -376,14 +494,14 @@ public struct SettingsView: View {
                         partnerCell(kind)
                     }
                 }
-                .padding(.top, 2)
+                .appPadding(.top, 2)
 
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 11))
+                        .appFont(11)
                         .foregroundStyle(theme.accent)
                     Text("老师持教棍，小学员戴红领巾，小伙伴跟着一起换。点选即可分别更换三个形象。")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
             }
@@ -419,12 +537,12 @@ public struct SettingsView: View {
             VStack(spacing: 4) {
                 CuteAnimalView(kind: kind, isSleeping: theme.isNight, size: 58, accessory: accessory)
                 Text(kind.displayName)
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(isSelected ? theme.accent : theme.secondaryText)
                     .fontWeight(isSelected ? .semibold : .regular)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+            .appPadding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(isSelected ? theme.selection.opacity(0.7) : theme.surfaceAlt.opacity(0.5))
@@ -436,9 +554,9 @@ public struct SettingsView: View {
             .overlay(alignment: .topTrailing) {
                 if isSelected {
                     Image(systemName: partnerRole.icon)
-                        .font(.system(size: 9, weight: .bold))
+                        .appFont(9, weight: .bold)
                         .foregroundStyle(theme.onAccentFill)
-                        .padding(4)
+                        .appPadding(4)
                         .background(Circle().fill(theme.accentFill))
                         .offset(x: 4, y: -4)
                 }
@@ -457,13 +575,13 @@ public struct SettingsView: View {
                     get: { state.teacherBubblesEnabled },
                     set: { enabled in Task { await state.setTeacherBubbles(enabled) } }
                 ))
-                .font(.system(size: 13, design: .rounded))
+                .appFont(13, design: .rounded)
 
                 Toggle("小动物气泡（点击/自发冒泡）", isOn: Binding(
                     get: { state.animalBubblesEnabled },
                     set: { enabled in Task { await state.setAnimalBubbles(enabled) } }
                 ))
-                .font(.system(size: 13, design: .rounded))
+                .appFont(13, design: .rounded)
 
                 Toggle("小动物自由活动", isOn: Binding(
                     // 夜晚：显示为未勾选且不可点击（白天的小动物都睡了），
@@ -471,14 +589,14 @@ public struct SettingsView: View {
                     get: { AppState.animalActivityToggleValue(enabled: state.animalActivityEnabled, isNight: theme.isNight) },
                     set: { enabled in Task { await state.setAnimalActivity(enabled) } }
                 ))
-                .font(.system(size: 13, design: .rounded))
+                .appFont(13, design: .rounded)
                 .disabled(theme.isNight)
                 .help(theme.isNight ? "夜晚小动物们都在睡觉，白天才能开启活动" : "开启后小动物会在林间自由活动")
 
                 // 活动频率滑条：关闭活动（或夜晚）时置灰不可拖
                 HStack(spacing: 10) {
                     Text("移动频率")
-                        .font(.system(size: 13, design: .rounded))
+                        .appFont(13, design: .rounded)
                         .foregroundStyle(activityControlsActive ? theme.primaryText : theme.secondaryText)
                     Slider(
                         value: Binding(
@@ -489,7 +607,7 @@ public struct SettingsView: View {
                     )
                     .disabled(!activityControlsActive)
                     Text(activityControlsActive ? frequencyLabel : "—")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .frame(width: 52, alignment: .trailing)
                         .monospacedDigit()
@@ -500,7 +618,7 @@ public struct SettingsView: View {
                 Text(theme.isNight
                      ? "现在是夜晚，小动物们都在睡觉，活动开关已暂时锁定；切回白天即可重新调整。"
                      : "关闭活动时，小动物们会回到初始位置排排站好（成长之树右下角有同步的表情开关）。夜晚它们会自动安静下来。小动物们还会不定时告别离开、换新邻居进场。以上开关全局记忆，下次打开应用自动延续。")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }
@@ -559,7 +677,7 @@ public struct SettingsView: View {
 
                 if providerOptions.isEmpty {
                     Text("配置文件里没有 LLM Provider。")
-                        .font(.system(size: 12, design: .rounded))
+                        .appFont(12, design: .rounded)
                         .foregroundStyle(theme.warning)
                 } else if llmUsesExternal {
                     remoteProviderSection
@@ -569,13 +687,13 @@ public struct SettingsView: View {
 
                 if let message = state.remoteMessage {
                     Text(message)
-                        .font(.system(size: 12, design: .rounded))
+                        .appFont(12, design: .rounded)
                         .foregroundStyle(message.contains("成功") || message.contains("已启用") ? .green : theme.warning)
                 }
 
                 if state.activeProvider?.id == state.selectedProviderID, let bootMessage = state.bootMessage {
                     Text(bootMessage)
-                        .font(.system(size: 12, design: .rounded))
+                        .appFont(12, design: .rounded)
                         .foregroundStyle(theme.warning)
                 }
             }
@@ -608,8 +726,8 @@ public struct SettingsView: View {
     ) -> some View {
         Button(action: action) {
             HStack(spacing: 5) {
-                Image(systemName: systemImage).font(.system(size: 10))
-                Text(title).font(.system(size: 13, weight: .semibold, design: .rounded))
+                Image(systemName: systemImage).appFont(10)
+                Text(title).appFont(13, weight: .semibold, design: .rounded)
             }
             .foregroundStyle(selected ? theme.onAccentFill : theme.primaryText)
             .padding(.horizontal, 13)
@@ -632,7 +750,7 @@ public struct SettingsView: View {
                 .fill(state.health.isUsable ? Color.green : theme.warning)
                 .frame(width: 8, height: 8)
             Text(state.llmProviderStatusLine)
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
                 .lineLimit(2)
@@ -693,10 +811,10 @@ public struct SettingsView: View {
                         .tint(tint)
                 } else {
                     Image(systemName: ModelRunControl.systemImage(running: running, healthOK: healthOK))
-                        .font(.system(size: 10, weight: .semibold))
+                        .appFont(10, weight: .semibold)
                 }
                 Text(ModelRunControl.title(running: running, healthOK: healthOK))
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
             }
             .foregroundStyle(tint)
             .padding(.horizontal, 8)
@@ -754,7 +872,7 @@ public struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             if state.availableModels.isEmpty {
                 Text("没有检测到本地模型。请确认本地模型服务已启动后点击刷新。")
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .foregroundStyle(theme.warning)
             } else {
                 ForestSelect(
@@ -772,7 +890,7 @@ public struct SettingsView: View {
             HStack(spacing: 8) {
                 TextField("或手动填写模型名", text: $state.modelDraft)
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 13, design: .rounded))
+                    .appFont(13, design: .rounded)
                 Button("应用") {
                     Task { await state.applyModel(state.modelDraft) }
                 }
@@ -783,11 +901,11 @@ public struct SettingsView: View {
                 Button("启用本地模型") {
                     Task { await state.activateProvider(state.selectedProviderID) }
                 }
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .appFont(13, weight: .semibold, design: .rounded)
             }
 
             Text("模型完全在本地运行，不上传任何对话内容。")
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
         }
     }
@@ -805,12 +923,12 @@ public struct SettingsView: View {
                     Text(isRemoteActive
                          ? "当前接入：\(active?.userFacingName ?? "外部供应商")"
                          : "还没有接入外部模型")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     Text(isRemoteActive
                          ? "模型：\(state.modelDraft.isEmpty ? "未选择" : state.modelDraft)\(state.activeReasoningEffort.map { " · 推理强度\(reasoningText($0))" } ?? "")"
                          : "点右边的按钮选一家厂商、填入该厂商的 API Key 即可接入。")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -819,9 +937,9 @@ public struct SettingsView: View {
                     externalSheetKind = .llm
                 } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: "cloud.badge.plus").font(.system(size: 11))
+                        Image(systemName: "cloud.badge.plus").appFont(11)
                         Text(isRemoteActive ? "更换外部模型" : "配置外部模型")
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .appFont(12, weight: .semibold, design: .rounded)
                     }
                     .foregroundStyle(theme.accent)
                     .padding(.horizontal, 12)
@@ -840,7 +958,7 @@ public struct SettingsView: View {
             }
 
             Text("对话内容会发送到你选定的服务商云端处理。支持任何 OpenAI 兼容协议的供应商，内置 OpenAI、AgnesAI、DeepSeek、OpenRouter 等。")
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -866,14 +984,14 @@ public struct SettingsView: View {
                 if let notice = state.modelHealNotice {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 11))
+                            .appFont(11)
                             .foregroundStyle(theme.warning)
                         Text(notice)
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.primaryText)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(8)
+                    .appPadding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(theme.warning.opacity(0.12)))
                 }
@@ -906,66 +1024,66 @@ public struct SettingsView: View {
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: summary.blockedTotal > 0 ? "exclamationmark.shield.fill" : "checkmark.shield.fill")
-                    .font(.system(size: 12))
+                    .appFont(12)
                     .foregroundStyle(summary.blockedTotal > 0 ? theme.warning : Color.green)
                 Text("对外调用记录")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Spacer()
                 Button("刷新") { Task { await state.refreshRemoteCalls() } }
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .buttonStyle(.appPressable)
                     .foregroundStyle(theme.accent)
                 Button("清空") { Task { await state.clearRemoteCalls() } }
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .buttonStyle(.appPressable)
                     .foregroundStyle(theme.secondaryText)
             }
 
             Text(summary.headline)
-                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .appFont(11, weight: .medium, design: .rounded)
                 .foregroundStyle(theme.primaryText)
 
             Text("本次运行涉及模型：\(summary.models.isEmpty ? "无" : summary.models.joined(separator: "、"))")
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
             if let warning = summary.fanOutWarning {
                 Text(warning)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             if state.remoteCallRecords.isEmpty {
                 Text("暂无记录。应用每次调用云端模型都会记在这里（只记能力 / 模型 / 结果，不记内容）。")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             } else {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(state.remoteCallRecords) { record in
                         HStack(spacing: 8) {
                             Text(Self.auditTimeFormatter.string(from: record.at))
-                                .font(.system(size: 10, design: .monospaced))
+                                .appFont(10, design: .monospaced)
                                 .foregroundStyle(theme.secondaryText)
                             Text(record.operation.displayName)
-                                .font(.system(size: 10, design: .rounded))
+                                .appFont(10, design: .rounded)
                                 .foregroundStyle(theme.secondaryText)
                             // 端点写出来：用户拿着这条记录就能与服务商账单里的计费项逐条对上
                             // （`/v1/audio/speech` 是语音合成、`/v1/chat/completions` 是语言模型）。
                             Text(record.endpoint)
-                                .font(.system(size: 10, design: .monospaced))
+                                .appFont(10, design: .monospaced)
                                 .foregroundStyle(theme.secondaryText)
                                 .lineLimit(1)
                             Text(record.model.isEmpty ? "—" : record.model)
-                                .font(.system(size: 10, design: .monospaced))
+                                .appFont(10, design: .monospaced)
                                 .foregroundStyle(theme.primaryText)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                             Spacer()
                             Text(record.outcome.displayName)
-                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                .appFont(10, weight: .semibold, design: .rounded)
                                 .foregroundStyle(record.outcome == .ok ? Color.green : (record.outcome == .blocked ? theme.warning : Color.red))
                         }
                     }
@@ -973,14 +1091,14 @@ public struct SettingsView: View {
             }
 
             Text("完整留痕：\(state.remoteCallLogPath)")
-                .font(.system(size: 10, design: .monospaced))
+                .appFont(10, design: .monospaced)
                 .foregroundStyle(theme.secondaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
                 .help(state.remoteCallLogPath)
         }
-        .padding(12)
+        .appPadding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.surfaceAlt.opacity(0.6)))
     }
@@ -996,9 +1114,9 @@ public struct SettingsView: View {
         let title = info.isRemote ? "云端" : "本地"
         return HStack(spacing: 3) {
             Image(systemName: info.isRemote ? "cloud.fill" : "desktopcomputer")
-                .font(.system(size: 8))
+                .appFont(8)
             Text(title)
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .appFont(10, weight: .semibold, design: .rounded)
         }
         .foregroundStyle(info.isRemote ? theme.accent : theme.secondaryText)
         .padding(.horizontal, 6)
@@ -1027,23 +1145,23 @@ public struct SettingsView: View {
                     .fill(info.healthOK ? Color.green : (info.currentModel == nil ? Color.gray : theme.warning))
                     .frame(width: 8, height: 8)
                 Text(kind.displayName)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .appFont(13, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 // 本地 / 云端一眼可辨（云端必带 API Key，走外部网络）
                 sourceBadge(info: info)
                 Spacer()
                 Text(info.healthText)
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .multilineTextAlignment(.trailing)
                     .fixedSize(horizontal: false, vertical: true)
                 modelRunButton(kind, healthOK: info.healthOK, hasModel: info.currentModel != nil)
             }
             Text("当前：\(info.currentModel ?? "未配置")")
-                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .appFont(12, weight: .medium, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             Text(info.sourceDescription)
-                .font(.system(size: 11, design: .monospaced))
+                .appFont(11, design: .monospaced)
                 .foregroundStyle(theme.secondaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -1083,11 +1201,11 @@ public struct SettingsView: View {
                     set: { state.customModelDrafts[kind.rawValue] = $0 }
                 ))
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 Button("应用") {
                     Task { await state.applyCustomModel(kind, name: state.customModelDrafts[kind.rawValue] ?? "") }
                 }
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .appFont(12, weight: .semibold, design: .rounded)
                 .disabled((state.customModelDrafts[kind.rawValue] ?? "").trimmingCharacters(in: .whitespaces).isEmpty)
             }
 
@@ -1115,12 +1233,12 @@ public struct SettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Image(systemName: "cloud")
-                    .font(.system(size: 11))
+                    .appFont(11)
                     .foregroundStyle(usingRemote ? theme.accent : theme.secondaryText)
                 Text(usingRemote
                      ? "外部模型：\(info?.providerName ?? "已接入")\(info?.currentModel.map { " · \($0)" } ?? "")"
                      : "外部模型：未接入")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -1129,7 +1247,7 @@ public struct SettingsView: View {
                     externalSheetKind = kind
                 } label: {
                     Text(usingRemote ? "更换" : "配置")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .appFont(11, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.accent)
                         .padding(.horizontal, 10)
                         .frame(height: 22)
@@ -1142,13 +1260,13 @@ public struct SettingsView: View {
             if !usingRemote, kind == .vad {
                 // 说话检测依赖逐帧音频，云端没有通用接口，明确说出来好过让用户对着空列表找原因。
                 Text("该能力基于逐帧音频在本地计算，暂无云端接口。")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             if !usingRemote, kind == .pronunciation {
                 // 发音评测有两条通道：没有云端配置也能用（规则推断），配了就是声学实测。
                 Text("当前按本地规则推断打分；接入云端发音评测后改为逐音素声学实测。")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }
@@ -1165,18 +1283,18 @@ public struct SettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
                 Image(systemName: "lightbulb.fill")
-                    .font(.system(size: 11))
+                    .appFont(11)
                     .foregroundStyle(Color(hex: 0xF7B32B))
                 Text("如何让应用自动识别新的本地模型")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
             }
             Text("把模型统一放在 ~/AI_Models/ 对应模块目录下即可：\n• 语音识别 (asr)：模型文件放入 ~/AI_Models/asr/models/（如 ggml-*.bin）\n• 教师语音 (tts)：每个模型一个文件夹放入 ~/AI_Models/tts/\n• 说话检测 (vad) / 发音评测 (pronunciation)：每个模型一个文件夹放入对应目录\n• 记忆索引 (embedding)：本机由 Ollama 提供——在 Ollama 安装 nomic-embed-text 等嵌入模型后，刷新即可列出；也可在「外部模型」接入云端嵌入\n放好后点击各能力区块的刷新按钮（↻），应用会自动检测并列出可选。云端模型请展开「外部模型」填写 API Key 接入。")
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .lineSpacing(3)
         }
-        .padding(12)
+        .appPadding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.surfaceAlt.opacity(0.6)))
     }
@@ -1204,7 +1322,7 @@ public struct SettingsView: View {
 
             if let error = state.voiceError {
                 Text(error)
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .foregroundStyle(theme.warning)
             }
 
@@ -1212,12 +1330,12 @@ public struct SettingsView: View {
             // 所以必须写出来——云端语言模型下一律跳过，语音输入不会产生 token 费用。
             if !state.spellingNote.isEmpty {
                 Text(state.spellingNote)
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(12)
+        .appPadding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.surfaceAlt.opacity(0.6)))
     }
@@ -1236,45 +1354,45 @@ public struct SettingsView: View {
 
             HStack(spacing: 6) {
                 Image(systemName: "waveform.badge.mic")
-                    .font(.system(size: 11))
+                    .appFont(11)
                     .foregroundStyle(theme.accent)
                 Text("克隆音色")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 Spacer(minLength: 4)
                 Text(state.voiceCloningSupported ? "当前供应商支持克隆" : "当前供应商未声明支持克隆")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(state.voiceCloningSupported ? theme.accent : theme.secondaryText)
             }
 
             Text("只用本人或已获授权的声音。参考音频会复制进本机应用目录，不上传；启用后老师就用它朗读。")
-                .font(.system(size: 10, design: .rounded))
+                .appFont(10, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
             if let indicator = state.activeVoiceIndicator {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 10))
+                        .appFont(10)
                         .foregroundStyle(theme.accent)
                     Text(indicator)
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .appFont(11, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     Spacer(minLength: 4)
                     Button("切回内置") { Task { await state.deactivateClonedVoice() } }
                         .buttonStyle(.appPressable)
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .appFont(10, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.accent)
                 }
                 .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+                .appPadding(.vertical, 6)
                 .background(RoundedRectangle(cornerRadius: 7).fill(theme.accent.opacity(0.10)))
             }
 
             let cloned = state.voiceProfiles.filter(\.isCloned)
             if cloned.isEmpty, pendingReferenceURL == nil {
                 Text("还没有克隆音色。")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             ForEach(cloned) { profile in
@@ -1288,7 +1406,7 @@ public struct SettingsView: View {
                     pickReferenceAudio()
                 } label: {
                     Label("从本地音频新建…", systemImage: "plus.circle")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .appFont(11, weight: .semibold, design: .rounded)
                 }
                 .buttonStyle(.appPressable)
                 .foregroundStyle(theme.accent)
@@ -1297,17 +1415,17 @@ public struct SettingsView: View {
             if let notice = state.voiceProfileNotice {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "info.circle")
-                        .font(.system(size: 10))
+                        .appFont(10)
                         .foregroundStyle(theme.accent)
                     Text(notice)
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     Button {
                         state.clearVoiceProfileNotice()
                     } label: {
-                        Image(systemName: "xmark").font(.system(size: 9))
+                        Image(systemName: "xmark").appFont(9)
                     }
                     .buttonStyle(.appPressable)
                     .foregroundStyle(theme.secondaryText)
@@ -1322,14 +1440,14 @@ public struct SettingsView: View {
         let isActive = state.activeClonedVoice?.id == profile.id
         HStack(spacing: 8) {
             Image(systemName: isActive ? "waveform.circle.fill" : "waveform.circle")
-                .font(.system(size: 13))
+                .appFont(13)
                 .foregroundStyle(isActive ? theme.accent : theme.secondaryText)
             VStack(alignment: .leading, spacing: 1) {
                 Text(profile.displayName)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text(profile.consent?.statement ?? "")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .lineLimit(1)
             }
@@ -1344,13 +1462,13 @@ public struct SettingsView: View {
                 }
             }
             .buttonStyle(.appPressable)
-            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .appFont(11, weight: .semibold, design: .rounded)
             .foregroundStyle(isActive ? theme.secondaryText : theme.accent)
 
             Button {
                 Task { await state.deleteClonedVoice(id: profile.id) }
             } label: {
-                Image(systemName: "trash").font(.system(size: 10))
+                Image(systemName: "trash").appFont(10)
             }
             .buttonStyle(.appPressable)
             .foregroundStyle(theme.secondaryText)
@@ -1363,16 +1481,16 @@ public struct SettingsView: View {
     private func pendingVoiceForm(referenceURL: URL) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(referenceURL.lastPathComponent)
-                .font(.system(size: 10, design: .monospaced))
+                .appFont(10, design: .monospaced)
                 .foregroundStyle(theme.secondaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)
             TextField("音色名字（如「我的声音」）", text: $pendingVoiceName)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
             TextField("授权说明：声音来源与使用范围（必填）", text: $pendingConsent)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
             HStack(spacing: 10) {
                 Button("保存") {
                     let url = referenceURL
@@ -1387,7 +1505,7 @@ public struct SettingsView: View {
                         pendingConsent = ""
                     }
                 }
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .appFont(11, weight: .semibold, design: .rounded)
                 .disabled(pendingVoiceName.trimmingCharacters(in: .whitespaces).isEmpty
                           || pendingConsent.trimmingCharacters(in: .whitespaces).isEmpty)
                 Button("取消") {
@@ -1396,11 +1514,11 @@ public struct SettingsView: View {
                     pendingConsent = ""
                 }
                 .buttonStyle(.appPressable)
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
             }
         }
-        .padding(8)
+        .appPadding(8)
         .background(RoundedRectangle(cornerRadius: 7).fill(theme.surfaceAlt))
     }
 
@@ -1429,10 +1547,10 @@ public struct SettingsView: View {
 
             HStack(spacing: 6) {
                 Image(systemName: "waveform")
-                    .font(.system(size: 11))
+                    .appFont(11)
                     .foregroundStyle(theme.accent)
                 Text("老师怎么读")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 Spacer()
             }
@@ -1456,7 +1574,7 @@ public struct SettingsView: View {
                     Task { await state.setVoicePreview(!state.voicePreviewEnabled) }
                 } label: {
                     Image(systemName: state.voicePreviewEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                        .font(.system(size: 12, weight: .semibold))
+                        .appFont(12, weight: .semibold)
                         .foregroundStyle(state.voicePreviewEnabled ? theme.accent : theme.secondaryText)
                         .frame(width: 28, height: 28)
                         .background(Circle().fill(theme.surfaceAlt))
@@ -1470,7 +1588,7 @@ public struct SettingsView: View {
                     Task { await state.speak("Nice to meet you!") }
                 } label: {
                     Image(systemName: "play.circle")
-                        .font(.system(size: 14))
+                        .appFont(14)
                         .foregroundStyle(theme.accent)
                 }
                 .buttonStyle(.appPressable)
@@ -1480,7 +1598,7 @@ public struct SettingsView: View {
             // 朗读语速：与对话区「听老师读」右侧的选择器共用同一份配置
             HStack(spacing: 10) {
                 Text("朗读语速")
-                    .font(.system(size: 13, design: .rounded))
+                    .appFont(13, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 HStack(spacing: 6) {
                     ForEach(SpeechRate.allCases) { option in
@@ -1488,7 +1606,7 @@ public struct SettingsView: View {
                             Task { await state.setSpeechRate(option.rawValue) }
                         } label: {
                             Text(option.label)
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .appFont(12, weight: .semibold, design: .rounded)
                                 .foregroundStyle(isSelected(rate: option) ? Color.white : theme.primaryText)
                                 .padding(.horizontal, 10)
                                 .frame(height: 26)
@@ -1513,11 +1631,11 @@ public struct SettingsView: View {
                 get: { state.autoSpeak },
                 set: { enabled in Task { await state.setAutoSpeak(enabled) } }
             ))
-            .font(.system(size: 13, design: .rounded))
+            .appFont(13, design: .rounded)
 
             // 朗读方式随当前生效的语音模型自动切换，在这里说清楚，免得用户以为是 bug。
             Text("\(state.speechDelivery.explanation)在聊天框点 🎤 说话，松开后文字会填进输入框；每条老师回复下方可点「听老师读」，右侧小胶囊可切换朗读语速（只改快慢、不变音调）。")
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .lineSpacing(3)
         }
@@ -1534,7 +1652,7 @@ public struct SettingsView: View {
                 .fill(health.isUsable ? Color.green : theme.warning)
                 .frame(width: 8, height: 8)
             Text("\(title) · \(health.userFacingDescription)")
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
         }
     }
@@ -1637,11 +1755,11 @@ public struct SettingsView: View {
                 // 指向同一个值、却**绕过了** `setVoice`（不会停用克隆音色）——
                 // 一个设置两处入口、行为还不一致。这里只留一条指路，避免两处各说各的。
                 Text("教师音色已并入上方「模型管理中心 → 老师怎么读」，在那里切换会立即试听。")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .lineSpacing(3)
             }
-            .font(.system(size: 13, design: .rounded))
+            .appFont(13, design: .rounded)
         }
     }
 
@@ -1654,12 +1772,12 @@ public struct SettingsView: View {
                     get: { state.practiceReminderEnabled },
                     set: { enabled in Task { await state.setPracticeReminderEnabled(enabled) } }
                 ))
-                .font(.system(size: 13, design: .rounded))
+                .appFont(13, design: .rounded)
 
                 if state.practiceReminderEnabled {
                     HStack(spacing: 10) {
                         Text("提醒时刻")
-                            .font(.system(size: 13, design: .rounded))
+                            .appFont(13, design: .rounded)
                             .foregroundStyle(theme.primaryText)
 
                         // 时刻用自绘步进（系统 DatePicker 样式与整体口径不符，且命中区退化）。
@@ -1672,7 +1790,7 @@ public struct SettingsView: View {
                                 }
                             }
                             Text(String(format: "%02d:%02d", state.practiceReminderHour, state.practiceReminderMinute))
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .appFont(13, weight: .semibold, design: .rounded)
                                 .foregroundStyle(theme.primaryText)
                                 .monospacedDigit()
                                 .frame(width: 46)
@@ -1685,7 +1803,7 @@ public struct SettingsView: View {
                             }
                         }
                         Text("每 30 分钟一档")
-                            .font(.system(size: 10, design: .rounded))
+                            .appFont(10, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                         Spacer(minLength: 0)
                     }
@@ -1694,17 +1812,17 @@ public struct SettingsView: View {
 
                 if state.reminderAuthorizationDenied {
                     Text("通知权限被系统拒绝了：请到「系统设置 → 通知 → 语林」里允许通知，之后开关一次提醒即可生效。")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.warning)
                         .lineSpacing(3)
                 } else if state.practiceReminderEnabled {
                     Text(TodayPanel.practiceReminderCopy(streakDays: 0).body)
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .lineSpacing(3)
                 } else {
                     Text("到点小鹅子会来敲门 🐧 —— 应用没开着也能收到（走系统通知）。点击通知直接回到今天的作业。")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .lineSpacing(3)
                 }
@@ -1717,7 +1835,7 @@ public struct SettingsView: View {
             // ⚠️ 必须是 Image(systemName:) —— 写成 Image(systemImage) 会匹配到
             // Image(_ name:)（按资源名找图片），"minus"/"plus" 不是资源名 → 图标空白。
             Image(systemName: systemImage)
-                .font(.system(size: 9, weight: .bold))
+                .appFont(9, weight: .bold)
                 .foregroundStyle(theme.primaryText)
                 .frame(width: 20, height: 20)
                 .background(Circle().fill(theme.hover))
@@ -1731,7 +1849,7 @@ public struct SettingsView: View {
         card(title: "词汇本", systemImage: "text.book.closed.fill") {
             VStack(alignment: .leading, spacing: 10) {
                 Text("每日推荐按「简单 → 中等 → 困难 → 词组」的节奏出词。某个等级全部认识后该等级不再出现，空缺由还没学完的最低等级补上。")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -1739,7 +1857,7 @@ public struct SettingsView: View {
                 // ⚠️ 不是「学员自己收录了几词」——那个在下面那行「本机已收录」里。
                 if state.dictionaryUniqueWordCount > 0 {
                     Text("词库共 \(state.dictionaryUniqueWordCount) 词 · \(state.dictionaryBooks.count) 本")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                         .monospacedDigit()
                 }
@@ -1751,10 +1869,10 @@ public struct SettingsView: View {
                         Image(systemName: "arrow.counterclockwise")
                         Text("词汇本每日推荐学习进度重置")
                     }
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(Color.red)
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+                    .appPadding(.vertical, 6)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .strokeBorder(Color.red.opacity(0.8), lineWidth: 1)
@@ -1765,7 +1883,7 @@ public struct SettingsView: View {
                 .help("清空「认识」记录，每日推荐重新从简单档开始")
 
                 Text(vocabularyResetSummary)
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .monospacedDigit()
             }
@@ -1811,13 +1929,13 @@ public struct SettingsView: View {
         card(title: "情景对话", systemImage: "theatermasks.fill") {
             VStack(alignment: .leading, spacing: 10) {
                 Text("情景任务与大树关卡记录你的闯关进度：每练完一轮情景任务收一颗星，星星攒够解锁下一关。")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if state.progress.totalStars > 0 {
                     Text("已收集 \(state.progress.totalStars) 颗星 · 爬升 \(Int(state.progress.climbFraction * 100))%")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                         .monospacedDigit()
                 }
@@ -1829,10 +1947,10 @@ public struct SettingsView: View {
                         Image(systemName: "arrow.counterclockwise")
                         Text("重置闯关进度（全新起点）")
                     }
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(Color.red)
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+                    .appPadding(.vertical, 6)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .strokeBorder(Color.red.opacity(0.8), lineWidth: 1)
@@ -1857,10 +1975,10 @@ public struct SettingsView: View {
 
                 HStack(spacing: 6) {
                     Image(systemName: disclosure.isLocalOnly ? "checkmark.shield.fill" : "exclamationmark.triangle.fill")
-                        .font(.system(size: 12))
+                        .appFont(12)
                         .foregroundStyle(disclosure.isLocalOnly ? .green : theme.warning)
                     Text(disclosure.summary)
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                 }
 
@@ -1871,17 +1989,17 @@ public struct SettingsView: View {
                         ForEach(disclosure.flows) { flow in
                             HStack(alignment: .firstTextBaseline, spacing: 6) {
                                 Text(flow.kind.displayName)
-                                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                    .appFont(11, weight: .semibold, design: .rounded)
                                     .foregroundStyle(theme.accent)
                                 Text(flow.displayName)
-                                    .font(.system(size: 11, design: .rounded))
+                                    .appFont(11, design: .rounded)
                                     .foregroundStyle(theme.primaryText)
                                 Text(flow.host)
-                                    .font(.system(size: 11, design: .monospaced))
+                                    .appFont(11, design: .monospaced)
                                     .foregroundStyle(theme.secondaryText)
                                 Spacer(minLength: 4)
                                 Text(flow.categories.map(\.displayName).joined(separator: "、"))
-                                    .font(.system(size: 10, design: .rounded))
+                                    .appFont(10, design: .rounded)
                                     .foregroundStyle(theme.secondaryText)
                             }
                         }
@@ -1891,17 +2009,17 @@ public struct SettingsView: View {
                 Divider().overlay(theme.divider)
 
                 Text("数据存放位置")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
 
                 ForEach(report.locations) { item in
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 5) {
                             Image(systemName: item.isSensitive ? "lock.fill" : "doc")
-                                .font(.system(size: 9))
+                                .appFont(9)
                                 .foregroundStyle(item.isSensitive ? theme.accent : theme.secondaryText)
                             Text(item.title)
-                                .font(.system(size: 12, design: .rounded))
+                                .appFont(12, design: .rounded)
                                 .foregroundStyle(theme.primaryText)
                             Spacer(minLength: 6)
                             if let reveal = item.revealPath {
@@ -1909,10 +2027,10 @@ public struct SettingsView: View {
                             }
                         }
                         Text(item.detail)
-                            .font(.system(size: 10, design: .rounded))
+                            .appFont(10, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                         Text(item.path)
-                            .font(.system(size: 10, design: .monospaced))
+                            .appFont(10, design: .monospaced)
                             .foregroundStyle(theme.secondaryText)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -1925,7 +2043,7 @@ public struct SettingsView: View {
                 }
 
                 Text("默认全部在本机处理：录音、转写、学习记忆与配置都不上传。只有你在「模型管理中心」启用了云端供应商，对应能力的数据才会发往上面列出的域名；日志与留痕只记录元数据，不记录你说的话。")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }
@@ -1955,10 +2073,10 @@ public struct SettingsView: View {
             Button(action: reveal) {
                 HStack(spacing: 5) {
                     Image(systemName: didOpen ? "checkmark.circle.fill" : (isPressing ? "folder.fill" : "folder"))
-                        .font(.system(size: 11))
+                        .appFont(11)
                     if !compact {
                         Text(didOpen ? "已在 Finder 中打开" : title)
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .appFont(12, weight: .semibold, design: .rounded)
                     }
                 }
                 .foregroundStyle(didOpen ? .green : theme.accent)
@@ -2007,10 +2125,10 @@ public struct SettingsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
                     Text("版本")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     Text(AppVersion.display)
-                        .font(.system(size: 12, design: .monospaced))
+                        .appFont(12, design: .monospaced)
                         .foregroundStyle(theme.secondaryText)
                         .textSelection(.enabled)
                     Spacer(minLength: 0)
@@ -2018,17 +2136,17 @@ public struct SettingsView: View {
 
                 if let failure = state.configLoadFailure {
                     Label(failure, systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.warning)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("配置文件")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     Text(state.configLocationPath.isEmpty ? "（尚未取到）" : state.configLocationPath)
-                        .font(.system(size: 10, design: .monospaced))
+                        .appFont(10, design: .monospaced)
                         .foregroundStyle(theme.secondaryText)
                         .lineLimit(2)
                         .truncationMode(.middle)
@@ -2041,13 +2159,13 @@ public struct SettingsView: View {
                     } label: {
                         HStack(spacing: 5) {
                             Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 11))
+                                .appFont(11)
                             Text("重新载入配置")
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .appFont(12, weight: .semibold, design: .rounded)
                         }
                         .foregroundStyle(theme.accent)
                         .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
+                        .appPadding(.vertical, 5)
                         .background(Capsule().fill(theme.surfaceAlt))
                         .contentShape(Capsule())
                     }
@@ -2063,7 +2181,7 @@ public struct SettingsView: View {
                 if let notice = state.configReloadNotice {
                     HStack(alignment: .top, spacing: 6) {
                         Label(notice, systemImage: "arrow.clockwise.circle.fill")
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.primaryText)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 6)
@@ -2071,7 +2189,7 @@ public struct SettingsView: View {
                             state.dismissConfigReloadNotice()
                         } label: {
                             Image(systemName: "xmark")
-                                .font(.system(size: 9, weight: .semibold))
+                                .appFont(9, weight: .semibold)
                                 .foregroundStyle(theme.secondaryText)
                         }
                         .buttonStyle(.appPressable)
@@ -2082,7 +2200,7 @@ public struct SettingsView: View {
                 Divider().overlay(theme.divider)
 
                 Text("配置体检")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -2092,10 +2210,150 @@ public struct SettingsView: View {
                 }
 
                 Text("体检只看**配置层**：谁被选中、有没有缺 Key、有没有指向已停用的供应商。服务真的通不通，看上面各能力区块的状态点。")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Divider().overlay(theme.divider)
+
+                Text("语义记忆索引")
+                    .appFont(12, weight: .semibold, design: .rounded)
+                    .foregroundStyle(theme.primaryText)
+
+                semanticMemoryRow
+
+                if !state.availableMemoryText.isEmpty {
+                    HStack(spacing: 6) {
+                        Image(systemName: "memorychip")
+                            .appFont(11)
+                            .foregroundStyle(theme.secondaryText)
+                        Text(state.availableMemoryText)
+                            .appFont(11, design: .rounded)
+                            .foregroundStyle(theme.secondaryText)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+        }
+    }
+
+    /// 语义记忆索引这一行：通没通 + 多少维 + 没接通时下一步去哪儿。
+    private var semanticMemoryRow: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: state.semanticMemoryStatus.isEnabled
+                  ? "checkmark.circle.fill" : "circle.dashed")
+                .appFont(11)
+                .foregroundStyle(state.semanticMemoryStatus.isEnabled ? Color.green : theme.secondaryText)
+                .frame(width: 14)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(state.semanticMemoryStatus.headline)
+                    .appFont(11, weight: .medium, design: .rounded)
+                    .foregroundStyle(theme.primaryText)
+                Text(state.semanticMemoryStatus.detail)
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// 「每日目标」卡片。
+    ///
+    /// 目标值一直只在**学习进度页**的「今天」卡里能改，而用户想改目标时第一反应是翻设置页
+    /// ——翻不到就以为这应用不能调。这里补一份入口，控件与进度页同源（`DailyGoalControls`），
+    /// 不另写一份（两边各写一份必然漂移：一边改了口径、另一边不跟）。
+    private var dailyGoalCard: some View {
+        card(title: "每日目标", systemImage: "target") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("决定「今日任务」排多少量，也决定今天算不算完成。忙的日子切到保底档：5 分钟内做完同样保住连续。")
+                    .appFont(10, design: .rounded)
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                DailyGoalControls(state: state)
+            }
+        }
+    }
+
+    // MARK: - 本地模型测速
+
+    /// 「本地模型测速」卡片。
+    ///
+    /// 这条链路以前只有 `alc-bench` 命令行在用（`LocalLLMBenchmark` 界面零引用），
+    /// 「我的机器跑这个模型到底快不快」只能靠体感。搬进界面后仍然只打本地 runtime，
+    /// **不产生任何云端费用**——所以这里不走计费闸门，但也不提供云端选项。
+    private var localSpeedCard: some View {
+        card(title: "本地模型测速", systemImage: "speedometer") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("用固定的三句提示词跑几轮，量出本机模型的生成速度。只打本地 runtime，不产生云端费用。")
+                    .appFont(10, design: .rounded)
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 10) {
+                    Button {
+                        Task { await state.runLocalBenchmark() }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "play.fill")
+                                .appFont(11)
+                            Text(state.isRunningBenchmark ? "测速中…" : "跑一次测速")
+                                .appFont(12, weight: .semibold, design: .rounded)
+                        }
+                        .foregroundStyle(state.isRunningBenchmark ? theme.secondaryText : theme.accent)
+                        .padding(.horizontal, 9)
+                        .appPadding(.vertical, 5)
+                        .background(Capsule().fill(theme.surfaceAlt))
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.appPressable)
+                    .disabled(state.isRunningBenchmark)
+                    .help("跑完约需半分钟到一分钟，期间别关应用")
+
+                    if state.isRunningBenchmark {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("约 30–60 秒")
+                            .appFont(10, design: .rounded)
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                if let error = state.benchmarkError {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .appFont(11, design: .rounded)
+                        .foregroundStyle(theme.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if let snapshot = state.benchmarkSnapshot {
+                    VStack(alignment: .leading, spacing: 6) {
+                        speedRow(label: "被测模型", value: snapshot.model)
+                        speedRow(label: "整段生成（中位）", value: snapshot.generateText)
+                        speedRow(label: "首个字出来（中位）", value: snapshot.firstTokenText)
+                        speedRow(label: "吐字速度（中位）", value: snapshot.throughputText)
+                        Text(snapshot.sampleText)
+                            .appFont(10, design: .rounded)
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                }
+            }
+        }
+    }
+
+    private func speedRow(label: String, value: String) -> some View {
+        HStack(spacing: 8) {
+            Text(label)
+                .appFont(11, design: .rounded)
+                .foregroundStyle(theme.secondaryText)
+            Spacer(minLength: 4)
+            Text(value)
+                .appFont(11, weight: .medium, design: .rounded)
+                .foregroundStyle(theme.primaryText)
+                .monospacedDigit()
+                .textSelection(.enabled)
         }
     }
 
@@ -2103,17 +2361,17 @@ public struct SettingsView: View {
     private func registryCheckRow(_ row: RegistryCheckRow) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: row.isHealthy ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .font(.system(size: 11))
+                .appFont(11)
                 .foregroundStyle(row.isHealthy ? Color.green : theme.warning)
                 .frame(width: 14)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(row.kind.displayName)
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     if let effective = row.effective {
                         Text(effective.provider + (effective.model.map { " · \($0)" } ?? ""))
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -2126,19 +2384,19 @@ public struct SettingsView: View {
                              : (row.enabledCount == 0
                                 ? "配了 \(row.providerCount) 个供应商，但都处于停用状态"
                                 : "有启用中的供应商，但没能解析出生效项"))
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.warning)
                     }
                 }
                 ForEach(row.issues, id: \.self) { issue in
                     Text(issue)
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if let health = row.healthDescription {
                     Text(health)
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -2147,7 +2405,7 @@ public struct SettingsView: View {
                 // 「没有生效的供应商」，等于什么都没说。
                 if row.providerCount > 0 {
                     Text("共 \(row.providerCount) 个供应商 · 启用 \(row.enabledCount) 个")
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText.opacity(0.85))
                 }
             }
@@ -2174,10 +2432,10 @@ public struct SettingsView: View {
 
                 HStack(spacing: 8) {
                     Image(systemName: "folder")
-                        .font(.system(size: 11))
+                        .appFont(11)
                         .foregroundStyle(theme.accent)
                     Text(snapshot.directory.isEmpty ? "—" : snapshot.directory)
-                        .font(.system(size: 11, design: .monospaced))
+                        .appFont(11, design: .monospaced)
                         .foregroundStyle(theme.secondaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -2187,10 +2445,10 @@ public struct SettingsView: View {
 
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text("合计占用")
-                        .font(.system(size: 12, design: .rounded))
+                        .appFont(12, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                     Text(snapshot.totalDisplay)
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .appFont(18, weight: .bold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                         .monospacedDigit()
                     Spacer()
@@ -2207,22 +2465,22 @@ public struct SettingsView: View {
                 ForEach(snapshot.items) { item in
                     HStack(spacing: 6) {
                         Image(systemName: item.isLearningData ? "lock.fill" : "doc")
-                            .font(.system(size: 9))
+                            .appFont(9)
                             .foregroundStyle(item.isLearningData ? theme.accent : theme.secondaryText)
                         Text(item.name)
-                            .font(.system(size: 12, design: .rounded))
+                            .appFont(12, design: .rounded)
                             .foregroundStyle(theme.primaryText)
                         if item.isLearningData {
                             Text("学习记忆")
-                                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                                .appFont(9, weight: .semibold, design: .rounded)
                                 .foregroundStyle(theme.accent)
                                 .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
+                                .appPadding(.vertical, 2)
                                 .background(Capsule().fill(theme.accent.opacity(0.12)))
                         }
                         Spacer()
                         Text(CacheSnapshot.byteCount(item.bytes))
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                             .monospacedDigit()
                     }
@@ -2231,12 +2489,12 @@ public struct SettingsView: View {
                 HStack(spacing: 10) {
                     if state.cacheFreedBytes > 0 {
                         Label("已释放 \(CacheSnapshot.byteCount(state.cacheFreedBytes))", systemImage: "trash.slash")
-                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .appFont(11, weight: .medium, design: .rounded)
                             .foregroundStyle(.green)
                     }
                     if let cleared = snapshot.lastClearedAt {
                         Text("上次清理：\(cleared.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                     }
                     Spacer()
@@ -2247,10 +2505,10 @@ public struct SettingsView: View {
                             if isClearingCache {
                                 ProgressView().controlSize(.small)
                             } else {
-                                Image(systemName: "paintbrush.fill").font(.system(size: 11))
+                                Image(systemName: "paintbrush.fill").appFont(11)
                             }
                             Text("清除缓存")
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .appFont(12, weight: .semibold, design: .rounded)
                         }
                         .foregroundStyle(theme.onAccentFill)
                         .padding(.horizontal, 14)
@@ -2263,7 +2521,7 @@ public struct SettingsView: View {
                 }
 
                 Text("清除只影响可再生的对话流水与数据库碎片；学习记忆（错题本、进度）和配置始终保留。")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
 
                 Divider().overlay(theme.divider)
@@ -2272,10 +2530,10 @@ public struct SettingsView: View {
                 if let note = state.databaseRecoveryNote {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 11))
+                            .appFont(11)
                             .foregroundStyle(theme.warning)
                         Text(note)
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.primaryText)
                     }
                     Divider().overlay(theme.divider)
@@ -2285,18 +2543,50 @@ public struct SettingsView: View {
                 if let note = state.restoreNote {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 11))
+                            .appFont(11)
                             .foregroundStyle(theme.accent)
                         Text(note)
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.primaryText)
                     }
                     Divider().overlay(theme.divider)
                 }
 
                 Text("数据备份")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
+
+                // 自动备份（#415）：开关 + 间隔 + 「上次备份是多久以前」。
+                // 后者**始终显示**（哪怕开关关着）——「还没备份过」这件事本身就该被看见。
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle(isOn: Binding(
+                        get: { state.autoBackupEnabled },
+                        set: { on in Task { await state.setAutoBackupEnabled(on) } }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("自动备份")
+                                .appFont(13, design: .rounded)
+                            Text(autoBackupHint)
+                                .appFont(11, design: .rounded)
+                                .foregroundStyle(theme.secondaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    if state.autoBackupEnabled {
+                        HStack(spacing: 4) {
+                            Text("间隔")
+                                .appFont(11, design: .rounded)
+                                .foregroundStyle(theme.secondaryText)
+                            ForEach(Self.autoBackupIntervals, id: \.self) { days in
+                                autoBackupIntervalChip(days)
+                            }
+                        }
+                    }
+                }
+
+                if let notice = state.autoBackupNotice {
+                    NoticeBanner(notice: notice) { state.dismissAutoBackupNotice() }
+                }
 
                 HStack(spacing: 10) {
                     Button {
@@ -2306,10 +2596,10 @@ public struct SettingsView: View {
                             if state.isExportingBackup {
                                 ProgressView().controlSize(.small)
                             } else {
-                                Image(systemName: "square.and.arrow.down.fill").font(.system(size: 11))
+                                Image(systemName: "square.and.arrow.down.fill").appFont(11)
                             }
                             Text("导出备份")
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .appFont(12, weight: .semibold, design: .rounded)
                         }
                         .foregroundStyle(theme.onAccentFill)
                         .padding(.horizontal, 14)
@@ -2324,9 +2614,9 @@ public struct SettingsView: View {
                         chooseBackupToImport()
                     } label: {
                         HStack(spacing: 5) {
-                            Image(systemName: "square.and.arrow.up.fill").font(.system(size: 11))
+                            Image(systemName: "square.and.arrow.up.fill").appFont(11)
                             Text("导入备份")
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .appFont(12, weight: .semibold, design: .rounded)
                         }
                         .foregroundStyle(theme.primaryText)
                         .padding(.horizontal, 14)
@@ -2346,7 +2636,7 @@ public struct SettingsView: View {
 
                     if let first = state.backupSnapshots.first {
                         Text("最近备份：\(first.fileName)")
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                             .lineLimit(1)
                     }
@@ -2375,14 +2665,14 @@ public struct SettingsView: View {
                 ForEach(state.backupSnapshots.prefix(3)) { item in
                     HStack(spacing: 6) {
                         Image(systemName: "archivebox.fill")
-                            .font(.system(size: 9))
+                            .appFont(9)
                             .foregroundStyle(theme.secondaryText)
                         Text(item.createdAt.formatted(date: .abbreviated, time: .shortened))
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.primaryText)
                         Spacer()
                         Text(item.sizeDisplay)
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                             .monospacedDigit()
                     }
@@ -2392,7 +2682,7 @@ public struct SettingsView: View {
                 if let notice = state.backupImportNotice {
                     HStack(alignment: .top, spacing: 6) {
                         Label(notice, systemImage: "checkmark.circle.fill")
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.primaryText)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 6)
@@ -2400,7 +2690,7 @@ public struct SettingsView: View {
                             state.dismissBackupImportNotice()
                         } label: {
                             Image(systemName: "xmark")
-                                .font(.system(size: 9, weight: .semibold))
+                                .appFont(9, weight: .semibold)
                                 .foregroundStyle(theme.secondaryText)
                         }
                         .buttonStyle(.appPressable)
@@ -2410,15 +2700,50 @@ public struct SettingsView: View {
 
                 if let error = state.backupError {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.warning)
                 }
 
                 Text("备份包含学习库（含 -wal）、配置与调用留痕，存在本机，不上传任何地方。导入坏包会被校验拦下，不会动现有数据。")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }
+    }
+
+    /// 自动备份可选的间隔天数（再密就只是在堆重复文件了）。
+    private static let autoBackupIntervals = [3, 7, 14]
+
+    /// 「自动备份」开关底下的说明：**始终**带上上次备份的时间 —— 开关关着时
+    /// 「还没有备份过 / 半个月前备份过」这件事本身就该被看见，不能藏起来。
+    private var autoBackupHint: String {
+        let freshness = state.backupFreshness()
+        guard state.autoBackupEnabled else {
+            return "上一次：\(freshness.text)。开着时每次启动检查一次，到点补一份。"
+        }
+        return "上一次：\(freshness.text)，每 \(state.autoBackupIntervalDays) 天补一份。"
+    }
+
+    private func autoBackupIntervalChip(_ days: Int) -> some View {
+        let isSelected = state.autoBackupIntervalDays == days
+        return Button {
+            Task { await state.setAutoBackupIntervalDays(days) }
+        } label: {
+            Text("\(days) 天")
+                .appFont(10, weight: isSelected ? .bold : .regular, design: .rounded)
+                .foregroundStyle(isSelected ? theme.accent : theme.secondaryText)
+                .padding(.horizontal, 7)
+                .appPadding(.vertical, 3)
+                .background(Capsule().fill(theme.accent.opacity(isSelected ? 0.14 : 0)))
+                .overlay(
+                    Capsule().strokeBorder(
+                        isSelected ? theme.accent.opacity(0.6) : theme.divider,
+                        lineWidth: 1
+                    )
+                )
+        }
+        .buttonStyle(.appPressable)
+        .help("每 \(days) 天自动补一份备份")
     }
 
     /// 选备份文件 → 校验 → 弹确认框（校验失败的原因会出现在下方错误区）。
@@ -2468,14 +2793,14 @@ public struct SettingsView: View {
                     }
 
                     Text("普通用户不需要修改这些。默认值已针对本机优化。")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
-                .padding(.top, 8)
-                .font(.system(size: 13, design: .rounded))
+                .appPadding(.top, 8)
+                .appFont(13, design: .rounded)
             } label: {
                 Text("显示高级选项")
-                    .font(.system(size: 13, design: .rounded))
+                    .appFont(13, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }
@@ -2490,7 +2815,7 @@ public struct SettingsView: View {
                 // 写好了却零调用，日志永远是最低门槛全收、也只进不出。
                 HStack(spacing: 8) {
                     Text("级别")
-                        .font(.system(size: 12, design: .rounded))
+                        .appFont(12, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     // ⚠️ 项目约束：不用系统 Picker。这里改用分段按钮，四个档位一眼看全。
                     ForEach(LogLevel.allCases, id: \.self) { level in
@@ -2503,13 +2828,13 @@ public struct SettingsView: View {
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "trash")
-                                .font(.system(size: 10))
+                                .appFont(10)
                             Text("清空")
-                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                .appFont(11, weight: .semibold, design: .rounded)
                         }
                         .foregroundStyle(theme.accent)
                         .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .appPadding(.vertical, 4)
                         .background(Capsule().fill(theme.surfaceAlt))
                         .contentShape(Capsule())
                     }
@@ -2519,17 +2844,17 @@ public struct SettingsView: View {
 
                 if logs.isEmpty {
                     Text("暂无日志")
-                        .font(.system(size: 12, design: .rounded))
+                        .appFont(12, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 } else {
                     ForEach(logs.suffix(30)) { entry in
                         HStack(alignment: .top, spacing: 6) {
                             Text(entry.level.rawValue.uppercased())
-                                .font(.system(size: 9, weight: .bold, design: .rounded))
+                                .appFont(9, weight: .bold, design: .rounded)
                                 .foregroundStyle(color(for: entry.level))
                                 .frame(width: 48, alignment: .leading)
                             Text(entry.message)
-                                .font(.system(size: 11, design: .rounded))
+                                .appFont(11, design: .rounded)
                                 .foregroundStyle(theme.secondaryText)
                             Spacer()
                         }
@@ -2559,7 +2884,7 @@ public struct SettingsView: View {
                 Image(systemName: systemImage)
                     .foregroundStyle(theme.accent)
                 Text(title)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .appFont(14, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     // 卡片标题就是标题：报成 header，VoiceOver 的「标题」转轮才能逐卡跳。
                     // 这里是设置页**所有**卡片的唯一标题出口，改一处即全覆盖。
@@ -2569,7 +2894,7 @@ public struct SettingsView: View {
             }
             content()
         }
-        .padding(16)
+        .appPadding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -2587,7 +2912,7 @@ public struct SettingsView: View {
             Task { logs = await LogBus.shared.recent(limit: 60) }
         } label: {
             Text(level.rawValue.uppercased())
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .appFont(10, weight: .semibold, design: .monospaced)
                 .foregroundStyle(selected ? theme.onAccentFill : theme.primaryText)
                 .padding(.horizontal, 8)
                 .frame(height: 22)

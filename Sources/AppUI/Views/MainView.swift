@@ -19,18 +19,21 @@ public struct MainView: View {
 
     private let sideDividerWidth: CGFloat = 1
     private let resizeHandleWidth: CGFloat = 14
-    private let chatMinWidth: CGFloat = 400
-    private let treeMinWidth: CGFloat = 300
 
     public init(state: AppState) { self.state = state }
 
     public var body: some View {
         GeometryReader { proxy in
             let total = proxy.size.width
-            let sidebarW = state.isSidebarExpanded ? AppSidebar.expandedWidth : AppSidebar.collapsedWidth
+            // 侧栏展开 = 用户偏好 ∧ 窗口允许（#417）：窄窗**临时**收成图标栏，
+            // 窗口拉宽自动还原 —— 偏好本身不被窗口尺寸悄悄改掉。
+            let sidebarExpanded = AppLayoutMetrics.sidebarExpanded(
+                userPrefers: state.isSidebarExpanded, windowWidth: total
+            )
+            let sidebarW = sidebarExpanded ? AppSidebar.expandedWidth : AppSidebar.collapsedWidth
             let fixedW = sidebarW + sideDividerWidth + resizeHandleWidth
-            let treeW = treeWidth(available: total - fixedW)
-            let chatW = max(chatMinWidth, total - fixedW - treeW)
+            let treeW = AppLayoutMetrics.treeWidth(preferred: treePanelWidth, available: total - fixedW)
+            let chatW = max(AppLayoutMetrics.chatMinWidth, total - fixedW - treeW)
 
             ZStack {
                 // 天空不再自己画天体：右上角的太阳/月亮由 CelestialToggle 画在内容层之上，
@@ -40,7 +43,7 @@ public struct MainView: View {
                           ambientStill: state.forest.ambientHidden)
 
                 HStack(spacing: 0) {
-                    AppSidebar(state: state)
+                    AppSidebar(state: state, widthAllowsExpansion: sidebarExpanded)
                         .frame(width: sidebarW)
                         // ⚠️ 侧栏要抬一层（2026-09-24 报障：徽章浮卡右半截被中间栏底色
                         // 盖住）。徽章的悬浮说明卡画在自己 220pt 之外，而分隔线 / 中间栏 /
@@ -127,13 +130,24 @@ public struct MainView: View {
             // anchor 的坐标是**相对浮层所在层级**实时解算的（`geo[anchor.bounds]`），
             // 换层只需要平移一次原点，摆位算式（`WordLookupLayerPlacement`）不用动。
             .wordLookupBubbleOverlay()
+            // 全局搜索（#414）：挂在**划词浮层之后**。浮层置顶纪律里「越晚挂越在上」，
+            // 挂进 ZStack 里会被划词气泡盖掉一截（气泡也在最外层）。
+            .overlay {
+                if state.showingGlobalSearch {
+                    globalSearchOverlay
+                }
+            }
         }
-        .frame(minWidth: 1080, minHeight: 720)
+        .frame(minWidth: AppLayoutMetrics.minWindowWidth, minHeight: AppLayoutMetrics.minWindowHeight)
         .forestTheme(state.theme)
         // ⚠️ 动效档位在这一层注入一次，整棵树都跟着走：应用内覆盖档（设置页「动画效果」）
         // 与系统「减弱动态效果」在此合成（同一份逻辑在 MotionMode.reducesMotion）。
         // Sheet 挂在另一条分支上，覆盖不到，各自加。
         .appMotionRoot(override: state.motionMode)
+        // 排版档位（#416）也在这一层注入一次：字号档与密度档的倍率
+        // 经 `\.appTypography` 传导到全树（`.appFont` / `.appPadding` 读它）。
+        // Sheet 挂在另一条分支上，覆盖不到，各自加。
+        .appTypographyRoot(typeSize: state.typeSize, density: state.interfaceDensity)
         // 统一的按压反馈：165 处 Button 不必逐个改。只改不透明度、不动布局，
         // 所以命中区与间距完全不变（详见 AppButtonStyle 的说明）。
         // 显式写了 `.buttonStyle(.plain)` 的地方会以自己为准 —— 那是刻意的。
@@ -380,13 +394,26 @@ public struct MainView: View {
     ///
     /// ⚠️ 别把它们并回 body：body 贴着类型检查预算，这三段修饰链留在里面
     /// 整个表达式就会「unable to type-check in reasonable time」（编译器实测报过错）。
+    /// 全局搜索（#414）：半透明遮罩 + 居中卡片。点遮罩关闭。
+    private var globalSearchOverlay: some View {
+        ZStack {
+            theme.scrim
+                .contentShape(Rectangle())
+                .onTapGesture { state.closeGlobalSearch() }
+            GlobalSearchPanel(state: state)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .appPadding(.top, 40)
+        }
+        .transition(.opacity)
+    }
+
     @ViewBuilder
     private var globalToastOverlays: some View {
         // 模型启停结果：顶部最前方，向下弹入 → 数秒后向上收起
         if let toast = state.modelToast {
             ModelToastView(toast: toast) { state.dismissModelToast() }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .padding(.top, 18)
+                .appPadding(.top, 18)
                 .zIndex(50)
                 .transition(.move(edge: .top).combined(with: .opacity))
         }
@@ -395,7 +422,7 @@ public struct MainView: View {
         if let reward = state.lastReward {
             RewardToast(reward: reward) { state.dismissReward() }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .padding(.top, 78)
+                .appPadding(.top, 78)
                 .zIndex(30)
                 .transition(.move(edge: .top).combined(with: .opacity))
         }
@@ -411,7 +438,7 @@ public struct MainView: View {
             )
             .frame(maxWidth: 440)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .padding(.top, 146)
+            .appPadding(.top, 146)
             .zIndex(29)
             .transition(.move(edge: .top).combined(with: .opacity))
         }
@@ -464,11 +491,7 @@ public struct MainView: View {
 
     // MARK: - 宽度分配
 
-    /// 树宽夹取在 [min, 可用宽 - 聊天最小宽]；保证聊天区永远不小于下限。
-    private func treeWidth(available: CGFloat) -> CGFloat {
-        let upper = max(treeMinWidth, available - chatMinWidth)
-        return min(max(treePanelWidth, treeMinWidth), upper)
-    }
+    // 树宽夹取已收进 `AppLayoutMetrics.treeWidth`（与窗口下限同源，#417）。
 
     // MARK: - 中间：对话 / 学习记录
 
@@ -631,6 +654,8 @@ public struct MainView: View {
                     // 批次五 · D：小伙伴陪着学员一起爬树（没选过就自动配一只）
                     companionAnimal: state.companionAnimalKind,
                     levelNotes: state.treeLevelNotes,
+                    // #418-B：树根年轮徽记（年度数据到场后后台补上）
+                    annualSummary: state.annualTreeSummary,
                     // 森林回应：攒星弹果实、通关全套仪式、练完/收词飘叶
                     ceremonyTick: state.forest.ceremonyTick,
                     practiceTick: state.forest.practiceTick,
@@ -645,6 +670,9 @@ public struct MainView: View {
                 ) { level in
                     Task { await open(level) }
                 }
+                // #418-B：年轮徽记要吃的年度汇总**不在启动关键路径上**（开屏只查窗口），
+                // 树面板到场后在这里补拉一次 —— 幂等（加载过/在途都直接返回），不重复查询。
+                .task { await state.ensureAnnualRecapLoaded() }
 
                 ForestGroundBand(
                     theme: state.theme,
@@ -677,7 +705,10 @@ public struct MainView: View {
                     errorSignTick: state.forest.errorSignTick,
                     errorHeadline: state.forest.lastErrorHeadline,
                     // 对话种下的植物：学员每开口一次，大树下草坪上多一株（2026-09-29 搬进林子）
-                    conversationRounds: state.chat.learnerTurnCount
+                    conversationRounds: state.chat.learnerTurnCount,
+                    // #418-C：连续剧情出幕（判定与记账在 ForestStage，草坪只管挑角演）
+                    storyActTick: state.forest.storyActTick,
+                    lastStoryAct: state.forest.lastStoryAct
                 )
                 .frame(height: TreeViewport.groundBandHeight)
                 .allowsHitTesting(true)
@@ -700,29 +731,29 @@ public struct MainView: View {
             HStack(spacing: 8) {
                 Image(systemName: "tree.fill")
                     .foregroundStyle(state.theme.accent)
-                    .font(.system(size: 14))
+                    .appFont(14)
                 Text("成长之树")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .appFont(15, weight: .bold, design: .rounded)
                     .foregroundStyle(state.theme.primaryText)
                 Spacer()
                 if state.isBooting {
                     ProgressView().controlSize(.mini)
                 }
                 Text("已爬升 \(Int(state.progress.climbFraction * 100))%")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(state.theme.secondaryText)
             }
 
             HStack(spacing: 6) {
                 Image(systemName: "star.fill")
                     .foregroundStyle(state.theme.accent)
-                    .font(.system(size: 11))
+                    .appFont(11)
                 Text("\(state.progress.totalStars) 颗星星")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(state.theme.primaryText)
                 Spacer()
                 Text("\(state.progress.levels.filter { $0.state == .completed }.count)/\(state.progress.levels.count) 关")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(state.theme.secondaryText)
             }
         }

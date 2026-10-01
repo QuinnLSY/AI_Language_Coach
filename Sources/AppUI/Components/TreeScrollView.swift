@@ -15,6 +15,8 @@ struct TreeScrollView: View {
     /// 学员的小伙伴（陪着一起爬树；nil = 不画）。
     var companionAnimal: AnimalKind? = nil
     var levelNotes: [String: TreeLevelNote] = [:]
+    /// 年度回顾的轻量摘要（#418-B，透传给 `TreeCanvas`：树根年轮徽记）。
+    var annualSummary: TreeAnnualSummary = .empty()
     /// 学习事件脉冲（透传给 `TreeCanvas`：果实 / 树冠仪式 / 落叶）。
     var ceremonyTick: Int = 0
     var practiceTick: Int = 0
@@ -43,6 +45,7 @@ struct TreeScrollView: View {
                         progress: progress,
                         studentAnimal: studentAnimal,
                         companionAnimal: companionAnimal,
+                        annualSummary: annualSummary,
                         levelNotes: levelNotes,
                         ceremonyTick: ceremonyTick,
                         practiceTick: practiceTick,

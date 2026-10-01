@@ -37,7 +37,7 @@ public struct ReadingQuestionToggleButton: View {
     public var body: some View {
         Button(action: onToggle) {
             Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                .font(.system(size: 11, weight: .bold))
+                .appFont(11, weight: .bold)
                 .foregroundStyle(isHovering ? theme.accent : theme.secondaryText)
                 .frame(width: Self.hitSize.width, height: Self.hitSize.height)
                 .background(

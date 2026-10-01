@@ -12,29 +12,29 @@ struct RewardToast: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: reward.didCompleteLevel ? "flag.checkered" : "star.fill")
-                .font(.system(size: 14, weight: .semibold))
+                .appFont(14, weight: .semibold)
                 .foregroundStyle(theme.accent)
 
             VStack(alignment: .leading, spacing: 2) {
                 if let levelTitle = reward.levelTitle {
                     Text("\(levelTitle)\(reward.didCompleteLevel ? " · 已通关" : "")")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .appFont(11, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
                 Text(reward.message)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .appFont(13, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
             }
 
             if reward.stars > 0 {
                 Text(String(repeating: "⭐️", count: reward.stars))
-                    .font(.system(size: 12))
+                    .appFont(12)
             }
 
             if let onClose {
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .bold))
+                        .appFont(10, weight: .bold)
                         .foregroundStyle(theme.secondaryText)
                         .frame(width: 24, height: 24)
                 }
@@ -42,7 +42,7 @@ struct RewardToast: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .appPadding(.vertical, 10)
         // 浮层材质（#361）：结算 toast 在一切内容之上，毛玻璃透出底下还有界面；
         // 「降低透明度」下退回实底。
         .floatingSurface(in: Capsule())

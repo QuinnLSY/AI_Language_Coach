@@ -11,7 +11,7 @@ public enum PromptBuilder {
         proficiency: String,
         practiceMode: PracticeMode
     ) -> String {
-        guard let url = AppResourceBundle.module.url(forResource: "Prompts/teacher_system", withExtension: "txt"),
+        guard let url = AppResourceBundle.url(forResource: "Prompts/teacher_system", withExtension: "txt"),
               let template = try? String(contentsOf: url, encoding: .utf8)
         else {
             return fallbackSystemPrompt(learningLanguage: learningLanguage)
@@ -39,7 +39,7 @@ public enum PromptBuilder {
     ) -> String {
         guard persona != .standard else { return "" }
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/teacher_persona", withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: "Prompts/teacher_persona", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {
@@ -86,7 +86,7 @@ public enum PromptBuilder {
         let items = memoryItems(memory)
         guard !items.isEmpty else { return "" }
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/learning_memory", withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: "Prompts/learning_memory", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {
@@ -170,7 +170,7 @@ public enum PromptBuilder {
     ) -> String {
         guard plan.isWorthInstructing || !decision.learningFocus.isEmpty else { return "" }
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/response_plan", withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: "Prompts/response_plan", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {
@@ -238,7 +238,7 @@ public enum PromptBuilder {
         nativeLanguage: String,
         proficiency: String
     ) -> String {
-        guard let url = AppResourceBundle.module.url(forResource: "Prompts/session_review", withExtension: "txt"),
+        guard let url = AppResourceBundle.url(forResource: "Prompts/session_review", withExtension: "txt"),
               let template = try? String(contentsOf: url, encoding: .utf8)
         else {
             return """
@@ -269,7 +269,7 @@ public enum PromptBuilder {
             ? "This is the final turn of the scene."
             : "There are \(turnsRemaining) learner turns left in this scene."
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/scenario", withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: "Prompts/scenario", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {
@@ -306,7 +306,7 @@ public enum PromptBuilder {
     /// 那边管「你演谁」，这边管「你要把学员带到哪」——两块都注入，缺一个老师就会跑偏。
     public static func taskBlock(briefing: ScenarioBriefing) -> String {
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/task_briefing", withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: "Prompts/task_briefing", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {
@@ -329,7 +329,7 @@ public enum PromptBuilder {
     /// 要求模型**只输出老师这一句开场白**的提示词（需求 6：老师引导开场）。
     public static func taskOpenerPrompt(briefing: ScenarioBriefing) -> String {
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/task_opener", withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: "Prompts/task_opener", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {
@@ -346,7 +346,7 @@ public enum PromptBuilder {
     /// 随口练块（需求 4：学生主导，老师少引导、多建议与纠错）。
     public static func freeTalkBlock(review: SessionReview?) -> String {
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/free_talk", withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: "Prompts/free_talk", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {
@@ -412,7 +412,7 @@ public enum PromptBuilder {
     public static func continuationOpenerPrompt(review: SessionReview?) -> String {
         let facts = continuationFacts(review)
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/continuation_opener", withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: "Prompts/continuation_opener", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {
@@ -441,7 +441,7 @@ public enum PromptBuilder {
         let facts = continuationFacts(review)
         guard !facts.isEmpty else { return "" }
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/continuation", withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: "Prompts/continuation", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {
@@ -489,7 +489,7 @@ public enum PromptBuilder {
     /// 模板走 `Resources/Prompts/spelling_fix.txt`，缺失时用等价内联兜底。
     public static func spellingFixPrompt(sentence: String) -> String {
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/spelling_fix", withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: "Prompts/spelling_fix", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {
@@ -572,7 +572,7 @@ public enum PromptBuilder {
     /// 模板走 `Resources/Prompts/greeting.txt`，缺失时用等价内联兜底。
     public static func greetingPrompt(learningLanguage: String, nativeLanguage: String) -> String {
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/greeting", withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: "Prompts/greeting", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {
@@ -589,7 +589,7 @@ public enum PromptBuilder {
     /// 气泡翻译（点开才调用）。模板走 `Resources/Prompts/translate.txt`，缺失时用等价内联兜底。
     public static func translationPrompt(text: String, targetLanguage: String) -> String {
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/translate", withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: "Prompts/translate", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {
@@ -798,7 +798,7 @@ public enum PromptBuilder {
 
     /// 读 `Resources/Prompts/<name>.txt`；缺失时用兜底模板。
     static func loadTemplate(resource: String, fallback: String) -> String {
-        if let url = AppResourceBundle.module.url(forResource: resource, withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: resource, withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8),
            !loaded.isEmpty {
             return loaded
@@ -873,7 +873,7 @@ public enum PromptBuilder {
         fallback: String
     ) -> String {
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: resource, withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: resource, withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {
@@ -1035,7 +1035,7 @@ public enum PromptBuilder {
             .filter { !$0.isEmpty }
         guard !names.isEmpty else { return "" }
         let template: String
-        if let url = AppResourceBundle.module.url(forResource: "Prompts/attachment_note", withExtension: "txt"),
+        if let url = AppResourceBundle.url(forResource: "Prompts/attachment_note", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
             template = loaded
         } else {

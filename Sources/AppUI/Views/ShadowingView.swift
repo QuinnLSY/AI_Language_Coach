@@ -72,7 +72,7 @@ public struct ShadowingView: View {
                         noticeBanner(notice)
                     }
                 }
-                .padding(20)
+                .appPadding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             // 内容不足一屏时不硬弹（#360，同聊天区）。
@@ -97,45 +97,45 @@ public struct ShadowingView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text("跟读")
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .appFont(16, weight: .bold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     if state.isShadowingLoading {
                         HStack(spacing: 4) {
                             ProgressView().controlSize(.small)
                             Text("正在生成今天的句子…")
-                                .font(.system(size: 10, design: .rounded))
+                                .appFont(10, design: .rounded)
                         }
                         .foregroundStyle(theme.secondaryText)
                     } else if state.isPhonemeDrill {
                         // ⚠️ 专项素材既不是今日的、也不是内置的，必须另说一句：
                         // 走 else 会显示「内置素材」，用户会以为今天的句子被换掉了。
                         Text("音素专项 · \(state.phonemeDrillFocusDisplay.map { "/\($0)/" } ?? "")")
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .appFont(10, weight: .semibold, design: .rounded)
                             .foregroundStyle(theme.accentCool)
                             .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .appPadding(.vertical, 2)
                             .background(Capsule().fill(theme.accentCool.opacity(0.14)))
                             .help("针对你老发错的那个音，只练只差这一个音的词对")
                     } else if state.shadowingIsDailyGenerated {
                         Text("今日 · \(state.shadowingDrills.count) 句")
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .appFont(10, weight: .semibold, design: .rounded)
                             .foregroundStyle(theme.accent)
                             .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .appPadding(.vertical, 2)
                             .background(Capsule().fill(theme.accent.opacity(0.14)))
                             .help("每天按不同情景现生成，同一天内不会变")
                     } else {
                         Text("内置素材")
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .appFont(10, weight: .semibold, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                             .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .appPadding(.vertical, 2)
                             .background(Capsule().fill(theme.hover))
                             .help("今天现生成的句子没拿到，用的是安装包里的内置素材")
                     }
                 }
                 Text("跟着老师的节奏说一遍；句子里的词可以划过去单独看释义")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             Spacer(minLength: 0)
@@ -146,7 +146,7 @@ public struct ShadowingView: View {
                         Text("· 发音最佳 \(Int(best.rounded())) 分")
                     }
                 }
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .monospacedDigit()
             }
@@ -158,7 +158,7 @@ public struct ShadowingView: View {
                     Image(systemName: "wand.and.stars")
                     Text(state.isShadowingLoading ? "生成中…" : "换一批")
                 }
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .appFont(11, weight: .semibold, design: .rounded)
                 .foregroundStyle(theme.accentCool)
             }
             .buttonStyle(.appPressable)
@@ -183,15 +183,15 @@ public struct ShadowingView: View {
     private var listeningEntry: some View {
         HStack(alignment: .center, spacing: 10) {
             Image(systemName: AppSection.listening.systemImage)
-                .font(.system(size: 13))
+                .appFont(13)
                 .foregroundStyle(theme.accentCool)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text("听力")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .appFont(13, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text("同一批句子，但屏幕上不给字：默写 / 抓关键词 / 选释义，三种练法随便换")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .lineLimit(1)
             }
@@ -200,7 +200,7 @@ public struct ShadowingView: View {
 
             if state.listeningLog.resolvedCount > 0 {
                 Text(listeningTodayText)
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .monospacedDigit()
                     .lineLimit(1)
@@ -210,10 +210,10 @@ public struct ShadowingView: View {
                 Task { await state.go(to: .listening) }
             } label: {
                 Text("去听力")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.accentCool)
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
+                    .appPadding(.vertical, 5)
                     .background(
                         Capsule(style: .continuous)
                             .strokeBorder(theme.accentCool.opacity(0.5), lineWidth: 1)
@@ -223,7 +223,7 @@ public struct ShadowingView: View {
             .help("听力与跟读共用今天的素材（⌘\(AppSection.listening.shortcutDigit)）")
             .accessibilityLabel("去听力")
         }
-        .padding(12)
+        .appPadding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -249,9 +249,9 @@ public struct ShadowingView: View {
                     state.setShadowingMode(mode)
                 } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: mode.symbol).font(.system(size: 11, weight: .semibold))
+                        Image(systemName: mode.symbol).appFont(11, weight: .semibold)
                         Text(mode.displayName)
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .appFont(12, weight: .semibold, design: .rounded)
                     }
                     .foregroundStyle(isOn ? theme.accent : theme.secondaryText)
                     .padding(.horizontal, 12)
@@ -281,7 +281,7 @@ public struct ShadowingView: View {
             if state.shadowingMode == .passage {
                 let passages = state.shadowingPassages
                 Text("第 \(state.shadowingPassageIndex + 1) / \(passages.count) 段")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .monospacedDigit()
                 if let passage = state.currentShadowingPassage {
@@ -297,13 +297,13 @@ public struct ShadowingView: View {
                         Image(systemName: "arrow.right.circle.fill")
                         Text("换一段")
                     }
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .foregroundStyle(theme.accent)
                 }
                 .buttonStyle(.appPressable)
             } else {
                 Text("第 \(state.shadowingIndex + 1) / \(state.shadowingDrills.count) 句")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .monospacedDigit()
 
@@ -352,7 +352,7 @@ public struct ShadowingView: View {
 
                 if !drill.translation.isEmpty {
                     Text(drill.translation)
-                        .font(.system(size: 13, design: .rounded))
+                        .appFont(13, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -360,10 +360,10 @@ public struct ShadowingView: View {
                 if !drill.focus.isEmpty {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "lightbulb.fill")
-                            .font(.system(size: 10))
+                            .appFont(10)
                             .foregroundStyle(theme.accent)
                         Text(drill.focus)
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
@@ -371,7 +371,7 @@ public struct ShadowingView: View {
                 }
             }
         }
-        .padding(18)
+        .appPadding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -389,7 +389,7 @@ public struct ShadowingView: View {
                 ForEach(Array(passage.sentences.enumerated()), id: \.offset) { index, sentence in
                     HStack(alignment: .center, spacing: 8) {
                         Text("\(index + 1)")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .appFont(11, weight: .bold, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                             .monospacedDigit()
                             .frame(width: 14, alignment: .trailing)
@@ -407,7 +407,7 @@ public struct ShadowingView: View {
 
                 if !passage.translation.isEmpty {
                     Text(passage.translation)
-                        .font(.system(size: 13, design: .rounded))
+                        .appFont(13, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -415,10 +415,10 @@ public struct ShadowingView: View {
                 if !passage.focus.isEmpty {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "lightbulb.fill")
-                            .font(.system(size: 10))
+                            .appFont(10)
                             .foregroundStyle(theme.accent)
                         Text(passage.focus)
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
@@ -426,7 +426,7 @@ public struct ShadowingView: View {
                 }
             }
         }
-        .padding(18)
+        .appPadding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -501,10 +501,10 @@ public struct ShadowingView: View {
                 if isBusy {
                     ProgressView().controlSize(.small)
                 } else {
-                    Image(systemName: icon).font(.system(size: 14, weight: .semibold))
+                    Image(systemName: icon).appFont(14, weight: .semibold)
                 }
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .appFont(13, weight: .semibold, design: .rounded)
             }
             .foregroundStyle(filled ? Color.white : tint)
             .padding(.horizontal, 14)
@@ -534,21 +534,21 @@ public struct ShadowingView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center, spacing: 12) {
                 Text("\(comparison.accuracyPercent)%")
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .appFont(34, weight: .bold, design: .rounded)
                     .foregroundStyle(verdictColor(comparison.verdict))
                     .monospacedDigit()
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 5) {
                         Image(systemName: comparison.verdict.symbol)
-                            .font(.system(size: 11))
+                            .appFont(11)
                         Text(comparison.verdict.displayName)
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .appFont(13, weight: .semibold, design: .rounded)
                     }
                     .foregroundStyle(verdictColor(comparison.verdict))
 
                     Text("跟上 \(comparison.matched) / \(comparison.referenceCount) 个词")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .monospacedDigit()
                 }
@@ -565,22 +565,22 @@ public struct ShadowingView: View {
             }
 
             Text(comparison.hint)
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "ear.fill")
-                    .font(.system(size: 10))
+                    .appFont(10)
                     .foregroundStyle(theme.secondaryText)
                 Text("我听到的：\(comparison.recognizedText)")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
         }
-        .padding(18)
+        .appPadding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -611,21 +611,21 @@ public struct ShadowingView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center, spacing: 12) {
                 Text("\(result.accuracyPercent)%")
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .appFont(34, weight: .bold, design: .rounded)
                     .foregroundStyle(verdictColor(result.verdict))
                     .monospacedDigit()
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 5) {
                         Image(systemName: result.verdict.symbol)
-                            .font(.system(size: 11))
+                            .appFont(11)
                         Text(result.verdict.displayName)
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .appFont(13, weight: .semibold, design: .rounded)
                     }
                     .foregroundStyle(verdictColor(result.verdict))
 
                     Text("跟上 \(result.matched) / \(result.referenceCount) 个词")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .monospacedDigit()
                 }
@@ -645,22 +645,22 @@ public struct ShadowingView: View {
             }
 
             Text(result.hint)
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "ear.fill")
-                    .font(.system(size: 10))
+                    .appFont(10)
                     .foregroundStyle(theme.secondaryText)
                 Text("我听到的：\(result.recognizedText)")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
         }
-        .padding(18)
+        .appPadding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -679,13 +679,13 @@ public struct ShadowingView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Text("第 \(index + 1) 句")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Image(systemName: comparison.verdict.symbol)
-                    .font(.system(size: 10))
+                    .appFont(10)
                     .foregroundStyle(verdictColor(comparison.verdict))
                 Text("\(comparison.accuracyPercent)%")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(verdictColor(comparison.verdict))
                     .monospacedDigit()
                 if isWeakest { chip("最弱", color: theme.warning) }
@@ -699,7 +699,7 @@ public struct ShadowingView: View {
                 }
             }
         }
-        .padding(10)
+        .appPadding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -715,11 +715,11 @@ public struct ShadowingView: View {
         }
         let prefix = token.status == .extra ? "+" : ""
         return Text(prefix + token.word)
-            .font(.system(size: 12, weight: .medium, design: .rounded))
+            .appFont(12, weight: .medium, design: .rounded)
             .foregroundStyle(token.status == .matched ? theme.primaryText : color)
             .strikethrough(token.status == .missing, color: color)
             .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .appPadding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(color.opacity(token.status == .matched ? 0.14 : 0.18))
@@ -744,23 +744,23 @@ public struct ShadowingView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("发音评测")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .appFont(13, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 if !report.metrics.hasSpeech {
                     Text("这次没量到足够的语音，仅供参考")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
                 Spacer(minLength: 0)
                 HStack(spacing: 4) {
                     Image(systemName: report.verdict.symbol)
-                        .font(.system(size: 11))
+                        .appFont(11)
                     Text(report.verdict.displayName)
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                 }
                 .foregroundStyle(scoreColor(report.overall))
                 Text("\(report.overallPercent)")
-                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .appFont(26, weight: .bold, design: .rounded)
                     .foregroundStyle(scoreColor(report.overall))
                     .monospacedDigit()
             }
@@ -780,18 +780,18 @@ public struct ShadowingView: View {
             ForEach(report.tips, id: \.self) { tip in
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "lightbulb.fill")
-                        .font(.system(size: 10))
+                        .appFont(10)
                         .foregroundStyle(theme.accent)
-                        .padding(.top, 2)
+                        .appPadding(.top, 2)
                     Text(tip)
-                        .font(.system(size: 12, design: .rounded))
+                        .appFont(12, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                 }
             }
         }
-        .padding(18)
+        .appPadding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -805,16 +805,16 @@ public struct ShadowingView: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 8) {
                 Text(line.dimension.displayName)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .appFont(12, weight: .medium, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Spacer(minLength: 8)
                 Text(line.detail)
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Text("\(Int(line.score.rounded()))")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(scoreColor(line.score))
                     .monospacedDigit()
                     .frame(width: 28, alignment: .trailing)
@@ -847,14 +847,14 @@ public struct ShadowingView: View {
                 Image(systemName: "tray")
                     .foregroundStyle(theme.secondaryText)
                 Text(state.shadowingNotice ?? "跟读素材还没加载出来")
-                    .font(.system(size: 13, design: .rounded))
+                    .appFont(13, design: .rounded)
                     .foregroundStyle(theme.primaryText)
             }
             Text("素材来自安装包内的 Resources/Shadowing/*.json。")
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
         }
-        .padding(18)
+        .appPadding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -867,7 +867,7 @@ public struct ShadowingView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(theme.warning)
             Text(message)
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.primaryText)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -875,12 +875,12 @@ public struct ShadowingView: View {
                 state.dismissShadowingNotice()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
+                    .appFont(10, weight: .semibold)
                     .foregroundStyle(theme.secondaryText)
             }
             .buttonStyle(.appPressable)
         }
-        .padding(12)
+        .appPadding(12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(theme.warning.opacity(0.14))
@@ -889,10 +889,10 @@ public struct ShadowingView: View {
 
     private func chip(_ text: String, color: Color) -> some View {
         Text(text)
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .appFont(10, weight: .semibold, design: .rounded)
             .foregroundStyle(color)
             .padding(.horizontal, 7)
-            .padding(.vertical, 3)
+            .appPadding(.vertical, 3)
             .background(Capsule().fill(color.opacity(0.14)))
     }
 
@@ -940,7 +940,7 @@ struct ShadowingSentenceNavButtons: View {
             Image(systemName: systemImage)
             Text(text)
         }
-        .font(.system(size: 12, design: .rounded))
+        .appFont(12, design: .rounded)
         .foregroundStyle(color)
     }
 }

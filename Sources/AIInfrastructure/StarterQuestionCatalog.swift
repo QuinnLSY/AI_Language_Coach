@@ -9,12 +9,12 @@ public enum StarterQuestionCatalog {
 
     /// 随包发布的提问列表。资源缺失时返回空数组（UI 退回普通占位文案）。
     public static func bundled() -> [String] {
-        if let url = AppResourceBundle.module.url(forResource: "Questions/starter_questions", withExtension: "json"),
+        if let url = AppResourceBundle.url(forResource: "Questions/starter_questions", withExtension: "json"),
            let loaded = parse(try? Data(contentsOf: url)) {
             return loaded
         }
         // 兜底：不同打包方式对子目录资源的处理略有差异。
-        if let url = AppResourceBundle.module.url(forResource: "starter_questions", withExtension: "json"),
+        if let url = AppResourceBundle.url(forResource: "starter_questions", withExtension: "json"),
            let loaded = parse(try? Data(contentsOf: url)) {
             return loaded
         }

@@ -205,10 +205,10 @@ struct SampleWordChip: View {
     var body: some View {
         Button(action: onTap) {
             Text(word)
-                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .appFont(12, weight: .medium, design: .rounded)
                 .foregroundStyle(theme.accent)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .appPadding(.vertical, 6)
                 .background(Capsule().fill(theme.accent.opacity(hovered ? 0.22 : 0.12)))
                 .overlay(
                     // 描边一直画着、只改透明度：避免出现「多出一圈」的布局抖动。

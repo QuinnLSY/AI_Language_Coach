@@ -51,14 +51,14 @@ public struct RecordsView: View {
                 Image(systemName: "checkmark.seal")
                     .foregroundStyle(theme.success)
                 Text("改错练习")
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .appFont(14, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Spacer(minLength: 8)
                 Button {
                     state.dismissErrorDrillSummary()
                 } label: {
                     Text("知道了")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .appFont(12, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .padding(.horizontal, 10)
                         .frame(height: 24)
@@ -67,16 +67,16 @@ public struct RecordsView: View {
                 .buttonStyle(.appPressable)
             }
             Text(summary.headline)
-                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .appFont(13, weight: .medium, design: .rounded)
                 .foregroundStyle(theme.primaryText)
             if !summary.detail.isEmpty {
                 Text(summary.detail)
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(16)
+        .appPadding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -123,7 +123,7 @@ public struct RecordsView: View {
                         mistakesCard.id(RecordsFocus.mistakes.anchorID)
                         sessionsCard
                     }
-                    .padding(20)
+                    .appPadding(20)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .task {
@@ -166,10 +166,10 @@ public struct RecordsView: View {
             CuteAnimalView(kind: state.studentAnimalKind, isSleeping: theme.isNight, size: 40, accessory: state.studentAccessory)
             VStack(alignment: .leading, spacing: 2) {
                 Text("学习记录")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .appFont(16, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text("每一次攀爬都被大树记住了")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             Spacer()
@@ -200,22 +200,22 @@ public struct RecordsView: View {
     private func statTile(icon: String, value: String, label: String) -> some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
-                .font(.system(size: 18))
+                .appFont(18)
                 .foregroundStyle(theme.accent)
                 .frame(width: 40, height: 40)
                 .background(Circle().fill(theme.accent.opacity(0.12)))
             VStack(alignment: .leading, spacing: 1) {
                 Text(value)
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .appFont(18, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                     .monospacedDigit()
                 Text(label)
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             Spacer()
         }
-        .padding(14)
+        .appPadding(14)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(theme.surface)
@@ -238,7 +238,7 @@ public struct RecordsView: View {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
                         Text("老师正在回看这次练习…")
-                            .font(.system(size: 12, design: .rounded))
+                            .appFont(12, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                         Spacer(minLength: 0)
                     }
@@ -290,7 +290,7 @@ public struct RecordsView: View {
                 Image(systemName: systemImage)
                 Text(title)
             }
-            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .appFont(12, weight: .semibold, design: .rounded)
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
             .frame(height: 26)
@@ -304,15 +304,15 @@ public struct RecordsView: View {
             // 一句话总结 + 时长/轮次
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: "quote.bubble.fill")
-                    .font(.system(size: 12))
+                    .appFont(12)
                     .foregroundStyle(theme.accent)
                 Text(review.headline)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .appFont(14, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Spacer(minLength: 0)
             }
             Text("\(review.durationText) · \(review.messageCount) 轮对话 · \(review.correctionCount) 处批注")
-                .font(.system(size: 11, design: .rounded))
+                .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .monospacedDigit()
 
@@ -334,14 +334,14 @@ public struct RecordsView: View {
             if !review.suggestion.isEmpty {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "lightbulb.fill")
-                        .font(.system(size: 11))
+                        .appFont(11)
                         .foregroundStyle(Color(hex: 0xF7B32B))
                     Text(review.suggestion)
-                        .font(.system(size: 12, design: .rounded))
+                        .appFont(12, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     Spacer(minLength: 0)
                 }
-                .padding(10)
+                .appPadding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -351,7 +351,7 @@ public struct RecordsView: View {
 
             if review.source == .heuristic {
                 Text("本地模型暂不可用，以上为基础统计总结。")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }
@@ -362,10 +362,10 @@ public struct RecordsView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 10))
+                    .appFont(10)
                     .foregroundStyle(tint)
                 Text(title)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             content()
@@ -380,9 +380,9 @@ public struct RecordsView: View {
                     Circle()
                         .fill(theme.secondaryText.opacity(0.6))
                         .frame(width: 4, height: 4)
-                        .padding(.top, 5)
+                        .appPadding(.top, 5)
                     Text(items[index])
-                        .font(.system(size: 12, design: .rounded))
+                        .appFont(12, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     Spacer(minLength: 0)
                 }
@@ -403,7 +403,7 @@ public struct RecordsView: View {
                     }
                     if state.mistakes.count > 10 {
                         Text("还有 \(state.mistakes.count - 10) 条更早的错题…")
-                            .font(.system(size: 11, design: .rounded))
+                            .appFont(11, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                     }
                 }
@@ -421,24 +421,24 @@ public struct RecordsView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text(mistake.original)
-                    .font(.system(size: 12, design: .rounded))
+                    .appFont(12, design: .rounded)
                     .strikethrough()
                     .foregroundStyle(theme.secondaryText)
                 Image(systemName: "arrow.right")
-                    .font(.system(size: 9, weight: .bold))
+                    .appFont(9, weight: .bold)
                     .foregroundStyle(theme.accent)
                 Text(mistake.corrected)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
             }
             if !mistake.explanation.isEmpty {
                 Text(mistake.explanation)
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .appPadding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -469,41 +469,41 @@ public struct RecordsView: View {
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 Image(systemName: scenarioTitle == nil ? "leaf.fill" : "bubble.left.and.bubble.right.fill")
-                    .font(.system(size: 12))
+                    .appFont(12)
                     .foregroundStyle(theme.accent)
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 6) {
                         Text(record.startedAt.formatted(date: .abbreviated, time: .shortened))
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .appFont(12, weight: .medium, design: .rounded)
                             .foregroundStyle(theme.primaryText)
                         if let scenarioTitle {
                             Text(scenarioTitle)
-                                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                                .appFont(9, weight: .semibold, design: .rounded)
                                 .foregroundStyle(theme.accent)
                                 .padding(.horizontal, 6)
-                                .padding(.vertical, 1)
+                                .appPadding(.vertical, 1)
                                 .background(Capsule().fill(theme.accent.opacity(0.14)))
                         }
                     }
                     Text(durationText(record))
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
                 Spacer()
                 Text("\(record.messageCount) 条对话")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .monospacedDigit()
                 // 需求 5：复盘已经默认生成了，所以这里给的是「点开看」而不是「去生成」。
                 Text(review == nil ? "暂无复盘" : (isExpanded ? "收起" : "看复盘"))
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .appFont(10, weight: .semibold, design: .rounded)
                     .foregroundStyle(review == nil ? theme.secondaryText : theme.accentCool)
                 Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .appFont(9, weight: .semibold)
                     .foregroundStyle(theme.secondaryText)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .appPadding(.vertical, 8)
             .contentShape(Rectangle())
             .onTapGesture {
                 withAnimation(.app(.reveal)) {
@@ -523,7 +523,7 @@ public struct RecordsView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.bottom, 10)
+                .appPadding(.bottom, 10)
             }
         }
         .background(
@@ -553,10 +553,10 @@ public struct RecordsView: View {
             Image(systemName: "sparkles")
                 .foregroundStyle(theme.accent)
             Text(text)
-                .font(.system(size: 12, design: .rounded))
+                .appFont(12, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
         }
-        .padding(.vertical, 10)
+        .appPadding(.vertical, 10)
     }
 
     private func card<Content: View>(title: String, systemImage: String, @ViewBuilder content: () -> Content) -> some View {
@@ -576,14 +576,14 @@ public struct RecordsView: View {
                 Image(systemName: systemImage)
                     .foregroundStyle(theme.accent)
                 Text(title)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .appFont(14, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Spacer(minLength: 8)
                 trailing()
             }
             content()
         }
-        .padding(16)
+        .appPadding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -608,12 +608,12 @@ private struct WrappingChips: View {
         FlowRow(spacing: 6, lineSpacing: 6, wrapsLongItems: true) {
             ForEach(items, id: \.self) { item in
                 Text(item)
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .appFont(11, weight: .medium, design: .rounded)
                     .foregroundStyle(tint)
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
+                    .appPadding(.vertical, 3)
                     .background(Capsule().fill(tint.opacity(0.14)))
             }
         }

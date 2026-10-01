@@ -36,11 +36,11 @@ public struct DictionaryView: View {
             if state.dictionaryMode == .search {
                 searchBar
                     .padding(.horizontal, 18)
-                    .padding(.vertical, 10)
+                    .appPadding(.vertical, 10)
                 if !state.recentDictionaryWords.isEmpty {
                     recentWordsRow
                         .padding(.horizontal, 18)
-                        .padding(.bottom, 10)
+                        .appPadding(.bottom, 10)
                 }
                 Divider().overlay(theme.divider)
             }
@@ -56,7 +56,7 @@ public struct DictionaryView: View {
                             noticeBanner(notice)
                         }
                     }
-                    .padding(20)
+                    .appPadding(20)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .id(Self.topAnchorID)
                     // 失败提示的触觉反馈（#358）：挂在常驻容器上（挂在 if let 里
@@ -93,17 +93,17 @@ public struct DictionaryView: View {
             CuteAnimalView(kind: state.studentAnimalKind, isSleeping: theme.isNight, size: 40, accessory: state.studentAccessory)
             VStack(alignment: .leading, spacing: 2) {
                 Text(state.dictionaryMode == .search ? "查单词" : "词典库")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .appFont(16, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text(headerSubtitle)
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
             Spacer(minLength: 0)
             if state.dictionaryUniqueWordCount > 0 {
                 // 跨词典同名词只算一个（与查词 / 联想、设置页词汇本卡片同一个数）。
                 Text("\(state.dictionaryBooks.count) 本 · 去重后共 \(state.dictionaryUniqueWordCount) 词")
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .monospacedDigit()
             }
@@ -128,7 +128,7 @@ public struct DictionaryView: View {
                 Image(systemName: state.dictionaryMode.switchIcon)
                 Text(state.dictionaryMode.switchTitle)
             }
-            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .appFont(12, weight: .semibold, design: .rounded)
             .foregroundStyle(theme.accent)
             .padding(.horizontal, 12)
             .frame(height: 28)
@@ -149,13 +149,13 @@ public struct DictionaryView: View {
             // 跟着把浮层重新武装起来，提交刚收起的浮层会被它顶回来。
             HStack(spacing: 0) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12))
+                    .appFont(12)
                     .foregroundStyle(theme.secondaryText)
                     .padding(.leading, 10)
 
                 TextField("查一个单词或词组，如 nominal", text: Bindable(state).dictionaryQuery)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+                    .appFont(13)
                     .padding(.horizontal, 8)
                     .focused($queryFocused)
                     .onSubmit { submit() }
@@ -186,7 +186,7 @@ public struct DictionaryView: View {
                     state.dismissDictionaryMatches()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12))
+                        .appFont(12)
                         .foregroundStyle(theme.secondaryText.opacity(0.7))
                 }
                 .buttonStyle(.appPressable)
@@ -200,7 +200,7 @@ public struct DictionaryView: View {
 
             Button(action: submit) {
                 Text("查询")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(canSubmit ? theme.accent : theme.secondaryText.opacity(0.45))
                     .padding(.horizontal, 16)
                     .frame(maxHeight: .infinity)
@@ -235,17 +235,17 @@ public struct DictionaryView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 10))
+                    .appFont(10)
                     .foregroundStyle(theme.secondaryText)
                 Text("最近查过")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 Spacer(minLength: 0)
                 Button {
                     state.clearRecentDictionaryWords()
                 } label: {
                     Text("清空")
-                        .font(.system(size: 10, design: .rounded))
+                        .appFont(10, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                 }
                 .buttonStyle(.appPressable)
@@ -286,23 +286,23 @@ public struct DictionaryView: View {
                 } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(match.word)
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .appFont(12, weight: .semibold, design: .rounded)
                             .foregroundStyle(theme.primaryText)
                         if !match.phonetic.isEmpty {
                             Text(match.phonetic)
-                                .font(.system(size: 11, design: .rounded))
+                                .appFont(11, design: .rounded)
                                 .foregroundStyle(theme.accent.opacity(0.9))
                         }
                         if !match.detailText.isEmpty {
                             Text(match.detailText)
-                                .font(.system(size: 11, design: .rounded))
+                                .appFont(11, design: .rounded)
                                 .foregroundStyle(theme.secondaryText)
                                 .lineLimit(1)
                         }
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+                    .appPadding(.vertical, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                 }
@@ -356,14 +356,14 @@ public struct DictionaryView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "text.book.closed")
-                    .font(.system(size: 22))
+                    .appFont(22)
                     .foregroundStyle(theme.accent)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("查一个词试试")
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .appFont(14, weight: .bold, design: .rounded)
                         .foregroundStyle(theme.primaryText)
                     Text("在上面的搜索栏输入英文单词或词组，回车（或点「查询」）出结果。匹配到的词直接点一下也能查。")
-                        .font(.system(size: 11, design: .rounded))
+                        .appFont(11, design: .rounded)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -379,7 +379,7 @@ public struct DictionaryView: View {
                 }
             }
         }
-        .padding(16)
+        .appPadding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -434,19 +434,19 @@ public struct DictionaryView: View {
                 .foregroundStyle(theme.accent)
             VStack(alignment: .leading, spacing: 4) {
                 Text("导入词典格式")
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .appFont(11, weight: .bold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
                 Text(DictionaryFileFormat.summary)
-                    .font(.system(size: 11, design: .rounded))
+                    .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("只有 word 必填；phonetic / pos / zh 可省。点图标选择文件。")
-                    .font(.system(size: 10, design: .rounded))
+                    .appFont(10, design: .rounded)
                     .foregroundStyle(theme.secondaryText.opacity(0.9))
             }
             Spacer(minLength: 0)
         }
-        .padding(10)
+        .appPadding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous).fill(theme.accent.opacity(0.08))
@@ -462,17 +462,17 @@ public struct DictionaryView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "arrow.uturn.backward.circle")
-                    .font(.system(size: 11))
+                    .appFont(11)
                     .foregroundStyle(theme.accent)
                 Text("取下的内置词典")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .appFont(11, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                 Spacer(minLength: 0)
                 Button {
                     Task { await state.restoreBuiltInDictionaries() }
                 } label: {
                     Text("全部放回")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .appFont(11, weight: .semibold, design: .rounded)
                         .foregroundStyle(theme.accent)
                 }
                 .buttonStyle(.appPressable)
@@ -487,10 +487,10 @@ public struct DictionaryView: View {
                             Image(systemName: "arrow.uturn.backward")
                             Text(book.name)
                         }
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .appFont(11, weight: .medium, design: .rounded)
                         .foregroundStyle(theme.accent)
                         .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
+                        .appPadding(.vertical, 5)
                         .background(Capsule().fill(theme.accent.opacity(0.12)))
                         .contentShape(Capsule())
                     }
@@ -499,7 +499,7 @@ public struct DictionaryView: View {
                 }
             }
         }
-        .padding(12)
+        .appPadding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.surface)
