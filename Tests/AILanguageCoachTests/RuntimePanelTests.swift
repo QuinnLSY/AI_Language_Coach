@@ -112,6 +112,24 @@ final class RuntimePanelTests: XCTestCase {
         XCTAssertFalse(progress.contains { $0.contains("private var goalStepper") })
     }
 
+    // MARK: - 语义记忆索引状态（#411）
+
+    /// 读状态之前必须先把嵌入 provider 装好。
+    ///
+    /// `ensureEmbeddingReady` 是**惰性**的（只有真要嵌入时才注册），启动时没人装配它。
+    /// 冷启动后直接开设置页，不先装就读 → `supportsSemanticRanking` 恒为 false，
+    /// 这一行永久显示「未接通」，而同页上方的记忆索引区块写着「已接通」——自己打自己。
+    func testSemanticStatusReadsAfterTheEmbeddingIsReady() throws {
+        let body = try codeLines(of: "Sources/AppUI/AppState+Maintenance.swift").joined(separator: "\n")
+        XCTAssertTrue(body.contains("await services.ensureEmbeddingReady()"),
+                      "读语义索引状态前必须先装配嵌入 provider")
+        // 而且要在读 `semanticMemoryInfo()` 之前。
+        let ready = body.range(of: "ensureEmbeddingReady()")?.lowerBound
+        let read = body.range(of: "semanticMemoryInfo()")?.lowerBound
+        guard let ready, let read else { return XCTFail("找不到这两步") }
+        XCTAssertLessThan(ready, read, "顺序反了：先装配、再读状态")
+    }
+
     // MARK: - 辅助
 
     /// 读源码并去掉注释行：注释里出现同样的字样会让扫描型哨兵假绿。

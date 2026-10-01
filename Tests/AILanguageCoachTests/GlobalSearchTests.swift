@@ -111,4 +111,66 @@ final class GlobalSearchTests: XCTestCase {
         XCTAssertTrue(body.contains("ESCAPE"), "要声明转义符，likeEscaped 加的反斜杠才有意义")
         XCTAssertTrue(body.contains("likeEscaped"), "必须先转义再包 %…%：搜「50%」不该命中一切")
     }
+
+    // MARK: - 命中之后要能定位（2026-10-01 补）
+
+    /// 对话命中带着 `sessionID` —— 点了要能直接展开那一条记录，
+    /// 否则落在记录页顶部，用户还得自己在几十条里翻。
+    func testConversationHitCarriesItsSessionID() {
+        let sessionID = UUID()
+        let hit = GlobalSearchHit(id: "message|\(sessionID.uuidString)|m1",
+                                  kind: .conversation, title: "我", detail: "…")
+        XCTAssertEqual(hit.sessionID, sessionID)
+        // 别把别的来源的 id 当成会话（kind 与前缀都要对上）。
+        let reading = GlobalSearchHit(id: "reading|20261001|标题", kind: .reading,
+                                      title: "标题", detail: "…")
+        XCTAssertNil(reading.sessionID)
+        let broken = GlobalSearchHit(id: "message|不是UUID|m1", kind: .conversation,
+                                     title: "我", detail: "…")
+        XCTAssertNil(broken.sessionID, "解析不出来就当没有，不能拿去跳转")
+    }
+
+    func testReadingHitCarriesDayKeyAndTitle() {
+        let hit = GlobalSearchHit(id: "reading|20261001|The Slow Train",
+                                  kind: .reading, title: "The Slow Train", detail: "…")
+        XCTAssertEqual(hit.readingDayKey, 20261001)
+        XCTAssertEqual(hit.readingTitle, "The Slow Train")
+        let conversation = GlobalSearchHit(id: "message|x|y", kind: .conversation,
+                                           title: "我", detail: "…")
+        XCTAssertNil(conversation.readingDayKey)
+    }
+
+    /// 跳转必须真的用上这两个信息（解析出来却不用，等于没修）。
+    func testOpeningAHitUsesTheLocatorsAndClearsTheQuery() throws {
+        let raw = try String(contentsOfFile: "Sources/AppUI/AppState+GlobalSearch.swift",
+                             encoding: .utf8)
+        let lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        XCTAssertTrue(lines.joined(separator: "\n").contains(".sessionReview($0)"),
+                      "对话命中没定位到会话")
+        XCTAssertTrue(lines.joined(separator: "\n").contains("dayKey: hit.readingDayKey"),
+                      "阅读命中没定位到那一天")
+        // ⚠️ 清词这条必须**只看跳转函数体内**：`closeGlobalSearch()` 里也有一句
+        // `globalSearchQuery = ""`，全文件匹配的话撤掉跳转处的清词也照样绿（假绿）。
+        let openBody = lines
+            .drop(while: { !$0.contains("func open(globalSearchHit") })
+            .prefix(while: { !$0.contains("switch hit.kind") })
+            .joined(separator: "\n")
+        XCTAssertTrue(openBody.contains("globalSearchQuery = \"\""),
+                      "点了结果要连查询词一起清（否则下次打开是「旧词 + 没有找到」）")
+    }
+
+    /// 阅读来源必须走**库里最近读过的**，不能只读内存里今天那一两篇。
+    func testReadingSourceReadsStoredHistory() throws {
+        let raw = try String(contentsOfFile: "Sources/AppUI/AppState+GlobalSearch.swift",
+                             encoding: .utf8)
+        let lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        let body = lines.joined(separator: "\n")
+        XCTAssertTrue(body.contains("services.recentReadings()"), "阅读来源没走库")
+        XCTAssertFalse(body.contains("readingEntries.map { $0.passage }"),
+                       "只读内存里的今天那批，昨天读的短文就搜不到")
+    }
 }

@@ -1207,6 +1207,35 @@ public actor LearningDatabase {
         }.compactMap { $0 }
     }
 
+    /// 最近读过的短文（**新 → 旧**，供跨页搜索用）。
+    ///
+    /// 为什么要有它（2026-10-01）：全局搜索的「阅读」来源原本只读内存里的
+    /// `readingEntries` —— 那是**今天**那一两篇，而且没进过阅读页时是空的，
+    /// 于是搜索框写着「搜读过的短文」却一条都搜不到（昨天、上周读的更搜不到）。
+    /// 封顶 `limit`：一年也就几百篇，取最近这些足够兜住「我读过的」。
+    public func recentReadings(limit: Int = 200) throws -> [StoredReading] {
+        try db.query(
+            """
+            SELECT id, payload, choices, is_reviewed, created_at
+            FROM reading_passages ORDER BY created_at DESC, rowid DESC LIMIT ?1
+            """,
+            [.int(limit)]
+        ) { row -> StoredReading? in
+            guard let idText = row.string(0), let id = UUID(uuidString: idText),
+                  let payloadText = row.string(1),
+                  let passage = Self.decodeJSON(payloadText, as: ReadingPassage.self),
+                  let created = row.double(4)
+            else { return nil }
+            return StoredReading(
+                id: id,
+                passage: passage,
+                choices: Self.decodeJSON(row.string(2), as: [Int: Int].self) ?? [:],
+                isReviewed: (row.int(3) ?? 0) != 0,
+                createdAt: Date(timeIntervalSince1970: created)
+            )
+        }.compactMap { $0 }
+    }
+
     /// 窗口内**交卷**的阅读（旧 → 新）：进度统计只认交卷的。
     public func readingStamps(since: Date) throws -> [ReadingStamp] {
         try db.query(

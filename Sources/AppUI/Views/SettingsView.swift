@@ -62,8 +62,8 @@ public struct SettingsView: View {
     @State private var showVocabularyResetConfirm = false
     /// 重置闯关进度（全新起点）的二次确认。
     @State private var showQuestResetConfirm = false
-    /// 使用说明（#413）。
-    @State private var showingHelp = false
+    // 使用说明（#413）是**全局**浮层（`state.showingHelp`）：菜单栏「帮助」也能开它，
+    // 所以这里不再持有自己的一份 `@State`（两份就会各开各的）。
     /// 配置里的 LLM Provider 标签（本地 / 云端）。
     @State private var providerOptions: [(id: String, name: String, isRemote: Bool)] = []
     /// 「外部模型」面板（统一接入入口）：
@@ -224,7 +224,7 @@ public struct SettingsView: View {
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 Button {
-                    showingHelp = true
+                    state.showingHelp = true
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "book.fill").appFont(11)
@@ -246,8 +246,8 @@ public struct SettingsView: View {
                 .buttonStyle(.appPressable)
             }
         }
-        .sheet(isPresented: $showingHelp) {
-            HelpCenterView { showingHelp = false }
+        .sheet(isPresented: $state.showingHelp) {
+            HelpCenterView { state.showingHelp = false }
         }
     }
 

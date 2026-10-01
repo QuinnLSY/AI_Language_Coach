@@ -34,6 +34,9 @@ public struct ForestSky: View {
                 }
                 if !ambientStill {
                     Fireflies()
+                    // 多云（#418-A）：夜里也要**看得出云** —— 设置里写着「今天是多云」，
+                    // 白天那一档的白云挂到夜空上像贴纸，这里换成被月光照亮的冷灰蓝。
+                    Clouds(dense: theme.weather == .cloudy, tint: Color(hex: 0x5F7391))
                 }
             } else {
                 if showsCelestial {
@@ -187,17 +190,19 @@ private struct SunView: View {
 private struct Clouds: View {
     /// 多云档（#418-A）：在基础三朵之上再添三朵 —— 还是同一套云的形状，只是天更挤。
     var dense: Bool = false
+    /// 云的着色（夜里不能是白的：白云挂在夜空上像贴纸，见 `ForestSky` 夜间分支）。
+    var tint: Color = .white
     @State private var drift = false
 
     var body: some View {
         ZStack {
-            Cloud(scale: 1.0, opacity: 0.95).offset(x: drift ? 60 : -40, y: -210).padding(.leading, 90)
-            Cloud(scale: 0.7, opacity: 0.8).offset(x: drift ? -50 : 40, y: -280).padding(.leading, 320)
-            Cloud(scale: 0.55, opacity: 0.7).offset(x: drift ? 40 : -30, y: -170).padding(.leading, 520)
+            Cloud(scale: 1.0, opacity: 0.95, tint: tint).offset(x: drift ? 60 : -40, y: -210).padding(.leading, 90)
+            Cloud(scale: 0.7, opacity: 0.8, tint: tint).offset(x: drift ? -50 : 40, y: -280).padding(.leading, 320)
+            Cloud(scale: 0.55, opacity: 0.7, tint: tint).offset(x: drift ? 40 : -30, y: -170).padding(.leading, 520)
             if dense {
-                Cloud(scale: 0.9, opacity: 0.9).offset(x: drift ? 30 : -20, y: -240).padding(.leading, 210)
-                Cloud(scale: 0.65, opacity: 0.85).offset(x: drift ? -35 : 25, y: -185).padding(.leading, 430)
-                Cloud(scale: 0.75, opacity: 0.9).offset(x: drift ? 45 : -45, y: -300).padding(.leading, 620)
+                Cloud(scale: 0.9, opacity: 0.9, tint: tint).offset(x: drift ? 30 : -20, y: -240).padding(.leading, 210)
+                Cloud(scale: 0.65, opacity: 0.85, tint: tint).offset(x: drift ? -35 : 25, y: -185).padding(.leading, 430)
+                Cloud(scale: 0.75, opacity: 0.9, tint: tint).offset(x: drift ? 45 : -45, y: -300).padding(.leading, 620)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -208,11 +213,12 @@ private struct Clouds: View {
     struct Cloud: View {
         let scale: CGFloat
         let opacity: Double
+        var tint: Color = .white
         var body: some View {
             ZStack {
-                Capsule().fill(.white.opacity(opacity)).frame(width: 120 * scale, height: 38 * scale)
-                Circle().fill(.white.opacity(opacity)).frame(width: 52 * scale, height: 52 * scale).offset(x: -26 * scale, y: -12 * scale)
-                Circle().fill(.white.opacity(opacity)).frame(width: 42 * scale, height: 42 * scale).offset(x: 22 * scale, y: -15 * scale)
+                Capsule().fill(tint.opacity(opacity)).frame(width: 120 * scale, height: 38 * scale)
+                Circle().fill(tint.opacity(opacity)).frame(width: 52 * scale, height: 52 * scale).offset(x: -26 * scale, y: -12 * scale)
+                Circle().fill(tint.opacity(opacity)).frame(width: 42 * scale, height: 42 * scale).offset(x: 22 * scale, y: -15 * scale)
             }
         }
     }
@@ -246,9 +252,11 @@ private struct RainLayer: View {
                     .frame(width: 2, height: 13)
                     .position(
                         x: point.x * proxy.size.width,
-                        y: point.y * proxy.size.height + (animates ? 30 : 0)
+                        // ⚠️ 行程要**真的跨过天空**（2026-10-01 修）：原先只落 30pt 就
+                        // 瞬移回起点，观感是原地抖动，不像下雨。这里按天空高度的六成落。
+                        y: point.y * proxy.size.height + (animates ? proxy.size.height * 0.6 : 0)
                     )
-                    .opacity(animates ? 0.6 : 0.25)
+                    .opacity(animates ? 0.72 : 0.3)
                     // 匀速直落、不回弹（autoreverses: false）—— 雨不是荡秋千。
                     .loopAnimation(
                         .linear(duration: Double(88 + (index % 5) * 14) / 100)

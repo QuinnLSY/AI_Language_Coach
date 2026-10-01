@@ -812,7 +812,7 @@ public struct ZzzView: View {
         ZStack {
             ForEach(0..<3, id: \.self) { index in
                 Text("z")
-                    .font(.system(size: size * (0.5 + Double(index) * 0.22), weight: .bold, design: .rounded))
+                    .appFont(size * (0.5 + Double(index) * 0.22), weight: .bold, design: .rounded)
                     .foregroundStyle(.white.opacity(0.85))
                     .offset(x: CGFloat(index) * size * 0.42, y: -CGFloat(index) * size * 0.40)
             }

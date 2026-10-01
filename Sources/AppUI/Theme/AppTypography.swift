@@ -32,10 +32,39 @@ public struct AppTypography: Sendable, Equatable {
 
     /// 基准字号 → 实际字号。
     ///
-    /// 下限 7pt：档位再小也不该缩成看不见（ macOS 上 7pt 以下基本不可读），
+    /// 下限 7pt：档位再小也不该缩成看不见（macOS 上 7pt 以下基本不可读），
     /// 且负值/0 会让 `Font` 直接抛异常。
+    ///
+    /// ⚠️ 下限是 `min(base, 7)` 而不是常量 7（2026-10-01 修）：写死 7 会把**基准值
+    /// 本身小于 7** 的元素（如 4pt 的项目符号圆点）在**标准档**就抬到 7pt —— 那既破坏
+    /// 「标准档与改造前逐像素等价」这条改造前提，也让配着它调的对齐整体下坠。
+    /// 保护下限不该**放大**设计值，只能**兜住**它。
     public func size(_ base: CGFloat) -> CGFloat {
-        max(base * textScale, 7)
+        Self.scaled(base, by: textScale)
+    }
+
+    /// 「基准值 × 倍率 + 保护下限」的唯一实现（实例与静态两侧共用）。
+    ///
+    /// 下限取 `min(base, 7)`：保护下限只能**兜住**设计值、不能**放大**它 ——
+    /// 把 4pt 的项目符号圆点在标准档抬成 7pt，既破坏「标准档等价」，也让配着它
+    /// 调的对齐整体下坠。0 与负值仍兜到 7（`Font` 会直接抛异常）。
+    public static func scaled(_ base: CGFloat, by scale: CGFloat) -> CGFloat {
+        guard base > 0 else { return 7 }
+        return max(base * scale, min(base, 7))
+    }
+
+    // MARK: - 非 View 上下文（AppKit 侧）
+
+    /// 字号倍率的**全局镜像**：AppKit 侧（`NSFont`）拿不到 SwiftUI 环境值，
+    /// 划词/对话正文这类用 `NSAttributedString` 渲染的文本只能读它。
+    ///
+    /// 由 `AppState` 在启动与切换字号档时写入（照 `AppMotionDescriptor.appOverride`
+    /// 的套路）；不写就是标准档 1 —— 与「未注入环境值」时的表现一致。
+    nonisolated(unsafe) public static var appTextScale: CGFloat = 1
+
+    /// 非 View 侧的基准字号 → 实际字号。
+    public static func scaledSize(_ base: CGFloat) -> CGFloat {
+        scaled(base, by: appTextScale)
     }
 
     public func font(_ base: CGFloat,
@@ -159,15 +188,27 @@ private struct AppPaddingModifier: ViewModifier {
     @Environment(\.appTypography) private var typography
 
     func body(content: Content) -> some View {
-        // `.all` 与 `.vertical` / `.top` / `.bottom` 走缩放；其余（含 `.horizontal`）
-        // 原样透出 —— 横向缩放会裁字，所以这一档对它们本来就是恒等。
         // 判「是否含纵向边」而不是比对整个集合：`Edge.Set` 是 OptionSet，
         // 组合值（如 `[.top, .horizontal]`）与 `.all` 并不相等。
         let touchesVertical = edges.contains(.top)
             || edges.contains(.bottom)
             || edges == .vertical
             || edges == .all
-        let scaled = touchesVertical ? typography.vertical(length) : typography.horizontal(length)
-        return content.padding(edges, scaled)
+        let vertical = typography.vertical(length)
+        let horizontal = typography.horizontal(length)
+        return Group {
+            if edges == .all {
+                // ⚠️ `.all` 必须**拆两笔**（2026-10-01 修）：`padding(.all, x)` 是单一标量
+                // 套四条边，一旦 x 被密度档缩放，左右两条边也跟着变 —— 那正是「横向不缩放」
+                // 这条规则要防的事（定宽卡片里横向内边距变大＝正文被挤出去）。
+                // 这里纵向吃档位、横向走原值，标准档下与 `.padding(.all, length)` 逐像素相同。
+                content.padding(.vertical, vertical).padding(.horizontal, horizontal)
+            } else if touchesVertical {
+                content.padding(edges, vertical)
+            } else {
+                // 其余（含 `.horizontal`）原样透出 —— 这一档对它们本来就是恒等。
+                content.padding(edges, horizontal)
+            }
+        }
     }
 }

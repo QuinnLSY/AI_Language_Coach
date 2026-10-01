@@ -137,6 +137,11 @@ public struct MainView: View {
                     globalSearchOverlay
                 }
             }
+            // 帮助中心（#413）：菜单栏「帮助 → 使用说明」开的是同一个 `state.showingHelp`。
+            // 挂在这一层，设置页那张卡（sheet 在设置浮层里）与菜单入口看到的是同一份。
+            .sheet(isPresented: $state.showingHelp) {
+                HelpCenterView { state.showingHelp = false }
+            }
         }
         .frame(minWidth: AppLayoutMetrics.minWindowWidth, minHeight: AppLayoutMetrics.minWindowHeight)
         .forestTheme(state.theme)
@@ -402,7 +407,9 @@ public struct MainView: View {
                 .onTapGesture { state.closeGlobalSearch() }
             GlobalSearchPanel(state: state)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                .appPadding(.top, 40)
+                // ⚠️ 这里是**落点坐标**不是留白（2026-10-01 修）：改「界面密度」不该让
+                // 浮层上下挪位，所以保留裸 `.padding`（其余真正的内边距走 `.appPadding`）。
+                .padding(.top, 40)
         }
         .transition(.opacity)
     }
@@ -413,7 +420,8 @@ public struct MainView: View {
         if let toast = state.modelToast {
             ModelToastView(toast: toast) { state.dismissModelToast() }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .appPadding(.top, 18)
+                // 落点坐标，不吃密度档（同上）
+                .padding(.top, 18)
                 .zIndex(50)
                 .transition(.move(edge: .top).combined(with: .opacity))
         }
@@ -422,7 +430,8 @@ public struct MainView: View {
         if let reward = state.lastReward {
             RewardToast(reward: reward) { state.dismissReward() }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .appPadding(.top, 78)
+                // 落点坐标，不吃密度档（同上）
+                .padding(.top, 78)
                 .zIndex(30)
                 .transition(.move(edge: .top).combined(with: .opacity))
         }
@@ -438,7 +447,8 @@ public struct MainView: View {
             )
             .frame(maxWidth: 440)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .appPadding(.top, 146)
+            // 落点坐标，不吃密度档（同上）
+            .padding(.top, 146)
             .zIndex(29)
             .transition(.move(edge: .top).combined(with: .opacity))
         }
@@ -771,29 +781,34 @@ public struct MainView: View {
                 // 一场考完的分数结构随手点掉就再也拿不回来了（报告不落库，见 #206 说明）。
                 .onTapGesture { }
 
-            ExamReportCard(
-                report: report,
-                sampleAnswers: state.examSampleAnswers,
-                sampleTargets: state.examSampleTargets,
-                sampleNotice: state.examSampleNotice,
-                isGeneratingSamples: state.isGeneratingExamSamples,
-                onRetrySamples: { state.retryExamSampleAnswers() },
-                onSpeak: { text in Task { await state.speak(text) } },
-                onRetake: { Task { await state.retakeExam() } },
-                onClose: { state.dismissExamReport() }
-            )
-            .frame(width: 560, height: 660)
-            .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(state.theme.panel)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(state.theme.divider, lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .appElevation(.sheet)
-            .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
+            GeometryReader { geo in
+                ExamReportCard(
+                    report: report,
+                    sampleAnswers: state.examSampleAnswers,
+                    sampleTargets: state.examSampleTargets,
+                    sampleNotice: state.examSampleNotice,
+                    isGeneratingSamples: state.isGeneratingExamSamples,
+                    onRetrySamples: { state.retryExamSampleAnswers() },
+                    onSpeak: { text in Task { await state.speak(text) } },
+                    onRetake: { Task { await state.retakeExam() } },
+                    onClose: { state.dismissExamReport() }
+                )
+                // ⚠️ 高度按可用高夹取（#417 起最小窗高 640 < 设计高 660）：
+                // 不夹的话最矮窗口下卡顶/卡底被切，而出口只有底部那两个按钮。
+                .frame(width: 560, height: AppLayoutMetrics.examReportHeight(available: geo.size.height))
+                .background(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(state.theme.panel)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .strokeBorder(state.theme.divider, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .appElevation(.sheet)
+                .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            }
         }
         .zIndex(28)
     }

@@ -1968,6 +1968,15 @@ public actor CoachServices {
         return (try? await learning.readings(dayKey: dayKey)) ?? []
     }
 
+    /// 最近读过的短文（新 → 旧）：跨页搜索的「阅读」来源（#414）。
+    ///
+    /// ⚠️ 不读 AppState 内存里的 `readingEntries`：那只有今天那一两篇，且没进过
+    /// 阅读页时是空的 —— 搜索承诺的是「读过的短文」，不是「今天这篇」。
+    public func recentReadings() async -> [StoredReading] {
+        guard let learning else { return [] }
+        return (try? await learning.recentReadings()) ?? []
+    }
+
     /// 落一篇短文（生成成功 / 作答变化都整体覆盖写）。
     public func saveReading(_ entry: StoredReading) async {
         guard let learning else { return }

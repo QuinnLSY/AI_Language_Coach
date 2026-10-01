@@ -23,14 +23,43 @@ final class ForestWeatherTests: XCTestCase {
         }
     }
 
+    /// ⚠️ 别写 `allCases.contains(...)` 这种断言：返回值是非空的 `ForestWeather`，
+    /// `allCases` 覆盖全部三档 —— 对任何实现都成立，撤掉实现也不会变红。
+    /// 真正有效的是下面两条**等值**断言（越界必须钳到边界那一天）。
     func testOutOfRangeDaysAreClampedNotFatal() {
-        // 越界钳回 1...366：闰年外不会崩，也不会给出「第四种天气」。
-        let low = ForestAtmosphere.weather(dayOfYear: 0)
-        let high = ForestAtmosphere.weather(dayOfYear: 999)
-        XCTAssertTrue(ForestWeather.allCases.contains(low))
-        XCTAssertTrue(ForestWeather.allCases.contains(high))
-        XCTAssertEqual(low, ForestAtmosphere.weather(dayOfYear: 1))
-        XCTAssertEqual(high, ForestAtmosphere.weather(dayOfYear: 366))
+        XCTAssertEqual(ForestAtmosphere.weather(dayOfYear: 0),
+                       ForestAtmosphere.weather(dayOfYear: 1))
+        XCTAssertEqual(ForestAtmosphere.weather(dayOfYear: -5),
+                       ForestAtmosphere.weather(dayOfYear: 1))
+        XCTAssertEqual(ForestAtmosphere.weather(dayOfYear: 999),
+                       ForestAtmosphere.weather(dayOfYear: 366))
+        XCTAssertEqual(ForestAtmosphere.weather(dayOfYear: 367),
+                       ForestAtmosphere.weather(dayOfYear: 366))
+    }
+
+    /// 判据里不许出现「当下时刻」：一天之内问多少次都必须同答（这是「不变卦」的真判据）。
+    func testWeatherNeverReadsTheClock() throws {
+        let raw = try String(contentsOfFile: "Sources/AppUI/Theme/ForestAtmosphere.swift",
+                             encoding: .utf8)
+        let body = raw.split(separator: "\n")
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        XCTAssertFalse(body.contains("Date()"), "天气判据不能读当前时刻（一天之内会变卦）")
+        XCTAssertFalse(body.contains(".random"), "天气判据不能用随机数（同一天必须同答）")
+    }
+
+    /// 全年（不只是前 100 天）都要有定义，且分布大致守住五/三/二。
+    func testWholeYearStaysWithinDesignedMix() {
+        var counts = [ForestWeather: Int]()
+        for day in 1...366 {
+            counts[ForestAtmosphere.weather(dayOfYear: day), default: 0] += 1
+        }
+        let total = counts.values.reduce(0, +)
+        XCTAssertEqual(total, 366, "闰年 366 天每一天都要有天气")
+        XCTAssertEqual(counts[.clear] ?? 0, 183)
+        XCTAssertEqual(counts[.cloudy] ?? 0, 110)
+        XCTAssertEqual(counts[.rain] ?? 0, 73)
     }
 
     func testOneFullCycleSplitsFiftyThirtyTwenty() {

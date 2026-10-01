@@ -166,7 +166,13 @@ public final class ForestStage {
         case .moduleCompleted: kind = .practiced
         case .starsEarned: kind = .starEarned
         case .levelCompleted: kind = .levelCleared
-        case .learnerTurn, .teacherTurn: kind = .spoke
+        case .learnerTurn, .teacherTurn:
+            // ⚠️ 对话流水**不进剧情史**（2026-10-01 修）：一来一回就是两条，一轮练习
+            // 轻松几十条，会把「练完 / 攒星 / 通关」这些真正用来判幕的记录挤出
+            // 24 条窗口 —— 「专注」幕要求窗口内 3 段练习，被挤掉就永远判不出来，
+            // 「收获 / 安可」同理（第二颗星时第一颗的账已经没了）。
+            // 幕判定本身也从不看它（开口聊天不算「一段学习的故事」），记它只是占地。
+            return
         case .correctionsRecorded: kind = .stumbled
         case .wordCollected, .practiceAbandoned: return
         }

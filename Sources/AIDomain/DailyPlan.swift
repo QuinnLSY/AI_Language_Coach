@@ -247,6 +247,14 @@ public enum DailyPlanner {
     /// 这是个**公开的估算**，用于把「每日目标 N 分钟」折算成轮次；
     /// 不精确也没关系 —— 卡片上写的是「每日目标 15 分钟」，不是「必须聊满 4 轮」。
     public static let secondsPerExchange = 90.0
+    /// 「目标分钟数再往上调，对话轮数也不再变」的分界线（分钟）。
+    ///
+    /// 由 `conversationCeiling` 与折算常数**推出来**，不另写一个 18 —— 两处写死必然漂移。
+    /// UI 要在越过这条线时说清楚（2026-10-01）：否则用户把目标从 20 调到 60，
+    /// 今日任务的对话轮数一格不动，看着就像开关坏了。
+    public static var exchangeCeilingMinutes: Int {
+        Int((Double(conversationCeiling) * secondsPerExchange / 60).rounded(.up))
+    }
     /// 技能分低于这个值才值得单独点名（0...1）。
     public static let weakSkillThreshold = 0.8
 

@@ -37,9 +37,43 @@ final class AppTypographyTests: XCTestCase {
         XCTAssertEqual(large.size(13), 13 * 1.1, accuracy: 0.001)
         let small = AppTypography(typeSize: .small, density: .regular)
         XCTAssertEqual(small.size(13), 13 * 0.94, accuracy: 0.001)
-        // 下限：再小的基准值也不能缩到不可读（负值/0 会直接把 Font 搞炸）。
-        XCTAssertEqual(small.size(2), 7, "字号下限必须是 7pt")
+        // 下限只兜「小于 7 的设计值」，绝不放大它 —— 见 `AppTypography.scaled` 的说明。
+        XCTAssertEqual(small.size(2), 2, "保护下限不该把 2pt 放大成 7pt")
+        XCTAssertEqual(AppTypography.standard.size(4), 4,
+                       "标准档必须原样透出基准值：4pt 的圆点被抬成 7pt 就是改造引入的回归")
+        // 0 与负值必须兜住：`Font` 会直接抛异常。
         XCTAssertEqual(small.size(-3), 7)
+        XCTAssertEqual(small.size(0), 7)
+    }
+
+    // MARK: - 非 View 侧（AppKit：划词 / 对话正文的 NSAttributedString）
+
+    /// AppKit 那一侧读不到 SwiftUI 环境值，只能读静态镜像 —— 镜像必须真的生效，
+    /// 否则切到「大」字号时对话正文一个点都不动（同一屏里有的字变大有的不变）。
+    func testAppKitSideReadsTheGlobalTypeSizeMirror() {
+        AppTypography.appTextScale = FontSizeMode.large.scale
+        defer { AppTypography.appTextScale = 1 }
+        XCTAssertEqual(AppTypography.scaledSize(14), 14 * 1.1, accuracy: 0.001)
+        // 保护下限与 SwiftUI 侧同一套：不该把 4pt 放大。
+        XCTAssertEqual(AppTypography.scaledSize(4), 4.4, accuracy: 0.001)
+    }
+
+    func testAppKitSideMirrorDefaultsToStandard() {
+        AppTypography.appTextScale = 1
+        XCTAssertEqual(AppTypography.scaledSize(14), 14)
+    }
+
+    /// 档位切换必须写镜像（`setTypeSize`），否则静态侧永远是标准档。
+    func testSetTypeSizeSyncsTheAppKitMirror() throws {
+        let raw = try String(contentsOfFile: "Sources/AppUI/AppState.swift", encoding: .utf8)
+        XCTAssertTrue(raw.contains("AppTypography.appTextScale = mode.scale"),
+                      "切字号档必须同步 AppKit 侧的静态镜像")
+        XCTAssertTrue(raw.contains("AppTypography.appTextScale = typeSize.scale"),
+                      "启动时也必须从配置写入镜像（冷启动不能停在标准档）")
+        let lookup = try String(contentsOfFile: "Sources/AppUI/Components/WordLookupText.swift",
+                                encoding: .utf8)
+        XCTAssertTrue(lookup.contains("AppTypography.scaledSize("),
+                      "AppKit 侧的字体构造必须吃字号档镜像")
     }
 
     func testDensityScalesVerticalOnly() {

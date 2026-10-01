@@ -399,8 +399,10 @@ public struct LearningProgressView: View {
                             .appFont(12, weight: .semibold, design: .rounded)
                             .foregroundStyle(theme.primaryText)
                         if state.dailyGoalMode == .baseline {
-                            // 保底档：判定口径就是 5 分钟（与黑板计划的量一致）。
-                            Text("保底 \(snapshot.today.minutes) / 5 分钟")
+                            // 保底档：判定口径就是保底分钟数（与黑板计划的量一致）。
+                            // ⚠️ 写 `DailyGoalMode.baselineMinutes` 而不是字面量 5：
+                            // 写死的话改了保底口径，这里会继续报 5 —— 界面和判定各说一句。
+                            Text("保底 \(snapshot.today.minutes) / \(DailyGoalMode.baselineMinutes) 分钟")
                                 .appFont(11, design: .rounded)
                                 .foregroundStyle(theme.secondaryText)
                                 .monospacedDigit()

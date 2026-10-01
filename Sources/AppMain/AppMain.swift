@@ -28,6 +28,13 @@ struct AILanguageCoachApp: App {
                     .keyboardShortcut(",", modifiers: .command)
             }
 
+            // 帮助（#413）：系统那个「Help」菜单默认指向应用自己的帮助书册（本应用没有），
+            // 换成直接开应用内帮助中心 —— 说明不该只有「先打开设置、再滚到第一张卡」这一条路。
+            CommandGroup(replacing: .help) {
+                Button("语林使用说明") { state.showingHelp = true }
+                    .keyboardShortcut("/", modifiers: .command)
+            }
+
             // 「前往」菜单：与侧栏读同一份 `AppSection`，
             // 编号就是它在侧栏里的位置（加页面只改枚举，编号自动跟着变）。
             //

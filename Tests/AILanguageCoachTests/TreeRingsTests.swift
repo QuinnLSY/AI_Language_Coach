@@ -68,7 +68,24 @@ final class TreeRingsTests: XCTestCase {
         XCTAssertEqual(summary.longestStreak, 5)
     }
 
-    // MARK: - ⑤ 装配哨兵
+    // MARK: - ⑤ 位置（可见性）
+
+    /// 徽记必须落在**林间地面带之上**。
+    ///
+    /// 那条 150pt 的带子是钉在视口底部的固定层（草坡不透明），画布能滚到的最后一屏里
+    /// 底部 150pt 永远被它压住 —— 画在那后面等于没画。而第一圈年轮要练满 30 天才出现，
+    /// 那时视口必然停在半空，于是「练了一整年，树根什么都没有」。
+    func testEmblemSitsAboveTheGroundBand() {
+        let canvasHeight = TreeCanvas.canvasHeight
+        let y = TreeRings.emblemY(canvasHeight: canvasHeight)
+        XCTAssertLessThan(y, canvasHeight - TreeViewport.groundBandHeight,
+                          "徽记画在林带遮住区里就永远看不见")
+        XCTAssertGreaterThan(y, 0)
+        // 也要躲开最低那一格关卡节点（不然徽记压在节点上）。
+        XCTAssertLessThan(y, 960)
+    }
+
+    // MARK: - ⑥ 装配哨兵
 
     private func source(_ relativePath: String) throws -> String {
         try String(contentsOfFile: "Sources/\(relativePath)", encoding: .utf8)

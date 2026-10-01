@@ -75,17 +75,17 @@ extension AppState {
         }
     }
 
-    /// 从磁盘重新载入配置，并把运行时**重接一遍**。
-    ///
-    /// 为什么需要它：配置是「内置默认 + 用户覆盖」两层合并出来的，用户在外面手改了
-    /// `config.json`（或把备份的配置拷回来）之后，旧版本只能重启应用才生效。
-    /// 而只把配置读回内存是不够的 —— 真正干活的是已经装配好的 provider，
-    /// 不重装配就会出现「设置页按新配置显示、实际还在打旧端点」这种最难查的错位。
     /// 刷新「语义记忆索引通没通」。
     ///
     /// 模型管理中心的嵌入区块已经报了健康态，这里补它没说的：用的**多少维**、
     /// 以及没接通时下一步去哪儿接（见 `SemanticMemoryStatus.detail`）。
+    ///
+    /// ⚠️ 必须先 `ensureEmbeddingReady()`（2026-10-01 修）：嵌入 provider 是**惰性装配**
+    /// 的（只有真要嵌入时才注册），启动时并没有人装配它。冷启动后直接开设置页，
+    /// 这里读到的 `supportsSemanticRanking` 恒为 false —— 界面于是永久显示「未接通」，
+    /// 而同一页上方的记忆索引区块却写着「已接通」，自己打自己。
     public func refreshSemanticMemory() async {
+        await services.ensureEmbeddingReady()
         let info = await services.semanticMemoryInfo()
         semanticMemoryStatus = SemanticMemoryStatus(isEnabled: info.enabled, dimensions: info.dimensions)
     }
@@ -130,6 +130,12 @@ extension AppState {
         await refreshMemoryPressure()
     }
 
+    /// 从磁盘重新载入配置，并把运行时**重接一遍**。
+    ///
+    /// 为什么需要它：配置是「内置默认 + 用户覆盖」两层合并出来的，用户在外面手改了
+    /// `config.json`（或把备份的配置拷回来）之后，旧版本只能重启应用才生效。
+    /// 而只把配置读回内存是不够的 —— 真正干活的是已经装配好的 provider，
+    /// 不重装配就会出现「设置页按新配置显示、实际还在打旧端点」这种最难查的错位。
     public func reloadConfigurationFromDisk() async {
         await services.configStore.reload()
         await services.rebootstrapAll()

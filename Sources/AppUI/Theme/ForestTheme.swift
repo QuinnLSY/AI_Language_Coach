@@ -142,7 +142,15 @@ public struct ForestTheme: Sendable, Equatable {
     }
 
     /// 雨丝的颜色（#418-A，插画层专用）。夜里换暗一档 —— 夜雨不该比星星还亮。
-    public var rainColor: Color { isNight ? Color(hex: 0x6E88A8) : Color(hex: 0x8FB9DC) }
+    /// 雨丝的颜色。
+    ///
+    /// ⚠️ 判据是「与当时天空的**对比度**」（2026-10-01 修）：原先白天用 `0x8FB9DC`，
+    /// 与晴空渐变（顶部 `0x7FD4F0`）几乎同色 —— 实测对比约 1.1:1，再透过树面板
+    /// 那层半透明底色就更低了。结果是「设置里写着今天是雨，画面毫无变化」。
+    /// 白天压深、夜里提亮（夜空本身很暗，暗雨丝同样看不见）。
+    public var rainColor: Color {
+        isNight ? Color(hex: 0xBFD6EC) : Color(hex: 0x3E6A8F)
+    }
 
     // 强调
     /// 主强调色（琥珀金）：用于**文字 / 图标 / 描边 / 淡底**。

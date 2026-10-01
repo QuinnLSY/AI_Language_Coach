@@ -59,9 +59,10 @@ extension AppState {
                 totalStars: progress.totalStars,
                 goalMinutes: effectiveGoalMinutes
             )
-            // 年度那一侧先起（`async let` 已经把窗口查询挂到并行的子任务上了），
-            // 它自带在途保护与「已经加载过」短路 —— 见 `ensureAnnualRecapLoaded`。
-            await ensureAnnualRecapLoaded()
+            // 年度那一侧先起（`async let` 已经把窗口查询挂到并行的子任务上了）。
+            // ⚠️ 这里要 **force**：这一路是「刚练完回来 / 手动刷新」，年度数据必须跟着
+            // 变（今天练出的天数要立刻长成年轮），不能让「已加载过」把它短路掉。
+            await ensureAnnualRecapLoaded(force: true)
             snapshot = await snapshotTask
         } else {
             snapshot = await services.progressSnapshot(
@@ -90,10 +91,13 @@ extension AppState {
     /// 被重入保护直接弹回 → 年度汇总永远不跑，用户停在空网格上。
     /// 年度取数自己再加一道在途锁，两件事才不会互相饿死。
     ///
-    /// 已经加载过就直接返回：`annualRecap` 是**只读缓存**，同一会话里没有必要重查
-    /// （换窗口 / 手动刷新都会走一遍 `reloadProgress`，那里才是该刷新的地方）。
-    func ensureAnnualRecapLoaded() async {
-        guard !hasAnnualRecap, !isLoadingAnnualRecap else { return }
+    /// 已经加载过就直接返回 —— **除非 `force`**：`annualRecap` 是只读缓存，
+    /// 但「今天练满第 30 天，树根该多一圈年轮」这件事只有重取才看得见
+    /// （2026-10-01 修：此前没有任何一处把 `hasAnnualRecap` 复位，
+    /// 于是年度数据一旦加载就终身不刷新，当天练出来的天数要重启应用才长圈）。
+    /// 进度页刷新 / 练完回来（`reloadProgress(includeAnnual: true)`）走 force。
+    func ensureAnnualRecapLoaded(force: Bool = false) async {
+        guard (force || !hasAnnualRecap), !isLoadingAnnualRecap else { return }
         isLoadingAnnualRecap = true
         defer { isLoadingAnnualRecap = false }
         annualRecap = await services.annualRecap(goalMinutes: effectiveGoalMinutes)

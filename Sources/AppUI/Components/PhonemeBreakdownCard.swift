@@ -154,11 +154,9 @@ struct PhonemeBreakdownCard: View {
             HStack(spacing: 5) {
                 ForEach(Array(item.phonemes.enumerated()), id: \.offset) { _, rating in
                     Text(PhonemeDisplay.ipa(for: rating.phoneme))
-                        .font(.system(
-                            size: 11,
-                            weight: PhonemeDisplay.isStressed(rating.phoneme) ? .semibold : .regular,
-                            design: .rounded
-                        ))
+                        .appFont(11,
+                                 weight: PhonemeDisplay.isStressed(rating.phoneme) ? .semibold : .regular,
+                                 design: .rounded)
                         .foregroundStyle(theme.secondaryText.opacity(0.75))
                 }
             }
@@ -172,11 +170,9 @@ struct PhonemeBreakdownCard: View {
         let color = markColor(mark)
         return HStack(spacing: 1) {
             Text(PhonemeDisplay.ipa(for: rating.phoneme))
-                .font(.system(
-                    size: 11,
-                    weight: PhonemeDisplay.isStressed(rating.phoneme) ? .semibold : .regular,
-                    design: .rounded
-                ))
+                .appFont(11,
+                         weight: PhonemeDisplay.isStressed(rating.phoneme) ? .semibold : .regular,
+                         design: .rounded)
                 .foregroundStyle(color)
             Text(mark.symbol)
                 .appFont(8, weight: .bold)

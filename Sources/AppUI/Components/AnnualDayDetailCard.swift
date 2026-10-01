@@ -85,11 +85,9 @@ struct AnnualDayDetailCard: View {
                         .foregroundStyle(theme.secondaryText)
                         .frame(width: Self.iconColumn)
                     Text(item.text)
-                        .font(.system(
-                            size: index == 0 ? 11 : 10,
-                            weight: index == 0 ? .semibold : .regular,
-                            design: .rounded
-                        ))
+                        .appFont(index == 0 ? 11 : 10,
+                                 weight: index == 0 ? .semibold : .regular,
+                                 design: .rounded)
                         .foregroundStyle(index == 0 ? theme.primaryText : theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }

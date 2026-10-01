@@ -115,10 +115,17 @@ public actor DataBackup {
         return entries
             .filter { $0.pathExtension == "zip" }
             .compactMap { url in
-                let values = try? url.resourceValues(forKeys: [.creationDateKey, .fileSizeKey])
+                let values = try? url.resourceValues(
+                    forKeys: [.creationDateKey, .contentModificationDateKey, .fileSizeKey]
+                )
                 return Snapshot(
                     url: url,
-                    createdAt: values?.creationDate ?? Date.distantPast,
+                    // ⚠️ 文件名里的时刻是**真相**（见 `stampedDate(in:)`）：`creationDate`
+                    // 在拷贝 / Time Machine 恢复之后会变成「刚才」，新鲜度就全错了。
+                    createdAt: Self.stampedDate(in: url.lastPathComponent)
+                        ?? values?.creationDate
+                        ?? values?.contentModificationDate
+                        ?? Date(),
                     sizeBytes: Int64(values?.fileSize ?? 0)
                 )
             }
@@ -412,6 +419,39 @@ public actor DataBackup {
             includesConfig: includesConfig,
             includesCallLog: includesCallLog
         )
+    }
+
+    /// 从备份文件名里把**备份时刻**读回来（纯函数，便于单测）。
+    ///
+    /// 为什么认文件名不认 `creationDate`（2026-10-01 修）：后者是「文件在本机上被创建的
+    /// 时刻」—— 从另一台机器拷进来、用 Time Machine / `cp` 恢复，它就变成**刚才**，
+    /// 于是新鲜度报「今天刚备份过」，而那份其实是几周前的旧包（自动备份被跳过）。
+    /// 时间戳是 `export` 那一刻写进名字里的，跟着包走，怎么拷都不变。
+    ///
+    /// ⚠️ 读不出来返回 nil，由调用方退回文件属性 —— 绝不兜 `Date.distantPast`：
+    /// 那会把「几天没备份」算成天文数字，于是每次启动都补一份。
+    static func stampedDate(in filename: String) -> Date? {
+        let name = (filename as NSString).deletingPathExtension
+        // `fileStamp` 的形状：8 位日期 + 「-」 + 6 位时间，恒在文件名末尾。
+        guard name.count >= 15 else { return nil }
+        let tail = String(name.suffix(15))
+        guard tail[tail.index(tail.startIndex, offsetBy: 8)] == "-" else { return nil }
+        let datePart = String(tail.prefix(8))
+        let timePart = String(tail.suffix(6))
+        guard datePart.allSatisfy(\.isNumber), timePart.allSatisfy(\.isNumber) else { return nil }
+        func int(_ text: Substring) -> Int { Int(text) ?? 0 }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        let components = DateComponents(
+            calendar: calendar,
+            year: int(datePart.prefix(4)),
+            month: int(datePart.dropFirst(4).prefix(2)),
+            day: int(datePart.dropFirst(6).prefix(2)),
+            hour: int(timePart.prefix(2)),
+            minute: int(timePart.dropFirst(2).prefix(2)),
+            second: int(timePart.dropFirst(4).prefix(2))
+        )
+        return components.date
     }
 
     private static func fileStamp(_ date: Date) -> String {

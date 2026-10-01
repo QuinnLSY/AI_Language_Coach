@@ -110,4 +110,27 @@ final class AppLayoutMetricsTests: XCTestCase {
         let text = lines.joined(separator: "\n")
         XCTAssertTrue(text.contains("ScrollView(.vertical"), "navList 没套 ScrollView：矮窗会压扁头栏")
     }
+
+    // MARK: - 浮层高度不能顶穿最小窗口
+
+    /// 考后结算卡的设计高 660 > 最小窗高 640：不夹取的话最矮窗口下上下各被切 10pt，
+    /// 而这张卡的出口**只有**底部那两个按钮（点遮罩不关）→ 等于「考完出不来」。
+    func testExamReportHeightFitsInsideTheShortestWindow() {
+        XCTAssertEqual(AppLayoutMetrics.examReportHeight(available: 640), 600)
+        XCTAssertEqual(AppLayoutMetrics.examReportHeight(available: 900), 660, "高窗下照旧用设计高")
+        XCTAssertEqual(AppLayoutMetrics.examReportHeight(available: 300), 420, "再矮也留一个下限")
+        XCTAssertLessThanOrEqual(AppLayoutMetrics.examReportHeight(available: 640), 640)
+    }
+
+    func testExamReportHeightIsWiredIntoMainView() throws {
+        let raw = try String(contentsOfFile: "Sources/AppUI/Views/MainView.swift", encoding: .utf8)
+        let lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        let text = lines.joined(separator: "\n")
+        XCTAssertTrue(text.contains("AppLayoutMetrics.examReportHeight(available:"),
+                      "结算卡高度没接布局常量")
+        XCTAssertFalse(text.contains("frame(width: 560, height: 660)"),
+                       "别再写死 660：最小窗高已经降到 640")
+    }
 }

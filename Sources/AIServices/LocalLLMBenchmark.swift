@@ -84,14 +84,19 @@ public struct LocalLLMBenchmark: Sendable {
         guard let provider = Self.localLLMProvider(in: configuration) else {
             throw BenchmarkUnavailable.noLocalProvider
         }
-        guard let model = provider.model, !model.isEmpty else {
+        // ⚠️ 测**当前真正在用**的那个模型（2026-10-01 修）：用户在模型中心/设置页选模型
+        // 只写 `product.selectedModels`，从不改 `provider.model`。原先读 `provider.model`
+        // 就会测到另一款 —— 卡片却印着「被测模型 X」，用户拿它当本机的真实速度看。
+        guard let model = configuration.resolvedModel(for: .llm) ?? provider.model, !model.isEmpty else {
             throw BenchmarkUnavailable.missingModel
         }
         let endpoint = provider.endpoint ?? ""
 
-        let adapter = OllamaLLMAdapter(providerID: provider.id)
+        var benchmarkProvider = provider
+        benchmarkProvider.model = model
+        let adapter = OllamaLLMAdapter(providerID: benchmarkProvider.id)
         do {
-            try await adapter.initialize(config: provider)
+            try await adapter.initialize(config: benchmarkProvider)
             try await adapter.load()
         } catch {
             throw BenchmarkUnavailable.runtimeUnavailable(error.localizedDescription)

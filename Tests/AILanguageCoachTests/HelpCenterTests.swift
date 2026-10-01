@@ -71,4 +71,31 @@ final class HelpCenterTests: XCTestCase {
         XCTAssertTrue(text.contains("helpCenterCard"), "设置页没挂帮助中心卡片")
         XCTAssertTrue(text.contains("HelpCenterView"), "卡片上没接 HelpCenterView")
     }
+
+    /// 帮助中心要**全局可达**（2026-10-01）：它第一节写的就是「新用户最常见的一问」，
+    /// 恰恰是那批人最不知道说明藏在设置页第一张卡里 —— 菜单栏必须有入口。
+    func testHelpCenterIsReachableWithoutOpeningSettings() throws {
+        let main = try String(contentsOfFile: "Sources/AppMain/AppMain.swift", encoding: .utf8)
+        let mainLines = main.split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        let mainText = mainLines.joined(separator: "\n")
+        XCTAssertTrue(mainText.contains("CommandGroup(replacing: .help)"),
+                      "菜单栏没有帮助入口（说明只能先打开设置才够得着）")
+        XCTAssertTrue(mainText.contains("state.showingHelp = true"),
+                      "菜单项没有开帮助中心")
+
+        // 全局浮层挂在 MainView 上，与设置页那张卡共用同一个状态（两份就会各开各的）。
+        let view = try String(contentsOfFile: "Sources/AppUI/Views/MainView.swift", encoding: .utf8)
+        let viewLines = view.split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        let viewText = viewLines.joined(separator: "\n")
+        XCTAssertTrue(viewText.contains("$state.showingHelp"), "MainView 没挂全局帮助浮层")
+
+        let settings = try String(contentsOfFile: "Sources/AppUI/Views/SettingsView.swift",
+                                  encoding: .utf8)
+        XCTAssertFalse(settings.contains("@State private var showingHelp"),
+                       "设置页不该再自己持有一份 showingHelp（与全局那份会打架）")
+    }
 }

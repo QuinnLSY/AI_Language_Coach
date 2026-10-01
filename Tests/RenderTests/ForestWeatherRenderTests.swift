@@ -77,6 +77,40 @@ final class ForestWeatherRenderTests: XCTestCase {
         return Int(Double(count) / (scale * scale))
     }
 
+    /// 两帧之间**最大的 WCAG 对比度**（只看有明显差异的那些像素）。
+    ///
+    /// 为什么需要它（2026-10-01）：「像素有差异」这个判据太软 —— 雨丝颜色与晴空
+    /// 几乎同色时（实测对比 1.14:1）差异像素照样上千，测试全绿，可用户**看不见在下雨**
+    /// （设置页写着「今天是雨」，画面毫无变化）。差异要大到肉眼可辨才算数。
+    private func maxContrast(_ lhs: Render, _ rhs: Render) -> Double {
+        guard let a = lhs.rep.bitmapData, let b = rhs.rep.bitmapData else { return 0 }
+        let width = lhs.rep.pixelsWide, height = lhs.rep.pixelsHigh
+        var best = 0.0
+        for y in 0..<height {
+            for x in 0..<width {
+                let o = (y * width + x) * 4
+                let dr = abs(Int(a[o]) - Int(b[o]))
+                let dg = abs(Int(a[o + 1]) - Int(b[o + 1]))
+                let db = abs(Int(a[o + 2]) - Int(b[o + 2]))
+                guard dr + dg + db > 24 else { continue }
+                let la = Self.luminance(r: Int(a[o]), g: Int(a[o + 1]), b: Int(a[o + 2]))
+                let lb = Self.luminance(r: Int(b[o]), g: Int(b[o + 1]), b: Int(b[o + 2]))
+                let ratio = (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+                best = max(best, ratio)
+            }
+        }
+        return best
+    }
+
+    /// WCAG 相对亮度（sRGB）。
+    private static func luminance(r: Int, g: Int, b: Int) -> Double {
+        func channel(_ value: Int) -> Double {
+            let c = Double(value) / 255.0
+            return c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+    }
+
     private func resolved(isNight: Bool, weather: ForestWeather?) -> ForestTheme {
         let base = ForestThemeResolver.resolve(
             mode: isNight ? .night : .day, systemIsDark: false,
@@ -98,6 +132,8 @@ final class ForestWeatherRenderTests: XCTestCase {
         let rain = try sky(resolved(isNight: false, weather: .rain))
         XCTAssertGreaterThan(differencePoints(clear, rain), 40,
                              "雨丝层没有画上去（雨天与晴天画面无差异）")
+        XCTAssertGreaterThan(maxContrast(clear, rain), 1.8,
+                             "雨丝与天空太接近：像素有差异，人眼却看不出在下雨")
     }
 
     /// 夜里也下雨（换暗一档的颜色，但不是不下）。
@@ -106,6 +142,7 @@ final class ForestWeatherRenderTests: XCTestCase {
         let rain = try sky(resolved(isNight: true, weather: .rain))
         XCTAssertGreaterThan(differencePoints(clear, rain), 40,
                              "夜雨层没有画上去")
+        XCTAssertGreaterThan(maxContrast(clear, rain), 1.8, "夜雨与夜空太接近，看不见在下雨")
     }
 
     /// 多云：云量加倍后画面必须可见地不同。
@@ -114,6 +151,15 @@ final class ForestWeatherRenderTests: XCTestCase {
         let cloudy = try sky(resolved(isNight: false, weather: .cloudy))
         XCTAssertGreaterThan(differencePoints(cloudy, clear), 40,
                              "多云的三朵加映云没有画上去")
+    }
+
+    /// 夜里也必须看得出多云：云此前只画在白天分支里 ——
+    /// 设置页写着「今天是多云」，夜里回主界面一朵都没多。
+    func testNightCloudyDiffersFromClearSky() throws {
+        let clear = try sky(resolved(isNight: true, weather: .clear))
+        let cloudy = try sky(resolved(isNight: true, weather: .cloudy))
+        XCTAssertGreaterThan(differencePoints(cloudy, clear), 40,
+                             "夜间的云量没有画上去")
     }
 
     /// 同一种天气渲染两遍必须零差异：雨丝用种子随机，不许每次布局换一场新雨。
@@ -147,8 +193,12 @@ final class ForestWeatherRenderTests: XCTestCase {
                 .frame(width: canvas.width, height: TreeCanvas.canvasHeight),
             size: CGSize(width: canvas.width, height: TreeCanvas.canvasHeight)
         )
-        // 徽记区：树干底部（midX ± 40pt，y = canvasHeight - 90 … canvasHeight）。
-        let emblemArea = CGRect(x: canvas.width / 2 - 40, y: TreeCanvas.canvasHeight - 90,
+        // ⚠️ 徽记区按 `TreeRings.emblemY` 算（跟着位置走），所以**必须另配一条绝对判据**：
+        // 只靠「徽记区有墨」的话，把位置整个挪进林带遮住区也照样绿（判据跟着实现漂移）。
+        let emblemY = TreeRings.emblemY(canvasHeight: TreeCanvas.canvasHeight)
+        XCTAssertLessThan(emblemY, TreeCanvas.canvasHeight - TreeViewport.groundBandHeight,
+                          "徽记画进了林间地面带的遮住区：滚到画布底也看不见")
+        let emblemArea = CGRect(x: canvas.width / 2 - 40, y: emblemY - 45,
                                 width: 80, height: 90)
         XCTAssertGreaterThan(differencePoints(empty, practiced, in: emblemArea), 20,
                              "年轮徽记没有画在树根（45 天 / 连续 7 天应当有一圈 + 火苗）")

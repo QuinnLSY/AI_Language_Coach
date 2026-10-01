@@ -207,6 +207,11 @@ public final class AppState {
     public internal(set) var bootMessage: String?
     public var modelDraft: String = ""
     public var showingSettings = false
+    /// 帮助中心（#413）：全局可达 —— 除了设置页那张卡，菜单栏「帮助」里也有入口。
+    ///
+    /// 为什么不能只住在设置页里（2026-10-01）：它第一节写的就是「新用户最常见的一问」，
+    /// 恰恰是那批人**最不知道**说明藏在设置页第一张卡里。
+    public var showingHelp = false
     /// 当前有没有整块面板 / 页面盖在聊天区之上（面板一开，划词气泡就该立刻收掉）。
     public var isContentCovered: Bool {
         showingSettings || showingRecords || showingScenarios
@@ -1325,6 +1330,9 @@ public final class AppState {
         interfaceDensity = configuration.product.interfaceDensity
         // 非 View 上下文（withAnimation(.app(...))）读不到环境，走这个静态覆盖档。
         AppMotionDescriptor.appOverride = motionMode
+        // 同理：AppKit 侧的划词/对话正文（`NSAttributedString`）读不到排版环境值，
+        // 字号档要同步到静态镜像上，否则切「大」字号时正文一个点都不动。
+        AppTypography.appTextScale = typeSize.scale
         autoSpeak = configuration.product.autoSpeak
         // 轻音效开关跟随配置（默认关；设置页切换时也走这条同步）。
         sound.enabled = configuration.product.soundEffects
@@ -1441,6 +1449,12 @@ public final class AppState {
                 await self.refreshTodayPanel(force: true)
                 self.refreshTodayTokens()
                 await self.refreshQuestRecords()
+                // 换天时顺带料理两件「按天算」的事（2026-10-01 补）：
+                // ① 自动备份：macOS 应用常年不退出，「每 N 天补一份」不能只在
+                //    启动那一刻兑现一次（设置页那句文案就是假的）；
+                // ② 年度网格：年轮圈数 / 热力图都按天变，隔天不重取就停在昨天。
+                await self.ensureAutoBackupIfNeeded()
+                await self.ensureAnnualRecapLoaded(force: true)
             }
         }
     }
@@ -1708,10 +1722,13 @@ public final class AppState {
         await persistProduct()
     }
 
-    /// 切换字号档（#416）。只改档位与持久化：实际缩放由根视图的环境注入传导。
+    /// 切换字号档（#416）。字号有两处落地：
+    /// SwiftUI 那一侧靠根视图的环境注入传导，AppKit 那一侧（划词/对话正文的
+    /// `NSAttributedString`）读不到环境值，必须同步写静态镜像，否则正文不动。
     public func setTypeSize(_ mode: FontSizeMode) async {
         typeSize = mode
         product.typeSize = mode
+        AppTypography.appTextScale = mode.scale
         await persistProduct()
     }
 

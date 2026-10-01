@@ -42,10 +42,7 @@ public struct MarkdownText: View {
         switch block {
         case .heading(let level, let content):
             inlineView(content, extraSize: CGFloat(max(0, 3 - level)), bold: true)
-                .font(.system(
-                    size: fontSize + CGFloat(max(0, 3 - level)),
-                    weight: .bold, design: .rounded
-                ))
+                .appFont(fontSize + CGFloat(max(0, 3 - level)), weight: .bold, design: .rounded)
                 .foregroundStyle(color)
                 .appPadding(.top, 2)
 

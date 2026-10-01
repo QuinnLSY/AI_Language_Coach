@@ -1,5 +1,6 @@
 import XCTest
 
+@testable import AIInfrastructure
 @testable import AppCore
 @testable import AppUI
 
@@ -133,5 +134,82 @@ final class BackupFreshnessTests: XCTestCase {
         let decoded = try JSONDecoder().decode(ProductConfig.self, from: JSONEncoder().encode(config))
         XCTAssertEqual(decoded.autoBackupEnabled, true)
         XCTAssertEqual(decoded.autoBackupIntervalDays, 14)
+    }
+
+    // MARK: - 备份时刻认文件名，不认文件的创建时间（2026-10-01 修）
+
+    /// `creationDate` 是「在本机上被创建的时刻」：从别的机器拷进来、Time Machine 恢复、
+    /// 用 `cp` 挪一下，它都变成**刚才** —— 新鲜度于是报「今天刚备份过」，
+    /// 而那份其实是几周前的旧包（自动备份被跳过）。时间戳跟着包走，怎么拷都不变。
+    func testStampedDateReadsTheTimestampFromTheFileName() {
+        let parsed = DataBackup.stampedDate(in: "AI_Language_Coach_备份_20260901-142530.zip")
+        XCTAssertNotNil(parsed)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second],
+                                                 from: parsed!)
+        XCTAssertEqual(components.year, 2026)
+        XCTAssertEqual(components.month, 9)
+        XCTAssertEqual(components.day, 1)
+        XCTAssertEqual(components.hour, 14)
+        XCTAssertEqual(components.minute, 25)
+        XCTAssertEqual(components.second, 30)
+        // 带标签的备份（如「手动备份」）形状不同，也要认得出来。
+        XCTAssertNotNil(DataBackup.stampedDate(in: "AI_Language_Coach_手动备份_20261001-090000.zip"))
+    }
+
+    func testStampedDateReturnsNilInsteadOfAGarbageDate() {
+        XCTAssertNil(DataBackup.stampedDate(in: "随便一个文件.zip"))
+        XCTAssertNil(DataBackup.stampedDate(in: "备份.zip"))
+        XCTAssertNil(DataBackup.stampedDate(in: "AI_Language_Coach_备份_.zip"))
+    }
+
+    /// 清单里必须优先用文件名里的时刻，且**不许**用 `distantPast` 兜底 ——
+    /// 那会把「几天没备份」算成天文数字，于是每次启动都补一份。
+    func testSnapshotListPrefersTheFileNameAndNeverUsesDistantPast() throws {
+        let raw = try String(contentsOfFile: "Sources/AIInfrastructure/DataBackup.swift",
+                             encoding: .utf8)
+        let lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        let body = lines.joined(separator: "\n")
+        XCTAssertTrue(body.contains("Self.stampedDate(in: url.lastPathComponent)"),
+                      "清单没有优先读文件名里的时刻")
+        XCTAssertFalse(body.contains("Date.distantPast"),
+                       "兜底不许用 distantPast：新鲜度会算成天文数字，于是天天备份")
+    }
+
+    /// 「每 N 天补一份」必须**在跨天时也兑现**：macOS 应用常年不退出，
+    /// 只在启动那一刻判一次的话，开着一个月就是一个月不备份（界面那句文案是假的）。
+    func testAutoBackupIsCheckedWhenTheDayRollsOver() throws {
+        let raw = try String(contentsOfFile: "Sources/AppUI/AppState.swift", encoding: .utf8)
+        let lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        guard let start = lines.firstIndex(where: { $0.contains("func startDayRolloverWatch()") }) else {
+            return XCTFail("找不到跨天监察")
+        }
+        let body = lines[start...].prefix(40).joined(separator: "\n")
+        XCTAssertTrue(body.contains("ensureAutoBackupIfNeeded()"),
+                      "换天时没有复查自动备份（应用常开就永远不补）")
+        XCTAssertTrue(body.contains("ensureAnnualRecapLoaded(force: true)"),
+                      "换天时没有重取年度数据（热力图/年轮会停在昨天）")
+    }
+
+    /// 年度汇总必须能被强制刷新：此前 `hasAnnualRecap` 没有任何一处复位，
+    /// 于是今天练满第 30 天，树根要重启应用才多一圈年轮。
+    func testAnnualRecapCanBeInvalidated() throws {
+        let raw = try String(contentsOfFile: "Sources/AppUI/AppState+Progress.swift",
+                             encoding: .utf8)
+        let lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        let body = lines.joined(separator: "\n")
+        XCTAssertTrue(body.contains("ensureAnnualRecapLoaded(force: Bool = false)"),
+                      "年度取数要能失效重取")
+        XCTAssertTrue(body.contains("(force || !hasAnnualRecap)"),
+                      "force 必须真的绕过「已加载过」的短路")
+        XCTAssertTrue(body.contains("ensureAnnualRecapLoaded(force: true)"),
+                      "练完回来刷新进度时必须顺带刷新年度")
     }
 }

@@ -82,6 +82,35 @@ public struct GlobalSearchHit: Sendable, Equatable, Identifiable {
         self.title = title
         self.detail = detail
     }
+
+    /// id 的各段（`kind|...`），供下面几个定位属性解析。
+    private var idParts: [Substring] {
+        id.split(separator: "|", omittingEmptySubsequences: false)
+    }
+
+    /// 这条命中属于哪个**会话**（对话类；`message|<sessionID>|<messageID>`）。
+    ///
+    /// 为什么要有它（2026-10-01）：sessionID 一直在 id 里，可跳转时没用上 ——
+    /// 点了结果落在学习记录页顶部，那条消息在哪全靠用户自己翻。
+    public var sessionID: UUID? {
+        let parts = idParts
+        guard kind == .conversation, parts.count >= 3, parts[0] == "message" else { return nil }
+        return UUID(uuidString: String(parts[1]))
+    }
+
+    /// 这条命中是哪一天的那批阅读（`reading|<dayKey>|<title>`）。
+    public var readingDayKey: Int? {
+        let parts = idParts
+        guard kind == .reading, parts.count >= 3, parts[0] == "reading" else { return nil }
+        return Int(parts[1])
+    }
+
+    /// 这条命中是哪一篇短文（标题，用于翻到它那一页）。
+    public var readingTitle: String? {
+        let parts = idParts
+        guard kind == .reading, parts.count >= 3, parts[0] == "reading" else { return nil }
+        return String(parts[2...].joined(separator: "|"))
+    }
 }
 
 public enum GlobalSearch {

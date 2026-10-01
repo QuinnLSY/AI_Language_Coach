@@ -64,11 +64,20 @@ extension AppState {
 
     /// 进入阅读页：**今天生成过就直接回看库里那批**（一天一次生成，重启也不重出题）；
     /// 今天一篇都没有才出第一份。
-    public func openReading() async {
+    ///
+    /// - Parameters:
+    ///   - dayKey: 要看哪一天的那批（跨页搜索点「阅读」结果时带进来；不传 = 今天）。
+    ///   - title: 要停在哪一篇（按标题找；找不到就用最后一篇 —— 那是「接着看」的默认口径）。
+    public func openReading(dayKey: Int? = nil, title: String? = nil) async {
         applySection(.reading)
-        let dayKey = WritingTopicPicker.dayKey(for: Date())
-        // 内存里已是今天这批（页内来回切换不重查库）。
-        if !readingEntries.isEmpty, readingEntries.first?.passage.dayKey == dayKey { return }
+        let key = dayKey ?? WritingTopicPicker.dayKey(for: Date())
+        // 内存里已是这一批（页内来回切换不重查库）。
+        if !readingEntries.isEmpty, readingEntries.first?.passage.dayKey == key {
+            if let title, let index = readingEntries.firstIndex(where: { $0.passage.title == title }) {
+                showReadingEntry(at: index)
+            }
+            return
+        }
         // 开屏那次预生成**还在跑**：等它，别再发一次请求。
         //
         // ⚠️ 不等的话会生成出**今天第二篇** —— 两篇都要花一次请求，
@@ -82,10 +91,11 @@ extension AppState {
             await prefetch.value
             isReadingLoading = false
         }
-        let stored = await services.todaysReadings(dayKey: dayKey)
+        let stored = await services.todaysReadings(dayKey: key)
         if !stored.isEmpty {
             readingEntries = stored
-            showReadingEntry(at: stored.count - 1)
+            let index = title.flatMap { wanted in stored.firstIndex { $0.passage.title == wanted } }
+            showReadingEntry(at: index ?? stored.count - 1)
             return
         }
         await loadReading()

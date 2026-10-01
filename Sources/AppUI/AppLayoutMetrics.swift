@@ -47,4 +47,16 @@ public enum AppLayoutMetrics {
         let upper = max(treeMinWidth, available - chatMinWidth)
         return min(max(preferred, treeMinWidth), upper)
     }
+
+    // MARK: - 浮层高度
+
+    /// 考后结算卡的高度：设计高 660，**矮窗下必须夹到可用高以内**。
+    ///
+    /// 为什么非夹不可：#417 把窗口最小高从 720 降到 640 之后，660 的卡片在最小窗口里
+    /// 上下各被切掉 10pt。这张卡的出口**只有**底部「再来一次 / 完成」两个按钮
+    /// （点遮罩不关，注释里写明了），底部被切就等于「考完出不来」。
+    /// 卡内正文区本来就是 ScrollView，压矮只是多滚一点。
+    public static func examReportHeight(available: CGFloat) -> CGFloat {
+        min(660, max(420, available - 40))
+    }
 }

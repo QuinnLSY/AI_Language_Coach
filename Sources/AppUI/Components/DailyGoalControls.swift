@@ -1,3 +1,4 @@
+import AIDomain
 import AppCore
 import SwiftUI
 
@@ -71,6 +72,15 @@ public struct DailyGoalControls: View {
                 .monospacedDigit()
             stepperButton(systemImage: "plus", enabled: currentMinutes < 180) {
                 Task { await state.setDailyGoalMinutes(currentMinutes + 5) }
+            }
+            // ⚠️ 越过封顶线必须说清楚（2026-10-01）：对话轮数折算到 12 轮就封顶了
+            // （`DailyPlanner.exchangeTarget`），再往上调目标，任务清单那一格一动不动 ——
+            // 不解释的话用户只看到「调大了没反应」。
+            if currentMinutes > DailyPlanner.exchangeCeilingMinutes {
+                Text("超过 \(DailyPlanner.exchangeCeilingMinutes) 分钟后，对话任务的量不再增加")
+                    .appFont(10, design: .rounded)
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: true, vertical: false)
             }
         }
     }

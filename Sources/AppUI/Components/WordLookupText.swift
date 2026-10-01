@@ -33,15 +33,19 @@ public enum WordLookupTextBuilder {
 
     /// 圆润字体（与全应用的 `design: .rounded` 同款）；取不到就退回系统字体。
     public static func font(size: CGFloat, weight: NSFont.Weight = .regular, italic: Bool = false) -> NSFont {
+        // ⚠️ 这里吃不到 SwiftUI 的环境值（`\.appTypography`），字号档只能读全局镜像
+        // （2026-10-01 修）：不乘它的话，切到「大」字号时对话正文、阅读/跟读/写作
+        // 里所有可划词的正文一个点都不动 —— 同一屏里有的字变大有的不变，看着像坏了。
+        let pointSize = AppTypography.scaledSize(size)
         // ⚠️ AppKit 侧没有 `NSFont.withDesign`（那是 SwiftUI 的 API）：圆润体只能从
         // `NSFontDescriptor` 绕一圈；绕不出来就退回系统字体，绝不为了字形让文本出不来。
-        var descriptor = NSFont.systemFont(ofSize: size, weight: weight).fontDescriptor
+        var descriptor = NSFont.systemFont(ofSize: pointSize, weight: weight).fontDescriptor
         if let rounded = descriptor.withDesign(.rounded) { descriptor = rounded }
-        var font = NSFont(descriptor: descriptor, size: size)
-            ?? NSFont.systemFont(ofSize: size, weight: weight)
+        var font = NSFont(descriptor: descriptor, size: pointSize)
+            ?? NSFont.systemFont(ofSize: pointSize, weight: weight)
         if italic {
             let italicDescriptor = font.fontDescriptor.withSymbolicTraits(.italic)
-            font = NSFont(descriptor: italicDescriptor, size: size) ?? font
+            font = NSFont(descriptor: italicDescriptor, size: pointSize) ?? font
         }
         return font
     }
@@ -93,7 +97,8 @@ public enum WordLookupTextBuilder {
             let intent = run.inlinePresentationIntent ?? []
             var runFont: NSFont
             if intent.contains(.code) {
-                runFont = NSFont.monospacedSystemFont(ofSize: max(fontSize - 1, 8), weight: .regular)
+                runFont = NSFont.monospacedSystemFont(ofSize: max(AppTypography.scaledSize(fontSize) - 1, 8),
+                                                      weight: .regular)
             } else if intent.contains(.stronglyEmphasized) {
                 runFont = font(size: fontSize, weight: .bold)
             } else if intent.contains(.emphasized) {

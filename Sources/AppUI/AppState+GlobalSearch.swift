@@ -40,14 +40,17 @@ extension AppState {
             : vocabularyEntries
         async let dictionary = services.dictionarySearch(needle)
         async let messages = services.searchMessages(query: needle)
-        let readings = readingEntries.map { $0.passage }
+        // ⚠️ 阅读来源走**库里最近读过的**，不读内存的 `readingEntries`（2026-10-01 修）：
+        // 后者只有今天那一两篇，且没进过阅读页时是空的 —— 搜索框写着「读过的短文」，
+        // 却连昨天读的都搜不到。
+        async let storedReadings = services.recentReadings()
 
         let hits = GlobalSearch.hits(
             query: needle,
             vocabulary: vocabulary,
             dictionary: await dictionary,
             messages: await messages,
-            readings: readings
+            readings: (await storedReadings).map { $0.passage }
         )
         // 查询词已经变了：这次的结果作废，别盖掉更新的那一次。
         guard GlobalSearch.normalize(globalSearchQuery) == needle else { return }
@@ -61,15 +64,20 @@ extension AppState {
     public func open(globalSearchHit hit: GlobalSearchHit) async {
         showingGlobalSearch = false
         globalSearchHits = []
+        // ⚠️ 查询词也要清（2026-10-01 修）：只清结果不清词的话，下次打开面板是
+        // 「输入框里躺着上次那个词 + 结果区写着没有找到匹配的条目」—— 因为
+        // `onChange` 不触发（词没变），不会重搜。用户会以为那个词突然搜不到了。
+        globalSearchQuery = ""
         switch hit.kind {
         case .vocabulary:
             await openVocabulary()
         case .dictionary:
             await openDictionaryLookingUp(hit.title)
         case .conversation:
-            await openRecords()
+            // 有 sessionID 就定位到那一条记录（否则落在一页顶部，用户还得自己翻）。
+            await openRecords(focus: hit.sessionID.map { .sessionReview($0) })
         case .reading:
-            await openReading()
+            await openReading(dayKey: hit.readingDayKey, title: hit.readingTitle)
         }
     }
 }

@@ -143,6 +143,9 @@ extension AppState {
     /// 有整块浮层盖着：底下那一页此刻看不见，快捷键再切页只会让人莫名其妙。
     private var isShortcutBlockingOverlayPresented: Bool {
         showingSettings || showingScenarios || showingMaterialUpload || examReport != nil
+            // 全局搜索（2026-10-01 补）：它也是铺满窗口的遮罩浮层，底下那页此刻看不见，
+            // 按 ⌘3 之类的切页键只会让面板关掉后「我怎么在另一个页面」。
+            || showingGlobalSearch
     }
 
     /// 真正跑一个动作。

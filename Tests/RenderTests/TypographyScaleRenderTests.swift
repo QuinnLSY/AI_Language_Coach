@@ -62,6 +62,22 @@ final class TypographyScaleRenderTests: XCTestCase {
         }
     }
 
+    /// `.appPadding(N)`（= `.all`）专用探针：整块黑底外圈一圈内边距。
+    ///
+    /// 为什么要单独一版（2026-10-01）：`.all` 是最容易出事的那一种 ——
+    /// `padding(.all, x)` 是**单个标量套四条边**，一旦 x 被密度档缩放，左右也跟着变，
+    /// 那正是「横向绝不缩放」要防的事（定宽卡片里横向内边距变大 = 正文被挤出去）。
+    /// 而高度类判据（上面几条）对**横向**的变化根本不敏感，抓不到它。
+    private struct AllSidesProbe: View {
+        var body: some View {
+            ZStack {
+                Color.white
+                Rectangle().fill(Color.black).appPadding(20)
+            }
+            .frame(width: 240, height: 120)
+        }
+    }
+
     // MARK: - 出图与量墨
 
     /// 渲染探针，返回位图。
@@ -109,6 +125,59 @@ final class TypographyScaleRenderTests: XCTestCase {
             }
         }
         return rep
+    }
+
+    /// 渲染「四边内边距」探针，返回位图（与上面同样的多趟布局 + 出图口径）。
+    private func captureAllSides(density: DensityMode, dump name: String? = nil) throws -> NSBitmapImageRep {
+        let root = AnyView(AllSidesProbe().appTypographyRoot(typeSize: .regular, density: density))
+        let host = NSHostingView(rootView: root)
+        host.frame = NSRect(origin: .zero, size: CGSize(width: 240, height: 120))
+        let window = NSWindow(
+            contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = host
+        self.window = window
+        for _ in 0..<8 {
+            host.layoutSubtreeIfNeeded()
+            window.layoutIfNeeded()
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        if let name {
+            let root = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            let directory = root.appendingPathComponent(".workbuddy/verify", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            if let png = rep.representation(using: .png, properties: [:]) {
+                try png.write(to: directory.appendingPathComponent(name))
+            }
+        }
+        return rep
+    }
+
+    /// 黑块左右的内边距（pt）：量第一行的墨范围。
+    private func horizontalInset(of rep: NSBitmapImageRep) throws -> (left: CGFloat, right: CGFloat) {
+        let width = rep.pixelsWide, height = rep.pixelsHigh
+        let scale = Double(width) / 240.0
+        guard let data = rep.bitmapData else { throw XCTSkip("拿不到位图数据") }
+        var left = CGFloat.greatestFiniteMagnitude, right = CGFloat(-1)
+        for y in 0..<height {
+            var rowLeft = CGFloat.greatestFiniteMagnitude, rowRight = CGFloat(-1)
+            for x in 0..<width {
+                let o = (y * width + x) * 4
+                if Int(data[o]) < 120, Int(data[o + 1]) < 120, Int(data[o + 2]) < 120 {
+                    rowLeft = min(rowLeft, CGFloat(x) / scale)
+                    rowRight = max(rowRight, CGFloat(x) / scale)
+                }
+            }
+            if rowRight >= 0 {
+                left = min(left, rowLeft)
+                right = max(right, rowRight)
+            }
+        }
+        XCTAssertTrue(right >= 0, "探针一帧墨都没有：夹具坏了")
+        return (left, right)
     }
 
     /// 白底上「有墨」的行范围（pt）。探针贴顶，量到的就是内容高度。
@@ -186,6 +255,28 @@ final class TypographyScaleRenderTests: XCTestCase {
             regularHeight, compactHeight,
             "标准档 (\(regularHeight)) 必须比紧凑档 (\(compactHeight)) 高"
         )
+    }
+
+    /// `.appPadding(20)` 的**横向**内边距必须三档都是 20。
+    ///
+    /// 反证：把 `AppPaddingModifier` 里 `.all` 分支改回 `content.padding(edges, scaled)`
+    /// （单标量套四边）→ 宽松档左内边距变 24、紧凑档变 17，本用例精确红。
+    /// 顺带确认纵向**确实**在变（否则这条判据可能是「档位根本没生效」的假绿）。
+    func testAllSidesPaddingKeepsHorizontalInsetAcrossDensityTiers() throws {
+        let compact = try horizontalInset(of: captureAllSides(density: .compact,
+                                                              dump: "typography-all-compact.png"))
+        let regular = try horizontalInset(of: captureAllSides(density: .regular,
+                                                              dump: "typography-all-regular.png"))
+        let spacious = try horizontalInset(of: captureAllSides(density: .spacious,
+                                                               dump: "typography-all-spacious.png"))
+        for (name, inset) in [("紧凑", compact), ("标准", regular), ("宽松", spacious)] {
+            XCTAssertEqual(inset.left, 20, accuracy: 1.5,
+                           "\(name)档的横向内边距变了：定宽卡片里的正文会被挤出去")
+        }
+        // 纵向要跟着档位走：横向恒等 ≠ 整个档位没生效。
+        let compactHeight = try inkExtent(of: capture(tokens: true, density: .compact)).bottom
+        let spaciousHeight = try inkExtent(of: capture(tokens: true, density: .spacious)).bottom
+        XCTAssertGreaterThan(spaciousHeight, compactHeight, "密度档对纵向必须仍然生效")
     }
 
     /// 字号档：大字的文本块必须比小字高（同宽 → 换行更多/行更高）。

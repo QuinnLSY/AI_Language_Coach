@@ -107,8 +107,23 @@ final class ForestStoryArcTests: XCTestCase {
         stage.ingest(.learnerTurn)
         stage.ingest(.teacherTurn)
         stage.ingest(.correctionsRecorded(count: 1))
-        XCTAssertEqual(stage.beats.map(\.kind),
-                       [.practiced, .practiced, .spoke, .spoke, .stumbled])
+        // ⚠️ 开口聊天**不进**剧情史（见 `recordStoryBeat`）：幕判定从不看它，
+        // 记进来只会把真正用来判幕的记录挤出窗口。
+        XCTAssertEqual(stage.beats.map(\.kind), [.practiced, .practiced, .stumbled])
+    }
+
+    /// 一轮练习里夹着几十条对话流水，「专注」幕必须还判得出来
+    /// （2026-10-01 修：此前流水会挤掉窗口内的练习记录，这一幕永远出不来）。
+    @MainActor
+    func testChatterDoesNotFlushThePracticeBeatsOutOfTheWindow() {
+        let stage = ForestStage()
+        for round in 0..<3 {
+            for _ in 0..<10 { stage.ingest(.learnerTurn); stage.ingest(.teacherTurn) }
+            stage.ingest(.practiceCompleted(rounds: round + 1))
+        }
+        XCTAssertTrue(stage.performedActs.contains(.focus),
+                      "对话流水不该把「十分钟三段」的判据挤掉")
+        XCTAssertEqual(stage.storyActTick, 1)
     }
 
     @MainActor
@@ -144,7 +159,7 @@ final class ForestStoryArcTests: XCTestCase {
     func testStageTrimsBeatHistoryToCapacity() {
         let stage = ForestStage()
         for _ in 0..<(ForestStage.storyBeatCapacity + 10) {
-            stage.ingest(.learnerTurn)
+            stage.ingest(.practiceCompleted(rounds: 1))
         }
         XCTAssertEqual(stage.beats.count, ForestStage.storyBeatCapacity,
                        "历史必须封顶：幕判定只看最近这些条")
@@ -168,5 +183,20 @@ final class ForestStoryArcTests: XCTestCase {
         XCTAssertTrue(tree.contains("performStoryAct(act)"), "出幕回调没接演幕")
         XCTAssertTrue(tree.contains("storyLead = nil") || tree.contains("storyLead = lead"),
                       "演员绑定断了（每次换角就不成剧情了）")
+    }
+
+    /// 挑角只能在**画得出来**的那几只里挑。
+    ///
+    /// 槽位恒为 8，但窄面板（`ForestGroundPlan`）只排 3~5 只，`index >= count` 的槽位
+    /// 画成 `opacity(0)`、气泡也有 `i < count` 守卫 —— 在 8 个里随机挑，六成概率
+    /// 演给一个画外角色：动作看不见、气泡也不出，用户只看到「攒够星却什么都没发生」。
+    func testCastingOnlyPicksVisibleResidents() throws {
+        let tree = try source("AppUI/Components/TreeCanvas.swift")
+        XCTAssertFalse(tree.contains("(0..<Self.maxResidents).filter { !away[$0] }"),
+                       "挑角不能在所有槽位里随选（会挑到画外的角色）")
+        XCTAssertTrue(tree.contains("private var presentResidents: [Int]"),
+                      "缺少「可见且在场」的挑角入口")
+        XCTAssertTrue(tree.contains("residentCount = value"),
+                      "可见居民数没有从布局回写（首帧之后才生效就晚了）")
     }
 }

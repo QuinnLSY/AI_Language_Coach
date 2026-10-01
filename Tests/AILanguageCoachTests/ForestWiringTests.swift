@@ -151,9 +151,12 @@ final class ForestWiringTests: XCTestCase {
         let tree = try source("AppUI/Components/TreeCanvas.swift")
         XCTAssertTrue(tree.contains("index < visibleCount && !away[index]"),
                       "居民可见性必须含暂离判定")
-        XCTAssertTrue(tree.contains("(0..<count).filter { !away[$0] }"),
-                      "日常动作只能在在场居民里挑")
-        XCTAssertTrue(tree.contains("let present = (0..<Self.maxResidents).filter { !away[$0] }"),
+        // 挑角统一走 `presentResidents`（**在场且画得出来**的那几只）：
+        // 槽位恒为 8，可见的只有 `residentCount` 只，在 8 个里随选会演给画外角色。
+        XCTAssertTrue(tree.contains("private var presentResidents: [Int]")
+                      && tree.contains("(0..<residentCount).filter { !away[$0] }"),
+                      "日常动作只能在在场且看得见的居民里挑")
+        XCTAssertTrue(tree.contains("let present = presentResidents"),
                       "庆祝只能点在场的居民")
         let home = self.body(of: "private func sendEveryoneHome", in: tree)
         XCTAssertTrue(home.contains("away[i] = false"), "全体回家必须清掉暂离态（否则有人卡在画外）")

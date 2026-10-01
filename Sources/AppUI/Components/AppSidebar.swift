@@ -292,6 +292,11 @@ public struct AppSidebar: View {
 
     /// 收起态点老师：先拉侧栏，等弹簧动画走完再开板。
     private func openBoardFromCollapsedSidebar() {
+        // ⚠️ 窄窗下**整个不做**（2026-10-01 修）：窗口 < 1000 时侧栏是「被派生强制收起」
+        // 的（`AppLayoutMetrics.sidebarExpanded`），写偏好不会让它展开，板开了也看不见；
+        // 更糟的是偏好已经被写进去了 —— 用户日后把窗口拉宽，黑板会**自己弹开**，
+        // 而他并没有点过它。点了没反应，也比埋一个日后的惊喜强。
+        guard widthAllowsExpansion else { return }
         withAnimation(.app(.panel)) {
             state.isSidebarExpanded = true
         }

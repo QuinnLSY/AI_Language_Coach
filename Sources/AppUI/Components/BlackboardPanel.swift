@@ -67,7 +67,9 @@ struct BlackboardPanel: View {
             // 烟花要飞到板外面才像烟花：不裁切、不吃点击。
             if isCelebrating {
                 CelebrationFireworks(tint: theme.accent, secondary: theme.glow)
-                    .appPadding(-48)
+                    // ⚠️ 负内边距是**几何外扩**不是留白（2026-10-01 修）：走 `.appPadding`
+                    // 会被密度档缩放，烟花的溢出范围就跟着「界面密度」这项无关设置变了。
+                    .padding(-48)
                     .allowsHitTesting(false)
             }
         }

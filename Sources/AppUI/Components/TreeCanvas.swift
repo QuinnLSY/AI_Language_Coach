@@ -177,7 +177,7 @@ public struct TreeCanvas: View {
                 // 要有自己的读屏文案。画在关卡节点之前（树干上、学员身后，不抢点击）。
                 if TreeRings.showsEmblem(practicedDays: annualSummary.practicedDays) {
                     TreeRingEmblem(theme: theme, summary: annualSummary)
-                        .position(x: midX, y: canvasHeight - 34)
+                        .position(x: midX, y: TreeRings.emblemY(canvasHeight: canvasHeight))
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(TreeRings.accessibilityLabel(
                             practicedDays: annualSummary.practicedDays,
@@ -342,6 +342,18 @@ public enum TreeRings {
     public static let flameStreakThreshold = 3
 
     public static func showsEmblem(practicedDays: Int) -> Bool { practicedDays > 0 }
+
+    /// 徽记中心的 y（画布坐标）—— **必须落在林间地面带之上**。
+    ///
+    /// 为什么不是「画布底往上一点」（2026-10-01 修）：那 150pt 的 `ForestGroundBand`
+    /// 是钉在**视口**底部的固定层（草坡不透明），画布能滚到的最后一屏里，底部 150pt
+    /// 永远被它压住。徽记原先画在 `canvasHeight - 34`，正好在压住区里 ——
+    /// 而第一圈年轮要练满 30 天才出现，那必然爬得够高、视口停在半空，
+    /// 结果就是「练了一整年，树根什么都没有」。
+    /// 这里用与 `learnerTargetY` 同一套常量（林带高 + 一个呼吸位）定位。
+    public static func emblemY(canvasHeight: CGFloat) -> CGFloat {
+        canvasHeight - TreeViewport.groundBandHeight - TreeViewport.clearance
+    }
 
     public static func ringCount(practicedDays: Int) -> Int {
         guard practicedDays > 0 else { return 0 }
@@ -916,6 +928,19 @@ struct ForestGroundBand: View {
     /// （在场才认；暂离了就换角重绑）。会话级 @State，重启自然换人。
     @State private var storyLead: Int? = nil
 
+    /// 画面上**真的画出来**的居民数（由 `ForestGroundPlan` 按面板宽排，随宽度变）。
+    ///
+    /// 为什么要有它（2026-10-01 修）：槽位总数恒为 8，但窄面板下只排 3~5 只
+    /// （`index >= count` 的槽位画成 `opacity(0)`，气泡层也有 `i < count` 守卫）。
+    /// 挑角原先在 8 个槽位里随机，六成概率挑到画外的角色 —— 那一幕就演给空气看：
+    /// 动作看不见、气泡也不出，用户只看到「攒够星却什么都没发生」。
+    @State private var residentCount: Int = 0
+
+    /// 此刻在场（没暂离）且**看得见**的居民槽位 —— 挑角只能在这一段里挑。
+    private var presentResidents: [Int] {
+        (0..<residentCount).filter { !away[$0] }
+    }
+
     /// 离场告别语（轮换时随机抽一条）。
     static let leavePhrases = [
         "我先回家吃点心啦～",
@@ -1210,7 +1235,12 @@ struct ForestGroundBand: View {
             .appAnimation(.reveal, value: qw)
             // 初始化物种/朝向状态（轮换的基础）
             .onAppear { ensureResidents(order: order) }
-            .onChange(of: count) { _, _ in ensureResidents(order: order) }
+            .onChange(of: count, initial: true) { _, value in
+                // 可见居民数：挑角 / 编排都只认这一段（见 `presentResidents`）。
+                // `initial: true` —— 首帧就得写进去，否则第一次出幕时它还是 0。
+                residentCount = value
+                ensureResidents(order: order)
+            }
             // 活动编排（宽度或活动开关/频率变化时重启循环，取最新几何与开关值）
             .task(id: "\(qw)-\(activityAllowed)-\(activityFrequency)-\(theme.isNight)") {
                 async let life: () = orchestrateLife(count: count, span: span, inset: inset,
@@ -1539,7 +1569,7 @@ struct ForestGroundBand: View {
     /// 夜晚 / 活动被关（`activityAllowed` 已含「配置 && 白天」）只冒气泡不跳——
     /// 睡着的小动物被吵醒跳就不礼貌了，但庆祝的话还是要说。
     private func celebrate() {
-        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        let present = presentResidents
         if activityAllowed {
             for wave in 0..<3 {
                 for (order, index) in present.enumerated() {
@@ -1618,7 +1648,7 @@ struct ForestGroundBand: View {
     /// ⚠️ 只点在场的居民；安慰语固定轮换（连续纠错不会每次都是同一句）。
     private func comfort() {
         guard activityAllowed, !theme.isNight, bubblesAllowed else { return }
-        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        let present = presentResidents
         guard let index = present.randomElement() else { return }
         trigger(index, action: .tilt)
         requestRawBubble(index, pool: Self.comfortPhrases)
@@ -1630,7 +1660,7 @@ struct ForestGroundBand: View {
     /// 夜晚 / 活动被关时**只冒气泡不跳**——睡着的小动物被吵醒跳就不礼貌了。
     private func welcomeParty() {
         welcomePlayed = true
-        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        let present = presentResidents
         if activityAllowed, !theme.isNight {
             for (order, index) in present.enumerated() {
                 Task { @MainActor in
@@ -1649,7 +1679,7 @@ struct ForestGroundBand: View {
     /// 夜晚也举（错误不挑时候）；牌子举在头顶，详情在聊天区横幅——这里只喊一嗓子。
     private func holdUpSign(_ tick: Int) {
         guard let headline = errorHeadline, !headline.isEmpty else { return }
-        guard let index = (0..<Self.maxResidents).filter({ !away[$0] }).first else { return }
+        guard let index = presentResidents.first else { return }
         signShownTick = tick
         withAnimation(.app(.panel)) { signHolder = index }
         Task { @MainActor in
@@ -1668,7 +1698,7 @@ struct ForestGroundBand: View {
     /// 这里不做二次判断，免得两处门槛不一致。
     private func huddleComfort() {
         guard activityAllowed, !theme.isNight else { return }
-        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        let present = presentResidents
         guard !present.isEmpty else { return }
         // 最多三只：再多就不是安慰，是围观的
         let cast = Array(present.shuffled().prefix(min(3, present.count)))
@@ -1683,7 +1713,7 @@ struct ForestGroundBand: View {
     /// 模块完成戏码：按 `ForestModuleSkit` 派 1–2 只，演这个模块的动作与台词。
     private func playModuleSkit(_ module: PracticeModule) {
         guard activityAllowed, !theme.isNight else { return }
-        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        let present = presentResidents
         guard !present.isEmpty else { return }
         let cast = Array(present.shuffled().prefix(ForestModuleSkit.castSize(for: module)))
         for index in cast {
@@ -1701,7 +1731,7 @@ struct ForestGroundBand: View {
     /// 不评判、不催促，退出不是失败。
     private func waveGoodbye(_ module: PracticeModule) {
         guard activityAllowed, !theme.isNight else { return }
-        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        let present = presentResidents
         guard !present.isEmpty else { return }
         let cast = Array(present.shuffled().prefix(min(2, present.count)))
         for index in cast {
@@ -1718,7 +1748,7 @@ struct ForestGroundBand: View {
     /// 槽位相邻的两只未必挨着。
     private func acknowledgeLearner() {
         guard activityAllowed, !theme.isNight else { return }
-        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        let present = presentResidents
         guard let index = present.randomElement() else { return }
         trigger(index, action: .nod)
     }
@@ -1726,7 +1756,7 @@ struct ForestGroundBand: View {
     /// 老师开口：两三只抬起头听（全员一起抬头反而像受惊）。
     private func listenUp() {
         guard activityAllowed, !theme.isNight else { return }
-        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        let present = presentResidents
         guard !present.isEmpty else { return }
         let cast = Array(present.shuffled().prefix(min(2, present.count)))
         for index in cast {
@@ -1751,7 +1781,7 @@ struct ForestGroundBand: View {
     /// 夜晚 / 活动被关时不演（舞台的记账照走，这一幕会话里就此错过）。
     private func performStoryAct(_ act: ForestStoryArc.Act) {
         guard activityAllowed, !theme.isNight else { return }
-        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        let present = presentResidents
         if let lead = storyLead, !present.contains(lead) { storyLead = nil }
         let lead = storyLead ?? present.randomElement()
         if storyLead == nil { storyLead = lead }
@@ -1774,7 +1804,7 @@ struct ForestGroundBand: View {
         guard activityAllowed, !theme.isNight, !hasDozed else { return }
         let quiet = Date().timeIntervalSince(lastActivityAt)
         guard quiet >= ForestStage.idleThresholdSeconds else { return }
-        let present = (0..<Self.maxResidents).filter { !away[$0] }
+        let present = presentResidents
         guard let index = present.randomElement() else { return }
         hasDozed = true
         trigger(index, action: .nod)
