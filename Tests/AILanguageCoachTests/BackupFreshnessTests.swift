@@ -205,11 +205,11 @@ final class BackupFreshnessTests: XCTestCase {
             .map(String.init)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
         let body = lines.joined(separator: "\n")
-        XCTAssertTrue(body.contains("ensureAnnualRecapLoaded(force: Bool = false)"),
+        XCTAssertTrue(body.contains("ensureAnnualRecapLoaded(force: Bool = false"),
                       "年度取数要能失效重取")
         XCTAssertTrue(body.contains("(force || !hasAnnualRecap)"),
                       "force 必须真的绕过「已加载过」的短路")
-        XCTAssertTrue(body.contains("ensureAnnualRecapLoaded(force: true)"),
+        XCTAssertTrue(body.contains("ensureAnnualRecapLoaded(force: true"),
                       "练完回来刷新进度时必须顺带刷新年度")
     }
 }

@@ -119,7 +119,7 @@ final class DataSafetyLoopTests: XCTestCase {
         )
         let services = CoachServices(config: store, databasePath: ":memory:")
         let sessionID = UUID()
-        try await services.persistSession(ChatSession(id: sessionID, startedAt: Date()))
+        await services.persistSession(ChatSession(id: sessionID, startedAt: Date()))
         await services.persistCorrection(
             GrammarCorrection(original: "I have went", corrected: "I went", explanation: "past tense"),
             sessionID: sessionID

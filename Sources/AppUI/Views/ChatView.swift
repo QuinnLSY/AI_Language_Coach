@@ -167,8 +167,9 @@ public struct ChatView: View {
     /// 用户改过字就**保留他的手改**、只把识别的增量补在后面 —— 后者是 2026-09-27
     /// 报障的修复点（以前每一步都按录音前快照重算，用户改的字会被冲回去）。
     @State private var voiceMerge = VoiceMergeState()
-    /// 当前轮换到的预设提问下标。
-    @State private var questionIndex: Int = 0
+    /// 预设提问轮换状态（状态下沉，#440）：父 body 不读下标，
+    /// 只有占位子视图订阅它 —— 轮换一跳不再重算整个对话视图。
+    @State private var rotator = StarterQuestionRotator()
     /// 录音中且尚未发送：只有这段时间才允许流式结果往输入框里写。
     /// （发送后必须彻底断开，否则正在录音时发送会被下一轮流式结果原样填回来。）
     @State private var isMergingVoice = false
@@ -194,9 +195,6 @@ public struct ChatView: View {
     /// ⚠️ 为什么不再往上：三颗是**次要动作**，30% 已经在「看得见」的边缘，
     /// 再亮就和正文抢注意力了。
     nonisolated static let learnerActionIdleOpacity: Double = 0.3
-
-    /// 每条预设提问停留的秒数。
-    private let rotationInterval: Double = 3.4
 
     /// 相隔超过该时长的两条消息之间才显示时间戳。
     private let timestampGap: TimeInterval = 5 * 60
@@ -391,12 +389,11 @@ public struct ChatView: View {
             guard let text, voicePhase.isCapturing, isMergingVoice else { return }
             applyVoiceText(text)
         }
-        // 预设提问轮换：只在输入框为空、且没有正在等回复时滚动。
-        .onReceive(Timer.publish(every: rotationInterval, on: .main, in: .common).autoconnect()) { _ in
-            guard input.isEmpty, starterQuestions.count > 1, !chat.isGenerating else { return }
-            withAnimation(.app(.panel)) {
-                questionIndex = (questionIndex + 1) % starterQuestions.count
-            }
+        // 预设提问轮换：时钟已下沉到占位子视图（RollingStarterQuestionView），
+        // 根级不再挂 Timer。这里只把最新的预设提问同步进 rotator。
+        .onAppear { rotator.update(questions: starterQuestions) }
+        .onChange(of: starterQuestions) { _, questions in
+            rotator.update(questions: questions)
         }
         // 删除确认（2026-09-23）。三颗图标常驻之后，「先精确悬停」那层阻力没有了，
         // 而误点的代价是一整轮问答（学员那句 + 老师紧邻的那句回复）——
@@ -429,15 +426,6 @@ public struct ChatView: View {
     /// 待删除那条的正文（确认框里拿它写摘要）。
     private func pendingDeleteText(_ id: UUID) -> String {
         chat.visibleMessages.first { $0.id == id }?.content ?? ""
-    }
-
-    /// 当前轮换到的预设提问（没有预设时返回 nil，输入框退回普通占位）。
-    ///
-    /// ⚠️ 考试模式下**恒为 nil**：预置提问是「陪练」的产物，
-    /// 考场上出现一句现成的话，学员会以为把那句念出来就算答过了。
-    private var currentStarterQuestion: String? {
-        guard exam == nil, !starterQuestions.isEmpty else { return nil }
-        return starterQuestions[questionIndex % starterQuestions.count]
     }
 
     /// 把一次识别文本落到输入框 —— **流式与定稿共用这一个入口**。
@@ -744,7 +732,9 @@ public struct ChatView: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
+                    // LazyVStack：长会话只渲染屏幕内外的少量气泡（历史几十上百条时
+                    // 一次性全部搭出来是滚动卡顿的主因）。间距与对齐和原 VStack 一致。
+                    LazyVStack(alignment: .leading, spacing: 14) {
                         ForEach(Array(chat.visibleMessages.enumerated()), id: \.element.id) { index, message in
                             VStack(alignment: .leading, spacing: 6) {
                                 // 距上一条超过 5 分钟才显示时间戳；首条消息必显示。
@@ -941,6 +931,10 @@ public struct ChatView: View {
     /// #6：进入练习页时的落位。睡一拍等首帧布局完成（消息尺寸还是估算值时
     /// `scrollTo` 会停在中途），然后无动画直落底部。
     private func positionAtLatestOnAppear(_ proxy: ScrollViewProxy) async {
+        try? await Task.sleep(nanoseconds: 120_000_000)
+        scrollToBottom(proxy, animated: false)
+        // LazyVStack 的到场项是按需搭的：第一跳之后中段气泡才陆续建出来，
+        // 估算高度会漂 —— 补一跳落准（两次都无动画，用户看不出过程）。
         try? await Task.sleep(nanoseconds: 120_000_000)
         scrollToBottom(proxy, animated: false)
     }
@@ -2009,8 +2003,10 @@ public struct ChatView: View {
             .padding(.horizontal, 14)
             .appPadding(.vertical, 10)
 
-            if input.isEmpty, let hint = currentStarterQuestion {
-                rollingQuestion(hint)
+            // 轮换占位提示（考试模式不显示：考场上出现一句现成的话，
+            // 学员会以为把那句念出来就算答过了 —— 口径与原 `currentStarterQuestion` 一致）。
+            if input.isEmpty, exam == nil {
+                RollingStarterQuestionView(rotator: rotator, isGenerating: chat.isGenerating)
                     .padding(.leading, 14)
                     .padding(.trailing, 20)
                     .appPadding(.top, 10)
@@ -2030,31 +2026,17 @@ public struct ChatView: View {
                     .allowsHitTesting(false)
             }
         }
-        .appAnimation(.panel, value: questionIndex)
-    }
-
-    /// 上下滚动的预设提问：新的一条从下方滚上来，旧的一条往上滚出去。
-    private func rollingQuestion(_ text: String) -> some View {
-        Text(text)
-            .appFont(14, design: .rounded)
-            .foregroundStyle(theme.secondaryText.opacity(0.62))
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .id(text)
-            .frame(height: 20)
-            .clipped()
-            .transition(.asymmetric(
-                insertion: .move(edge: .bottom).combined(with: .opacity),
-                removal: .move(edge: .top).combined(with: .opacity)
-            ))
     }
 
     /// 能不能发送：模型被关闭时一律不行；否则「有手打内容」「有待发附件」「有预设提问」都行。
+    ///
+    /// ⚠️ 这里用 **index-free** 判断（exam == nil 且有预设即 true），不读轮换下标：
+    /// `canSend` 在父 body 里求值，读了下标父级就会订阅它，状态下沉就白做了。
     private var canSend: Bool {
         guard modelStoppedNotice == nil else { return false }
         if !pendingAttachments.isEmpty { return true }
         if !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
-        return currentStarterQuestion != nil
+        return exam == nil && !starterQuestions.isEmpty
     }
 
     /// 这一整段语音不要了：不识别、不填进输入框（识别已经开始的，结果作废）。
@@ -2209,11 +2191,12 @@ public struct ChatView: View {
         guard modelStoppedNotice == nil else { return }
         let typed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         // 空着点发送 = 发送当前轮换到的预设提问（浅灰那条）；只带附件不带文字时不再兜底提问。
+        // ⚠️ 在 action 闭包里读 rotator（闭包不订阅）—— 取的是「此刻」轮换到的那条。
         let text: String
         if !typed.isEmpty {
             text = typed
         } else if pendingAttachments.isEmpty {
-            text = currentStarterQuestion ?? ""
+            text = exam == nil ? (rotator.current ?? "") : ""
         } else {
             text = ""
         }
@@ -2419,6 +2402,84 @@ struct TypingDots: View {
             // 静止不等于没画出来，三个点仍在原位。
             guard !motion.reduceMotion else { return }
             withAnimation(.easeInOut(duration: 0.25)) { phase = (phase + 1) % 3 }
+        }
+    }
+}
+
+// MARK: - 预设提问轮换（状态下沉）
+
+/// 预设提问的轮换状态（#440 优化）。
+///
+/// 轮换下标是**输入框占位提示**的私有状态 —— 以前放在 ChatView 根级 `@State`，
+/// 每 3.4 秒一跳就把整个对话视图的 body 全部重算一遍（长会话里每一跳都是一次
+/// 全量 diff）。`@Observable` 的细粒度订阅让**只有读下标的占位子视图**跟着刷新，
+/// 父视图的 body 不再因为占位提示换了一句话而重算。
+///
+/// ⚠️ 父视图只有 `send()` 的 action 闭包读 `current`（闭包不订阅）；
+/// `canSend` 用 `exam == nil && !starterQuestions.isEmpty` 的 index-free 判断，
+/// 全程不给父级制造下标订阅。
+@MainActor
+@Observable
+final class StarterQuestionRotator {
+    private(set) var index: Int = 0
+    private(set) var questions: [String] = []
+
+    /// 当前轮换到的那条（没有预设时 nil）。
+    var current: String? {
+        guard !questions.isEmpty else { return nil }
+        return questions[index % questions.count]
+    }
+
+    /// 换一批预设提问（内容没变就不动，避免把轮换归零）。
+    func update(questions: [String]) {
+        guard self.questions != questions else { return }
+        self.questions = questions
+        index = 0
+    }
+
+    /// 时钟一跳：换下一条。守卫与原根级 Timer 一致——
+    /// 输入框空着、没在等回复、预设多于一条才动。
+    func advance(isInputEmpty: Bool, isGenerating: Bool) {
+        guard isInputEmpty, questions.count > 1, !isGenerating else { return }
+        index = (index + 1) % questions.count
+    }
+}
+
+/// 输入框里的轮换占位提示（浅灰那条）。
+///
+/// 自己持有轮换时钟：这个子视图只在「输入框为空且不在考试」时到场，
+/// 时钟的生命周期天然跟着占位提示走 —— 输入框一旦有字，时钟随视图一起消失。
+private struct RollingStarterQuestionView: View {
+    let rotator: StarterQuestionRotator
+    let isGenerating: Bool
+
+    /// 每条预设提问停留的秒数。
+    private let rotationInterval: Double = 3.4
+
+    @Environment(\.forestTheme) private var theme
+
+    var body: some View {
+        Group {
+            if let hint = rotator.current {
+                Text(hint)
+                    .appFont(14, design: .rounded)
+                    .foregroundStyle(theme.secondaryText.opacity(0.62))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .id(hint)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: 20)
+                    .clipped()
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .bottom).combined(with: .opacity),
+                        removal: .move(edge: .top).combined(with: .opacity)
+                    ))
+            }
+        }
+        // 轮换动画归子视图：父级不再把下标当 animation value（读了就会订阅）。
+        .appAnimation(.panel, value: rotator.index)
+        .onReceive(Timer.publish(every: rotationInterval, on: .main, in: .common).autoconnect()) { _ in
+            rotator.advance(isInputEmpty: true, isGenerating: isGenerating)
         }
     }
 }

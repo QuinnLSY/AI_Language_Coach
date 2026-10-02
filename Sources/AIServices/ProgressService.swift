@@ -28,7 +28,8 @@ public actor ProgressService {
         now: Date = Date(),
         calendar: Calendar = .current,
         totalStars: Int = 0,
-        goalMinutes: Int = ProgressAggregator.defaultGoalMinutes
+        goalMinutes: Int = ProgressAggregator.defaultGoalMinutes,
+        preloadedVocabulary: [VocabularyEntry]? = nil
     ) async -> ProgressSnapshot {
         guard let learning else {
             return ProgressSnapshot.empty(now: now, days: days, goalMinutes: goalMinutes)
@@ -47,7 +48,13 @@ public actor ProgressService {
         let corrections = (try? await learning.correctionRecords(since: start)) ?? []
         let shadowing = (try? await learning.shadowingAttempts(since: start)) ?? []
         // 词汇用全量：累计曲线需要窗口之前的存量当起始高度。
-        let vocabulary = (try? await learning.allVocabulary()) ?? []
+        // ⚠️ 调用方已取过一遍时经 `preloadedVocabulary` 传入（进度页三件套共用一次读取）。
+        let vocabulary: [VocabularyEntry]
+        if let preloadedVocabulary {
+            vocabulary = preloadedVocabulary
+        } else {
+            vocabulary = (try? await learning.allVocabulary()) ?? []
+        }
         // 写作 / 阅读（#233）：阅读只认交卷的（口径见 `ReadingStamp`）。
         let writings = (try? await learning.writingStamps(since: start)) ?? []
         let readings = (try? await learning.readingStamps(since: start)) ?? []
@@ -87,7 +94,11 @@ public actor ProgressService {
     /// 与 `snapshot(days:)` **分开取数**（同年度记录的理由）：小结要看 63 天
     /// （覆盖到上个月 1 号之前，月环比才有整月的上期样本），窗口只要 7–30 天。
     /// 折算仍走 `ProgressAggregator` 纯函数，不另立第二把尺。
-    public func weeklyInsight(now: Date = Date(), calendar: Calendar = .current) async -> WeeklyInsight? {
+    public func weeklyInsight(
+        now: Date = Date(),
+        calendar: Calendar = .current,
+        preloadedVocabulary: [VocabularyEntry]? = nil
+    ) async -> WeeklyInsight? {
         guard let learning else { return nil }
         // 63 天 = 上月整月 + 本月至今的最坏情况（31 + 31）再放宽一天。
         let window = 63
@@ -96,8 +107,13 @@ public actor ProgressService {
         let messages = (try? await learning.messageTimestamps(since: start)) ?? []
         let corrections = (try? await learning.correctionRecords(since: start)) ?? []
         let shadowing = (try? await learning.shadowingStamps(since: start)) ?? []
-        // 词汇用全量：`dailyActivity` 按 createdAt 折每天新增。
-        let vocabulary = (try? await learning.allVocabulary()) ?? []
+        // 词汇用全量：`dailyActivity` 按 createdAt 折每天新增（调用方已取过则复用）。
+        let vocabulary: [VocabularyEntry]
+        if let preloadedVocabulary {
+            vocabulary = preloadedVocabulary
+        } else {
+            vocabulary = (try? await learning.allVocabulary()) ?? []
+        }
         let writings = (try? await learning.writingStamps(since: start)) ?? []
         let readings = (try? await learning.readingStamps(since: start)) ?? []
 
@@ -125,7 +141,8 @@ public actor ProgressService {
     public func annualRecap(
         now: Date = Date(),
         calendar: Calendar = .current,
-        goalMinutes: Int = ProgressAggregator.defaultGoalMinutes
+        goalMinutes: Int = ProgressAggregator.defaultGoalMinutes,
+        preloadedVocabulary: [VocabularyEntry]? = nil
     ) async -> AnnualRecap {
         guard let learning else {
             return AnnualRecap.empty(now: now, goalMinutes: goalMinutes)
@@ -145,7 +162,12 @@ public actor ProgressService {
         // 就算「没练」—— 连续天数比侧栏徽章少一天（2026-09-29 用户报障：徽章 2 天、
         // 年度记录「当前连续 1 天」）。它与「今天」卡片、每日任务走的是同一把尺
         // （`dailyActivity`），实参不许各写一套 —— `reviews:` 早前就漏过一次。
-        let vocabulary = (try? await learning.allVocabulary()) ?? []
+        let vocabulary: [VocabularyEntry]
+        if let preloadedVocabulary {
+            vocabulary = preloadedVocabulary
+        } else {
+            vocabulary = (try? await learning.allVocabulary()) ?? []
+        }
 
         let activity = ProgressAggregator.dailyActivity(
             days: slots,

@@ -335,22 +335,18 @@ public actor VocabularyService {
     }
 
     /// 从复盘的 new_words 导入生词（按 word 去重，已有词的进度不动）。返回新词数。
+    /// 整批一个事务（insertVocabularyIfAbsent），不再逐词全表扫。
     @discardableResult
     public func importFromReviews(limit: Int = 20) async -> Int {
         guard let learning else { return 0 }
         let reviews = (try? await learning.recentReviews(limit: limit)) ?? []
-        var imported = 0
-        for review in reviews {
-            for word in review.newWords {
-                let clean = Self.normalize(word)
-                guard !clean.isEmpty else { continue }
-                let entry = VocabularyEntry(word: clean, source: .review)
-                if (try? await learning.upsertVocabulary(entry)) == true {
-                    imported += 1
-                }
+        let entries = reviews.flatMap { review in
+            review.newWords.map { word in
+                VocabularyEntry(word: Self.normalize(word), source: .review)
             }
-        }
-        return imported
+        }.filter { !$0.word.isEmpty }
+        guard !entries.isEmpty else { return 0 }
+        return (try? await learning.insertVocabularyIfAbsent(entries)) ?? 0
     }
 
     /// 手动添加一个词。已存在时返回已有的那条（UI 提示「已在词表里」）。

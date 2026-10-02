@@ -31,7 +31,7 @@ public struct MarkdownText: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(Self.parseBlocks(text).enumerated()), id: \.offset) { _, block in
+            ForEach(Array(Self.cachedBlocks(text).enumerated()), id: \.offset) { _, block in
                 blockView(block)
             }
         }
@@ -126,6 +126,27 @@ public struct MarkdownText: View {
     }
 
     // MARK: - 块级解析（纯函数，可单测）
+
+    // MARK: - 解析缓存
+
+    /// 流式回复与父视图重算会让**同一段文本**被反复解析（每来一个 token body 就重跑），
+    /// 长对话里是 O(n²) 级浪费。缓存最近解析过的结果（`text` 全文做 key，超限整体清空 ——
+    /// 只做去重不做 LRU，64 条足够覆盖一屏消息；`parseBlocks` 本体保持纯函数不碰缓存）。
+    @MainActor
+    private static var parseCache: [String: [Block]] = [:]
+    @MainActor
+    private static let parseCacheLimit = 64
+
+    @MainActor
+    static func cachedBlocks(_ text: String) -> [Block] {
+        if let hit = parseCache[text] { return hit }
+        let parsed = parseBlocks(text)
+        if parseCache.count >= parseCacheLimit {
+            parseCache.removeAll(keepingCapacity: true)
+        }
+        parseCache[text] = parsed
+        return parsed
+    }
 
     public enum Block: Equatable {
         case heading(level: Int, content: String)

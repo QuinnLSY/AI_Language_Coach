@@ -51,24 +51,30 @@ extension AppState {
         // ⚠️ goalMinutes 用 `effectiveGoalMinutes`：保底档下判定口径就是 5 分钟
         // （目标环、goalReached 与黑板计划的量对得上 —— 达标判定与实际记录一致）。
         // 每周小结 / 月环比（#228）同样并行：它要看 63 天，不该串在窗口快照后面。
-        async let insight = services.weeklyInsight()
+        //
+        // ⚠️ 词汇全量只取**一次**传三处：snapshot / weeklyInsight / annualRecap
+        // 原来各自全表扫一遍 vocabulary_items（并行时同屏三遍），现在共用一份。
+        let vocabulary = await services.progressVocabulary()
+        async let insight = services.weeklyInsight(preloadedVocabulary: vocabulary)
         let snapshot: ProgressSnapshot
         if includeAnnual {
             async let snapshotTask = services.progressSnapshot(
                 days: progressWindowDays,
                 totalStars: progress.totalStars,
-                goalMinutes: effectiveGoalMinutes
+                goalMinutes: effectiveGoalMinutes,
+                preloadedVocabulary: vocabulary
             )
             // 年度那一侧先起（`async let` 已经把窗口查询挂到并行的子任务上了）。
             // ⚠️ 这里要 **force**：这一路是「刚练完回来 / 手动刷新」，年度数据必须跟着
             // 变（今天练出的天数要立刻长成年轮），不能让「已加载过」把它短路掉。
-            await ensureAnnualRecapLoaded(force: true)
+            await ensureAnnualRecapLoaded(force: true, preloadedVocabulary: vocabulary)
             snapshot = await snapshotTask
         } else {
             snapshot = await services.progressSnapshot(
                 days: progressWindowDays,
                 totalStars: progress.totalStars,
-                goalMinutes: effectiveGoalMinutes
+                goalMinutes: effectiveGoalMinutes,
+                preloadedVocabulary: vocabulary
             )
         }
         // 汇总刚拿到的是**原始**快照（此刻还留着的记录）。两步顺序不能反：
@@ -96,11 +102,17 @@ extension AppState {
     /// （2026-10-01 修：此前没有任何一处把 `hasAnnualRecap` 复位，
     /// 于是年度数据一旦加载就终身不刷新，当天练出来的天数要重启应用才长圈）。
     /// 进度页刷新 / 练完回来（`reloadProgress(includeAnnual: true)`）走 force。
-    func ensureAnnualRecapLoaded(force: Bool = false) async {
+    ///
+    /// - Parameter preloadedVocabulary: 进度页三件套共用的一份词汇全量（调用方已取过就传进来，
+    ///   年度汇总不再自己全表扫一遍；单独入口（火苗徽章）不传、自己取）。
+    func ensureAnnualRecapLoaded(force: Bool = false, preloadedVocabulary: [VocabularyEntry]? = nil) async {
         guard (force || !hasAnnualRecap), !isLoadingAnnualRecap else { return }
         isLoadingAnnualRecap = true
         defer { isLoadingAnnualRecap = false }
-        annualRecap = await services.annualRecap(goalMinutes: effectiveGoalMinutes)
+        annualRecap = await services.annualRecap(
+            goalMinutes: effectiveGoalMinutes,
+            preloadedVocabulary: preloadedVocabulary
+        )
         hasAnnualRecap = true
     }
 

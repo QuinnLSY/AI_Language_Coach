@@ -47,8 +47,12 @@ final class ProgressConsistencyTests: XCTestCase {
         let service = try source("AIServices/ProgressService.swift")
         let recap = body(of: "public func annualRecap", in: service)
         XCTAssertFalse(recap.isEmpty, "找不到 annualRecap（结构变了就改这条判据）")
-        XCTAssertTrue(recap.contains("let vocabulary = (try? await learning.allVocabulary())"),
-                      "年度记录必须取词汇 —— 收词也算练过")
+        // #438 之后词汇可由调用方注入（进度页三件套共用一次读取），
+        // 但**必须有一条取数路径**：注入为 nil 时自己全量取。
+        XCTAssertTrue(recap.contains("preloadedVocabulary"),
+                      "年度记录必须接受共享词汇注入（否则三处取数各扫一遍）")
+        XCTAssertTrue(recap.contains("learning.allVocabulary()"),
+                      "年度记录必须取词汇 —— 收词也算练过（单独入口没注入时自己取）")
         XCTAssertTrue(recap.contains("vocabulary: vocabulary"),
                       "取到了还要真的喂给 dailyActivity（漏传时它有默认空数组）")
         XCTAssertTrue(recap.contains("corrections: corrections"),

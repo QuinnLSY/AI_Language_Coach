@@ -79,6 +79,8 @@ public actor LearningDatabase {
         )
         """)
         try db.run("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)")
+        // 年度学习记录按 created_at 扫全年消息，没索引就是全表扫（消息是最大的一张表）。
+        try db.run("CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at)")
 
         try db.run("""
         CREATE TABLE IF NOT EXISTS corrections (
@@ -90,6 +92,9 @@ public actor LearningDatabase {
             created_at REAL NOT NULL
         )
         """)
+
+        // 错题汇总 / 年度纠错密度都按 created_at 扫时间窗口。
+        try db.run("CREATE INDEX IF NOT EXISTS idx_corrections_created ON corrections(created_at)")
 
         // v1 → v2：给已存在的 messages 表补 reasoning 列（列已存在时报错属预期，忽略）。
         try? db.run("ALTER TABLE messages ADD COLUMN reasoning TEXT")
@@ -151,6 +156,22 @@ public actor LearningDatabase {
         )
         """)
         try db.run("CREATE INDEX IF NOT EXISTS idx_vocab_created ON vocabulary_items(created_at DESC)")
+        // 词汇业务唯一键是 word（大小写不敏感去重）：NOCASE 唯一索引让 upsertVocabulary
+        // 的「查重」与 INSERT 都走索引，且从数据库层面兜住大小写重复（列上的 UNIQUE 是 BINARY 口径，管不住）。
+        // ⚠️ 老库若已攒下大小写重复行，直接建唯一索引会失败 → 先去重（保留最早插入的一行，
+        // 它握着复习进度这份学习资产），再建索引。
+        try db.run(
+            """
+            DELETE FROM vocabulary_items
+            WHERE EXISTS (
+                SELECT 1 FROM vocabulary_items w
+                WHERE w.word = vocabulary_items.word COLLATE NOCASE
+                  AND (w.created_at < vocabulary_items.created_at
+                       OR (w.created_at = vocabulary_items.created_at AND w.id < vocabulary_items.id))
+            )
+            """
+        )
+        try db.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_vocab_word_nocase ON vocabulary_items(word COLLATE NOCASE)")
         try db.run("""
         CREATE TABLE IF NOT EXISTS vocabulary_reviews (
             id TEXT PRIMARY KEY,
@@ -158,7 +179,10 @@ public actor LearningDatabase {
             remembered INTEGER NOT NULL,
             reviewed_at REAL NOT NULL
         )
-        """)
+        """
+        )
+        // 复习历史按 reviewed_at 取最近窗口。
+        try db.run("CREATE INDEX IF NOT EXISTS idx_vocab_reviews_created ON vocabulary_reviews(reviewed_at DESC)")
 
         // v7 → v8：消息补附件列（第 3 项需求：聊天支持图片 / 视频 / 文件）。
         // 用 JSON 一列而不是建附件表：附件永远跟着消息整体读写，没有「单独查某个附件」的场景，
@@ -1291,6 +1315,55 @@ public actor LearningDatabase {
             ]
         )
         return true
+    }
+
+    /// 批量插入生词（按 word 大小写不敏感去重，已有词**不动**，保住复习进度）。
+    /// 返回真正新插入的个数。
+    ///
+    /// 一次事务里「先取一遍现有词、再只插缺的」：复盘导入原来是双循环逐词
+    /// upsert —— 每个词都带一次 `COLLATE NOCASE` 全表扫（命中不了 BINARY 索引），
+    /// 一次导入 20 条就是 20 次全表扫。这里把「读现状」收敛成一遍，整批一个事务，
+    /// 中途失败整体回滚，不会留下插一半的生词。
+    public func insertVocabularyIfAbsent(_ entries: [VocabularyEntry]) throws -> Int {
+        guard !entries.isEmpty else { return 0 }
+        var existing = Set<String>()
+        let words = try db.query("SELECT word FROM vocabulary_items") { row in
+            row.string(0) ?? ""
+        }
+        words.forEach { existing.insert($0.lowercased()) }
+        var inserted = 0
+        try db.runInTransaction {
+            for entry in entries {
+                guard !entry.word.isEmpty,
+                      !existing.contains(entry.word.lowercased())
+                else { continue }
+                try db.run(
+                    """
+                    INSERT INTO vocabulary_items
+                        (id, word, meaning, example, difficulty, mastery, review_count,
+                         last_reviewed_at, ease, source, created_at)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                    """,
+                    [
+                        .text(entry.id.uuidString),
+                        .text(entry.word),
+                        .text(entry.meaning),
+                        .text(entry.example),
+                        .int(entry.difficulty),
+                        .int(entry.mastery),
+                        .int(entry.reviewCount),
+                        entry.lastReviewedAt.map { .real($0.timeIntervalSince1970) } ?? .null,
+                        .real(entry.ease),
+                        .text(entry.source.rawValue),
+                        .real(entry.createdAt.timeIntervalSince1970),
+                    ]
+                )
+                existing.insert(entry.word.lowercased())
+                inserted += 1
+            }
+            return ()
+        }
+        return inserted
     }
 
     /// 全部词汇（**新 → 旧**）。

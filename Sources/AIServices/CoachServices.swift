@@ -1689,17 +1689,22 @@ public actor CoachServices {
     public func progressSnapshot(
         days: Int = ProgressAggregator.defaultDays,
         totalStars: Int = 0,
-        goalMinutes: Int = ProgressAggregator.defaultGoalMinutes
+        goalMinutes: Int = ProgressAggregator.defaultGoalMinutes,
+        preloadedVocabulary: [VocabularyEntry]? = nil
     ) async -> ProgressSnapshot {
-        await progress.snapshot(days: days, totalStars: totalStars, goalMinutes: goalMinutes)
+        await progress.snapshot(
+            days: days, totalStars: totalStars, goalMinutes: goalMinutes,
+            preloadedVocabulary: preloadedVocabulary
+        )
     }
 
     /// 近一年的练习分布（年度记录卡）。与 `progressSnapshot` 同层：这里只做取数编排。
     public func annualRecap(
         now: Date = Date(),
-        goalMinutes: Int = ProgressAggregator.defaultGoalMinutes
+        goalMinutes: Int = ProgressAggregator.defaultGoalMinutes,
+        preloadedVocabulary: [VocabularyEntry]? = nil
     ) async -> AnnualRecap {
-        await progress.annualRecap(now: now, goalMinutes: goalMinutes)
+        await progress.annualRecap(now: now, goalMinutes: goalMinutes, preloadedVocabulary: preloadedVocabulary)
     }
 
     // MARK: - 会话持久化（ChatService 使用）
@@ -2017,8 +2022,15 @@ public actor CoachServices {
     // MARK: - 每周小结 / 月环比（#228）
 
     /// 「本周小结」卡的数字（取数与折算都在 `ProgressService` / `ProgressAggregator`）。
-    public func weeklyInsight() async -> WeeklyInsight? {
-        await progress.weeklyInsight()
+    public func weeklyInsight(preloadedVocabulary: [VocabularyEntry]? = nil) async -> WeeklyInsight? {
+        await progress.weeklyInsight(preloadedVocabulary: preloadedVocabulary)
+    }
+
+    /// 进度页三件套共用的**一次**词汇全量读取（`reloadProgress` 取一遍传三处，
+    /// 免得 snapshot / weeklyInsight / annualRecap 各自全表扫 vocabulary_items 三遍）。
+    public func progressVocabulary() async -> [VocabularyEntry] {
+        guard let learning else { return [] }
+        return (try? await learning.allVocabulary()) ?? []
     }
 
     // MARK: - 写作批改（#230）
