@@ -58,6 +58,14 @@ public actor CoachServices {
     public private(set) var pendingRestoreNote: String?
     /// 本轮启动学习库的恢复说明（坏库隔离重建时给出）。
     public private(set) var databaseRecoveryNote: String?
+    /// 学习记录**存不住**的次数（库不可用 / 写入抛错各算一次）。
+    ///
+    /// ⚠️ 这个数必须被 UI 看见：此前所有落库点都是 `try?`，写不进去时用户这边
+    /// 一点动静都没有 —— 练一整天，退出重进历史是空的，还以为是自己记错了。
+    /// 静默丢数据比崩溃更糟：崩溃有声音，这个没有。
+    public private(set) var persistenceFailureCount = 0
+    /// 最近一次落库失败的一句话原因（nil = 还没失败过）。UI 取它做横幅文案。
+    public private(set) var lastPersistenceFailure: String?
     /// 数据备份开关第 30 步）：导出 / 清单都在项目空间 `.workbuddy/backups/`。
     private let backup: DataBackup
     /// 克隆音色档案（第 24 步）：独立持久化，与 config.json 分开存放（见 `VoiceProfileStore`）。
@@ -1676,19 +1684,56 @@ public actor CoachServices {
 
     // MARK: - 会话持久化（ChatService 使用）
 
+    /// 学习记录现在存得进去吗（false = 本轮的对话 / 复盘 / 错题都不会落库）。
+    ///
+    /// ⚠️ 这个布尔必须被 UI 读，不能只留作内部判断：库打不开时应用照常能聊，
+    /// 于是「存不住」这件事**没有任何天然症状** —— 只有退出重进才发现历史是空的。
+    public var isPersistenceAvailable: Bool { learning != nil }
+
+    /// 记一次落库失败：计数 + 日志 + 留一句给用户看的原因。
+    ///
+    /// 动作名由**调用点**给（只有它知道自己在干什么），这里只拼装与留痕；
+    /// 错误文案取 `LocalizedError.errorDescription`（`AppError` 六档都实现了），
+    /// 系统错误退到 `localizedDescription` —— 一律不加品类前缀（前缀让消息看着像片段，
+    /// 还会和动作名叠成三冒号，见 `AppErrorTextTests`）。
+    private func recordPersistenceFailure(_ action: String, _ error: Error?) {
+        persistenceFailureCount += 1
+        let reason = error.map { Self.failureReason($0) } ?? "学习记录库不可用"
+        lastPersistenceFailure = "\(action)：\(reason)"
+        AppLog.error("落库失败（第 \(persistenceFailureCount) 次）\(action)：\(reason)", category: "database")
+    }
+
+    private static func failureReason(_ error: Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+
     /// 首次发消息时登记会话（已存在则不动，避免把 message_count 归零）。
     public func persistSession(_ session: ChatSession) async {
-        guard let learning else { return }
-        try? await learning.createSessionIfAbsent(session)
+        guard let learning else {
+            recordPersistenceFailure("保存这段对话", nil)
+            return
+        }
+        do {
+            try await learning.createSessionIfAbsent(session)
+        } catch {
+            recordPersistenceFailure("保存这段对话", error)
+        }
     }
 
     /// 把会话标记为「在练某个情景」（进入情景时调用，重启后可接着练）。
     /// 传 `nil` 表示退出情景（回到普通练习）。
     public func attachScenario(_ scenarioID: String?, to sessionID: UUID, mode: PracticeMode) async {
-        guard let learning else { return }
-        try? await learning.setSessionScenario(
-            id: sessionID, scenarioID: scenarioID, mode: mode, startedAt: Date()
-        )
+        guard let learning else {
+            recordPersistenceFailure("记录这个情景", nil)
+            return
+        }
+        do {
+            try await learning.setSessionScenario(
+                id: sessionID, scenarioID: scenarioID, mode: mode, startedAt: Date()
+            )
+        } catch {
+            recordPersistenceFailure("记录这个情景", error)
+        }
     }
 
     /// 某会话进行的情景 id（nil = 普通练习）。
@@ -1698,8 +1743,15 @@ public actor CoachServices {
     }
 
     public func persistMessage(_ message: ChatMessage, sessionID: UUID) async {
-        guard let learning else { return }
-        try? await learning.appendMessage(message, sessionID: sessionID)
+        guard let learning else {
+            recordPersistenceFailure("保存这条消息", nil)
+            return
+        }
+        do {
+            try await learning.appendMessage(message, sessionID: sessionID)
+        } catch {
+            recordPersistenceFailure("保存这条消息", error)
+        }
     }
 
     /// 删掉若干条消息（气泡上的「删除」）。失败不清空界面 —— 上层据此决定要不要弹提示。
@@ -1707,25 +1759,58 @@ public actor CoachServices {
     /// - Returns: 真的删掉的行数；nil = 没有可用数据库。
     @discardableResult
     public func deleteMessages(ids: [UUID], sessionID: UUID) async -> Int? {
-        guard let learning else { return nil }
-        return (try? await learning.deleteMessages(ids: ids, sessionID: sessionID)) ?? nil
+        guard let learning else {
+            recordPersistenceFailure("删除这几条消息", nil)
+            return nil
+        }
+        do {
+            return try await learning.deleteMessages(ids: ids, sessionID: sessionID)
+        } catch {
+            recordPersistenceFailure("删除这几条消息", error)
+            return nil
+        }
     }
 
     /// 改写一条消息的正文（气泡内编辑后重发）。
     @discardableResult
     public func updateMessageContent(id: UUID, content: String) async -> Bool {
-        guard let learning else { return false }
-        return (try? await learning.updateMessageContent(id: id, content: content)) != nil
+        guard let learning else {
+            recordPersistenceFailure("改写这条消息", nil)
+            return false
+        }
+        do {
+            // 底层是 `throws` 无返回值：能走完这一行就是改成了（原来靠 `try?` 包出
+            // Optional<Void> 再判 nil，那是个会触发「拿 () 比 nil」警告的绕法）。
+            try await learning.updateMessageContent(id: id, content: content)
+            return true
+        } catch {
+            recordPersistenceFailure("改写这条消息", error)
+            return false
+        }
     }
 
     public func finishSession(_ sessionID: UUID) async {
-        guard let learning else { return }
-        try? await learning.finishSession(id: sessionID)
+        guard let learning else {
+            recordPersistenceFailure("结束这段对话", nil)
+            return
+        }
+        do {
+            try await learning.finishSession(id: sessionID)
+        } catch {
+            recordPersistenceFailure("结束这段对话", error)
+        }
     }
 
     public func persistCorrection(_ correction: GrammarCorrection, sessionID: UUID) async {
-        guard let learning else { return }
-        try? await learning.appendCorrection(correction, sessionID: sessionID)
+        guard let learning else {
+            recordPersistenceFailure("保存这条纠错", nil)
+            return
+        }
+        do {
+            try await learning.appendCorrection(correction, sessionID: sessionID)
+        } catch {
+            recordPersistenceFailure("保存这条纠错", error)
+        }
     }
 
     public func recentCorrections(limit: Int = 50) async -> [GrammarCorrection] {

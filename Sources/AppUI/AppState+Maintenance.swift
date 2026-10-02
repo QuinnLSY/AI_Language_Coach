@@ -297,6 +297,39 @@ extension AppState {
         autoBackupNotice = nil
     }
 
+    // MARK: - 落库健康（存不住必须出声）
+
+    /// 查一次「学习记录还存得进去吗」，存不住就把 `persistenceNotice` 挂上。
+    ///
+    /// 两个调用点缺一不可：
+    /// - 启动时（`start()`）：覆盖「库根本没打开」—— 这是最要命的一种，全程无感；
+    /// - 每轮对话落库后：覆盖「开着开着写不进去了」（磁盘满 / 锁冲突 / 文件被挪走）。
+    ///
+    /// 成功时把提示清掉：库恢复了（比如磁盘清出空间）不该一直挂着旧警告吓人。
+    public func refreshPersistenceHealth() async {
+        guard await services.isPersistenceAvailable else {
+            persistenceNotice = AppNotice(
+                text: "学习记录库打不开，这一轮的对话、复盘与错题都不会保存。",
+                action: NoticeAction(title: "打开设置") { [weak self] in
+                    Task { @MainActor in self?.showingSettings = true }
+                }
+            )
+            return
+        }
+        let failures = await services.persistenceFailureCount
+        guard failures > 0 else {
+            persistenceNotice = nil
+            return
+        }
+        let reason = await services.lastPersistenceFailure ?? "原因未知"
+        persistenceNotice = AppNotice(
+            text: "学习记录有 \(failures) 次没保存成功（最近一次：\(reason)），这一段的进度与复盘可能存不下来。",
+            action: NoticeAction(title: "打开设置") { [weak self] in
+                Task { @MainActor in self?.showingSettings = true }
+            }
+        )
+    }
+
     // MARK: - 高级（普通用户不需要）
 
     public func setLLMEndpoint(_ endpoint: String) async {

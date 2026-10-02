@@ -508,6 +508,7 @@ public struct MainView: View {
     @ViewBuilder
     private var chatArea: some View {
         VStack(spacing: 0) {
+            persistenceBanner
             // 今日作业不在中间栏：它在左栏老师的黑板上（见 `TeacherCorner`）。
             // 中间栏保持一种版式 —— 卷轴挂在这里会破坏三栏的一致性。
             Group {
@@ -604,9 +605,50 @@ public struct MainView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(state.theme.surfaceAlt.opacity(0.55))
+        // 每轮对话落库之后复查一次「还存得住吗」：库可能开着开着就写不进去了
+        // （磁盘满 / 文件被挪走 / 权限变了）。成功也会把横幅撤掉 ——
+        // 恢复了就不该继续挂着一条旧警告吓人。
+        .task(id: state.chat.messages.count) { await state.refreshPersistenceHealth() }
         // 划词气泡**不再挂在这一层**（2026-09-29 报障：侧栏抬到 zIndex(1) 之后，
         // 挂在中间栏上的气泡被压在侧栏底下，左半截被侧栏底色盖住）。
         // 浮层现在挂在最外层 ZStack 上 —— 那是整个应用的最上方，谁也压不住它。
+    }
+
+    /// 学习记录存不住时的**常驻**横幅（中间栏顶部，切到哪一页都看得见）。
+    ///
+    /// ⚠️ 常驻、不自动消失：库打不开时应用照常能聊，「存不住」没有任何天然症状，
+    /// 一条几秒后自己消失的 toast 等于没说 —— 用户会以为只是刚才那一下没存住。
+    /// 横幅上带「打开设置」：那里有数据目录与备份入口，是能动手的地方。
+    @ViewBuilder
+    private var persistenceBanner: some View {
+        if let notice = state.persistenceNotice {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .appFont(12)
+                    .foregroundStyle(theme.warning)
+                Text(notice.text)
+                    .appFont(12)
+                    .foregroundStyle(theme.primaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let action = notice.action {
+                    Button(action.title) { action.run() }
+                        .buttonStyle(.appPressable)
+                        .appFont(12)
+                        .foregroundStyle(theme.accent)
+                }
+            }
+            .appPadding(.horizontal, 14)
+            .appPadding(.vertical, 8)
+            .background(theme.surface)
+            .overlay(alignment: .leading) {
+                Rectangle().fill(theme.warning).frame(width: 3)
+            }
+            .overlay(alignment: .bottom) {
+                Divider().overlay(theme.divider)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("学习记录保存异常。\(notice.text)")
+        }
     }
 
     // MARK: - 可拖动分割线（聊天 / 成长之树之间）

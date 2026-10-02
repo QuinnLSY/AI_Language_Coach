@@ -2408,14 +2408,17 @@ struct TypingDots: View {
         .padding(.horizontal, 14)
         .appPadding(.vertical, 12)
         .background(RoundedRectangle(cornerRadius: 16).fill(color.opacity(0.10)))
-        .onAppear {
+        // ⚠️ 走 `Timer.publish(...).autoconnect()` + `onReceive`，不用 `Timer.scheduledTimer`：
+        // 后者被 RunLoop 一直持有、闭包还捕获着视图，而这里既没保存引用也没在
+        // `onDisappear` 里 invalidate —— 每出现一次「正在输入」就**永久多一个** 0.35 秒定时器，
+        // 应用久开之后定时器越攒越多，闲着也在周期性叫醒主线程。
+        // `autoconnect` 跟着视图生命周期自动断开，不需要谁记得去取消。
+        .onReceive(Timer.publish(every: 0.35, on: .main, in: .common).autoconnect()) { _ in
             // 「减弱动态效果」下三点**静止**：这一排点本身已经把「正在等待」说清楚了，
-            // 反复跳动只是修饰 —— 而它偏偏是等待期间唯一一直动的东西（最刺眼的一个），
-            // 还顺带每 0.35s 叫醒一次主线程。静止不等于没画出来，三个点仍在原位。
+            // 反复跳动只是修饰 —— 而它偏偏是等待期间唯一一直动的东西（最刺眼的一个）。
+            // 静止不等于没画出来，三个点仍在原位。
             guard !motion.reduceMotion else { return }
-            Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { _ in
-                DispatchQueue.main.async { withAnimation(.easeInOut(duration: 0.25)) { phase = (phase + 1) % 3 } }
-            }
+            withAnimation(.easeInOut(duration: 0.25)) { phase = (phase + 1) % 3 }
         }
     }
 }

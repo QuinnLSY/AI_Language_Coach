@@ -20,6 +20,17 @@ struct AILanguageCoachApp: App {
         .windowToolbarStyle(.unified)
         .defaultSize(width: 1280, height: 820)
         .commands {
+            // ⚠️ 关掉「新建窗口 ⌘N」：本应用只有一个窗口的份。
+            //
+            // `AppState` 是**每个窗口各建一份**（`@State private var state` 在 App 上），
+            // 不是共享单例 —— 开第二个窗口就会同时跑起第二套 `CoachServices`：
+            // 第二条数据库连接、第二个 `MicrophoneRecorder`、第二个 `installShortcutMonitor()`
+            // （两个监听抢同一批按键）、两个 `ModelLifecycleManager` 互相挂起对方刚拉起的模型。
+            // 表现出来就是「两个窗口数据不同步、点一下跳两页、录音打架」，
+            // 而 macOS 默认会给每个 App 挂上 ⌘N —— 用户随手一按就中招。
+            // 空 `CommandGroup(replacing:)` = 把这个菜单项整个拿掉（不是禁用，是不存在）。
+            CommandGroup(replacing: .newItem) { }
+
             // 设置：SwiftUI 只会为独立的 `Settings` 场景自动提供 ⌘,，
             // 而本应用的设置是**浮在内容之上的浮层**（打开它不关掉底下那一页），
             // 所以这一项要自己接管 —— 否则 ⌘, 会静默失效。

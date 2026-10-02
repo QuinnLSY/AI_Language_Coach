@@ -533,6 +533,12 @@ public final class AppState {
     public internal(set) var autoBackupNotice: AppNotice?
     /// 学习库被隔离重建时的说明（nil = 一切正常）——**必须让用户看见**。
     public internal(set) var databaseRecoveryNote: String?
+    /// 学习记录「存不住」的提示（nil = 一切正常）。**常驻横幅，不自动消失**。
+    ///
+    /// ⚠️ 为什么必须有这一条：学习库打不开时应用**照常能聊**，「存不住」这件事
+    /// 没有任何天然症状 —— 用户练一整天，退出重进才发现历史是空的，还以为自己记错了。
+    /// 静默丢数据比崩溃更糟：崩溃有声音，这个没有。
+    public internal(set) var persistenceNotice: AppNotice?
     /// 备份导入：已通过校验、等用户确认的恢复计划（nil = 没在导入流程中）。
     public internal(set) var backupImportPlan: BackupImportPlan?
     /// 备份导入：选中的压缩包路径（确认后交给 stageRestore）。
@@ -1344,6 +1350,9 @@ public final class AppState {
         await markForestWelcomeIfNeeded()
         // 备份恢复（#209）：本轮启动若应用了待恢复内容，说明要让用户看见。
         restoreNote = await services.restoreNote
+        // 落库健康：**开屏就查一次**（此前库打不开只写日志，界面上一行字都没有，
+        // 用户练一整天，退出重进才发现历史是空的）。
+        await refreshPersistenceHealth()
         // 自动备份（#415）：开了才查一次，且只在「距上次备份超过间隔」时补一份。
         // 后台跑 —— 备份要读整个学习库，绝不能挡在开屏路径上。
         Task { [weak self] in await self?.ensureAutoBackupIfNeeded() }
