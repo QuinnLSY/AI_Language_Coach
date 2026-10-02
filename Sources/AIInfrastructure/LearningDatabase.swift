@@ -1331,30 +1331,53 @@ public actor LearningDatabase {
         try db.run("DELETE FROM vocabulary_items WHERE id = ?1", [.text(id.uuidString)])
     }
 
+    /// 四类学习记忆当前的条数（不删任何东西）。
+    ///
+    /// 供「清除记忆」在动手前判断有没有可删的：没有就不留底、不走删除，
+    /// 免得每次点一下都往备份目录塞一份空包。
+    public func learningMemoryCounts() throws -> MemoryClearance {
+        func count(in table: String) throws -> Int {
+            try db.query("SELECT COUNT(*) FROM \(table)", []) { row in row.int(0) }
+                .compactMap { $0 }
+                .first ?? 0
+        }
+        return MemoryClearance(
+            corrections: try count(in: "corrections"),
+            reviews: try count(in: "session_reviews"),
+            shadowing: try count(in: "shadowing_attempts"),
+            vocabularyReviews: try count(in: "vocabulary_reviews")
+        )
+    }
+
     /// 清除「学习记忆」喂给老师的那部分素材（**不可逆**）。
     ///
     /// 范围刻意限定在四类：纠错记录 / 练习复盘 / 跟读发音记录 / 词汇复习流水。
     /// **对话记录与单词本不删** —— 那是学员自己攒的资产，另有管理入口；
     /// 混进「清除记忆」里一起删掉是最容易挨骂的那种顺手。
     ///
+    /// 计数与删除都在**同一个事务**里：中途任何一条 DELETE 失败就整体回滚，
+    /// 绝不出现「纠错删了、复盘还剩一半」的半清除状态。
+    ///
     /// 返回实际删掉的数量，供上层先给用户看清楚再让他确认。
     @discardableResult
     public func clearLearningMemory() throws -> MemoryClearance {
-        func count(in table: String) throws -> Int {
-            try db.query("SELECT COUNT(*) FROM \(table)", []) { row in row.int(0) }
-                .compactMap { $0 }
-                .first ?? 0
+        try db.runInTransaction { () -> MemoryClearance in
+            func count(in table: String) throws -> Int {
+                try self.db.query("SELECT COUNT(*) FROM \(table)", []) { row in row.int(0) }
+                    .compactMap { $0 }
+                    .first ?? 0
+            }
+            let clearance = MemoryClearance(
+                corrections: try count(in: "corrections"),
+                reviews: try count(in: "session_reviews"),
+                shadowing: try count(in: "shadowing_attempts"),
+                vocabularyReviews: try count(in: "vocabulary_reviews")
+            )
+            for table in ["corrections", "session_reviews", "shadowing_attempts", "vocabulary_reviews"] {
+                try self.db.run("DELETE FROM \(table)", [])
+            }
+            return clearance
         }
-        let clearance = MemoryClearance(
-            corrections: try count(in: "corrections"),
-            reviews: try count(in: "session_reviews"),
-            shadowing: try count(in: "shadowing_attempts"),
-            vocabularyReviews: try count(in: "vocabulary_reviews")
-        )
-        for table in ["corrections", "session_reviews", "shadowing_attempts", "vocabulary_reviews"] {
-            try db.run("DELETE FROM \(table)", [])
-        }
-        return clearance
     }
 
     /// 记一次复习：更新掌握度 / 次数 / 时间，并落复习流水。

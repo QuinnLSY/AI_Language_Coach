@@ -176,7 +176,28 @@ extension AppState {
     /// 刷新备份清单与学习库健康状况。
     public func refreshBackups() async {
         backupSnapshots = await services.backups()
+        backupTotalText = await services.backupTotalDisplay
         databaseRecoveryNote = await services.recoveryNote
+    }
+
+    /// 删除一份备份（进废纸篓，可恢复）。
+    ///
+    /// 失败要出声：点了「删除」没反应，用户会反复点，直到某一下真的删掉了别的东西。
+    public func deleteBackup(at url: URL) async {
+        do {
+            try await services.deleteBackup(at: url)
+            backupError = nil
+            await refreshBackups()
+        } catch {
+            backupError = error.localizedDescription
+        }
+    }
+
+    /// 在 Finder 里显示备份目录（用户自己管理备份包的出口）。
+    public func revealBackupsInFinder() async {
+        let directory = await services.backupDirectory
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        NSWorkspace.shared.activateFileViewerSelecting([directory])
     }
 
     // MARK: - 备份导入（#209：换机迁移 / 误删恢复）
@@ -280,6 +301,10 @@ extension AppState {
         await refreshBackups()
         guard backupFreshness(now: now).isDue else { return }
         if await exportBackup() {
+            // 自动化自己堆的文件自己收：补了新包就把最旧的清出去，
+            // 否则备份目录只进不出，迟早悄悄吃满磁盘。
+            await services.pruneBackups()
+            await refreshBackups()
             autoBackupNotice = nil
             return
         }
@@ -328,6 +353,37 @@ extension AppState {
                 Task { @MainActor in self?.showingSettings = true }
             }
         )
+    }
+
+    // MARK: - 学习记录导出（人类可读的出口）
+
+    /// 弹目录选择面板，把学习记录导出成 Markdown（会话 + 错题）与 CSV（单词本）。
+    ///
+    /// 为什么是「选目录」而不是保存面板：一次出两个文件，保存面板只认一个名字。
+    /// 导完给回执说清文件落在哪里 —— 不说，用户就得去 Finder 翻。
+    public func exportLearningRecords() async {
+        guard !isExportingRecords else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "导出到这里"
+        panel.message = "选择导出位置（生成 学习记录_….md 与 单词本_….csv）"
+        guard panel.runModal() == .OK, let directory = panel.url else { return }
+        isExportingRecords = true
+        defer { isExportingRecords = false }
+        do {
+            let result = try await services.exportLearningRecords(to: directory)
+            recordsExportNotice = "已导出到 \(directory.lastPathComponent)/：\(result.markdown.lastPathComponent)、\(result.csv.lastPathComponent)"
+        } catch {
+            recordsExportNotice = "导出失败：\(error.localizedDescription)"
+        }
+    }
+
+    /// 关掉导出回执。
+    public func dismissRecordsExportNotice() {
+        recordsExportNotice = nil
     }
 
     // MARK: - 高级（普通用户不需要）

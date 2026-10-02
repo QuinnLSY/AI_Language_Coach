@@ -102,6 +102,7 @@ public actor CoachServices {
         config: ConfigStore = .shared,
         llm: LLMManager = LLMManager(),
         databasePath: String? = nil,
+        backupDirectory: URL? = nil,
         voiceProfileStore: VoiceProfileStore = .shared,
         attachmentStore: AttachmentStore = .shared,
         dictionaryStore: DictionaryBookStore = .shared,
@@ -148,7 +149,11 @@ public actor CoachServices {
         self.progress = ProgressService(learning: database)
         self.writing = WritingService(llm: self.llm)
         self.reading = ReadingService(llm: self.llm)
-        self.backup = DataBackup()
+        // ⚠️ 备份目录必须**跟随库所在目录**（2026-10-02 修）：不能写死 `DataBackup()`
+        // 的默认位置 —— 否则测试用临时库时，「清除前留底」会落进用户真实备份目录。
+        // 生产路径下两者等价（库就在 `.workbuddy/app-config/`，备份到 `.workbuddy/backups/`）；
+        // 显式传入 `backupDirectory` 时以传入值为准（测试隔离用）。
+        self.backup = DataBackup(dataDirectory: restoreDataDirectory, backupDirectory: backupDirectory)
         if self.learning == nil {
             AppLog.warning("学习数据库不可用（已尝试隔离重建）: \(path)", category: "database")
         }
@@ -660,10 +665,25 @@ public actor CoachServices {
 
     /// 清除学习记忆（**不可逆**）：删掉喂给老师的纠错 / 复盘 / 跟读 / 复习流水。
     ///
+    /// 两道保险：
+    /// - **删除前自动留底**：把整个数据目录打包一份（标记「清除前」）。
+    ///   留底失败就中止删除 —— 宁可清不成，不可白删；
+    /// - 没有可删的内容时**直接返回**，不制造空留底（那只会让备份目录堆垃圾）。
+    ///
     /// 库不可用时**报错而不是返回 0** —— 说「删掉了 0 条」会让人以为真的清干净了。
     @discardableResult
     public func clearLearningMemory() async throws -> MemoryClearance {
         guard let learning else { throw AppError.database("学习库尚未就绪") }
+        let counts = try await learning.learningMemoryCounts()
+        guard counts.total > 0 else { return counts }
+        // 只有磁盘上真有可保护的文件时才留底（`:memory:` 库没有落盘文件，留无可留）。
+        if await backup.hasAnythingToExport() {
+            do {
+                _ = try await backup.export(label: "清除前")
+            } catch {
+                throw AppError.database("清除前自动留底失败，已中止删除（学习记忆原样保留）：\(error.localizedDescription)")
+            }
+        }
         return try await learning.clearLearningMemory()
     }
 
@@ -2559,6 +2579,63 @@ public actor CoachServices {
     /// 已有备份，新的在前。
     public func backups() async -> [BackupRecord] {
         await backup.snapshots().map(BackupRecord.init)
+    }
+
+    /// 备份总占用的展示文本（nil = 还没有任何备份）。
+    public var backupTotalDisplay: String? {
+        get async {
+            let bytes = await backup.totalBytes
+            return bytes > 0 ? ByteFormatter.string(UInt64(bytes)) : nil
+        }
+    }
+
+    /// 清理旧备份：保留最近 `keeping` 份，其余进废纸篓。
+    /// 自动备份补了新包之后调用 —— 自动化自己堆的文件自己收，不许悄悄吃满磁盘。
+    @discardableResult
+    public func pruneBackups(keeping: Int = DataBackup.maxKeptBackups) async -> Int {
+        (try? await backup.prune(keeping: keeping)) ?? 0
+    }
+
+    /// 删除一份备份（进废纸篓，可恢复）。
+    public func deleteBackup(at url: URL) async throws {
+        try await backup.deleteBackup(at: url)
+    }
+
+    /// 把学习记录导出成人类可读的文件：Markdown（会话 + 错题）与 CSV（单词本）。
+    ///
+    /// 这是「数据出得去」的那一半：备份 zip 是给本应用恢复用的机器格式，
+    /// 用户始终应该有一条**不依赖本应用也能读**的路。
+    ///
+    /// - Returns: 写好的两个文件（`学习记录_时间戳.md`、`单词本_时间戳.csv`）。
+    public func exportLearningRecords(to directory: URL) async throws -> (markdown: URL, csv: URL) {
+        guard let learning else { throw AppError.database("学习库尚未就绪") }
+        let summaries = try await learning.recentSessions(limit: 500)
+        var transcripts: [LearningDataExporter.SessionTranscript] = []
+        transcripts.reserveCapacity(summaries.count)
+        for summary in summaries {
+            let messages = (try? await learning.messages(sessionID: summary.sessionID)) ?? []
+            transcripts.append(.init(summary: summary, messages: messages))
+        }
+        let vocabulary = try await learning.allVocabulary()
+        let output = LearningDataExporter.export(sessions: transcripts, vocabulary: vocabulary, now: Date())
+
+        let manager = FileManager.default
+        try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let stamp = Self.exportStamp(Date())
+        let markdownURL = directory.appendingPathComponent("学习记录_\(stamp).md")
+        let csvURL = directory.appendingPathComponent("单词本_\(stamp).csv")
+        try output.markdown.write(to: markdownURL, atomically: true, encoding: .utf8)
+        try output.csv.write(to: csvURL, atomically: true, encoding: .utf8)
+        return (markdownURL, csvURL)
+    }
+
+    /// 导出文件名的时间戳（`yyyyMMdd-HHmmss`，与备份包同一形状）。
+    static func exportStamp(_ date: Date) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+        func pad(_ value: Int?) -> String { String(format: "%02d", value ?? 0) }
+        return "\(pad(components.year))\(pad(components.month))\(pad(components.day))-\(pad(components.hour))\(pad(components.minute))\(pad(components.second))"
     }
 
     /// 备份放在哪儿（UI 直达用）。

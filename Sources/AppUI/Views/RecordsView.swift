@@ -98,6 +98,9 @@ public struct RecordsView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
+                        if let notice = state.recordsExportNotice {
+                            recordsExportBanner(notice)
+                        }
                         statsRow
                         reviewCard
                         // 改错练习：练的时候顶掉记忆卡的入口位置，走完换成结算 ——
@@ -173,6 +176,17 @@ public struct RecordsView: View {
                     .foregroundStyle(theme.secondaryText)
             }
             Spacer()
+            if state.isExportingRecords {
+                ProgressView().controlSize(.small)
+            }
+            Button {
+                Task { await state.exportLearningRecords() }
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .buttonStyle(.appPressable)
+            .disabled(state.isExportingRecords)
+            .help("导出学习记录：Markdown（会话与错题）+ CSV（单词本），选个文件夹存下来")
             Button {
                 Task { await state.loadRecords() }
             } label: {
@@ -186,6 +200,34 @@ public struct RecordsView: View {
     }
 
     // MARK: - 汇总
+
+    /// 导出回执 / 失败原因（导出是用户主动动作，做完必须说清文件在哪儿）。
+    private func recordsExportBanner(_ text: String) -> some View {
+        let isFailure = text.hasPrefix("导出失败")
+        return HStack(alignment: .top, spacing: 8) {
+            Image(systemName: isFailure ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .appFont(11)
+                .foregroundStyle(isFailure ? theme.warning : theme.accent)
+            Text(text)
+                .appFont(12, design: .rounded)
+                .foregroundStyle(theme.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 6)
+            Button {
+                state.dismissRecordsExportNotice()
+            } label: {
+                Image(systemName: "xmark")
+                    .appFont(9, weight: .semibold)
+                    .foregroundStyle(theme.secondaryText)
+            }
+            .buttonStyle(.appPressable)
+            .help("收起这条回执")
+        }
+        .appPadding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(theme.surface)
+        )
+    }
 
     private var statsRow: some View {
         HStack(spacing: 12) {

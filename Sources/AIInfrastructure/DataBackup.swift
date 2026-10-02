@@ -137,7 +137,55 @@ public actor DataBackup {
         snapshots().reduce(0) { $0 + $1.sizeBytes }
     }
 
+    // MARK: - 保留策略（自动备份不能无限堆积）
+
+    /// 自动备份的保留上限：超出的最旧包会被清掉。
+    ///
+    /// 为什么要有上限：自动备份按间隔天数为单位补文件，**从不覆盖旧的** ——
+    /// 不设上限的话，一份包按 10 MB 算，每天一包一年就是 3.6 GB，磁盘被一个
+    /// 用户从没打开过的目录悄悄吃满。12 份 × 最短间隔 3 天 ≈ 一个多月的后悔药，够用。
+    public static let maxKeptBackups = 12
+
+    /// 清理旧备份：按文件名时间戳保留最近 `keeping` 份，其余**移进废纸篓**（可恢复）。
+    ///
+    /// - Returns: 实际清掉的份数。不足 `keeping` 份时返回 0。
+    @discardableResult
+    public func prune(keeping: Int = DataBackup.maxKeptBackups) throws -> Int {
+        let limit = max(keeping, 1)
+        let all = snapshots() // 新的在前
+        guard all.count > limit else { return 0 }
+        var removed = 0
+        for snapshot in all.suffix(all.count - limit) {
+            try manager.trashItem(at: snapshot.url, resultingItemURL: nil)
+            removed += 1
+        }
+        return removed
+    }
+
+    /// 删除一份备份（**进废纸篓**，不是直接抹掉 —— 删备份不该比删库更危险）。
+    ///
+    /// 只认备份目录里的 zip：路径校验挡住「拿别处的文件路径来删」的误用。
+    public func deleteBackup(at url: URL) throws {
+        guard url.pathExtension == "zip",
+              url.deletingLastPathComponent().standardizedFileURL == backupDirectory.standardizedFileURL
+        else {
+            throw AppError.configuration("只能删除备份目录（\(backupDirectory.lastPathComponent)/）里的压缩包")
+        }
+        guard manager.fileExists(atPath: url.path) else { return }
+        try manager.trashItem(at: url, resultingItemURL: nil)
+    }
+
     // MARK: - 内部
+
+    /// 数据目录里有没有**任何**可备份的文件。
+    ///
+    /// 「清除前留底」用它判断要不要留底：`:memory:` 库 / 全新目录根本没有
+    /// 落盘文件可保护 —— 这时留不了底也不该拦着清除，否则内存库永远清不动。
+    public func hasAnythingToExport() -> Bool {
+        Self.exportedFiles.contains {
+            manager.fileExists(atPath: dataDirectory.appendingPathComponent($0).path)
+        }
+    }
 
     private static func folderName(now: Date, label: String? = nil) -> String {
         let base = "AI_Language_Coach_备份_\(Self.fileStamp(now))"

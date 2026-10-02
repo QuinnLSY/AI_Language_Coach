@@ -2662,6 +2662,26 @@ public struct SettingsView: View {
                     )
                 }
 
+                HStack(spacing: 8) {
+                    Text("备份包（保留最近 \(Self.maxKeptBackups) 份，自动清理）")
+                        .appFont(11, design: .rounded)
+                        .foregroundStyle(theme.secondaryText)
+                    if let total = state.backupTotalText {
+                        Text("共 \(total)")
+                            .appFont(11, design: .rounded)
+                            .foregroundStyle(theme.secondaryText)
+                            .monospacedDigit()
+                    }
+                    Spacer()
+                    Button {
+                        Task { await state.revealBackupsInFinder() }
+                    } label: {
+                        Image(systemName: "folder").appFont(11)
+                    }
+                    .buttonStyle(.appPressable)
+                    .help("在 Finder 中打开备份目录（可自行拷走或整理）")
+                }
+
                 ForEach(state.backupSnapshots.prefix(3)) { item in
                     HStack(spacing: 6) {
                         Image(systemName: "archivebox.fill")
@@ -2675,7 +2695,25 @@ public struct SettingsView: View {
                             .appFont(11, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                             .monospacedDigit()
+                        Button {
+                            Task { await state.deleteBackup(at: item.url) }
+                        } label: {
+                            Image(systemName: "trash").appFont(10)
+                        }
+                        .buttonStyle(.appPressable)
+                        .help("删除这份备份（移入废纸篓，可恢复）")
                     }
+                }
+                if state.backupSnapshots.count > 3 {
+                    Button {
+                        Task { await state.revealBackupsInFinder() }
+                    } label: {
+                        Text("还有 \(state.backupSnapshots.count - 3) 份更早的备份，在 Finder 中查看")
+                            .appFont(11, design: .rounded)
+                            .foregroundStyle(theme.accent)
+                    }
+                    .buttonStyle(.appPressable)
+                    .help("打开备份目录")
                 }
 
                 // 已安排恢复：如实说明何时生效、替换了什么。
@@ -2713,6 +2751,9 @@ public struct SettingsView: View {
 
     /// 自动备份可选的间隔天数（再密就只是在堆重复文件了）。
     private static let autoBackupIntervals = [3, 7, 14]
+
+    /// 自动备份的保留份数（与 `DataBackup.maxKeptBackups` 同口径，文案共用）。
+    private static let maxKeptBackups = 12
 
     /// 「自动备份」开关底下的说明：**始终**带上上次备份的时间 —— 开关关着时
     /// 「还没有备份过 / 半个月前备份过」这件事本身就该被看见，不能藏起来。

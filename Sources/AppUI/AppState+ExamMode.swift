@@ -677,16 +677,19 @@ extension AppState {
 
     /// 清除学习记忆（**不可逆**）：删掉纠错 / 复盘 / 跟读 / 复习流水，单词本与对话记录保留。
     ///
+    /// 删除前服务层会自动把整个数据目录打包留底（标记「清除前」）；
+    /// 留底失败会中止删除，这里原样透出原因。
     /// 清完立刻重算并刷新记录页，避免界面上还留着「已经删掉」的错题。
     public func clearLearningMemory() async {
         do {
             let cleared = try await services.clearLearningMemory()
             await loadRecords()
+            await refreshBackups()
             learningMemoryNotice = cleared.total == 0
                 ? "本来就没有可清除的学习记忆。"
-                : "已清除 \(cleared.total) 条学习记忆（纠错 \(cleared.corrections) · 复盘 \(cleared.reviews) · 跟读 \(cleared.shadowing) · 复习流水 \(cleared.vocabularyReviews)）。单词本和对话记录都还在。"
+                : "已清除 \(cleared.total) 条学习记忆（纠错 \(cleared.corrections) · 复盘 \(cleared.reviews) · 跟读 \(cleared.shadowing) · 复习流水 \(cleared.vocabularyReviews)）。删除前已自动留底一份完整备份（标记「清除前」）。单词本和对话记录都还在。"
         } catch {
-            // 底层是「学习库尚未就绪」/「SQL 执行失败：…」，动作名已经有了；
+            // 底层是「学习库尚未就绪」/「清除前自动留底失败…」/「SQL 执行失败：…」，动作名已经有了；
             // 再补一句「清除失败：」就是「清除失败：数据库错误：SQL 执行失败：…」那串三冒号。
             learningMemoryNotice = error.localizedDescription
         }

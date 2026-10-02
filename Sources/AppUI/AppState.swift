@@ -547,6 +547,15 @@ public final class AppState {
     public internal(set) var backupImportNotice: String?
     /// 启动时应用的备份恢复说明（nil = 本次启动没有恢复动作）。
     public internal(set) var restoreNote: String?
+    /// 备份目录总占用（展示用；nil = 还没查过）。
+    public internal(set) var backupTotalText: String?
+    /// 学习记录导出中（按钮 loading）。
+    public internal(set) var isExportingRecords = false
+    /// 学习记录导出的回执或失败原因（nil = 没导出过）。
+    ///
+    /// 为什么必须给回执：NSSavePanel 选完目录后文件落在用户选的地方，
+    /// 界面不说「导到哪儿了」，用户就要去 Finder 里翻。
+    public internal(set) var recordsExportNotice: String?
     /// 情景结算奖励提示（nil = 不显示）。UI 展示数秒后自动消失。
     public internal(set) var lastReward: ScenarioReward?
     /// 最近一次情景练习的 CEFR 覆盖度判定（nil = 不显示）。
