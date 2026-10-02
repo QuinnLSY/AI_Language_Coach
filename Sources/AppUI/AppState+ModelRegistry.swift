@@ -98,10 +98,17 @@ extension AppState {
                 } else {
                     healthText = "未接通 · 记忆按结构化顺序取回（不影响练习）"
                 }
-            default:
-                // VAD / Pronunciation V1 尚无独立 runtime，如配置了本地 Provider 才有意义
+            case .pronunciation:
+                // 发音评测没有独立 runtime：没接云端时走本地规则推断（真实存在），
+                // 接了外部 Provider 还没接通就说「等待接入」。不再报「内置模拟」——
+                // 没有那种东西，如实说才不会让用户以为有个模拟引擎在跑。
                 healthOK = false
-                healthText = provider?.runtime == .externalLocalRuntime ? "等待接入" : "内置模拟"
+                healthText = provider?.runtime == .externalLocalRuntime ? "等待接入" : "本地规则推断 · 未接云端"
+            default:
+                // 说话检测（vad）没有任何 runtime，设置页已不展示这张卡（去假）；
+                // 这里只兜住数据面，文案不再粉饰。
+                healthOK = false
+                healthText = "暂未启用"
             }
 
             let current = product.selectedModel(for: kind) ?? provider?.model

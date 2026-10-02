@@ -1293,49 +1293,123 @@ public struct ChatView: View {
             .buttonStyle(.appPressable)
             .disabled(isLoading)
             .help(isOn ? "收起翻译" : "翻译成中文")
+            .accessibilityLabel(isOn ? "收起翻译" : "翻译成中文")
         }
     }
 
     /// 「改一改」纠错卡片：原句 → 改正 + 一句话说明。
     private func correctionCard(_ correction: GrammarCorrection) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 5) {
-                Image(systemName: "pencil.and.list.clipboard")
-                    .appFont(10, weight: .semibold)
-                Text("改一改")
-                    .appFont(10, weight: .bold, design: .rounded)
-            }
-            .foregroundStyle(theme.accent)
+        CorrectionCard(correction: correction, context: wordLookup) {
+            // 「再练一次」：把**原句**放回输入框 —— 学员要练的是把这句重说对，
+            // 而不是照抄改后句（改后句就在卡片上，划词即可细看）。
+            input = correction.original
+        }
+    }
 
-            Text(correction.original)
-                .appFont(12, design: .rounded)
-                .strikethrough()
-                .foregroundStyle(theme.secondaryText)
-            // 「改一改」里的改后句是最值得划词的：它就是要学员记住的那一句。
-            LookupText(
-                text: correction.corrected,
-                fontSize: 12,
-                weight: .medium,
-                color: theme.primaryText,
-                context: wordLookup
+    /// 错题卡（「改一改」）。
+    ///
+    /// 独立成子视图的原因：展开状态是**每张卡自己的**（一个会话可能有多张卡），
+    /// 放在 ChatView 根级就得维护「哪张卡展开了」的下标表。
+    private struct CorrectionCard: View {
+        @Environment(\.forestTheme) private var theme
+
+        let correction: GrammarCorrection
+        let context: WordLookupContext?
+        let onPracticeAgain: () -> Void
+
+        /// 解析说明默认收两行，点「展开」看全文（解释常比原句还长，全铺开会淹掉对话）。
+        @State private var isExplanationExpanded = false
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 5) {
+                    Image(systemName: "pencil.and.list.clipboard")
+                        .appFont(10, weight: .semibold)
+                    Text("改一改")
+                        .appFont(10, weight: .bold, design: .rounded)
+                }
+                .foregroundStyle(theme.accent)
+
+                Text(correction.original)
+                    .appFont(12, design: .rounded)
+                    .strikethrough()
+                    .foregroundStyle(theme.secondaryText)
+                // 「改一改」里的改后句是最值得划词的：它就是要学员记住的那一句。
+                LookupText(
+                    text: correction.corrected,
+                    fontSize: 12,
+                    weight: .medium,
+                    color: theme.primaryText,
+                    context: context
+                )
+                if !correction.explanation.isEmpty {
+                    explanation
+                }
+
+                HStack(spacing: 6) {
+                    Button {
+                        onPracticeAgain()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.counterclockwise")
+                            Text("再练一次")
+                        }
+                        .appFont(10, weight: .semibold, design: .rounded)
+                        .foregroundStyle(theme.accent)
+                        .padding(.horizontal, 8)
+                        .appPadding(.vertical, 4)
+                        .background(Capsule().fill(theme.accent.opacity(0.1)))
+                        .overlay(Capsule().strokeBorder(theme.accent.opacity(0.35), lineWidth: 1))
+                    }
+                    .buttonStyle(.appPressable)
+                    .help("把原句放回输入框，重说一遍试试")
+                    .accessibilityLabel("再练一次：\(correction.original)")
+
+                    Spacer(minLength: 0)
+                }
+                .appPadding(.top, 2)
+            }
+            .padding(.horizontal, 12)
+            .appPadding(.vertical, 8)
+            .frame(maxWidth: 320, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(theme.accent.opacity(0.08))
             )
-            if !correction.explanation.isEmpty {
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(theme.accent.opacity(0.35), lineWidth: 1)
+            )
+        }
+
+        /// 解析说明：默认两行，长解释给「展开 / 收起」。
+        @ViewBuilder
+        private var explanation: some View {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(correction.explanation)
                     .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
+                    .lineLimit(isExplanationExpanded ? nil : 2)
+                if isExplanationExpanded || isExplanationTruncated {
+                    Button {
+                        isExplanationExpanded.toggle()
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: isExplanationExpanded ? "chevron.up" : "chevron.down")
+                            Text(isExplanationExpanded ? "收起" : "展开")
+                        }
+                        .appFont(10, design: .rounded)
+                        .foregroundStyle(theme.secondaryText.opacity(0.75))
+                    }
+                    .buttonStyle(.appPressable)
+                    .accessibilityLabel(isExplanationExpanded ? "收起解析说明" : "展开解析说明")
+                }
             }
         }
-        .padding(.horizontal, 12)
-        .appPadding(.vertical, 8)
-        .frame(maxWidth: 320, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(theme.accent.opacity(0.08))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(theme.accent.opacity(0.35), lineWidth: 1)
-        )
+
+        /// 粗判「说明是不是被截断了」：超过约一行半的量（含标点）才值得给开关。
+        /// SwiftUI 拿不到真实折行数，这里按字符数兜底 —— 太短的说明不给开关（免得点开没变化）。
+        private var isExplanationTruncated: Bool { correction.explanation.count > 44 }
     }
 
     /// 朗读按钮：三态反馈（空闲 / 准备中 / 朗读中）。

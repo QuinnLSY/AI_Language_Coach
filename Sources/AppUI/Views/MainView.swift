@@ -411,6 +411,7 @@ public struct MainView: View {
                 // 浮层上下挪位，所以保留裸 `.padding`（其余真正的内边距走 `.appPadding`）。
                 .padding(.top, 40)
         }
+        .escCloses { state.closeGlobalSearch() }
         .transition(.opacity)
     }
 
@@ -904,6 +905,7 @@ public struct MainView: View {
                 .appElevation(.sheet)
                 .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
         }
+        .escCloses { state.closeScenarios() }
         .zIndex(18)
     }
 
@@ -959,6 +961,7 @@ public struct MainView: View {
                 .appElevation(.sheet)
                 .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
         }
+        .escCloses { state.closeScenarioComposer() }
         .zIndex(20)
     }
 
@@ -984,6 +987,7 @@ public struct MainView: View {
                 .appElevation(.sheet)
                 .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
         }
+        .escCloses { state.closeMaterialUpload() }
         .zIndex(20)
     }
 

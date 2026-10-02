@@ -58,6 +58,7 @@ public struct GlobalSearchPanel: View {
             }
             .buttonStyle(.appPressable)
             .help("关闭搜索")
+            .accessibilityLabel("关闭搜索")
         }
         .padding(.horizontal, 14)
         .frame(height: 46)

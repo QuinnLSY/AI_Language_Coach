@@ -205,6 +205,7 @@ public struct SettingsView: View {
             .buttonStyle(.appPressable)
             .keyboardShortcut(.escape, modifiers: [])
             .help("关闭设置 (Esc)")
+            .accessibilityLabel("关闭设置")
         }
         .padding(.horizontal, 18)
         .appPadding(.vertical, 14)
@@ -768,6 +769,7 @@ public struct SettingsView: View {
                 .buttonStyle(.appPressable)
                 .disabled(isRefreshing)
                 .help("重新检测本地模型")
+                .accessibilityLabel("重新检测本地模型")
             }
         }
     }
@@ -995,7 +997,10 @@ public struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(theme.warning.opacity(0.12)))
                 }
-                let kinds: [AIProviderKind] = [.asr, .tts, .vad, .embedding, .pronunciation]
+                // ⚠️ 说话检测（vad）刻意不列：它没有 runtime（配置了也不会被任何
+                // 功能消费），列出来只会让用户对着一张「内置模拟」的假卡片配置半天。
+                // 配置模型仍保留（mock.vad 在默认配置里），只是不展示。
+                let kinds: [AIProviderKind] = [.asr, .tts, .embedding, .pronunciation]
                 ForEach(kinds) { kind in
                     if let info = state.capabilityInfos[kind] {
                         capabilitySection(info)
@@ -1191,6 +1196,7 @@ public struct SettingsView: View {
                     }
                     .buttonStyle(.appPressable)
                     .help("重新检测可用模型（本地 Ollama / 目录）")
+                    .accessibilityLabel("重新检测可用模型")
                 }
             }
 
@@ -1257,12 +1263,6 @@ public struct SettingsView: View {
                 .buttonStyle(.appPressable)
                 .help("接入这一能力的外部模型")
             }
-            if !usingRemote, kind == .vad {
-                // 说话检测依赖逐帧音频，云端没有通用接口，明确说出来好过让用户对着空列表找原因。
-                Text("该能力基于逐帧音频在本地计算，暂无云端接口。")
-                    .appFont(10, design: .rounded)
-                    .foregroundStyle(theme.secondaryText)
-            }
             if !usingRemote, kind == .pronunciation {
                 // 发音评测有两条通道：没有云端配置也能用（规则推断），配了就是声学实测。
                 Text("当前按本地规则推断打分；接入云端发音评测后改为逐音素声学实测。")
@@ -1289,7 +1289,7 @@ public struct SettingsView: View {
                     .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)
             }
-            Text("把模型统一放在 ~/AI_Models/ 对应模块目录下即可：\n• 语音识别 (asr)：模型文件放入 ~/AI_Models/asr/models/（如 ggml-*.bin）\n• 教师语音 (tts)：每个模型一个文件夹放入 ~/AI_Models/tts/\n• 说话检测 (vad) / 发音评测 (pronunciation)：每个模型一个文件夹放入对应目录\n• 记忆索引 (embedding)：本机由 Ollama 提供——在 Ollama 安装 nomic-embed-text 等嵌入模型后，刷新即可列出；也可在「外部模型」接入云端嵌入\n放好后点击各能力区块的刷新按钮（↻），应用会自动检测并列出可选。云端模型请展开「外部模型」填写 API Key 接入。")
+            Text("把模型统一放在 ~/AI_Models/ 对应模块目录下即可：\n• 语音识别 (asr)：模型文件放入 ~/AI_Models/asr/models/（如 ggml-*.bin）\n• 教师语音 (tts)：每个模型一个文件夹放入 ~/AI_Models/tts/\n• 发音评测 (pronunciation)：每个模型一个文件夹放入对应目录\n• 记忆索引 (embedding)：本机由 Ollama 提供——在 Ollama 安装 nomic-embed-text 等嵌入模型后，刷新即可列出；也可在「外部模型」接入云端嵌入\n放好后点击各能力区块的刷新按钮（↻），应用会自动检测并列出可选。云端模型请展开「外部模型」填写 API Key 接入。")
                 .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .lineSpacing(3)
@@ -1318,6 +1318,7 @@ public struct SettingsView: View {
                 }
                 .buttonStyle(.appPressable)
                 .help("重新检测语音服务")
+                .accessibilityLabel("重新检测语音服务")
             }
 
             if let error = state.voiceError {
@@ -1473,6 +1474,7 @@ public struct SettingsView: View {
             .buttonStyle(.appPressable)
             .foregroundStyle(theme.secondaryText)
             .help("删除这个音色档案")
+            .accessibilityLabel("删除音色档案：\(profile.displayName)")
         }
     }
 
@@ -2194,6 +2196,7 @@ public struct SettingsView: View {
                         }
                         .buttonStyle(.appPressable)
                         .help("收起回执")
+                        .accessibilityLabel("收起配置重载回执")
                     }
                 }
 
@@ -2459,6 +2462,7 @@ public struct SettingsView: View {
                     }
                     .buttonStyle(.appPressable)
                     .help("重新统计")
+                    .accessibilityLabel("重新统计缓存占用")
                 }
 
                 // 明细：学习记忆加锁标记（清理时保留）
@@ -2680,6 +2684,7 @@ public struct SettingsView: View {
                     }
                     .buttonStyle(.appPressable)
                     .help("在 Finder 中打开备份目录（可自行拷走或整理）")
+                    .accessibilityLabel("在 Finder 中打开备份目录")
                 }
 
                 ForEach(state.backupSnapshots.prefix(3)) { item in
@@ -2702,6 +2707,7 @@ public struct SettingsView: View {
                         }
                         .buttonStyle(.appPressable)
                         .help("删除这份备份（移入废纸篓，可恢复）")
+                        .accessibilityLabel("删除备份：\(item.fileName)")
                     }
                 }
                 if state.backupSnapshots.count > 3 {
