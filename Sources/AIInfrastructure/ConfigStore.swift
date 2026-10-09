@@ -126,15 +126,19 @@ public actor ConfigStore {
     /// 「零 provider」配置，表现是「应用里一个模型都没有」却没有任何提示，极难排查。
     /// 现在把原因留下来给设置页展示，同时落一条 error 日志。
     private var loadFailure: String?
+    /// 用户覆盖层（`config.json`）读不出来的原因（nil = 正常）。
+    private var overlayFailure: String?
+    /// 隔离失败时为 true：此时**不许写盘** —— 写下去就把用户的原文件覆盖了。
+    private var overlayQuarantineFailed = false
 
     public init(fileURL: URL? = nil) {
         self.fileURL = fileURL ?? Self.defaultFileURL()
         let (base, failure) = Self.loadBase()
-        self.configuration = base
+        let outcome = Self.loadOverlay(base: base, fileURL: self.fileURL)
+        self.configuration = outcome.configuration
         self.loadFailure = failure
-        if let saved = try? Self.read(from: self.fileURL) {
-            self.configuration = Self.merge(base: self.configuration, override: saved)
-        }
+        self.overlayFailure = outcome.failure
+        self.overlayQuarantineFailed = outcome.quarantineFailed
     }
 
     /// 用户配置默认写回**项目空间内**（`.workbuddy/app-config/`，不进 git）。
@@ -146,18 +150,21 @@ public actor ConfigStore {
     /// 用户覆盖层（`config.json`）的绝对路径。设置页「在 Finder 中打开」用它。
     public var storageLocation: URL { fileURL }
     /// 内置默认配置载入失败的原因（nil = 正常）。
-    public var loadFailureReason: String? { loadFailure }
+    public var loadFailureReason: String? {
+        let parts = [loadFailure, overlayFailure].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: "；")
+    }
 
     /// 重新从磁盘载入：内置默认配置 + 用户覆盖层。
     ///
     /// 用途：外部手改了 `config.json`（或把备份的配置拷回来）之后不必重启应用。
     public func reload() {
         let (base, failure) = Self.loadBase()
-        configuration = base
+        let outcome = Self.loadOverlay(base: base, fileURL: fileURL)
+        configuration = outcome.configuration
         loadFailure = failure
-        if let saved = try? Self.read(from: fileURL) {
-            configuration = Self.merge(base: configuration, override: saved)
-        }
+        overlayFailure = outcome.failure
+        overlayQuarantineFailed = outcome.quarantineFailed
         AppLog.info("配置已重新载入（\(configuration.providers.count) 个供应商）", category: "config")
     }
 
@@ -241,11 +248,88 @@ public actor ConfigStore {
     // MARK: - 持久化
 
     private func persist() throws {
+        // ⚠️ 用户的 config.json 读不出来、又没能隔离成功时**绝不写盘**：
+        // 此刻内存里是内置默认（没有用户的 Key 与自定义供应商），写下去就等于把
+        // 用户那份配置永久覆盖掉。宁可这次设置不生效，也不能抹掉原文件。
+        if overlayQuarantineFailed {
+            throw AppError.storage("配置文件读不出来、也没能自动备份，已暂停写入以免覆盖你的原文件")
+        }
         do {
             try Self.write(configuration, to: fileURL)
         } catch {
+            AppLog.error("保存配置失败：\(error.localizedDescription)", category: "config")
             throw AppError.storage("保存配置失败：\(error.localizedDescription)")
         }
+    }
+
+    // MARK: - 用户覆盖层（读失败时的保护）
+
+    /// 一次覆盖层载入的结果。
+    ///
+    /// ⚠️ 用 struct 而非「边读边写属性」：actor 的 `init` 里**不能**同步调用 actor
+    /// 隔离的实例方法（实测 `applyOverlay()` 在 init 内报 `#ActorIsolatedCall`），
+    /// 所以把这段做成静态纯函数，由 init / reload 各自把结果搬到属性上。
+    /// 四个字段都在 init 里显式赋值（不给默认值兜底，防止漏掉一个静默归零）。
+    private struct OverlayOutcome {
+        var configuration: AppConfiguration
+        var failure: String?
+        var quarantineFailed: Bool
+    }
+
+    /// 并入用户覆盖层；读不出来时先把原文件隔离，再按内置默认继续跑。
+    private static func loadOverlay(base: AppConfiguration, fileURL: URL) -> OverlayOutcome {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return OverlayOutcome(configuration: base, failure: nil, quarantineFailed: false)
+        }
+        do {
+            let saved = try read(from: fileURL)
+            return OverlayOutcome(
+                configuration: merge(base: base, override: saved),
+                failure: nil,
+                quarantineFailed: false
+            )
+        } catch {
+            return quarantineOverlay(base: base, fileURL: fileURL, reason: error)
+        }
+    }
+
+    /// 把读不出来的 `config.json` 另存一份再让应用继续。
+    ///
+    /// 为什么不能直接「退成默认值就算了」：这次会话里任何一次改设置都会触发
+    /// `persist()` 把**整份**配置写回同一个文件 —— 而内存里那一份不含用户的
+    /// API Key 与自定义供应商，写下去用户那份就被永久覆盖了。另存之后原文件还在，
+    /// 用户可以自己翻回去；连另存都失败就标记暂停写入（见 `persist`）。
+    private static func quarantineOverlay(base: AppConfiguration, fileURL: URL, reason: Error) -> OverlayOutcome {
+        let detail = (reason as? LocalizedError)?.errorDescription ?? reason.localizedDescription
+        AppLog.error("config.json 读取失败：\(detail)", category: "config")
+        let manager = FileManager.default
+        let stamp = corruptStamp(Date())
+        let target = fileURL.deletingLastPathComponent()
+            .appendingPathComponent("config.corrupt-\(stamp).json")
+        do {
+            if manager.fileExists(atPath: target.path) { try manager.removeItem(at: target) }
+            try manager.moveItem(at: fileURL, to: target)
+            return OverlayOutcome(
+                configuration: base,
+                failure: "你的 config.json 读不出来（\(detail)），已把原文件另存为 \(target.lastPathComponent)；当前按内置默认配置运行。",
+                quarantineFailed: false
+            )
+        } catch {
+            AppLog.error("config.json 另存失败：\(error.localizedDescription)", category: "config")
+            return OverlayOutcome(
+                configuration: base,
+                failure: "你的 config.json 读不出来（\(detail)），且无法自动另存（\(error.localizedDescription)）：已暂停写入配置文件，以免覆盖你的原文件。",
+                quarantineFailed: true
+            )
+        }
+    }
+
+    /// 隔离文件名里的时间戳（yyyyMMdd-HHmmss）。
+    private static func corruptStamp(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter.string(from: date)
     }
 
     private static func read(from url: URL) throws -> AppConfiguration {

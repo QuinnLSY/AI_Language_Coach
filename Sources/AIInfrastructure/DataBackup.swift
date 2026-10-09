@@ -292,7 +292,18 @@ public actor DataBackup {
         let payload = try Self.validatePayload(in: staging)
 
         let pending = Self.pendingRestoreDirectory(dataDirectory: dataDirectory)
-        try? manager.removeItem(at: pending)
+        // ⚠️ 这里原来是 `try?`：清不掉时下一句 createDirectory 对「已存在」不报错，
+        // 于是上一次残留的文件（可能是另一个备份包的学习库）与本次新拷的混在同一目录，
+        // 后面按文件名扫到谁算谁 —— 恢复出来的可能是上一次那个包。
+        if manager.fileExists(atPath: pending.path) {
+            do {
+                try manager.removeItem(at: pending)
+            } catch {
+                throw AppError.storage(
+                    "上一次的恢复暂存没清掉，已中止本次恢复（你的当前数据原样未动）：\(error.localizedDescription)"
+                )
+            }
+        }
         try manager.createDirectory(at: pending, withIntermediateDirectories: true)
 
         var copied: [String] = []
@@ -331,8 +342,17 @@ public actor DataBackup {
         guard fm.fileExists(atPath: pending.path) else { return nil }
 
         func finish(_ note: String, removePending: Bool) -> String? {
-            if removePending { try? fm.removeItem(at: pending) }
-            return note
+            guard removePending else { return note }
+            // ⚠️ 原来是 `try?`：暂存清不掉的话它**还留在那儿**，下次启动会再恢复一遍
+            // 同一份旧备份，把用户这两天的学习记录又覆盖回去。清不掉必须说出来。
+            do {
+                try fm.removeItem(at: pending)
+                return note
+            } catch {
+                return note
+                    + "\n\n⚠️ 恢复暂存目录没清掉（\(error.localizedDescription)）：下次启动会再恢复一次这份旧备份，"
+                    + "请手动删除 \(pending.path)"
+            }
         }
 
         // 备份里的库文件；没带的伴生文件（旧 WAL/SHM）必须删——不同库的 WAL 拼在一起是毒药。
@@ -359,7 +379,17 @@ public actor DataBackup {
                 // 伴生文件一律先清：备份没带 = 旧的必须删（不同库的 WAL 是毒药）；
                 // 备份带了 = copyItem 不覆盖已存在目标，也必须先删再拷。
                 for companion in ["learning.db-wal", "learning.db-shm"] {
-                    try? fm.removeItem(at: dataDirectory.appendingPathComponent(companion))
+                    let url = dataDirectory.appendingPathComponent(companion)
+                    guard fm.fileExists(atPath: url.path) else { continue }
+                    // 删不掉就中止：上面刚说过「不同库的 WAL 是毒药」，残留的旧 WAL
+                    // 会让新库打不开或内容错乱，而原来这里报的是「已从备份恢复」。
+                    do {
+                        try fm.removeItem(at: url)
+                    } catch {
+                        throw AppError.storage(
+                            "旧库的伴生文件删不掉（\(companion)），已中止恢复以免污染新库：\(error.localizedDescription)"
+                        )
+                    }
                 }
                 let target = dataDirectory.appendingPathComponent("learning.db")
                 if fm.fileExists(atPath: target.path) {

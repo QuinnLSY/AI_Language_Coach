@@ -21,6 +21,8 @@ public actor ShadowingService {
     private let voice: VoiceService
     private let pronunciation: PronunciationService
     private let learning: LearningDatabase?
+    /// 落库失败记账（CoachServices 注入共享实例）。
+    private let failures: PersistenceFailureRecorder
     /// 素材在进程内只读一次（资源文件，永不变化）。
     private var drillCache: [ShadowingDrill]?
     /// 刚结束的这次跟读录音。在 `finishRecording` 时截存，
@@ -30,11 +32,13 @@ public actor ShadowingService {
     public init(
         voice: VoiceService,
         pronunciation: PronunciationService = PronunciationService(),
-        learning: LearningDatabase?
+        learning: LearningDatabase?,
+        failures: PersistenceFailureRecorder
     ) {
         self.voice = voice
         self.pronunciation = pronunciation
         self.learning = learning
+        self.failures = failures
     }
 
     // MARK: - 素材
@@ -150,7 +154,11 @@ public actor ShadowingService {
                 accuracy: comparison.accuracy,
                 pronunciation: report
             )
-            try? await learning.appendShadowingAttempt(attempt)
+            do {
+                try await learning.appendShadowingAttempt(attempt)
+            } catch {
+                await failures.record("保存这次跟读成绩", error)
+            }
         }
         return ShadowingResult(comparison: comparison, pronunciation: report)
     }
@@ -186,7 +194,12 @@ public actor ShadowingService {
                     accuracy: sentence?.accuracy ?? 0,
                     pronunciation: index == 0 ? report : nil
                 )
-                try? await learning.appendShadowingAttempt(attempt)
+                // 段落里少一条，「练了几次 / 平均匹配率」就静默失真一段。
+                do {
+                    try await learning.appendShadowingAttempt(attempt)
+                } catch {
+                    await failures.record("保存这段跟读成绩", error)
+                }
             }
         }
         return ShadowingPassageEvaluation(result: result, pronunciation: report)

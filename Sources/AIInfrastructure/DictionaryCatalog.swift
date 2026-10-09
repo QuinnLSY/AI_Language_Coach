@@ -290,7 +290,7 @@ public actor DictionaryBookStore {
         }
         // 落一份到自己的目录：用户之后把原文件删了 / 挪了，词典也还在。
         try? FileManager.default.createDirectory(at: booksDirectory, withIntermediateDirectories: true)
-        try? data.write(to: booksDirectory.appendingPathComponent("\(id).json"), options: .atomic)
+        try data.write(to: booksDirectory.appendingPathComponent("\(id).json"), options: .atomic)
         importedWords[id] = parsed.words
 
         let fallbackName = url.deletingPathExtension().lastPathComponent

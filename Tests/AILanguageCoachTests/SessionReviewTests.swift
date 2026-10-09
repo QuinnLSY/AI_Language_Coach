@@ -120,7 +120,7 @@ final class SessionReviewTests: XCTestCase {
         """)
         try await mock.initialize(config: ProviderConfig(id: "mock.llm", kind: .llm, enabled: true, runtime: .mock))
         await llm.register(mock)
-        let service = SessionReviewService(llm: llm, learning: db)
+        let service = SessionReviewService(llm: llm, learning: db, failures: PersistenceFailureRecorder())
 
         let sessionID = UUID()
         let messages = [
@@ -147,7 +147,7 @@ final class SessionReviewTests: XCTestCase {
     func testServiceFallsBackWhenModelUnavailable() async throws {
         let db = try LearningDatabase.inMemory()
         // 未注册 Provider：generate 抛错 → 走规则兜底，仍要落库
-        let service = SessionReviewService(llm: LLMManager(), learning: db)
+        let service = SessionReviewService(llm: LLMManager(), learning: db, failures: PersistenceFailureRecorder())
         let sessionID = UUID()
         let review = await service.makeReview(
             sessionID: sessionID,

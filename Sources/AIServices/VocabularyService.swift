@@ -312,11 +312,15 @@ public actor VocabularyService {
     private let learning: LearningDatabase?
     /// 学习事件总线（收词事件从这里发出）。CoachServices 装配时注入共享实例。
     private let events: LearningEventBus
+    /// 落库失败记账（CoachServices 注入共享实例）。
+    private let failures: PersistenceFailureRecorder
 
-    public init(llm: LLMManager, learning: LearningDatabase?, events: LearningEventBus = LearningEventBus()) {
+    public init(llm: LLMManager, learning: LearningDatabase?, events: LearningEventBus = LearningEventBus(),
+            failures: PersistenceFailureRecorder) {
         self.llm = llm
         self.learning = learning
         self.events = events
+        self.failures = failures
     }
 
     // MARK: - 读取
@@ -370,7 +374,12 @@ public actor VocabularyService {
               let current = await entries().first(where: { $0.id == id })
         else { return nil }
         let graded = ReviewScheduler.graded(current, remembered ? .remembered : .forgotten)
-        try? await learning.recordVocabularyReview(graded, remembered: remembered)
+        // 复习调度不前进 = 该出现的词永远不再出现，复习闭环静默失效。
+        do {
+            try await learning.recordVocabularyReview(graded, remembered: remembered)
+        } catch {
+            await failures.record("记这次复习", error)
+        }
         return graded
     }
 
@@ -427,7 +436,16 @@ public actor VocabularyService {
         var defined = entry
         defined.meaning = parsed.encoded
         defined.example = parsed.example
-        try? await learning?.updateVocabularyDefinition(id: entry.id, meaning: parsed.encoded, example: parsed.example)
+        // 释义是**刚花了一次真实 LLM 调用**换来的：存不住，用户下次要再付一次钱重查。
+        if let learning {
+            do {
+                try await learning.updateVocabularyDefinition(
+                    id: entry.id, meaning: parsed.encoded, example: parsed.example
+                )
+            } catch {
+                await failures.record("保存这个词的释义", error)
+            }
+        }
         return defined
     }
 

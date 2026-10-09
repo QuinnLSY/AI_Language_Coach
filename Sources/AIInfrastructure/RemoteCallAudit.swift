@@ -173,7 +173,11 @@ public actor RemoteCallAudit {
         if let handle = try? FileHandle(forWritingTo: fileURL) {
             defer { try? handle.close() }
             _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: payload)
+            do {
+            try handle.write(contentsOf: payload)
+        } catch {
+            AppLog.warning("对外调用留痕写入失败：\(error.localizedDescription)", category: "billing")
+        }
         } else {
             try? payload.write(to: fileURL, options: .atomic)
         }

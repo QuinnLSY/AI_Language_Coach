@@ -407,7 +407,16 @@ extension AppState {
     }
 
     func persistProduct() async {
-        try? await services.updateProduct(product)
+        // ⚠️ 这里是**全仓配置落盘的唯一入口**（自动备份开关、学习目标、音色、模型选择…）。
+        // 原来是 `try?`：写盘失败时界面显示新值、重启全部还原，用户完全不知道。
+        do {
+            try await services.updateProduct(product)
+        } catch {
+            // ⚠️ 动作名由抛出点（ConfigStore.persist）自带，这里**不再包一层**：
+            // UI 再补一句「设置没能保存」就会叠成「设置没能保存到配置文件：保存配置失败：…」。
+            bootMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            AppLog.error("配置落盘失败：\(error.localizedDescription)", category: "config")
+        }
     }
 
     /// 配置在 Services 侧被改过之后，把 UI 的缓存对齐。

@@ -48,6 +48,11 @@ public actor CoachServices {
     /// 森林舞台（AppUI `ForestStage`）订阅它做视觉回应。唯一的实例在这里，
     /// UI 与测试都从 `services.events` 订阅——不要另开第二条总线。
     public nonisolated let events = LearningEventBus()
+    /// 落库失败记账（唯一实例，注入给所有会写库的子服务 —— 见 `PersistenceFailureRecorder`）。
+    ///
+    /// 与 `events` 同一套路：子服务不再自己 `try?` 吞掉失败，而是往这同一份账上记一笔，
+    /// 「学习记录有 N 次没保存成功」那条横幅才可能真的亮起来。
+    public nonisolated let persistenceFailures = PersistenceFailureRecorder()
 
     /// 学习数据库。打开失败时为 nil（功能降级为不持久化，不影响对话）。
     public private(set) var learning: LearningDatabase?
@@ -63,9 +68,9 @@ public actor CoachServices {
     /// ⚠️ 这个数必须被 UI 看见：此前所有落库点都是 `try?`，写不进去时用户这边
     /// 一点动静都没有 —— 练一整天，退出重进历史是空的，还以为是自己记错了。
     /// 静默丢数据比崩溃更糟：崩溃有声音，这个没有。
-    public private(set) var persistenceFailureCount = 0
+    public var persistenceFailureCount: Int { get async { await persistenceFailures.count } }
     /// 最近一次落库失败的一句话原因（nil = 还没失败过）。UI 取它做横幅文案。
-    public private(set) var lastPersistenceFailure: String?
+    public var lastPersistenceFailure: String? { get async { await persistenceFailures.lastDescription } }
     /// 数据备份开关第 30 步）：导出 / 清单都在项目空间 `.workbuddy/backups/`。
     private let backup: DataBackup
     /// 克隆音色档案（第 24 步）：独立持久化，与 config.json 分开存放（见 `VoiceProfileStore`）。
@@ -132,19 +137,22 @@ public actor CoachServices {
         let database = opened.database
         self.learning = database
         self.databaseRecoveryNote = opened.note
-        self.reviewer = SessionReviewService(llm: self.llm, learning: database, events: self.events)
+        self.reviewer = SessionReviewService(llm: self.llm, learning: database, events: self.events,
+                                             failures: self.persistenceFailures)
         self.spellingCorrector = SpellingCorrectionService(llm: self.llm)
         self.translator = TranslationService(llm: self.llm)
         // 发音评测（第 23 步）：首版纯声学 + 文本对齐，不依赖任何发音模型；
         // 将来接入音素模型时，把 provider 从工厂装进 PronunciationService 即可。
         self.pronunciation = PronunciationService()
-        self.shadowing = ShadowingService(voice: self.voice, pronunciation: self.pronunciation, learning: database)
+        self.shadowing = ShadowingService(voice: self.voice, pronunciation: self.pronunciation,
+                                           learning: database, failures: self.persistenceFailures)
         self.shadowingDailyStore = shadowingDailyStore
         // 入学定级（进阶 ⑤）：题库随包发布，出卷 / 判分全在本地（零请求）。
         self.placement = PlacementService()
         self.materialStore = materialStore
         self.customScenarioStore = customScenarioStore
-        self.vocabulary = VocabularyService(llm: self.llm, learning: database, events: self.events)
+        self.vocabulary = VocabularyService(llm: self.llm, learning: database, events: self.events,
+                                             failures: self.persistenceFailures)
         self.dictionary = DictionaryService(llm: self.llm, store: dictionaryStore)
         self.progress = ProgressService(learning: database)
         self.writing = WritingService(llm: self.llm)
@@ -163,7 +171,9 @@ public actor CoachServices {
     private static func openLearningDatabase(at path: String) -> (database: LearningDatabase?, note: String?) {
         do {
             let result = try DataResilience.openLearningDatabase(path: path)
-            let note = result.recovered ? Self.recoveryNote(path: path) : nil
+            let note = result.recovered
+                ? Self.recoveryNote(path: path, quarantined: result.quarantined)
+                : nil
             return (result.database, note)
         } catch {
             AppLog.error("学习数据库隔离重建失败: \(path) — \(error.localizedDescription)", category: "database")
@@ -171,12 +181,20 @@ public actor CoachServices {
         }
     }
 
-    private static func recoveryNote(path: String) -> String {
-        """
+    private static func recoveryNote(path: String, quarantined: Bool) -> String {
+        let directory = DataResilience.quarantineDirectory(
+            base: URL(fileURLWithPath: path).deletingLastPathComponent()
+        ).lastPathComponent
+        // ⚠️ 隔离失败时**不能**再说「文件保留在 corrupt 目录里、没有被删除」：
+        // 挪不动的文件留在原处，紧接着重建的空库就把主库覆盖了 —— 那句话是假的，
+        // 用户会以为还有得捞，实际已经没了。
+        let preservation = quarantined
+            ? "损坏的文件保留在 corrupt 目录里（\(directory)/），没有被删除；这段时间之外的历史记录需要从那里找回。"
+            : "损坏的文件没能完整隔离（可能已被新建的空库覆盖），这段时间之外的历史记录很可能找不回来了。"
+        return """
         学习数据库损坏，已自动隔离并重建。
 
-        损坏的文件保留在 corrupt 目录里（\(DataResilience.quarantineDirectory(base: URL(fileURLWithPath: path).deletingLastPathComponent()).lastPathComponent)/），没有被删除；
-        这段时间之外的历史记录需要从那里找回，新的学习记录会正常保存。
+        \(preservation)新的学习记录会正常保存。
         """
     }
 
@@ -1191,7 +1209,12 @@ public actor CoachServices {
                     try await LocalServiceControl.stop(config: provider)
                 }
             } catch {
-                // 兄弟服务失败不影响主链路
+                // 兄弟服务失败不影响主链路，但必须留痕：否则用户点了「关闭」以为进程停了，
+                // 实际还占着显存，而任何界面上都看不到原因。
+                AppLog.warning(
+                    "本地服务\(running ? "启动" : "关闭")失败（\(provider.id)）：\(error.localizedDescription)",
+                    category: "service"
+                )
             }
         }
     }
@@ -1215,7 +1238,13 @@ public actor CoachServices {
         do {
             try await LocalServiceControl.start(config: provider, reachTimeout: 12)
         } catch {
-            // 启动失败不阻断应用：用户在设置里点「启动」可重试并看到真实错误。
+            // 启动失败不阻断应用，但这一次的失败必须留痕：原注释假设「用户会去设置页
+            // 再点一次」，而开屏这一次在本次启动内没有任何出口 —— 用户只会觉得
+            // 「朗读没声音」，完全不知道代理根本没起来。
+            AppLog.warning(
+                "开屏拉起教师语音代理失败：\(error.localizedDescription)",
+                category: "service"
+            )
         }
     }
 
@@ -1671,15 +1700,23 @@ public actor CoachServices {
             progress = saved
         } else {
             progress = .seed()
-            try? await learning?.saveProgress(progress)
+            await saveProgress(progress)
         }
         progress.applyScenarioBindings(LevelBindingCatalog.bundled())
         return progress
     }
 
     public func saveProgress(_ progress: LearnerProgress) async {
-        guard let learning else { return }
-        try? await learning.saveProgress(progress)
+        guard let learning else {
+            await recordPersistenceFailure("保存学习进度", nil)
+            return
+        }
+        // 星星与关卡进度是**不可逆累积**的成果：写不进去必须让用户知道（否则练一天全白练）。
+        do {
+            try await learning.saveProgress(progress)
+        } catch {
+            await recordPersistenceFailure("保存学习进度", error)
+        }
     }
 
     // MARK: - 学习进度快照（第 25 步 Dashboard）
@@ -1721,27 +1758,24 @@ public actor CoachServices {
     /// 错误文案取 `LocalizedError.errorDescription`（`AppError` 六档都实现了），
     /// 系统错误退到 `localizedDescription` —— 一律不加品类前缀（前缀让消息看着像片段，
     /// 还会和动作名叠成三冒号，见 `AppErrorTextTests`）。
-    private func recordPersistenceFailure(_ action: String, _ error: Error?) {
-        persistenceFailureCount += 1
-        let reason = error.map { Self.failureReason($0) } ?? "学习记录库不可用"
-        lastPersistenceFailure = "\(action)：\(reason)"
-        AppLog.error("落库失败（第 \(persistenceFailureCount) 次）\(action)：\(reason)", category: "database")
+    private func recordPersistenceFailure(_ action: String, _ error: Error?) async {
+        await persistenceFailures.record(action, error)
     }
 
     private static func failureReason(_ error: Error) -> String {
-        (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        PersistenceFailureRecorder.describe(error)
     }
 
     /// 首次发消息时登记会话（已存在则不动，避免把 message_count 归零）。
     public func persistSession(_ session: ChatSession) async {
         guard let learning else {
-            recordPersistenceFailure("保存这段对话", nil)
+            await recordPersistenceFailure("保存这段对话", nil)
             return
         }
         do {
             try await learning.createSessionIfAbsent(session)
         } catch {
-            recordPersistenceFailure("保存这段对话", error)
+            await recordPersistenceFailure("保存这段对话", error)
         }
     }
 
@@ -1749,7 +1783,7 @@ public actor CoachServices {
     /// 传 `nil` 表示退出情景（回到普通练习）。
     public func attachScenario(_ scenarioID: String?, to sessionID: UUID, mode: PracticeMode) async {
         guard let learning else {
-            recordPersistenceFailure("记录这个情景", nil)
+            await recordPersistenceFailure("记录这个情景", nil)
             return
         }
         do {
@@ -1757,7 +1791,7 @@ public actor CoachServices {
                 id: sessionID, scenarioID: scenarioID, mode: mode, startedAt: Date()
             )
         } catch {
-            recordPersistenceFailure("记录这个情景", error)
+            await recordPersistenceFailure("记录这个情景", error)
         }
     }
 
@@ -1769,13 +1803,13 @@ public actor CoachServices {
 
     public func persistMessage(_ message: ChatMessage, sessionID: UUID) async {
         guard let learning else {
-            recordPersistenceFailure("保存这条消息", nil)
+            await recordPersistenceFailure("保存这条消息", nil)
             return
         }
         do {
             try await learning.appendMessage(message, sessionID: sessionID)
         } catch {
-            recordPersistenceFailure("保存这条消息", error)
+            await recordPersistenceFailure("保存这条消息", error)
         }
     }
 
@@ -1785,13 +1819,13 @@ public actor CoachServices {
     @discardableResult
     public func deleteMessages(ids: [UUID], sessionID: UUID) async -> Int? {
         guard let learning else {
-            recordPersistenceFailure("删除这几条消息", nil)
+            await recordPersistenceFailure("删除这几条消息", nil)
             return nil
         }
         do {
             return try await learning.deleteMessages(ids: ids, sessionID: sessionID)
         } catch {
-            recordPersistenceFailure("删除这几条消息", error)
+            await recordPersistenceFailure("删除这几条消息", error)
             return nil
         }
     }
@@ -1800,7 +1834,7 @@ public actor CoachServices {
     @discardableResult
     public func updateMessageContent(id: UUID, content: String) async -> Bool {
         guard let learning else {
-            recordPersistenceFailure("改写这条消息", nil)
+            await recordPersistenceFailure("改写这条消息", nil)
             return false
         }
         do {
@@ -1809,32 +1843,32 @@ public actor CoachServices {
             try await learning.updateMessageContent(id: id, content: content)
             return true
         } catch {
-            recordPersistenceFailure("改写这条消息", error)
+            await recordPersistenceFailure("改写这条消息", error)
             return false
         }
     }
 
     public func finishSession(_ sessionID: UUID) async {
         guard let learning else {
-            recordPersistenceFailure("结束这段对话", nil)
+            await recordPersistenceFailure("结束这段对话", nil)
             return
         }
         do {
             try await learning.finishSession(id: sessionID)
         } catch {
-            recordPersistenceFailure("结束这段对话", error)
+            await recordPersistenceFailure("结束这段对话", error)
         }
     }
 
     public func persistCorrection(_ correction: GrammarCorrection, sessionID: UUID) async {
         guard let learning else {
-            recordPersistenceFailure("保存这条纠错", nil)
+            await recordPersistenceFailure("保存这条纠错", nil)
             return
         }
         do {
             try await learning.appendCorrection(correction, sessionID: sessionID)
         } catch {
-            recordPersistenceFailure("保存这条纠错", error)
+            await recordPersistenceFailure("保存这条纠错", error)
         }
     }
 
@@ -1965,14 +1999,29 @@ public actor CoachServices {
     }
 
     public func saveQuestProgress(_ record: ScenarioQuestRecord) async {
-        guard let learning else { return }
-        try? await learning.saveQuestProgress(record)
+        guard let learning else {
+            await recordPersistenceFailure("保存情景任务进度", nil)
+            return
+        }
+        do {
+            try await learning.saveQuestProgress(record)
+        } catch {
+            await recordPersistenceFailure("保存情景任务进度", error)
+        }
     }
 
     /// 清掉某情景的主线任务进度（重练这一关时调用）。
     public func clearQuestProgress(scenarioID: String) async {
-        guard let learning else { return }
-        try? await learning.clearQuestProgress(scenarioID: scenarioID)
+        guard let learning else {
+            await recordPersistenceFailure("重练这一关", nil)
+            return
+        }
+        // 重练是**不可逆删除**：删不掉却已推进到重练态，下次进情景状态就是错的。
+        do {
+            try await learning.clearQuestProgress(scenarioID: scenarioID)
+        } catch {
+            await recordPersistenceFailure("重练这一关", error)
+        }
     }
 
     /// 某情景最近一次复盘（「任务前情提要」的原料）。
@@ -2069,14 +2118,22 @@ public actor CoachServices {
 
     /// 交卷批改成功后落一行写作记录（学习记录页的「写作练习」卡与每周小结都吃它）。
     public func recordWritingSubmission(topic: WritingTopic, essay: String, review: WritingReview) async {
-        guard let learning else { return }
+        guard let learning else {
+            await recordPersistenceFailure("保存这篇作文", nil)
+            return
+        }
         let words = ShadowingScorer.words(essay).count
-        try? await learning.appendWritingEntry(
-            title: topic.title,
-            score: review.score.map(Double.init),
-            wordCount: words,
-            createdAt: Date()
-        )
+        // 这一步紧跟一次已付费的 LLM 批改：作文改完了却没记下来，用户看到分数是假的。
+        do {
+            try await learning.appendWritingEntry(
+                title: topic.title,
+                score: review.score.map(Double.init),
+                wordCount: words,
+                createdAt: Date()
+            )
+        } catch {
+            await recordPersistenceFailure("保存这篇作文", error)
+        }
     }
 
     /// 某一天已生成的短文（旧 → 新；重启后回看的唯一来源）。
@@ -2096,8 +2153,16 @@ public actor CoachServices {
 
     /// 落一篇短文（生成成功 / 作答变化都整体覆盖写）。
     public func saveReading(_ entry: StoredReading) async {
-        guard let learning else { return }
-        try? await learning.saveReading(entry)
+        guard let learning else {
+            await recordPersistenceFailure("保存这次阅读", nil)
+            return
+        }
+        // 页面承诺「每一步选择都落库，中途退出也不丢」—— 静默失败等于食言。
+        do {
+            try await learning.saveReading(entry)
+        } catch {
+            await recordPersistenceFailure("保存这次阅读", error)
+        }
     }
 
     /// 补齐已落库卡片里缺失的「词性 / 中文」（历史数据：模型当年只回了英文）。

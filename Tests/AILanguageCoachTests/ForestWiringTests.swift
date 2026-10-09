@@ -72,9 +72,11 @@ final class ForestWiringTests: XCTestCase {
         let services = try source("AIServices/CoachServices.swift")
         XCTAssertTrue(services.contains("public nonisolated let events = LearningEventBus()"),
                       "唯一的事件总线应声明在 CoachServices 上")
-        XCTAssertTrue(services.contains("VocabularyService(llm: self.llm, learning: database, events: self.events)"),
+        // ⚠️ 判据跟着签名走：子服务又多注入了 `failures:`（S1 静默失败批次），
+        // 调用因此换行写成两行 —— 这里只钉到「events: self.events,」为止。
+        XCTAssertTrue(services.contains("VocabularyService(llm: self.llm, learning: database, events: self.events,"),
                       "词汇服务没接总线")
-        XCTAssertTrue(services.contains("SessionReviewService(llm: self.llm, learning: database, events: self.events)"),
+        XCTAssertTrue(services.contains("SessionReviewService(llm: self.llm, learning: database, events: self.events,"),
                       "复盘服务没接总线")
     }
 

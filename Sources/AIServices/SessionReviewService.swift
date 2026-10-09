@@ -15,11 +15,15 @@ public actor SessionReviewService {
     private let learning: LearningDatabase?
     /// 学习事件总线（练习完成事件从这里发出）。CoachServices 装配时注入共享实例。
     private let events: LearningEventBus
+    /// 落库失败记账（CoachServices 注入共享实例）。
+    private let failures: PersistenceFailureRecorder
 
-    public init(llm: LLMManager, learning: LearningDatabase?, events: LearningEventBus = LearningEventBus()) {
+    public init(llm: LLMManager, learning: LearningDatabase?, events: LearningEventBus = LearningEventBus(),
+            failures: PersistenceFailureRecorder) {
         self.llm = llm
         self.learning = learning
         self.events = events
+        self.failures = failures
     }
 
     // MARK: - 生成
@@ -262,8 +266,18 @@ public actor SessionReviewService {
     // MARK: - 落库
 
     private func persist(_ review: SessionReview) async {
-        guard let learning else { return }
-        try? await learning.saveReview(review)
+        guard let learning else {
+            await failures.record("保存这次复盘", nil)
+            return
+        }
+        do {
+            try await learning.saveReview(review)
+        } catch {
+            // ⚠️ 落库失败就**不**发完成事件：森林飘叶是「练成了」的正反馈，
+            // 复盘没存住时放这段动画，等于用视觉奖励掩盖一次静默丢失。
+            await failures.record("保存这次复盘", error)
+            return
+        }
         // 森林地基：复盘落库了，树冠才飘叶（练完一段的「小回应」）。
         events.emit(.practiceCompleted(rounds: review.messageCount))
     }

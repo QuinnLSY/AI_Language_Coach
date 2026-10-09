@@ -32,26 +32,37 @@ public enum DataResilience {
     public static func openLearningDatabase(
         path: String,
         now: Date = Date()
-    ) throws -> (database: LearningDatabase, recovered: Bool) {
+    ) throws -> (database: LearningDatabase, recovered: Bool, quarantined: Bool) {
         guard !Self.isInMemory(path) else {
-            return (try LearningDatabase(path: path), false)
+            return (try LearningDatabase(path: path), false, false)
         }
         let url = URL(fileURLWithPath: path)
         do {
-            return (try LearningDatabase(path: url.path), false)
+            return (try LearningDatabase(path: url.path), false, false)
         } catch let firstFailure {
             AppLog.warning(
                 "学习库打开失败，准备隔离重建: \(url.lastPathComponent) — \(firstFailure.localizedDescription)",
                 category: "database"
             )
-            Self.moveToQuarantine(url, now: now)
+            // ⚠️ 隔离是**逐个文件**挪的，单个失败只 warning 后继续 —— 因此必须看结果：
+            // 挪不动的文件留在原处，后面新建的空库会把主库覆盖掉，那部分数据就真没了。
+            // 上层文案据此决定是否还能说「文件保留在 corrupt 目录里」。
+            let moved = Self.moveToQuarantine(url, now: now)
+            let expected = Self.companions(of: url).filter { FileManager.default.fileExists(atPath: $0.path) }
+            let quarantined = moved.count >= expected.count
+            if !quarantined {
+                AppLog.error(
+                    "坏库隔离不完整（挪走 \(moved.count)/\(expected.count) 个文件），原文件可能已被新建的空库覆盖",
+                    category: "database"
+                )
+            }
             do {
                 let rebuilt = try LearningDatabase(path: url.path)
                 AppLog.info(
                     "已用新库接管，原文件保留在 corrupted/ 目录: \(url.lastPathComponent)",
                     category: "database"
                 )
-                return (rebuilt, true)
+                return (rebuilt, true, quarantined)
             } catch let secondFailure {
                 AppLog.error(
                     "隔离后仍无法打开学习库: \(url.lastPathComponent) — \(secondFailure.localizedDescription)",

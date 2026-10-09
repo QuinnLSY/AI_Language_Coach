@@ -228,7 +228,7 @@ final class ShadowingTests: XCTestCase {
 
     func testServiceEvaluatesAndPersists() async throws {
         let database = try LearningDatabase.inMemory()
-        let service = ShadowingService(voice: VoiceService(), learning: database)
+        let service = ShadowingService(voice: VoiceService(), learning: database, failures: PersistenceFailureRecorder())
         let drills = await service.drills()
         let drill = try XCTUnwrap(drills.first)
 
@@ -246,7 +246,7 @@ final class ShadowingTests: XCTestCase {
     }
 
     func testServiceWithoutDatabaseStillEvaluates() async throws {
-        let service = ShadowingService(voice: VoiceService(), learning: nil)
+        let service = ShadowingService(voice: VoiceService(), learning: nil, failures: PersistenceFailureRecorder())
         let drill = ShadowingDrill(id: "x", text: "Hello there, friend")
         let result = await service.evaluate(drill: drill, recognized: "Hello there")
         XCTAssertEqual(result.comparison.accuracy, 2.0 / 3.0, accuracy: 0.0001)

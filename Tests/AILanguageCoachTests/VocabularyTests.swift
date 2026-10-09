@@ -943,7 +943,7 @@ final class VocabularyTests: XCTestCase {
 
     func testServiceWithoutDatabaseStaysHarmless() async {
         let llm = LLMManager()
-        let service = VocabularyService(llm: llm, learning: nil)
+        let service = VocabularyService(llm: llm, learning: nil, failures: PersistenceFailureRecorder())
         let entries = await service.entries()
         XCTAssertTrue(entries.isEmpty, "没有数据库时返回空，不崩")
         let added = await service.add(word: "apple")
@@ -952,7 +952,7 @@ final class VocabularyTests: XCTestCase {
 
     func testServiceImportDeduplicates() async throws {
         let database = try LearningDatabase.inMemory()
-        let service = VocabularyService(llm: LLMManager(), learning: database)
+        let service = VocabularyService(llm: LLMManager(), learning: database, failures: PersistenceFailureRecorder())
 
         // 两份复盘都提到同一个词 → 只收一条。
         let review1 = SessionReview(sessionID: UUID(), newWords: ["apple", "banana"])
