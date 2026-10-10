@@ -37,6 +37,22 @@ public enum ChatScrollMetrics {
         distanceFromBottom > jumpThreshold
     }
 
+    /// 内容变化时该不该自动滚到底（S4-1）。
+    ///
+    /// 口径（2026-10-10 拍板）：**用户一上翻就暂停跟随**。
+    /// 生成回复时往上翻看历史，不该每来一个 token 就被拽回底部；
+    /// 要继续跟随就自己滚回底部，或者点「回到底部」。
+    ///
+    /// - Parameter userSentMessage: 这次变化是不是**用户刚发出一条**。
+    ///   自己发的话即使之前在上翻也要拉到底 —— 那条消息就是他发出去要看的东西，
+    ///   留在屏幕外会让人以为「没发出去」。老师的流式输出 / 追加历史一律尊重上翻。
+    public static func shouldAutoScrollOnContentChange(
+        isScrolledUp: Bool,
+        userSentMessage: Bool
+    ) -> Bool {
+        userSentMessage || !isScrolledUp
+    }
+
     /// 虚化带在视口中的起点比例（0…1），供渐变蒙版用。
     ///
     /// 视口高度非法（0 / 负）时返回 0：宁可整屏渐隐，也不要因为除零算出 NaN

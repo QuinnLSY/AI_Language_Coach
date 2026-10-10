@@ -213,10 +213,32 @@ public final class AppState {
     /// 恰恰是那批人**最不知道**说明藏在设置页第一张卡里。
     public var showingHelp = false
     /// 当前有没有整块面板 / 页面盖在聊天区之上（面板一开，划词气泡就该立刻收掉）。
-    public var isContentCovered: Bool {
-        showingSettings || showingRecords || showingScenarios
-            || showingMaterialUpload || showingVocabulary || showingScenarioComposer
-            || showingDictionary || showingProgress || showingWriting || showingReading
+    ///
+    /// ⚠️ S4-8：与快捷键那边（`isShortcutBlockingOverlayPresented`）**共用同一份清单**。
+    /// 原先两边各写一份，各自漏项：这里漏了考试报告与全局搜索（划词气泡压在最外层 → 命中错乱），
+    /// 那边漏了几张页面板卡。现在真源只有下面这两个私有清单。
+    public var isContentCovered: Bool { coveringPanels || blockingOverlays }
+
+    /// 会盖住聊天区的**页面 / 面板**：切到别的页（跟读 / 听力 / 记录…）或打开一张设置类面板。
+    ///
+    /// ⚠️ 新增任何 `showingXxx` 页面标记都要加进来 —— 漏一个的表现就是
+    /// 「切到那一页了，划词气泡还浮在窗口最上层」。
+    /// （可见性是 internal 而非 private：`isShortcutBlockingOverlayPresented` 在另一个文件里读它。）
+    var coveringPanels: Bool {
+        showingSettings || showingRecords || showingScenarios || showingMaterialUpload
+            || showingVocabulary || showingScenarioComposer || showingDictionary
+            || showingProgress || showingWriting || showingReading
+            || showingShadowing || showingListening || showingHelp
+    }
+
+    /// 铺满窗口的**遮罩浮层**：临时盖上去，关掉就回到原来那一页。
+    ///
+    /// 与 `coveringPanels` 分开的理由只有一个：**快捷键切页**时，
+    /// 「已经在别的页上」不该被拦（切页键本来就是干这个的），
+    /// 而盖着遮罩时按 ⌘3 只会让面板关掉后「我怎么在另一个页面」。
+    var blockingOverlays: Bool {
+        showingSettings || showingScenarios || showingMaterialUpload || showingScenarioComposer
+            || showingGlobalSearch || examReport != nil
     }
     // MARK: 模型 Provider（本地 + 云端并存）
     /// 当前生效的 LLM Provider（决定实际调用本地还是云端）。
@@ -257,6 +279,14 @@ public final class AppState {
     public var isTranscribing: Bool { voicePhase == .transcribing }
     /// 是否正在朗读教师回复。
     public internal(set) var isSpeaking = false
+    /// 朗读请求的世代令牌（S4-12）。
+    ///
+    /// 底层 `VoiceService.speak` 早就有自己的 `speakToken`（作废在途合成 + 停声），
+    /// 所以「前一条还在队列里念」这件事已经不会发生。这里补的是**界面侧**的同一道闸门：
+    /// 收尾那几行是 await 之后回写 `speechPhase` / `voiceError` 的**快照**，
+    /// 连点两条「听老师读」时，前一条可能在后一条已经开始之后才跑完 ——
+    /// 它会把过期快照盖上去（界面显示「还在念」，其实早停了）。
+    var speakRequestToken: UUID?
     /// 朗读相位：准备中（已点中、正在合成首句）/ 朗读中（已有声音）。
     public internal(set) var speechPhase: SpeechPhase = .idle {
         didSet { lookupBubble.refreshSpeaking() }
@@ -380,6 +410,12 @@ public final class AppState {
     public var writingDraft = ""
     /// 最近一次批改结果（nil = 还没交过 / 批改失败）。
     public internal(set) var writingReview: WritingReview?
+    /// 交出去批改的那一版正文（S4-10）。
+    ///
+    /// ⚠️ 改写对比卡必须拿**这一份**跟 `review.rewrite` 比，不能用 `writingDraft`：
+    /// 草稿是活的，用户不收卡直接改稿时，diff 会实时跟着变 ——
+    /// 他自己刚改的词会被标成「老师改的」，而老师根本没动过那一处。
+    public internal(set) var writingSubmittedEssay = ""
     /// 正在批改（按钮 loading）。
     public internal(set) var isWritingReviewing = false
     /// 写作页的提示消息（词数不足 / 批改失败 / 已加入词汇本）。
@@ -587,6 +623,13 @@ public final class AppState {
     /// 关闭「自动复盘」回执提示。
     public func dismissPracticeNotice() { practiceNotice = nil }
 
+    /// 「开启新练习」正在跑（S4-4）。
+    ///
+    /// 这一段要先自动复盘上一段、再换会话、再让老师开口，中间有好几个 await；
+    /// 没有这个闸门时双击 = 复盘两遍 + 会话 id 连跳两级 + 开场白出两条（或被静默吞掉）。
+    /// UI 侧据此把按钮置灰，AppState 侧再挡一道（按钮状态可能比状态机慢一帧）。
+    public internal(set) var isStartingFreeTalk = false
+
     // MARK: 考试模式（雅思口语 / 面试问答）
 
     /// 内置考卷（资源文件；空 = 资源缺失，面板给可操作提示）。
@@ -709,6 +752,14 @@ public final class AppState {
 
     /// 正在生成今天的 20 句（页面上转圈，避免用户以为「卡住了」）。
     public internal(set) var isShadowingLoading = false
+    /// 取今日素材的**并发闸门**（S4-6）。
+    ///
+    /// 与 `isShadowingLoading` 分开：那个是**界面忙碌态**（骨架屏 / 「生成中…」），
+    /// 只在真正生成那一段亮；而本闸门从函数入口就亮 ——
+    /// 因为取数路径开头有一串 await（读当天缓存 / 读内置素材），
+    /// 两次双击各起一个 Task 时它们都会在那串 await **之前**挤进来，
+    /// 只看 `isShadowingLoading` 拦不住 → 发两次真实模型请求（多付一份 token）。
+    var isGeneratingShadowingDrills = false
     /// 页面上这批句子是不是**今天现生成**的（false = 内置素材兜底）。
     /// 页头据此如实说明来源 —— 用户有权知道自己在练的是哪种素材。
     public internal(set) var shadowingIsDailyGenerated = false

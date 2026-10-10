@@ -92,6 +92,8 @@ public struct ChatView: View {
     var practiceMode: PracticeMode = .conversation
     /// 「开启新练习」：先复盘上一段、再进随口练。
     var onStartFreeTalk: (() async -> Void)? = nil
+    /// 「开启新练习」正在跑（S4-4）：按钮据此置灰，挡住第二次点击。
+    var isStartingFreeTalk: Bool = false
     /// 当前任务的前情提要（情景模式下的引导卡；nil = 不显示）。
     var briefing: ScenarioBriefing? = nil
     /// 上一段练习自动复盘的结果提示（nil = 不显示）。
@@ -244,6 +246,7 @@ public struct ChatView: View {
                 onClearAttachments: (() -> Void)? = nil,
                 practiceMode: PracticeMode = .conversation,
                 onStartFreeTalk: (() async -> Void)? = nil,
+                isStartingFreeTalk: Bool = false,
                 briefing: ScenarioBriefing? = nil,
                 practiceNotice: AppNotice? = nil,
                 onDismissPracticeNotice: (() -> Void)? = nil,
@@ -313,6 +316,7 @@ public struct ChatView: View {
         self.onClearAttachments = onClearAttachments
         self.practiceMode = practiceMode
         self.onStartFreeTalk = onStartFreeTalk
+        self.isStartingFreeTalk = isStartingFreeTalk
         self.briefing = briefing
         self.practiceNotice = practiceNotice
         self.onDismissPracticeNotice = onDismissPracticeNotice
@@ -377,9 +381,13 @@ public struct ChatView: View {
         // 也不该在开屏时被念出来（`messages` 里那一刻装的正是它）。
         // ⚠️ 还要挡住 `isBooting`：续做决策走完之后会**揭开**上次那段历史（情景续做 / 接着聊），
         // 那一下同样是「条数从 0 跳上来」，但它揭开的是旧消息，念出来就是「开屏自己说话」。
-        .onChange(of: chat.visibleMessages.count) { _, count in
+        .onChange(of: chat.visibleMessages.count) { previous, count in
             guard !isBooting else { return }
-            if autoSpeak, count > 0, let last = chat.visibleMessages.last, last.role == .assistant {
+            // ⚠️ S4-9：只有**条数变多**才谈得上「老师刚回了一条」。
+            // 只看 `count > 0` 的话，删掉一条消息（条数减少但仍有内容）会把
+            // 上一条早就存在的回复重新念一遍 —— 用户会以为老师又说话了。
+            guard count > previous else { return }
+            if autoSpeak, let last = chat.visibleMessages.last, last.role == .assistant {
                 onSpeakTap?(last.content)
             }
         }
@@ -543,13 +551,16 @@ public struct ChatView: View {
             // 「开启新练习」（需求 4）：结束当前这一段（自动复盘）并进随口练。
             // 与情景对话的区别写在按钮的 hover 提示里 —— 学员按下之前就该知道两件事不一样。
             Button {
-                guard let onStartFreeTalk else { return }
+                // 双击防线（S4-4）：AppState 里还有一道，这里只负责「别白起一个 Task」。
+                guard let onStartFreeTalk, !isStartingFreeTalk else { return }
                 Task { await onStartFreeTalk() }
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "sparkles")
                         .appFont(10, weight: .semibold)
-                    Text(practiceMode == .freeTalk ? "重开随口练" : "开启新练习")
+                    Text(isStartingFreeTalk
+                         ? "正在开始…"
+                         : (practiceMode == .freeTalk ? "重开随口练" : "开启新练习"))
                         .appFont(10, weight: .semibold, design: .rounded)
                 }
                 .foregroundStyle(theme.onAccentFill)
@@ -559,7 +570,8 @@ public struct ChatView: View {
                 .contentShape(Capsule())
             }
             .buttonStyle(.appPressable)
-            .disabled(onStartFreeTalk == nil)
+            .disabled(onStartFreeTalk == nil || isStartingFreeTalk)
+            .opacity(isStartingFreeTalk ? 0.6 : 1)
             .help("换一段自由练习：你定话题、老师跟着你聊，多给建议与纠错（上一段会自动复盘收进学习记录）")
         }
         .padding(.horizontal, 18)
@@ -797,11 +809,22 @@ public struct ChatView: View {
                         distanceFromBottom: distance
                     )
                 }
-                .onChange(of: chat.visibleMessages.count) { _, _ in scrollToBottom(proxy) }
-                .onChange(of: chat.streamingText) { scrollToBottom(proxy) }
+                // S4-1：跟着滚到底**只在没上翻时**做。三处原先都是无条件 `scrollToBottom`，
+                // 于是生成回复期间上翻看历史，每来一个 token 就被拽回底部 ——
+                // 上翻阅在生成期间完全不可用。
+                .onChange(of: chat.visibleMessages.count) { _, _ in
+                    autoScrollIfFollowing(
+                        proxy,
+                        // 自己刚发出一条：即使之前在上翻也拉到底（那是他要看的东西）。
+                        userSentMessage: chat.visibleMessages.last?.role == .user
+                    )
+                }
+                .onChange(of: chat.streamingText) { autoScrollIfFollowing(proxy, userSentMessage: false) }
                 .onChange(of: chat.streamingReasoning) { _, _ in
                     // 思考阶段也保持滚动到底（面板自动跟随最新内容）
-                    if chat.streamingText.isEmpty { scrollToBottom(proxy) }
+                    if chat.streamingText.isEmpty {
+                        autoScrollIfFollowing(proxy, userSentMessage: false)
+                    }
                 }
                 .task {
                     // #6：练习页是 if/else 切出来的 —— 从别的页面回来时本视图是
@@ -811,6 +834,17 @@ public struct ChatView: View {
                 }
             }
         }
+    }
+
+    /// 内容变化时的自动跟滚（S4-1）：**用户上翻就暂停跟随**。
+    ///
+    /// 口径是纯函数（`ChatScrollMetrics.shouldAutoScrollOnContentChange`），
+    /// 这里只负责把当前状态喂进去 —— 判据写在视图里就没法把边界值钉死。
+    private func autoScrollIfFollowing(_ proxy: ScrollViewProxy, userSentMessage: Bool) {
+        guard ChatScrollMetrics.shouldAutoScrollOnContentChange(
+            isScrolledUp: isScrolledUp, userSentMessage: userSentMessage
+        ) else { return }
+        scrollToBottom(proxy)
     }
 
     /// 「回到底部」按钮：与主流 Agent 一致 —— 一条消息都没错过时不出现，

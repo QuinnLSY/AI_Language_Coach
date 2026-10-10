@@ -246,7 +246,7 @@ public struct ShadowingView: View {
             ForEach(ShadowingMode.allCases) { mode in
                 let isOn = state.shadowingMode == mode
                 Button {
-                    state.setShadowingMode(mode)
+                    Task { await state.setShadowingMode(mode) }
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: mode.symbol).appFont(11, weight: .semibold)
@@ -291,7 +291,7 @@ public struct ShadowingView: View {
                 }
                 Spacer(minLength: 0)
                 Button {
-                    state.nextShadowingPassage()
+                    Task { await state.nextShadowingPassage() }
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.right.circle.fill")
@@ -318,8 +318,8 @@ public struct ShadowingView: View {
 
                 ShadowingSentenceNavButtons(
                     showsPrevious: state.shadowingIndex > 0,
-                    onPrevious: { state.previousShadowingDrill() },
-                    onNext: { state.nextShadowingDrill() }
+                    onPrevious: { Task { await state.previousShadowingDrill() } },
+                    onNext: { Task { await state.nextShadowingDrill() } }
                 )
             }
         }

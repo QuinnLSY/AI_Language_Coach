@@ -141,15 +141,11 @@ extension AppState {
     }
 
     /// 有整块浮层盖着：底下那一页此刻看不见，快捷键再切页只会让人莫名其妙。
-    private var isShortcutBlockingOverlayPresented: Bool {
-        showingSettings || showingScenarios || showingMaterialUpload || examReport != nil
-            // 全局搜索（2026-10-01 补）：它也是铺满窗口的遮罩浮层，底下那页此刻看不见，
-            // 按 ⌘3 之类的切页键只会让面板关掉后「我怎么在另一个页面」。
-            || showingGlobalSearch
-            // 描述场景浮层（#S2-1 补）：它是从情景面板头部竖起来的**满屏遮罩**，
-            // 与 `showingMaterialUpload` 同一层浮层，却漏在这里 → 按 ⌘3 会把底下那页切走。
-            || showingScenarioComposer
-    }
+    ///
+    /// ⚠️ S4-8：真源只有一个（`AppState.blockingOverlays`），与 `isContentCovered` 共用。
+    /// 以前这里和那边各写一份清单，各自漏项（这里漏过描述场景浮层，那边漏过考试报告）。
+    /// 与 `coveringPanels` 的唯一区别：**已经在别的页上**不算拦截 —— 切页键本来就是干这个的。
+    var isShortcutBlockingOverlayPresented: Bool { blockingOverlays }
 
     /// 当前该响应 Esc 的那一层（叠放栈顶）；nil = 没有浮层。
     ///

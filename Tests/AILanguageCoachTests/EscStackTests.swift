@@ -144,10 +144,22 @@ final class EscStackTests: XCTestCase {
     }
 
     /// 描述场景浮层是满屏遮罩，漏进快捷键拦截 = 按 ⌘3 会把底下那页切走。
+    ///
+    /// ⚠️ S4-8 起拦截清单**只有一个真源**（`AppState.blockingOverlays`，与 `isContentCovered` 共用），
+    /// 所以判据落在那一份上 —— 继续钉 `AppState+Shortcuts.swift` 会随「真源搬走」而扑空。
     func testScenarioComposerAlsoBlocksPageShortcuts() throws {
-        let raw = try Self.code("Sources/AppUI/AppState+Shortcuts.swift")
-        let body = try XCTUnwrap(raw.components(separatedBy: "isShortcutBlockingOverlayPresented: Bool {")[1]
-            .components(separatedBy: "\n    }")[0])
-        XCTAssertTrue(body.contains("showingScenarioComposer"), "描述场景浮层必须进快捷键拦截")
+        let appState = try Self.code("Sources/AppUI/AppState.swift")
+        let overlays = try XCTUnwrap(
+            appState.components(separatedBy: "var blockingOverlays: Bool {").dropFirst().first?
+                .components(separatedBy: "\n    }").first,
+            "找不到 blockingOverlays 的定义（真源搬走了？）"
+        )
+        XCTAssertTrue(overlays.contains("showingScenarioComposer"), "描述场景浮层必须进快捷键拦截")
+
+        let shortcuts = try Self.code("Sources/AppUI/AppState+Shortcuts.swift")
+        XCTAssertTrue(
+            shortcuts.contains("isShortcutBlockingOverlayPresented: Bool { blockingOverlays }"),
+            "快捷键拦截必须读统一真源，不许再手写第二份清单"
+        )
     }
 }

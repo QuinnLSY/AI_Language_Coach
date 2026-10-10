@@ -128,8 +128,9 @@ extension AppState {
     }
 
     /// 切换跟读粒度。切换时清掉上一次的结果 —— 旧粒度的结果留在新粒度下是指错对象。
-    public func setShadowingMode(_ mode: ShadowingMode) {
+    public func setShadowingMode(_ mode: ShadowingMode) async {
         guard mode != shadowingMode else { return }
+        await stopShadowingAudioBeforeSwitch()
         shadowingMode = mode
         shadowingComparison = nil
         shadowingPronunciation = nil
@@ -139,9 +140,10 @@ extension AppState {
     }
 
     /// 换到下一段（段落模式下）。
-    public func nextShadowingPassage() {
+    public func nextShadowingPassage() async {
         let passages = shadowingPassages
         guard !passages.isEmpty else { return }
+        await stopShadowingAudioBeforeSwitch()
         shadowingPassageIndex = (shadowingPassageIndex + 1) % passages.count
         shadowingPassageResult = nil
         shadowingPassagePronunciation = nil
@@ -163,6 +165,14 @@ extension AppState {
 
     /// 取今日跟读素材。`regenerate == true` 时忽略当天缓存重新生成（页面上有按钮）。
     public func loadTodayShadowingDrills(regenerate: Bool = false) async {
+        // S4-6：并发闸门。取数路径起手就是一串 await（清缓存 / 读当天缓存 / 读内置素材），
+        // 两条双击各起的 Task 都会抢在 `isShadowingLoading` 点亮**之前**进来 ——
+        // 只看那个 UI 忙碌态拦不住，结果是两次真实模型请求（多付一份 token，
+        // 而且后一批会把练到一半的句子整批换掉）。
+        guard !isGeneratingShadowingDrills else { return }
+        isGeneratingShadowingDrills = true
+        defer { isGeneratingShadowingDrills = false }
+
         if regenerate { await services.clearShadowingDailyCache() }
 
         // ① 今天已经生成过：直接用它（同一天内必须稳定，否则练到一半句子全换）。
@@ -241,13 +251,28 @@ extension AppState {
         shadowingStats = await services.shadowing.stats()
     }
 
+    /// 切句 / 切粒度前先把在途的示范音停掉（S4-11）。
+    ///
+    /// 不停的话：段落听示范中切段 → 上一段接着念完，而「听示范 / 停止」按钮的归属
+    /// 已经换到新段 —— 用户按新段的「停止」停不掉正在念的旧段。
+    ///
+    /// ⚠️ 必须是 `await` 而不是 fire-and-forget：要保证「先停声、再换句」的**顺序**。
+    /// 各起一条 Task 的话，切句后立刻点新句的「听示范」就变成两条 Task 抢跑，
+    /// 停声可能落在新播放之后 —— 用户刚点播放就被掐掉。
+    /// 音频被停时 `AVAudioPlayback.playAndWait` 会正常返回（`stop()` 唤醒挂起者，不抛错），
+    /// 所以那一路 `playShadowingExample` 会自己把 `isShadowingPlaying` 收回 false。
+    private func stopShadowingAudioBeforeSwitch() async {
+        await services.shadowing.stopAudio()
+    }
+
     /// 换到下一句（顺序轮换，到底回到第一句）。
     ///
     /// ⚠️ 不再清掉评测结果：换到的那一句若是**读过的**，它的分析要跟着回来
     /// （`restoreShadowingResultForCurrentDrill`）。以前这里一律置 nil，
     /// 于是「回头看看上一句」必须重读一遍才有结果。
-    public func nextShadowingDrill() {
+    public func nextShadowingDrill() async {
         guard !shadowingDrills.isEmpty else { return }
+        await stopShadowingAudioBeforeSwitch()
         shadowingIndex = (shadowingIndex + 1) % shadowingDrills.count
         saveShadowingProgress()
         restoreShadowingResultForCurrentDrill()
@@ -256,8 +281,9 @@ extension AppState {
     }
 
     /// 换到上一句（已经是第一句时不动 —— 界面上那颗按钮根本不出现）。
-    public func previousShadowingDrill() {
+    public func previousShadowingDrill() async {
         guard shadowingDrills.indices.contains(shadowingIndex), shadowingIndex > 0 else { return }
+        await stopShadowingAudioBeforeSwitch()
         shadowingIndex -= 1
         saveShadowingProgress()
         restoreShadowingResultForCurrentDrill()
@@ -367,26 +393,44 @@ extension AppState {
         guard isShadowingRecording else { return }
         isShadowingRecording = false
         isShadowingBusy = true
+        // ⚠️ S4-2：忙碌态要**罩住整条链路**（识别 + 评测），不能识别一完就放开。
+        // 放开的那一瞬间按钮回弹成可点，用户正好点「下一句」——
+        // 而评测还在飞，回来时会盖到新句的卡片上。
+        defer { isShadowingBusy = false }
+
+        // ⚠️ S4-2：先把「这次录的是谁」钉住，再走识别与评测。
+        // 两步各要好几秒，期间用户可能切句 / 切粒度；等回来再读 `currentShadowingDrill`
+        // 拿到的会是**新句** —— 等于把这一句的录音拿去跟下一句比对，错的是数据不只是界面。
+        let recordedMode = shadowingMode
+        let recordedDrill = currentShadowingDrill
+        let recordedPassage = currentShadowingPassage
+
         let recognized = await services.shadowing.finishRecording(language: ShadowingService.practiceLanguage)
-        isShadowingBusy = false
         voiceTranscript = nil
         guard let recognized, !recognized.isEmpty else {
             shadowingNotice = await services.shadowing.lastError() ?? "没有听清，凑近麦克风再说一次"
             return
         }
-        switch shadowingMode {
+        switch recordedMode {
         case .sentence:
-            guard let drill = currentShadowingDrill else { return }
+            guard let drill = recordedDrill else { return }
             let result = await services.shadowing.evaluate(drill: drill, recognized: recognized)
-            shadowingComparison = result.comparison
-            shadowingPronunciation = result.pronunciation
-            // 这一句的分析留在这句名下：待会儿跳到别的句子再跳回来，它还在。
+            // 落库按 drillID：无论用户有没有切走，成绩都要记在**它自己那一句**名下
+            // （这一句的分析留在这句名下，待会儿跳回来它还在）。
             rememberShadowingResult(result, drillID: drill.id)
+            // 界面回填只在「还是这一句、还是这个粒度」时才做 ——
+            // 否则屏幕上「第 4 句」会挂着第 3 句的成绩。
+            if shadowingMode == .sentence, currentShadowingDrill?.id == drill.id {
+                shadowingComparison = result.comparison
+                shadowingPronunciation = result.pronunciation
+            }
         case .passage:
-            guard let passage = currentShadowingPassage else { return }
+            guard let passage = recordedPassage else { return }
             let evaluation = await services.shadowing.evaluatePassage(passage, recognized: recognized)
-            shadowingPassageResult = evaluation.result
-            shadowingPassagePronunciation = evaluation.pronunciation
+            if shadowingMode == .passage, currentShadowingPassage?.id == passage.id {
+                shadowingPassageResult = evaluation.result
+                shadowingPassagePronunciation = evaluation.pronunciation
+            }
         }
         await refreshShadowingStats()
         // 跟读也是今日作业的一项：练完立刻刷新黑板/庆祝判定（force —— 练完的瞬间不许被节流吞掉）。

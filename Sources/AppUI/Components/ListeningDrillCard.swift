@@ -186,8 +186,10 @@ public struct ListeningDrillCard: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.appPressable)
-                .disabled(typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .opacity(typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.55 : 1)
+                // S4-3：播放中不接交卷 —— 交卷会把「当前播放到哪一遍」记进成绩，
+                // 而这遍还没听完。要交先按暂停（播放键此刻就是「停止」）。
+                .disabled(typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isPlaying)
+                .opacity(typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isPlaying ? 0.55 : 1)
                 .help(chrome.submitHelp)
                 .accessibilityLabel(chrome.submitButton)
 
@@ -453,6 +455,8 @@ public struct ListeningDrillCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.appPressable)
+        // S4-3：播放中不推进 —— 否则这一句的遍数与失败提示会记到下一句头上。
+        .disabled(isPlaying)
         .accessibilityLabel(isLast ? "看总结" : "下一句")
     }
 

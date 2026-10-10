@@ -155,10 +155,17 @@ extension AppState {
             return
         }
         isSpeaking = true
+        // S4-12：世代令牌。连点两条「听老师读」时，前一条的收尾代码可能在后一条
+        // 已经开始之后才跑完 —— 它会把**过期快照**（phase / lastError）写回界面。
+        // 底层 `VoiceService.speak` 令牌化解决的是「声音」；这里解决「界面」。
+        let token = UUID()
+        speakRequestToken = token
         // 音色取值统一走 `effectiveSpeechVoiceSelection()`：启用克隆音色时它带档案 id **和参考音频**，
         // 否则是内置音色名。UI 不自己判断该用哪个 —— 那会让两处口径漂移。
         await services.voice.speak(text, voice: await services.effectiveSpeechVoiceSelection(),
                                    language: "English", rate: Float(product.speechRate))
+        // 令牌已换 → 这次朗读已被后一次作废，**一个字都不许回写**。
+        guard speakRequestToken == token else { return }
         isSpeaking = await services.voice.isSpeaking
         speechPhase = await services.voice.phase
         voiceError = await services.voice.lastError
@@ -166,6 +173,8 @@ extension AppState {
 
     public func stopSpeaking() async {
         await services.voice.stopSpeaking()
+        // 作废收尾回写：在途的那一次朗读随后跑完时别再把状态写回来。
+        speakRequestToken = nil
         isSpeaking = false
         speechPhase = .idle
         speakingText = nil

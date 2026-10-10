@@ -348,8 +348,11 @@ public struct WritingView: View {
     /// 学员要能划词（SwiftUI `AttributedString` 桥到 NSAttributedString 会丢字体属性，
     /// 所以这里一开始就用 AppKit 属性建）。
     private func diffText(_ review: WritingReview) -> some View {
+        // ⚠️ S4-10：比的是**交出去的那一版**，不是此刻的草稿。
+        // 用 `state.writingDraft` 的话，用户不收卡直接改稿时 diff 会实时跟着变，
+        // 他自己刚改的词会被标成「老师改的」。
         let segments = WritingDiff.align(
-            original: state.writingDraft,
+            original: state.writingSubmittedEssay,
             revised: review.rewrite
         )
         let attributed = NSMutableAttributedString()

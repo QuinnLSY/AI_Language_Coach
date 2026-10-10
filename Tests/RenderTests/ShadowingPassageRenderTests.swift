@@ -52,7 +52,7 @@ final class ShadowingPassageRenderTests: XCTestCase {
         let state = try await makeState()
         let sentenceHeight = try renderPage(state).fittingSize.height
 
-        state.setShadowingMode(.passage)
+        await state.setShadowingMode(.passage)
         let passage = try XCTUnwrap(state.currentShadowingPassage, "内置素材应能切出至少一个段落")
         let passageHeight = try renderPage(state).fittingSize.height
 
@@ -70,7 +70,7 @@ final class ShadowingPassageRenderTests: XCTestCase {
     /// 评完分之后结果卡必须出现，而且**点名的是被漏掉的那句**。
     func testPassageResultCardAppearsAndNamesTheSkippedSentence() async throws {
         let state = try await makeState()
-        state.setShadowingMode(.passage)
+        await state.setShadowingMode(.passage)
         let passage = try XCTUnwrap(state.currentShadowingPassage)
         guard passage.drills.count >= 3 else {
             throw XCTSkip("这段只有 \(passage.drills.count) 句，造不出「漏掉中间一句」")

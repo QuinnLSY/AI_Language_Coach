@@ -58,6 +58,8 @@ extension AppState {
     /// 等于逼人「想换个练法就得从头再来」，而那正是最容易让人放弃的地方。
     public func switchListeningMode(_ mode: ListeningMode) {
         guard mode != listeningMode else { return }
+        // S4-3：换形式也要先停声 —— 停在上句的示范音会跟着新形式继续念。
+        Task { await stopListeningAudio() }
         listeningMode = mode
         listeningNotice = nil
         guard isListeningDrill else { return }
@@ -114,6 +116,15 @@ extension AppState {
     /// 会混进听力成绩里。
     public func playListeningPrompt() async {
         guard let drill = currentListeningDrill else { return }
+        // ⚠️ S4-3 连点防线：两次点击各起一个 Task，都会在下面第一个 await **之前**进来。
+        // `listeningIsPlaying` 原先在「恢复挂起 + 巡检」两步 await 之后才置位，拦不住 →
+        // 两路播放叠在一起，而且「听完的遍数」两路各记一遍（遍数虚高）。
+        // 把它提到最前面：它同时是「正在放」的唯一真源 ——
+        // 按钮据此切成「停止」，切句 / 提交据此置灰。
+        guard !listeningIsPlaying else { return }
+        listeningIsPlaying = true
+        defer { listeningIsPlaying = false }
+
         // ⚠️ 问真源而不是界面快照（同 `playShadowingExample`）：巡检把 TTS 挂起后，
         // 快照还说在跑 → 跳过自动恢复 → 用户听到的是「点了没反应」。
         _ = (try? await services.resumeIfSuspended(.tts)) ?? false
@@ -123,8 +134,9 @@ extension AppState {
             return
         }
         listeningNotice = nil
-        listeningIsPlaying = true
-        defer { listeningIsPlaying = false }
+        // 恢复 / 巡检那两步要等（TTS 冷启动可能好几秒）。这期间用户可能按了「停止」——
+        // 那时 `listeningIsPlaying` 已被放下，就别再出声了。
+        guard listeningIsPlaying else { return }
         let selection = await services.effectiveSpeechVoiceSelection()
         let base = Float(product.speechRate)
         await services.shadowing.playReference(
@@ -133,6 +145,10 @@ extension AppState {
             language: ShadowingService.practiceLanguage,
             rate: listeningSlowPlayback ? base * ListeningRule.slowRateFactor : base
         )
+        // ⚠️ S4-3：这一遍只算在**刚才那一句**头上。播放期间用户可能已经切到下一句
+        // （`advanceListening` 会 `resetAnswerState()` 把遍数清零），
+        // 不校验就会让新句凭空多出「听了 1 遍」，失败提示也挂到无关的句子上。
+        guard currentListeningDrill?.id == drill.id else { return }
         // 听得出来的遍数才算一遍：播放失败提示挂上去了，就不该把这一次记进账。
         if let error = await services.shadowing.lastError() {
             listeningNotice = error
@@ -264,6 +280,10 @@ extension AppState {
 
     /// 看过对照 → 下一句（最后一句之后直接结算）。
     public func advanceListening() {
+        // S4-3：切句先停声。播放中那颗「下一句」已经置灰，这里是其它入口
+        // （键盘 / 结算路径）的兜底 —— 留着上句的示范音，按钮归属却已经换到新句，
+        // 用户按新句的「停止」停不掉正在念的旧句。
+        Task { await stopListeningAudio() }
         if listeningIndex + 1 < listeningRound.count {
             listeningIndex += 1
             resetAnswerState()

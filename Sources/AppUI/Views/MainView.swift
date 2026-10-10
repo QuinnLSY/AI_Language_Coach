@@ -410,6 +410,7 @@ public struct MainView: View {
                     onClearAttachments: { state.clearPendingAttachments() },
                     practiceMode: state.productPracticeMode,
                     onStartFreeTalk: { await state.startFreeTalk() },
+                    isStartingFreeTalk: state.isStartingFreeTalk,
                     briefing: state.briefing,
                     practiceNotice: state.practiceNotice,
                     onDismissPracticeNotice: { state.dismissPracticeNotice() },

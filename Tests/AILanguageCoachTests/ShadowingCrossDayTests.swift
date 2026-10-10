@@ -280,7 +280,7 @@ final class ShadowingRehydrateTests: XCTestCase {
 
         // ② 第二句今天读过 → 补回来，而且匹配率是拿**今天的**参考句与**那一次的**识别文本
         //    重算出来的（不是库里那个 0.94 字段，也不是别的句子那一份）。
-        state.nextShadowingDrill()
+        await state.nextShadowingDrill()
         let today = try XCTUnwrap(state.currentShadowingResult, "今天的记录应当补回内存")
         let expected = ShadowingScorer.compare(
             reference: todaysSentences[1], recognized: Self.todaysTranscript
@@ -296,7 +296,7 @@ final class ShadowingRehydrateTests: XCTestCase {
         )
 
         // ③ 第三句是**今天**写的，但参考文本与今天这一句对不上（同一天换过一批）→ 同样不认。
-        state.nextShadowingDrill()
+        await state.nextShadowingDrill()
         XCTAssertNil(
             state.currentShadowingResult,
             "同一天换过一批句子之后，id 不变但内容变了 —— 也算「这一句还没读过」"
@@ -304,7 +304,7 @@ final class ShadowingRehydrateTests: XCTestCase {
 
         // ④ 第四句：昨天读的、**内容与今天这一句一字不差**。
         //    参考文本判据拦不住它，能拦住它的只有「同一天」那一道（两条判据各自独立）。
-        state.nextShadowingDrill()
+        await state.nextShadowingDrill()
         XCTAssertNil(
             state.currentShadowingResult,
             "同一句话但那是**昨天**读的：识别文本与发音分都属于昨天那次练习，不许当今天的"
@@ -319,9 +319,9 @@ final class ShadowingRehydrateTests: XCTestCase {
         let state = fixture.state
 
         await state.loadTodayShadowingDrills()
-        state.nextShadowingDrill()
+        await state.nextShadowingDrill()
         XCTAssertNotNil(state.currentShadowingResult, "先落到今天读过的那一句上做基准")
-        state.nextShadowingDrill()
+        await state.nextShadowingDrill()
 
         XCTAssertNil(
             state.currentShadowingResult,

@@ -67,7 +67,7 @@ extension MainView {
             // 省掉一次手工点选（本机 UI 自动化对 SwiftUI 不可靠）。
             if CommandLine.arguments.contains("--open-shadowing-passage") {
                 await state.openShadowing()
-                state.setShadowingMode(.passage)
+                await state.setShadowingMode(.passage)
             }
             // 截图/验证辅助：--open-vocabulary 启动时直接进入词汇本页
             // （--daily-flip / --vocabulary-tail 自带进页，见 VocabularyView 的验证钩子）

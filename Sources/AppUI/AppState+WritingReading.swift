@@ -38,6 +38,8 @@ extension AppState {
             return
         }
         writingReview = review
+        // S4-10：把**交出去的那一版**留一份 —— 改写对比卡比的必须是它，不是活草稿。
+        writingSubmittedEssay = essay
         // 交卷即落一行写作记录（学习记录页 / 每周小结的「写作练习」口径）。
         await services.recordWritingSubmission(topic: topic, essay: essay, review: review)
         // 落库之后才通知森林：没记下来的事不该让小动物白高兴一场。
@@ -47,6 +49,8 @@ extension AppState {
     /// 收掉当前批改卡（改稿重写时用）。
     public func dismissWritingReview() {
         writingReview = nil
+        // 收卡即忘掉那一版正文：下次交卷会重新留一份（S4-10）。
+        writingSubmittedEssay = ""
         writingNotice = ""
     }
 

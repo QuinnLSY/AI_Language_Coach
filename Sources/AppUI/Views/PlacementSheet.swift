@@ -320,6 +320,10 @@ struct PlacementSheet: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.appPressable)
+                // S4-5：同卡「开始摸底」有这层拦截，这里漏了 → 出卷期双击会落两张卷
+                // （同卷覆盖，或两张不同种子的卷入交错落）。
+                .disabled(state.isPlacementLoading)
+                .opacity(state.isPlacementLoading ? 0.6 : 1)
                 .help("换一批题再摸一次底")
 
                 Button {

@@ -101,6 +101,9 @@ extension AppState {
     ///
     /// 种子每次 +1：同一档的题库会逐次轮换，不会连着两次看到同一张卷子。
     public func startPlacement() async {
+        // S4-5：按钮置灰可能比状态机慢一帧，这里再挡一道 ——
+        // 重入会让「下一次种子 +1」算两回，两张卷子的题交错落到同一份作答上。
+        guard !isPlacementLoading else { return }
         isPlacementLoading = true
         let paper = await services.placement.paper(
             seed: EntrancePlacementRule.nextSeed(after: placementResult?.seed)

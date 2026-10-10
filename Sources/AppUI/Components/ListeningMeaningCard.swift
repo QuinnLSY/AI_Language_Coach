@@ -115,6 +115,8 @@ public struct ListeningMeaningCard: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.appPressable)
+                    // S4-3：播放中不推进 —— 否则这句的遍数与失败提示会记到下一句头上。
+                    .disabled(isPlaying)
                     .accessibilityLabel(isLast ? "看总结" : "下一句")
                 }
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -223,8 +225,9 @@ public struct ListeningMeaningCard: View {
         }
         .buttonStyle(.appPressable)
         // ⚠️ 判完之后整排锁死：还能点的话就变成「一路点到对为止」，正确率没有意义了。
-        .disabled(answered)
-        .opacity(answered && !isCorrect && !isPicked ? 0.55 : 1)
+        // S4-3：播放中也锁死 —— 点下去即判，边听边答会把「听了几遍」记成一个中断的中间值。
+        .disabled(answered || isPlaying)
+        .opacity((answered && !isCorrect && !isPicked) || isPlaying ? 0.55 : 1)
         .accessibilityLabel(text)
     }
 

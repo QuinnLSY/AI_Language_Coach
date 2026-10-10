@@ -287,7 +287,7 @@ final class ShadowingTests: XCTestCase {
         XCTAssertEqual(state.shadowingStats.attempts, 0, "预览走纯函数，不写库")
 
         let first = state.currentShadowingDrill?.id
-        state.nextShadowingDrill()
+        await state.nextShadowingDrill()
         XCTAssertNotEqual(state.currentShadowingDrill?.id, first, "换一句应真的换")
         XCTAssertNil(state.shadowingComparison, "换句后清掉上一句的结果")
     }

@@ -299,6 +299,13 @@ extension AppState {
     /// 与情景对话的区别：随口练**学员主导**，老师少引导、多建议与纠错；
     /// 所以这里不建主线任务、不讲前情提要，只把话头递出去。
     public func startFreeTalk() async {
+        // ⚠️ 双击防线（S4-4）：这一段有两处 await（自动复盘 + 换会话），
+        // 期间 UI 还没置灰 → 第二次点击会重跑一遍：复盘两次、会话 id 连跳两级、
+        // 开场白出两条（或被前一条的开场白覆盖成「静默吞掉」）。
+        guard !isStartingFreeTalk else { return }
+        isStartingFreeTalk = true
+        defer { isStartingFreeTalk = false }
+
         applySection(.practice)
         clearExamState()
         chat.endExam()

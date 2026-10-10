@@ -61,34 +61,34 @@ final class ShadowingSentenceStateTests: XCTestCase {
 
     // MARK: - 上一句
 
-    func testPreviousDrillStopsAtTheFirstSentence() {
+    func testPreviousDrillStopsAtTheFirstSentence() async {
         let restore = isolateShadowingProgress()
         defer { restore() }
         let state = makeState()
         state.shadowingDrills = drills()
         state.shadowingIndex = 1
 
-        state.previousShadowingDrill()
+        await state.previousShadowingDrill()
         XCTAssertEqual(state.shadowingIndex, 0)
 
-        state.previousShadowingDrill()
+        await state.previousShadowingDrill()
         XCTAssertEqual(state.shadowingIndex, 0, "第一句就是尽头，不能绕到最后一句去")
     }
 
-    func testNextDrillWrapsAroundAsBefore() {
+    func testNextDrillWrapsAroundAsBefore() async {
         let restore = isolateShadowingProgress()
         defer { restore() }
         let state = makeState()
         state.shadowingDrills = drills(3)
         state.shadowingIndex = 2
 
-        state.nextShadowingDrill()
+        await state.nextShadowingDrill()
         XCTAssertEqual(state.shadowingIndex, 0, "「换一句」到底回到第一句（原有口径不变）")
     }
 
     // MARK: - 每句分析常驻
 
-    func testEachSentenceKeepsItsOwnLatestAnalysis() {
+    func testEachSentenceKeepsItsOwnLatestAnalysis() async {
         let restore = isolateShadowingProgress()
         defer { restore() }
         let state = makeState()
@@ -108,18 +108,18 @@ final class ShadowingSentenceStateTests: XCTestCase {
         )
 
         // 换到第 1 句：自动带上它自己的结果（不需要再读一遍）。
-        state.nextShadowingDrill()
+        await state.nextShadowingDrill()
         XCTAssertEqual(state.shadowingComparison?.recognizedText, list[1].text)
         XCTAssertEqual(state.shadowingComparison?.accuracy ?? 0, 1.0, accuracy: 0.0001)
 
         // 再回到第 0 句：还是第 0 句那次的结果，而不是空白。
-        state.previousShadowingDrill()
+        await state.previousShadowingDrill()
         XCTAssertEqual(state.shadowingComparison?.recognizedText, "This is sentence zero")
         XCTAssertNotEqual(state.shadowingComparison?.accuracy ?? 0, second.comparison.accuracy)
     }
 
     /// 没读过的句子换过去就是空白 —— 不能把上一句的结果「粘」过来。
-    func testUnreadSentenceShowsNothing() {
+    func testUnreadSentenceShowsNothing() async {
         let restore = isolateShadowingProgress()
         defer { restore() }
         let state = makeState()
@@ -130,20 +130,20 @@ final class ShadowingSentenceStateTests: XCTestCase {
         state.restoreShadowingResultForCurrentDrill()
         XCTAssertNotNil(state.shadowingComparison)
 
-        state.nextShadowingDrill()
+        await state.nextShadowingDrill()
         XCTAssertNil(state.shadowingComparison, "第 1 句还没读过 → 不该显示第 0 句的结果")
         XCTAssertNil(state.shadowingPronunciation)
     }
 
     // MARK: - 记住「练到哪一句」
 
-    func testSavedIndexIsRestoredOnTheSameDay() {
+    func testSavedIndexIsRestoredOnTheSameDay() async {
         let restore = isolateShadowingProgress()
         defer { restore() }
         let state = makeState()
         state.shadowingDrills = drills(5)
         state.shadowingIndex = 3
-        state.nextShadowingDrill()
+        await state.nextShadowingDrill()
         XCTAssertEqual(state.shadowingIndex, 4)
 
         // 换了一批素材（= 切页回来 / 重启后重新加载今天的句子）。
@@ -151,13 +151,13 @@ final class ShadowingSentenceStateTests: XCTestCase {
         XCTAssertEqual(state.shadowingIndex, 4, "切页回来要落回离开前那一句")
     }
 
-    func testResetWithoutRestoringStartsFromTheFirstSentence() {
+    func testResetWithoutRestoringStartsFromTheFirstSentence() async {
         let restore = isolateShadowingProgress()
         defer { restore() }
         let state = makeState()
         state.shadowingDrills = drills(5)
         state.shadowingIndex = 3
-        state.nextShadowingDrill()
+        await state.nextShadowingDrill()
 
         // 音素专项 / 材料跟读走的是**另一批素材**，记住的位置对它们没有意义。
         state.resetShadowingProgress()

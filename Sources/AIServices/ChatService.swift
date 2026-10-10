@@ -1264,6 +1264,10 @@ public final class ChatService {
         do {
             let result = try await services.translate(source, targetLanguage: profile.nativeLanguage)
             guard !Task.isCancelled else { return }
+            // ⚠️ S4-7：回来的译文必须配**现在**的正文。翻译途中用户可能编辑重发同一条
+            // （id 不变、正文换了）→ 不复查就会把新正文底下挂上旧正文的译文。
+            // 判据与 `performGlobalSearch` 的世代校验同一路：以「正文还是不是发起时那一份」为准。
+            guard messages.first(where: { $0.id == messageID })?.content == source else { return }
             guard !result.isEmpty else {
                 translationError = "没有拿到翻译结果，请再点一次翻译。"
                 return
