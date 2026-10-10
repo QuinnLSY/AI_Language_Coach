@@ -57,7 +57,35 @@ final class ModelControlTests: XCTestCase {
 
     // MARK: - 本地服务启停命令（真实执行，用无害命令验证）
 
+    /// ⚠️ 这些用例**真的**执行 shell，所以必须先拿到用户授权（#S2-6 的闸门）。
+    /// 这正是闸门该有的样子：没有授权，命令一条都跑不出去。
+    override func setUp() {
+        super.setUp()
+        ShellCommandApproval.revokeAll()
+    }
+
+    override func tearDown() {
+        ShellCommandApproval.revokeAll()
+        super.tearDown()
+    }
+
+    func testCommandsAreRefusedWithoutApproval() async {
+        // 反向用例：未授权时必须拒绝，且错误要带出命令原文（UI 要靠它提示用户）。
+        do {
+            _ = try await LocalServiceRunner.run("echo should-not-run")
+            XCTFail("未授权的命令不该被执行")
+        } catch let failure as LocalServiceRunner.Failure {
+            guard case .notApproved(let command) = failure else {
+                return XCTFail("应是未授权错误，实际：\(failure)")
+            }
+            XCTAssertEqual(command, "echo should-not-run")
+        } catch {
+            XCTFail("错误类型不对：\(error)")
+        }
+    }
+
     func testRunCommandReturnsExitCodeAndOutput() async throws {
+        ShellCommandApproval.approve("echo hello-service")
         let result = try await LocalServiceRunner.run("echo hello-service")
         XCTAssertEqual(result.code, 0)
         XCTAssertEqual(result.output, "hello-service")
@@ -69,6 +97,7 @@ final class ModelControlTests: XCTestCase {
             id: "local.x", kind: .tts, runtime: .externalLocalRuntime,
             serviceStopCommand: "exit 1"
         )
+        ShellCommandApproval.approve("exit 1")
         do {
             try await LocalServiceControl.stop(config: config)
         } catch {
@@ -81,6 +110,7 @@ final class ModelControlTests: XCTestCase {
             id: "local.x", kind: .tts, runtime: .externalLocalRuntime,
             serviceStopCommand: "exit 7"
         )
+        ShellCommandApproval.approve("exit 7")
         do {
             _ = try await LocalServiceControl.stop(config: config)
             XCTFail("退出码 7 应当报错")
@@ -95,6 +125,7 @@ final class ModelControlTests: XCTestCase {
             id: "local.x", kind: .tts, runtime: .externalLocalRuntime,
             serviceStartCommand: "true"
         )
+        ShellCommandApproval.approve("true")
         try await LocalServiceControl.start(config: config, reachTimeout: 1)
     }
 

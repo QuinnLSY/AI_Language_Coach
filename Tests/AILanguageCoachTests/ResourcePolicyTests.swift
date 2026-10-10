@@ -147,6 +147,15 @@ final class ResourceLifecycleTests: XCTestCase {
     }
 
     /// 在 store 里补一个启用的 ASR Provider（mock，可真实启停），让 `bootstrapVoice()` 能装配它。
+    /// 放行默认配置里所有 provider 的启停命令（#S2-6 的授权闸门在单测里要显式放行）。
+    private func approveDefaultServiceCommands() {
+        guard let defaults = try? DefaultConfiguration.load() else { return }
+        for provider in defaults.providers {
+            if let command = provider.serviceStartCommand { ShellCommandApproval.approve(command) }
+            if let command = provider.serviceStopCommand { ShellCommandApproval.approve(command) }
+        }
+    }
+
     private func registerMockASR(_ services: CoachServices) async throws {
         let store = await services.configStore
         try await store.updateProvider(
@@ -289,6 +298,11 @@ final class ResourceLifecycleTests: XCTestCase {
     func testSuspendedASRAutoResumesViaResumeIfSuspended() async throws {
         let (services, fileURL) = try await makeServices()
         defer { try? FileManager.default.removeItem(at: fileURL) }
+        // ⚠️ #S2-6：挂起本机 ASR 会执行它的 serviceStopCommand，而启停命令现在需要用户授权
+        // （真实用户是在设置里点「启动/关闭」时确认的）。这里统一放行默认配置里的命令。
+        // 不放行的话：挂起静默失败 → 用例卡在前置「ASR 已被巡检挂起」。
+        approveDefaultServiceCommands()
+        defer { ShellCommandApproval.revokeAll() }
         try await registerMockASR(services)
         let store = await services.configStore
         try await store.mutateResourcePolicy { policy in

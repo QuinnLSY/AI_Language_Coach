@@ -638,6 +638,12 @@ public final class AppState {
     public internal(set) var modelSwitching: Set<AIProviderKind> = []
     /// 启停结果弹框（应用顶部向下弹入，数秒后向上收起）。nil = 不显示。
     public internal(set) var modelToast: ModelToast?
+    /// 待用户确认的本机服务启停命令（#S2-6）。非 nil 时设置页弹确认框。
+    ///
+    /// 为什么要有它：配置文件里的 `serviceStartCommand` 会被 `/bin/sh -lc` 执行，
+    /// 而配置文件**能被备份包覆盖**。用户点「启动」时若不先看见命令原文就执行，
+    /// 等于把「导入备份 → 重启 → 点一下启动 → 任意命令执行」这条链走完了。
+    public internal(set) var pendingShellApproval: ShellApprovalRequest?
     /// 输入框的预设学员提问（数据来自资源文件；为空则退回普通占位文案）。
     public internal(set) var starterQuestions: [String] = []
     /// 翻译失败提示（对话区展示，可关闭）。

@@ -17,10 +17,14 @@ public enum LocalServiceRunner {
         case launchFailed(String)
         case commandExited(code: Int32, output: String)
         case notReachable(endpoint: String)
+        /// 命令没被用户确认过（#S2-6）。**带出命令原文**，让 UI 能把它显示给用户看。
+        case notApproved(command: String)
 
         public var errorDescription: String? {
             switch self {
             case .emptyCommand: "没有配置该模型服务的启停命令"
+            case .notApproved(let command):
+                "这条启停命令还没得到你的确认：\(command.prefix(120))"
             case .launchFailed(let reason): "无法执行启停命令：\(reason)"
             case .commandExited(let code, let output):
                 output.isEmpty ? "启停命令失败（退出码 \(code)）" : "启停命令失败（退出码 \(code)）：\(output)"
@@ -33,6 +37,9 @@ public enum LocalServiceRunner {
     public static func launch(_ command: String) throws {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw Failure.emptyCommand }
+        // ⚠️ 授权闸门（#S2-6）：配置里的命令会被 `/bin/sh -lc` 执行，而配置文件
+        // **能被备份包覆盖** —— 不经用户确认就等于给了「导入备份 → 重启 → 任意命令执行」。
+        guard ShellCommandApproval.isApproved(trimmed) else { throw Failure.notApproved(command: trimmed) }
         do {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -53,6 +60,8 @@ public enum LocalServiceRunner {
     public static func run(_ command: String, timeout: TimeInterval = 20) async throws -> (code: Int32, output: String) {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw Failure.emptyCommand }
+        // 同 launch：执行前必须有用户授权（#S2-6）。
+        guard ShellCommandApproval.isApproved(trimmed) else { throw Failure.notApproved(command: trimmed) }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")

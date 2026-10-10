@@ -1200,6 +1200,13 @@ public actor CoachServices {
             let hasCommands = !(provider.serviceStartCommand ?? "").isEmpty
                 && !(provider.serviceStopCommand ?? "").isEmpty
             guard hasCommands else { continue }
+            // ⚠️ 用户点的是「主服务」的启停，兄弟服务的命令同样要过授权闸门（#S2-6）；
+            // 没授权就跳过，不在这里报错 —— 那会让一次正常点击变成满屏红字。
+            let command = running ? (provider.serviceStartCommand ?? "") : (provider.serviceStopCommand ?? "")
+            guard ShellCommandApproval.isApproved(command) else {
+                AppLog.info("跳过未授权的兄弟服务命令（\(provider.id)）", category: "service")
+                continue
+            }
             // 已由主控制器处理的那个（本地主 Provider）跳过，避免重复拉起
             if provider.id == resolvedID, hasController { continue }
             do {
@@ -1230,6 +1237,15 @@ public actor CoachServices {
             $0.id == Self.edgeTTSProxyProviderID && $0.kind == .tts && $0.enabled
         }) else { return }
         guard let command = provider.serviceStartCommand, !command.isEmpty else { return }
+        // ⚠️ 未获用户授权的命令**不执行**（#S2-6）。开屏路径没有任何交互机会，
+        // 所以这里只能是「跳过 + 留痕」：执行了就等于让一份备份包里的命令自动开跑。
+        guard ShellCommandApproval.isApproved(command) else {
+            AppLog.info(
+                "开屏未拉起教师语音代理：它的启动命令还没得到你的确认（可在设置里点「启动」后确认）",
+                category: "service"
+            )
+            return
+        }
         // 端口已被占用（代理在跑）就直接跳过，避免重复拉起
         if let endpoint = provider.endpoint,
            await LocalServiceRunner.waitUntilReachable(endpoint: endpoint, timeout: 1.5, interval: 0.3) {
@@ -1266,6 +1282,8 @@ public actor CoachServices {
         // 不补的话，本机语音识别永远只能靠用户手动点「启动」。
         let launchable = Self.fillServiceCommands(provider)
         guard let command = launchable.serviceStartCommand, !command.isEmpty else { return false }
+        // ⚠️ 未获授权就不执行（#S2-6），理由同 ensureEdgeTTSProxyOnLaunch。
+        guard ShellCommandApproval.isApproved(command) else { return false }
         guard let endpoint = launchable.endpoint, !endpoint.isEmpty else { return false }
         // 端口已经通了（服务在跑）就跳过。
         if await LocalServiceRunner.waitUntilReachable(endpoint: endpoint, timeout: 1.5, interval: 0.3) {

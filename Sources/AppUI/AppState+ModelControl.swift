@@ -1,3 +1,4 @@
+import AIInfrastructure
 import AIInterfaces
 import AIServices
 import AppCore
@@ -26,6 +27,15 @@ extension AppState {
         do {
             let message = try await services.setModelRunning(kind, running: running)
             showModelToast(message, isSuccess: true)
+        } catch LocalServiceRunner.Failure.notApproved(let command) {
+            // ⚠️ 不是失败，是**第一次跑这条命令前必须让用户看见它**（#S2-6）。
+            // 不弹确认就当失败处理的话，用户永远启动不了本机服务。
+            pendingShellApproval = ShellApprovalRequest(
+                providerLabel: label,
+                command: command,
+                kind: kind,
+                running: running
+            )
         } catch {
             let reason = ModelDiagnostics.describe(label: label, error: error)
             showModelToast("\(running ? "启动" : "关闭")失败 · \(reason)", isSuccess: false)
@@ -34,6 +44,20 @@ extension AppState {
         await refreshStatus()
         if kind == .asr || kind == .tts { await bootstrapVoice() }
         await refreshCapabilityInfos()
+    }
+
+    /// 用户确认了那条命令 → 记下授权并**重试**刚才那次启停。
+    public func approvePendingShellCommand() async {
+        guard let request = pendingShellApproval else { return }
+        pendingShellApproval = nil
+        ShellCommandApproval.approve(request.command)
+        await setModelRunning(request.kind, running: request.running)
+    }
+
+    /// 用户拒绝了 → 只把话说明白，不执行、不记授权。
+    public func declinePendingShellCommand() {
+        pendingShellApproval = nil
+        showModelToast("没有确认这条启停命令，本机服务不会被启动或关闭。", isSuccess: false)
     }
 
     /// 顶部弹框：成功为绿、失败为红，展示后自动向上收起。
@@ -163,4 +187,18 @@ extension AppState {
         await refreshStatus()
     }
 
+}
+
+/// 待确认的启停命令（#S2-6）。
+///
+/// 刻意带 `id`：SwiftUI 的 `.alert(item:)` 需要 `Identifiable`，而同一时刻只会有一个待确认项，
+/// 用命令原文当 id 反而会在重复点击时撞上同一个值、弹框不刷新。
+public struct ShellApprovalRequest: Identifiable {
+    public let id = UUID()
+    /// 命令属于哪个能力（设置页上显示用）。
+    public let providerLabel: String
+    /// 命令原文 —— **必须原样展示**，用户要靠它判断这是不是自己以为的那条命令。
+    public let command: String
+    public let kind: AIProviderKind
+    public let running: Bool
 }
