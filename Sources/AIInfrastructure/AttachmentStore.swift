@@ -98,10 +98,12 @@ public actor AttachmentStore {
     }
 
     /// 删除附件本体。删除失败不抛错（清理是尽力而为，不该阻断用户操作）。
+    ///
+    /// ⚠️ 走废纸篓而不是 `removeItem`（#S2-13）：附件是用户攒下来的东西，
+    /// 点错一次不该永久消失；废纸篓不可用时 `TrashItem` 内部会回落并落日志。
     @discardableResult
     public func remove(_ attachment: ChatAttachment) -> Bool {
-        guard let url = fileURL(for: attachment) else { return false }
-        return (try? fileManager.removeItem(at: url)) != nil
+        TrashItem.delete(fileURL(for: attachment))
     }
 
     /// 全量体检：列出目录里没有任何消息引用的孤儿文件（设置页清理用）。

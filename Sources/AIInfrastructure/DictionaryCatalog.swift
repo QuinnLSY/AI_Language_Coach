@@ -253,7 +253,7 @@ public actor DictionaryBookStore {
         } else {
             library = DictionaryLibrary.droppingImported(id, from: library)
             importedWords.removeValue(forKey: id)
-            try? FileManager.default.removeItem(at: booksDirectory.appendingPathComponent("\(id).json"))
+            TrashItem.delete(booksDirectory.appendingPathComponent("\(id).json"))
         }
         try persist()
         return book

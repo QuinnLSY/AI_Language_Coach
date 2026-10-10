@@ -55,7 +55,7 @@ public actor MaterialStore {
     public func delete(id: String) {
         // id 是「material-<hex>」，只可能是文件名本身；但仍拼一次 path 前缀，防手滑传绝对路径。
         let name = id.components(separatedBy: "/").last ?? id
-        let url = directory.appendingPathComponent("\(name).json")
-        try? FileManager.default.removeItem(at: url)
+        // 走废纸篓（#S2-13）：材料包是用户自己传的东西，删错不该找不回。
+        TrashItem.delete(directory.appendingPathComponent("\(name).json"))
     }
 }

@@ -1,3 +1,4 @@
+import AIDomain
 import AIInterfaces
 import AppCore
 import Foundation
@@ -80,10 +81,22 @@ public struct HTTPClient: Sendable {
         self.retryPolicy = retryPolicy
     }
 
-    private func makeSession(timeout: TimeInterval) -> URLSession {
+    /// 建一次性的会话。
+    ///
+    /// ⚠️ `target` 用来判「这个请求是不是发往回环端点」，因为**披露口径与传输层必须
+    /// 判同一件事**（#S2-8）：`PrivacyPolicy` 把回环端点判为「数据不出这台机器」，
+    /// 披露里因此不算外发、也不触发发布闸门；而五个 RemoteAdapter 默认
+    /// `useSystemProxy: true`（云端 API 常需要系统代理才能出网）—— 于是默认 TTS
+    /// （`127.0.0.1:8856`）这个**本机服务**的请求被系统代理接手转发出去，
+    /// 界面说着「仅在本机处理」，数据其实出了机器。
+    ///
+    /// 修法不是改披露（回环确实不出机器），而是让**回环一律绕代理**：判据复用同一个
+    /// `PrivacyRedactor.isLoopbackEndpoint`，别一处判 runtime 一处判 host。
+    private func makeSession(timeout: TimeInterval, target: URL? = nil) -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
-        // 绕开系统代理，否则 localhost 请求会被代理拦截。
-        if !useSystemProxy {
+        let isLoopback = target.map { PrivacyRedactor.isLoopbackEndpoint($0.absoluteString) } ?? false
+        // 绕开系统代理：本地 runtime 要防 502 劫持；回环端点要防「以为不出机器、却被代理转发出去」。
+        if !useSystemProxy || isLoopback {
             configuration.connectionProxyDictionary = [:]
         }
         configuration.timeoutIntervalForRequest = timeout
@@ -155,7 +168,7 @@ public struct HTTPClient: Sendable {
     }
 
     private func performOnce(_ request: URLRequest, timeout: TimeInterval) async throws -> (Data, HTTPURLResponse) {
-        let session = makeSession(timeout: timeout)
+        let session = makeSession(timeout: timeout, target: request.url)
         defer { session.invalidateAndCancel() }
 
         let data: Data

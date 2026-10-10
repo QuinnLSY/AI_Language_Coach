@@ -62,6 +62,6 @@ public actor CustomScenarioStore {
     public func delete(id: String) {
         // id 是「custom-scenario-<hex>」，只可能是文件名本身；仍拼一次前缀防手滑传绝对路径。
         let name = id.components(separatedBy: "/").last ?? id
-        try? FileManager.default.removeItem(at: directory.appendingPathComponent("\(name).json"))
+        TrashItem.delete(directory.appendingPathComponent("\(name).json"))
     }
 }

@@ -124,9 +124,13 @@ final class PrivacyPolicyTests: XCTestCase {
         XCTAssertTrue(PrivacyPolicy.outboundCategories(for: .asr).contains(.audio))
         XCTAssertEqual(PrivacyPolicy.outboundCategories(for: .tts), [.speechText])
         XCTAssertEqual(PrivacyPolicy.outboundCategories(for: .llm), [.conversation])
-        // 这些能力当前没有 runtime 外发（VAD / 评测走本地）。
+        // VAD 走本地判静音，不外发任何数据。
         XCTAssertTrue(PrivacyPolicy.outboundCategories(for: .vad).isEmpty)
-        XCTAssertTrue(PrivacyPolicy.outboundCategories(for: .pronunciation).isEmpty)
+        // ⚠️ 这里原先断言「发音评估不外发」，那是错的（#S2-9）：它把录音发给评测服务。
+        // 同理嵌入会把学习记忆原文发出去 —— 两者早先都落到 `default: []`，
+        // 于是「学习记忆永不出本机」这句在配了云端嵌入时不成立，而披露里一个字都没有。
+        XCTAssertEqual(PrivacyPolicy.outboundCategories(for: .embedding), [.learningMemory])
+        XCTAssertTrue(PrivacyPolicy.outboundCategories(for: .pronunciation).contains(.audio))
     }
 
     // MARK: - 脱敏

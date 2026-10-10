@@ -52,14 +52,18 @@ public enum PrivacyPolicy {
 
     /// 某项能力实际会外发的数据类别。
     ///
-    /// - Note: 学习记忆与画像**永远不进这条映射**——它们不随推理请求外发，
-    ///   只作为上下文由本地组装（即便走云端，也是在用户自己选择之后）。
+    /// - Note: 画像永远不进这条映射（它只作为上下文在本地组装）。
+    ///   ⚠️ 但**学习记忆要进**（#S2-9）：嵌入服务收的就是错句与学习记忆原文 ——
+    ///   早先这里只有 llm/asr/tts 三项，embedding/pronunciation 落到 `default: []`，
+    ///   于是「学习记忆永不出本机」这句断言在配了云端嵌入时不成立，而披露里一个字都没有。
     public static func outboundCategories(for kind: AIProviderKind) -> [DataCategory] {
         switch kind {
         case .asr: [.audio, .transcript]
         case .tts: [.speechText]
         case .llm: [.conversation]
-        default: []
+        case .embedding: [.learningMemory]
+        case .pronunciation: [.audio, .speechText]
+        case .vad: []
         }
     }
 
@@ -115,7 +119,10 @@ public enum PrivacyPolicy {
     /// - Note: 端点在**本机回环**上的 Provider 不算外发，见下。判定外发的标准是
     ///   「数据会不会离开这台机器」，不是「它自称哪种 runtime」。
     public static func disclosure(for configuration: AppConfiguration) -> Disclosure {
-        let kinds: [AIProviderKind] = [.llm, .asr, .tts]
+        // ⚠️ 别用 `AIProviderKind.allCases`：vad 不外发任何数据（本地判静音），
+        // 列进来会让「N 项能力在使用云端服务」平白多一项。列全 + 过滤，与
+        // `outboundCategories` 的口径一致（#S2-9：原先漏了 embedding / pronunciation）。
+        let kinds: [AIProviderKind] = [.llm, .asr, .tts, .embedding, .pronunciation]
         var flows: [OutboundFlow] = []
         for kind in kinds {
             guard let provider = configuration.resolvedProvider(for: kind),
