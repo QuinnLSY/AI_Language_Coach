@@ -78,7 +78,7 @@ extension AppState {
         isSpeaking = false
         voiceTranscript = nil
         await services.voice.stopSpeaking()
-        await services.voice.setPartialLanguage("English")
+        await services.voice.setPartialLanguage(learningLanguageName)
         // 本段语音的令牌：取消 / 重开都会换掉它，让在途识别自己作废。
         voiceInputToken = UUID()
         await services.voice.startRecording()
@@ -106,7 +106,7 @@ extension AppState {
         // 「作废这次识别」而不是「再录一段」的唯一依据。
         voicePhase = .transcribing
         voiceTranscript = nil
-        let recognized = await services.voice.stopRecordingAndTranscribe(language: "English")
+        let recognized = await services.voice.stopRecordingAndTranscribe(language: learningLanguageName)
         voiceError = await services.voice.lastError
         // 这期间用户点了取消（或重开了一段）→ 这次结果已经没有归属，丢弃：
         // 不写输入框、不改状态。用户按下取消时看到的内容必须原样留着。
@@ -163,7 +163,7 @@ extension AppState {
         // 音色取值统一走 `effectiveSpeechVoiceSelection()`：启用克隆音色时它带档案 id **和参考音频**，
         // 否则是内置音色名。UI 不自己判断该用哪个 —— 那会让两处口径漂移。
         await services.voice.speak(text, voice: await services.effectiveSpeechVoiceSelection(),
-                                   language: "English", rate: Float(product.speechRate))
+                                   language: learningLanguageName, rate: Float(product.speechRate))
         // 令牌已换 → 这次朗读已被后一次作废，**一个字都不许回写**。
         guard speakRequestToken == token else { return }
         isSpeaking = await services.voice.isSpeaking
@@ -198,7 +198,7 @@ extension AppState {
         product.teacherVoice = voice
         await persistProduct()
         if product.voicePreview {
-            await services.voice.speak("Nice to meet you!", voice: voice, language: "English",
+            await services.voice.speak("Nice to meet you!", voice: voice, language: learningLanguageName,
                                        rate: Float(product.speechRate))
             voiceError = await services.voice.lastError
         }

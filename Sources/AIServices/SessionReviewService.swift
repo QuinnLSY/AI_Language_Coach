@@ -121,12 +121,15 @@ public actor SessionReviewService {
         public var model: String?
         public var temperature: Double?
         public var maxTokens: Int?
+        /// 喂给提示词的「学习语言」。**要语言全名（`English`），不是配置里的 BCP-47（`en-US`）** ——
+        /// 默认值由 `LearningLanguage` 派生，免得漏传时提示词里又出现 `en-US`。
         public var learningLanguage: String
         public var nativeLanguage: String
         public var proficiency: String
 
         public init(model: String? = nil, temperature: Double? = nil, maxTokens: Int? = nil,
-                    learningLanguage: String = "en-US", nativeLanguage: String = "zh-CN",
+                    learningLanguage: String = LearningLanguage.english.serviceName,
+                    nativeLanguage: String = "zh-CN",
                     proficiency: String = "beginner") {
             self.model = model
             self.temperature = temperature

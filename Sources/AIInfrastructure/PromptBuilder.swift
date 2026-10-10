@@ -487,7 +487,10 @@ public enum PromptBuilder {
 
     /// 语音输入专用的拼写纠正提示词（**只用于语音，不用于手打**）。
     /// 模板走 `Resources/Prompts/spelling_fix.txt`，缺失时用等价内联兜底。
-    public static func spellingFixPrompt(sentence: String) -> String {
+    ///
+    /// `learningLanguage` 要**语言全名**（`English`），不是 BCP-47（`en-US`）：
+    /// 它在模板里拼进「听错的 English 单词」那句自然语言描述。
+    public static func spellingFixPrompt(sentence: String, learningLanguage: String) -> String {
         let template: String
         if let url = AppResourceBundle.url(forResource: "Prompts/spelling_fix", withExtension: "txt"),
            let loaded = try? String(contentsOf: url, encoding: .utf8) {
@@ -502,7 +505,9 @@ public enum PromptBuilder {
             {sentence}
             """
         }
-        return template.replacingOccurrences(of: "{sentence}", with: sentence)
+        return template
+            .replacingOccurrences(of: "{learning_language}", with: learningLanguage)
+            .replacingOccurrences(of: "{sentence}", with: sentence)
     }
 
     /// 老师回复跑出母语时的**重说指令**（用户口径：老师必须只能用学习语言回话）。

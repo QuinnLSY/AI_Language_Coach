@@ -568,7 +568,8 @@ public actor CoachServices {
         let options = SpellingCorrectionService.Options(
             model: configuration.resolvedModel(for: .llm),
             temperature: 0,
-            maxTokens: min(provider?.maxTokens ?? 256, 256)
+            maxTokens: min(provider?.maxTokens ?? 256, 256),
+            learningLanguage: promptLanguage(configuration)
         )
         return await spellingCorrector.correct(text, options: options)
     }
@@ -1702,6 +1703,16 @@ public actor CoachServices {
         await config.current.resolvedModel(for: .llm)
     }
 
+    /// 提示词里该写的「学习语言」。
+    ///
+    /// 配置里存的是 BCP-47 标识（`en-US`），而提示词里写的是**语言全名**（`English`）——
+    /// 直接灌配置值进去，模型收到的就是 `practise en-US`（能猜到，但不该让它猜）。
+    /// 每个喂提示词的调用点都从这里取值：这样「配置的写法」和「提示词的写法」的换算
+    /// 只有这一处知道答案，将来加语言不会漏掉某个调用点。
+    private func promptLanguage(_ configuration: AppConfiguration) -> String {
+        LearningLanguage(bcp47: configuration.product.learningLanguage).serviceName
+    }
+
     /// 上次会话（含消息），供启动时恢复聊天框。没有历史时返回 nil。
     public func latestChatSession() async -> (session: ChatSession, messages: [ChatMessage])? {
         guard let learning else { return nil }
@@ -1969,7 +1980,7 @@ public actor CoachServices {
             temperature: provider?.temperature,
             // 复盘是短 JSON：推理模型会吞掉预算，给足上限（配置优先）。
             maxTokens: provider?.maxTokens,
-            learningLanguage: configuration.product.learningLanguage,
+            learningLanguage: promptLanguage(configuration),
             nativeLanguage: configuration.product.nativeLanguage,
             proficiency: proficiency
         )
@@ -2089,7 +2100,7 @@ public actor CoachServices {
         let configuration = await config.current
         return try await vocabulary.define(
             entry,
-            learningLanguage: configuration.product.learningLanguage,
+            learningLanguage: promptLanguage(configuration),
             nativeLanguage: configuration.product.nativeLanguage,
             options: options
         )
@@ -2120,7 +2131,7 @@ public actor CoachServices {
         return await writing.review(
             topic: topic,
             essay: essay,
-            learningLanguage: configuration.product.learningLanguage,
+            learningLanguage: promptLanguage(configuration),
             nativeLanguage: configuration.product.nativeLanguage,
             model: await currentLLMModel()
         )
@@ -2135,7 +2146,7 @@ public actor CoachServices {
         return await reading.generate(
             theme: ReadingThemeLibrary.theme(for: Date()),
             level: level,
-            learningLanguage: configuration.product.learningLanguage,
+            learningLanguage: promptLanguage(configuration),
             nativeLanguage: configuration.product.nativeLanguage,
             model: await currentLLMModel()
         )
@@ -2205,7 +2216,7 @@ public actor CoachServices {
         let configuration = await config.current
         return await vocabulary.completeTerms(
             of: entry,
-            learningLanguage: configuration.product.learningLanguage,
+            learningLanguage: promptLanguage(configuration),
             nativeLanguage: configuration.product.nativeLanguage,
             options: options
         )
@@ -2257,7 +2268,7 @@ public actor CoachServices {
         let configuration = await config.current
         return try await vocabulary.defineDaily(
             word,
-            learningLanguage: configuration.product.learningLanguage,
+            learningLanguage: promptLanguage(configuration),
             nativeLanguage: configuration.product.nativeLanguage,
             options: options
         )
@@ -2314,7 +2325,7 @@ public actor CoachServices {
         let configuration = await config.current
         return try await dictionary.lookUp(
             word,
-            learningLanguage: configuration.product.learningLanguage,
+            learningLanguage: promptLanguage(configuration),
             nativeLanguage: configuration.product.nativeLanguage,
             options: options,
             baseFormHints: baseFormHints,
@@ -2415,6 +2426,8 @@ public actor CoachServices {
     public func shadowingDailyDrills(day: String? = nil) async throws -> [ShadowingDrill] {
         let key = day ?? ShadowingDailyRule.dayKey()
         let configuration = await config.current
+        // ⚠️ 缓存键继续用配置里的 BCP-47（`en-US`）：换成 `English` 会让今天已缓存的
+        // 20 句全部失效、当场重生成一批新句子。提示词那一侧才需要语言全名。
         let language = configuration.product.learningLanguage
         let native = configuration.product.nativeLanguage
 
@@ -2441,7 +2454,7 @@ public actor CoachServices {
             )
         }
         let prompt = PromptBuilder.shadowingDailyPrompt(
-            learningLanguage: language,
+            learningLanguage: promptLanguage(configuration),
             nativeLanguage: native,
             scenarioList: list,
             perScenario: perScenario,
@@ -2507,7 +2520,7 @@ public actor CoachServices {
         let material = MaterialKitRule.sanitized(raw)
         let prompt = PromptBuilder.materialKitPrompt(
             material: material,
-            learningLanguage: configuration.product.learningLanguage,
+            learningLanguage: promptLanguage(configuration),
             nativeLanguage: configuration.product.nativeLanguage
         )
         let provider = await config.current.resolvedProvider(for: .llm)
@@ -2601,7 +2614,7 @@ public actor CoachServices {
         let request = LLMRequest(
             messages: [LLMMessage(role: .system, content: PromptBuilder.scenarioDraftPrompt(
                 prompt: prompt,
-                learningLanguage: configuration.product.learningLanguage,
+                learningLanguage: promptLanguage(configuration),
                 nativeLanguage: configuration.product.nativeLanguage
             ))],
             model: await currentLLMModel(),

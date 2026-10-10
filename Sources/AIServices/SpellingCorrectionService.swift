@@ -103,11 +103,15 @@ public actor SpellingCorrectionService {
         public var model: String?
         public var temperature: Double?
         public var maxTokens: Int?
+        /// 提示词里的「学习语言」，要**语言全名**（`English`）而不是 BCP-47（`en-US`）。
+        public var learningLanguage: String
 
-        public init(model: String? = nil, temperature: Double? = nil, maxTokens: Int? = nil) {
+        public init(model: String? = nil, temperature: Double? = nil, maxTokens: Int? = nil,
+                    learningLanguage: String) {
             self.model = model
             self.temperature = temperature
             self.maxTokens = maxTokens
+            self.learningLanguage = learningLanguage
         }
     }
 
@@ -123,7 +127,10 @@ public actor SpellingCorrectionService {
         guard source.count >= 2, source.count <= 400 else { return text }
         let request = LLMRequest(
             messages: [
-                LLMMessage(role: .system, content: PromptBuilder.spellingFixPrompt(sentence: source))
+                LLMMessage(role: .system, content: PromptBuilder.spellingFixPrompt(
+                    sentence: source,
+                    learningLanguage: options.learningLanguage
+                ))
             ],
             model: options.model,
             temperature: options.temperature ?? 0,

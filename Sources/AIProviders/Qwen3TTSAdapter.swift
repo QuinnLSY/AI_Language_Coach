@@ -121,7 +121,9 @@ public final class Qwen3TTSAdapter: TTSProvider, VoiceCatalogProvider, @unchecke
             SpeechRequest(
                 text: text,
                 voice: request.voice ?? config.model ?? "Serena",
-                language: request.language ?? "English",
+                // 请求没带语言时的兜底：用 `LearningLanguage` 的语言名，别再写一份字面量 ——
+                // 换语言时它会跟着变，而写死的 `"English"` 不会（且不会有编译错误提醒）。
+                language: request.language ?? LearningLanguage.english.serviceName,
                 speed: 1.0,
                 // 克隆音色：参考音频的原样路径一并交给 runtime，由它决定缓不缓存、
                 // 什么时候建音色。应用侧不碰厂商细节（Phase 24 红线）。

@@ -4,8 +4,9 @@ import XCTest
 /// 朗读文本处理的集成用例（纯函数，不依赖外部服务，可稳定在 CI 跑）。
 ///
 /// 关于「预热 TTS」不再做集成测试：实测它的耗时完全由 MPS 显存状态决定，
-/// LLM 刚跑完时单次预热可达 187s，作为测试既慢又不稳定；其行为已在
-/// `VoiceService.warmUp` 的文档注释与 ~/AI_Models/README.md 中记录。
+/// LLM 刚跑完时单次预热可达 187s，作为测试既慢又不稳定；其耗时口径记录在
+/// ~/AI_Models/README.md 里。（应用侧那次「发消息时并行预热」的尝试已被判定有害，
+/// 相关代码已删除 —— 见 `AppState+Voice.speak` 的说明。）
 final class VoicePipelineIntegrationTests: XCTestCase {
 
     /// 分句后的文本片段都应是可朗读的自然语句（无残留 markdown / emoji / 链接）。

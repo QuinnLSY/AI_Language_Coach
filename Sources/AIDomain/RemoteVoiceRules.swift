@@ -81,18 +81,11 @@ public enum RemoteVoiceResolver {
 
     /// 语言名 → 主语言标签：`en-US` → `en`、`English` → `en`、`zh-CN-XiaoxiaoNeural` → `zh`。
     /// 认不出来返回 nil（**不做过滤**，免得把用户的选择挡掉）。
+    ///
+    /// 换算规则只有一处（`LearningLanguage`），这里只是它在「音色清单」语境下的名字：
+    /// 名字各留各的（调用方读起来才顺），但答案不再有第二份。
     public static func languageTag(_ text: String?) -> String? {
-        guard let raw = text?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
-            return nil
-        }
-        let lowered = raw.lowercased().replacingOccurrences(of: "_", with: "-")
-        if let head = lowered.split(separator: "-").first, lowered.contains("-") {
-            let tag = String(head)
-            if isLanguageCode(tag) { return tag }
-            return languageNames[tag]
-        }
-        if isLanguageCode(lowered) { return lowered }
-        return languageNames[lowered]
+        LearningLanguage.resolving(text)?.primaryTag
     }
 
     /// 实际使用的音色。
@@ -130,17 +123,4 @@ public enum RemoteVoiceResolver {
             return trimmed
         }
     }
-
-    private static func isLanguageCode(_ text: String) -> Bool {
-        text.count == 2 && text.allSatisfy { $0.isLetter && $0.isASCII }
-    }
-
-    /// 语言**全名** → 标签（调用方传进来的常常是 `English` 这样的名字）。
-    private static let languageNames: [String: String] = [
-        "english": "en", "chinese": "zh", "mandarin": "zh", "cantonese": "zh",
-        "japanese": "ja", "korean": "ko", "spanish": "es", "french": "fr",
-        "german": "de", "italian": "it", "portuguese": "pt", "russian": "ru",
-        "arabic": "ar", "hindi": "hi", "thai": "th", "vietnamese": "vi",
-        "dutch": "nl", "polish": "pl", "turkish": "tr", "indonesian": "id"
-    ]
 }

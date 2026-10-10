@@ -89,4 +89,108 @@ final class LanguageOptionsTests: XCTestCase {
             "ko-KR"
         )
     }
+
+    // MARK: - LearningLanguage（三套写法的唯一来源）
+
+    /// 配置里存的是 `en-US`，语音 runtime 要的是 `English` —— 派生必须把它换掉，
+    /// 否则 prompt 里就会渲染出 `practise en-US`（这正是要修的瑕疵）。
+    func testDerivedServiceNameIsNeverTheRawTag() {
+        let language = LearningLanguage(bcp47: "en-US")
+        XCTAssertEqual(language.serviceName, "English")
+        XCTAssertNotEqual(language.serviceName, language.bcp47, "派生退化成了原标签，瑕疵原样复活")
+    }
+
+    /// 地区变体只影响 `bcp47`（识别/评测选哪套模型），主标签与素材 key 都该是 `en`。
+    func testEnglishVariantsSharePrimaryTagButKeepBCP47() {
+        for option in LanguageOptions.learning {
+            XCTAssertEqual(option.language.primaryTag, "en", "\(option.tag) 的主标签不是 en")
+            XCTAssertEqual(option.language.contentKey, "en", "\(option.tag) 的素材 key 不是 en")
+            XCTAssertEqual(option.language.serviceName, "English", "\(option.tag) 的语言名不是 English")
+            XCTAssertEqual(option.language.bcp47, option.tag, "\(option.tag) 的 bcp47 没保真")
+        }
+    }
+
+    /// 母语清单里的 `en-US` 同样要派生出 `English`（两个清单共用同一个类型）。
+    func testNativeEnglishOptionAlsoDerivesEnglish() {
+        let option = LanguageOptions.native.first { $0.tag == "en-US" }
+        XCTAssertEqual(option?.language.serviceName, "English")
+    }
+
+    /// 便捷常量与默认配置必须是同一个语言，否则「默认值」就有了两种说法。
+    func testEnglishConstantMatchesDefaultConfiguration() {
+        XCTAssertEqual(LearningLanguage.english.bcp47, ProductConfig().learningLanguage)
+        XCTAssertEqual(LearningLanguage.english.serviceName, "English")
+        XCTAssertEqual(LearningLanguage.english.primaryTag, "en")
+    }
+
+    /// 空/纯空白配置值退化成 `en-US`（当前唯一语言），而不是崩掉或产出空服务名。
+    func testBlankBCP47FallsBackToEnglish() {
+        XCTAssertEqual(LearningLanguage(bcp47: "   ").bcp47, "en-US")
+        XCTAssertEqual(LearningLanguage(bcp47: "").serviceName, "English")
+    }
+
+    // MARK: - resolving（宽容解析历史遗留的自由文本）
+
+    /// ① 完整 BCP-47：能认出语言，且**故意不保留**地区变体
+    /// （`resolving` 的职责是「认出是哪种语言」，地区只有配置路径 `init(bcp47:)` 才保真）。
+    func testResolvingFullBCP47() throws {
+        let language = try XCTUnwrap(LearningLanguage.resolving("en-US"))
+        XCTAssertEqual(language.primaryTag, "en")
+        XCTAssertEqual(language.bcp47, "en", "resolving 应当归一成主标签")
+        XCTAssertEqual(language.serviceName, "English")
+    }
+
+    /// 对照：`init(bcp47:)` 是配置路径，必须保真地区变体（否则识别/评测会挑错口音的模型）。
+    func testInitPreservesRegionVariant() {
+        XCTAssertEqual(LearningLanguage(bcp47: "en-GB").bcp47, "en-GB")
+        XCTAssertEqual(LearningLanguage(bcp47: "en-GB").primaryTag, "en")
+    }
+
+    /// ② 裸主标签。
+    func testResolvingBarePrimaryTag() throws {
+        XCTAssertEqual(try XCTUnwrap(LearningLanguage.resolving("en")).primaryTag, "en")
+    }
+
+    /// ③ 语言全名（调用方常常传 `English` 这种名字）。
+    func testResolvingLanguageName() throws {
+        let language = try XCTUnwrap(LearningLanguage.resolving("English"))
+        XCTAssertEqual(language.primaryTag, "en")
+        XCTAssertEqual(language.serviceName, "English")
+    }
+
+    /// ④ 音色 id：`zh-CN-XiaoxiaoNeural` 要能认出主标签 `zh`。
+    func testResolvingVoiceIdentifier() throws {
+        let language = try XCTUnwrap(LearningLanguage.resolving("zh-CN-XiaoxiaoNeural"))
+        XCTAssertEqual(language.primaryTag, "zh")
+        XCTAssertEqual(language.serviceName, "Chinese")
+    }
+
+    /// ⑤ 下划线写法归一成短横线。
+    func testResolvingUnderscoreVariant() throws {
+        XCTAssertEqual(try XCTUnwrap(LearningLanguage.resolving("zh_HK")).primaryTag, "zh")
+    }
+
+    /// ⑥ 大小写不敏感、外面带空白也要认。
+    func testResolvingIsCaseInsensitiveAndTrims() throws {
+        XCTAssertEqual(try XCTUnwrap(LearningLanguage.resolving("  EN-us ")).primaryTag, "en")
+    }
+
+    /// 认不出来的语言名返回 nil（不猜，也不过滤掉用户的选择）。
+    func testResolvingUnknownNameReturnsNil() {
+        XCTAssertNil(LearningLanguage.resolving("Klingon"))
+    }
+
+    func testResolvingBlankReturnsNil() {
+        XCTAssertNil(LearningLanguage.resolving(""))
+        XCTAssertNil(LearningLanguage.resolving("   "))
+        XCTAssertNil(LearningLanguage.resolving(nil))
+    }
+
+    /// ⚠️ 关键回归：`xx` 是**未知的两字母语言代码**，必须原样保留，
+    /// 绝不能被当成语言名去查表而悄悄别名成 `en`（那会让一个配错的语言静默变成英语）。
+    func testResolvingUnknownCodeIsNotAliasedToEnglish() throws {
+        let language = try XCTUnwrap(LearningLanguage.resolving("xx"))
+        XCTAssertEqual(language.primaryTag, "xx")
+        XCTAssertNotEqual(language.serviceName, "English")
+    }
 }

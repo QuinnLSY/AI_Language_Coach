@@ -210,6 +210,15 @@ public struct LearnerProfile: Codable, Sendable, Equatable {
     public var proficiency: Proficiency
     public var focusAreas: [String]
 
+    /// 这个学员语言的值类型（由 `learningLanguage` 派生，保真地区变体）。
+    ///
+    /// ⚠️ **不要改 `learningLanguage` 字段本身**去「顺便统一写法」：
+    /// 它同时是每日推荐词的种子与跟读日缓存的键（`DailySeed.seed(dayKey:language:)`）。
+    /// 换掉它的值会让同一天的推荐词换一批、已有跟读缓存全部失效 ——
+    /// 用户看到的是「今天推送的词突然变了」，而没有任何报错。
+    /// 需要「语言全名（`English`）」的地方从这里取 `serviceName`。
+    public var language: LearningLanguage { LearningLanguage(bcp47: learningLanguage) }
+
     public enum Proficiency: String, Codable, Sendable, CaseIterable {
         case beginner, intermediate, advanced
         public var displayName: String {

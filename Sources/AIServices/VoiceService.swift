@@ -225,7 +225,11 @@ public actor VoiceService {
     ///
     /// 再次调用会**打断**上一段（用户重复点击 = 重新读，而不是被静默忽略）。
     /// - Parameter rate: 播放倍速（1 = 原速，由设置里的语速决定）。
-    public func speak(_ text: String, voice: String, language: String = "English", rate: Float = 1.0) async {
+    ///
+    /// ⚠️ `language` **不给默认值**：它以前默认 `"English"`，于是漏传的调用点
+    /// 也能编译通过、跑起来也「像是对的」—— 直到换语言那天才发现读的是英语。
+    /// 现在漏传是编译错误。
+    public func speak(_ text: String, voice: String, language: String, rate: Float = 1.0) async {
         await speak(text, voice: SpeechVoiceSelection.builtin(voice), language: language, rate: rate)
     }
 
@@ -236,7 +240,7 @@ public actor VoiceService {
     public func speak(
         _ text: String,
         voice: SpeechVoiceSelection,
-        language: String = "English",
+        language: String,
         rate: Float = 1.0
     ) async {
         let delivery = await tts.delivery
@@ -374,25 +378,6 @@ public actor VoiceService {
     /// 立刻停止一切播放（示范 / 回放共用）。
     public func stopPlayback() {
         playback.stop()
-    }
-
-    /// 预热本地语音模型（合成一个极短句）。
-    ///
-    /// 背景：实测 MPS 上的 TTS 在空闲一段时间后首次请求要 37~60s（显存被系统换出，
-    /// 需要重新换入），热态只需 ~10s。与 LLM 生成并行预热，可让随后的朗读落在热态。
-    /// 正在朗读时不抢占；失败静默（预热只是优化，不影响正确性）。
-    /// - Returns: 预热是否成功；失败不影响正确性，只为诊断与观测。
-    @discardableResult
-    public func warmUp(voice: String, language: String = "English") async -> Bool {
-        guard !isSpeaking, !isRecording else { return false }
-        do {
-            _ = try await tts.synthesize(TTSRequest(text: "Hi.", voice: voice, language: language))
-            AppLog.info("语音预热完成", category: "voice")
-            return true
-        } catch {
-            AppLog.warning("语音预热失败：\(Self.describe(error))", category: "voice")
-            return false
-        }
     }
 
     /// 拉取 runtime 可用音色（失败返回空数组，UI 用内置预设兜底）。

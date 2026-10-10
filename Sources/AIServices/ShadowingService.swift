@@ -16,7 +16,10 @@ public actor ShadowingService {
 
     /// 录音时传给 ASR 的语言标签。跟读页与词汇复习卡的「读一遍」共用同一个 ——
     /// 两处各写一份，日后改一处必漏另一处（而漏的那处只表现为「识别莫名其妙变差」）。
-    public static let practiceLanguage = "English"
+    ///
+    /// 值由 `LearningLanguage` 派生（当前仍是 `English`）：这里不再自己写一份语言名，
+    /// 只在语言表变的时候跟着变。
+    public static let practiceLanguage = LearningLanguage.english.serviceName
 
     private let voice: VoiceService
     private let pronunciation: PronunciationService

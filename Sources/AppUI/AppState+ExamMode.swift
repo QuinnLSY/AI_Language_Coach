@@ -215,7 +215,8 @@ extension AppState {
     func requestExamSampleAnswers() {
         guard let blueprint = examRunner?.blueprint, !examSampleTargets.isEmpty else { return }
         let targets = examSampleTargets
-        let language = product.learningLanguage
+        // 提示词要语言全名（`English`），配置里存的是 BCP-47（`en-US`）——别把标识灌进 prompt。
+        let language = LearningLanguage(bcp47: product.learningLanguage).serviceName
         let nativeLanguage = product.nativeLanguage
         examSampleTask?.cancel()
         isGeneratingExamSamples = true

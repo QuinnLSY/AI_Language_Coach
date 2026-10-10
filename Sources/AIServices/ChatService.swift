@@ -681,7 +681,7 @@ public final class ChatService {
         plan: TurnPlan?
     ) -> String {
         var systemPrompt = PromptBuilder.teacherSystemPrompt(
-            learningLanguage: profile.learningLanguage,
+            learningLanguage: profile.language.serviceName,
             nativeLanguage: profile.nativeLanguage,
             proficiency: profile.proficiency.displayName,
             practiceMode: configuration.product.practiceMode
@@ -690,7 +690,7 @@ public final class ChatService {
         // （回复多长、纠不纠、什么时候用母语）。标准档返回空串，不注入。
         let personaBlock = PromptBuilder.teacherPersonaBlock(
             currentPersona(configuration),
-            learningLanguage: profile.learningLanguage,
+            learningLanguage: profile.language.serviceName,
             nativeLanguage: profile.nativeLanguage
         )
         if !personaBlock.isEmpty {
@@ -698,7 +698,7 @@ public final class ChatService {
         }
         let memoryBlock = PromptBuilder.learningMemoryBlock(
             memory,
-            learningLanguage: profile.learningLanguage,
+            learningLanguage: profile.language.serviceName,
             nativeLanguage: profile.nativeLanguage
         )
         if !memoryBlock.isEmpty {
@@ -715,7 +715,7 @@ public final class ChatService {
             let block = PromptBuilder.scenarioBlock(
                 scenario: progress.scenario,
                 turnsRemaining: progress.turnsRemaining,
-                learningLanguage: profile.learningLanguage,
+                learningLanguage: profile.language.serviceName,
                 nativeLanguage: profile.nativeLanguage
             )
             systemPrompt += "\n\n" + block
@@ -738,7 +738,7 @@ public final class ChatService {
         if let examContext {
             systemPrompt += "\n\n" + PromptBuilder.examExaminerBlock(
                 examContext,
-                learningLanguage: profile.learningLanguage,
+                learningLanguage: profile.language.serviceName,
                 nativeLanguage: profile.nativeLanguage
             )
         }
@@ -748,7 +748,7 @@ public final class ChatService {
                 plan.plan,
                 decision: plan.decision,
                 direction: plan.direction,
-                learningLanguage: profile.learningLanguage,
+                learningLanguage: profile.language.serviceName,
                 nativeLanguage: profile.nativeLanguage
             )
             if !block.isEmpty { systemPrompt += "\n\n" + block }
@@ -1010,7 +1010,7 @@ public final class ChatService {
             history: await transportMessages()
                 + [LLMMessage(role: .user,
                               content: PromptBuilder.greetingPrompt(
-                                learningLanguage: profile.learningLanguage,
+                                learningLanguage: profile.language.serviceName,
                                 nativeLanguage: profile.nativeLanguage))]
         )
         // 招呼很短，不需要逐 token 上屏；一次性拿回来即可。
@@ -1143,7 +1143,7 @@ public final class ChatService {
         if let exam {
             instruction = PromptBuilder.examOpenerPrompt(
                 exam,
-                learningLanguage: profile.learningLanguage,
+                learningLanguage: profile.language.serviceName,
                 nativeLanguage: profile.nativeLanguage
             )
         } else if let taskBriefing {
@@ -1319,7 +1319,7 @@ public final class ChatService {
                 LLMMessage(
                     role: .user,
                     content: PromptBuilder.englishOnlyRewritePrompt(
-                        learningLanguage: profile.learningLanguage,
+                        learningLanguage: profile.language.serviceName,
                         text: Self.extractCorrections(text).cleanText
                     )
                 )
@@ -1380,7 +1380,7 @@ public final class ChatService {
                 LLMMessage(
                     role: .user,
                     content: PromptBuilder.correctionProbePrompt(
-                        learningLanguage: profile.learningLanguage,
+                        learningLanguage: profile.language.serviceName,
                         nativeLanguage: profile.nativeLanguage,
                         learnerMessage: learnerMessage,
                         teacherReply: teacherReply

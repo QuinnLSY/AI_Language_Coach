@@ -316,7 +316,7 @@ extension AppState {
                 return
             }
             await services.shadowing.playReference(
-                drill, selection: selection, language: "English", rate: rate
+                drill, selection: selection, language: ShadowingService.practiceLanguage, rate: rate
             )
         case .passage:
             guard let passage = currentShadowingPassage else {
@@ -325,7 +325,7 @@ extension AppState {
                 return
             }
             await services.shadowing.playPassage(
-                passage, selection: selection, language: "English", rate: rate
+                passage, selection: selection, language: ShadowingService.practiceLanguage, rate: rate
             )
         }
         shadowingNotice = await services.shadowing.lastError()

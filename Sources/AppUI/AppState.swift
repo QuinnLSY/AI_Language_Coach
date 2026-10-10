@@ -1305,6 +1305,14 @@ public final class AppState {
     // 供设置页读取的产品字段
     public var productPracticeMode: PracticeMode { product.practiceMode }
     public var learningLanguage: String { product.learningLanguage }
+    /// 学习语言的**语言全名**（`English`），语音链路（识别 / 朗读 / 试听）专用。
+    ///
+    /// 配置里存的是 BCP-47（`en-US`），但 ASR / TTS 收的是语言名 ——
+    /// 以前这条链路上每个调用点各写一份 `"English"` 字面量，加语言时漏一处
+    /// 就表现为「识别莫名其妙变差」且不报错。现在只有这一处换算。
+    public var learningLanguageName: String {
+        LearningLanguage(bcp47: product.learningLanguage).serviceName
+    }
     public var nativeLanguage: String { product.nativeLanguage }
     public var teacherVoice: String { product.teacherVoice }
     public var teacherBubblesEnabled: Bool { product.teacherBubbles }

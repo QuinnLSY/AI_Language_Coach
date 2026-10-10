@@ -86,11 +86,12 @@ public enum RemoteEndpoint {
     /// 语音接口的语言参数：应用内部用 BCP-47（`en-US` / `zh-CN`），
     /// 而 OpenAI 兼容的云端接口只认主语言标签（`en` / `zh`）。
     /// 不归一化就会稳定 400，且错误信息很难看出是语言字段的问题。
+    ///
+    /// 换算规则只有一处（`LearningLanguage`），这里只是它在「云端请求」语境下的名字。
+    /// 认不出来的值返回 nil —— 调用方据此**整个字段不发**，让服务端用它自己的默认；
+    /// 把一个表里没有的标签发过去只会换来 400。
     public static func primaryLanguageTag(_ language: String?) -> String? {
-        guard let language else { return nil }
-        let trimmed = language.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed.split(separator: "-").first.map { $0.lowercased() }
+        LearningLanguage.resolving(language)?.primaryTag
     }
 
     /// 拼接相对路径。

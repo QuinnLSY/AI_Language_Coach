@@ -290,7 +290,7 @@ final class ChatExperienceTests: XCTestCase {
         await manager.register(provider)
 
         let service = SpellingCorrectionService(llm: manager)
-        _ = await service.correct("I have a apple", options: .init())
+        _ = await service.correct("I have a apple", options: .init(learningLanguage: "English"))
 
         let recorded = await provider.lastRequest
         let request = try XCTUnwrap(recorded)
