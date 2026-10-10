@@ -50,11 +50,20 @@ final class CourseTreeWiringTests: XCTestCase {
                           "合并必须排在「课与课内情景都换好」之后 —— 两份缓存还没换就合并等于拿旧的并")
     }
 
-    /// 树冠必须跟着树冠那一格走，不能留在画布顶部。
-    func testCanopyFollowsTheCrownInset() throws {
+    /// 树冠必须**回到树顶**（用户 2026-10-10 报障：「树冠也要一直保持在树顶，
+/// 现在这个形象太突兀了」），分界交给云带。
+func testCanopyStaysAtTheTopAndCloudsMarkTheBoundary() throws {
         let raw = try Self.code("Sources/AppUI/Components/TreeCanvas.swift")
-        XCTAssertTrue(raw.contains(".offset(y: topInset - 190)"),
-                      "树冠要挂在树冠那一格上（课程段把整棵树往下挪了，它留在画布顶部会浮在课程关卡上面）")
+        XCTAssertTrue(raw.contains(".offset(y: Self.canopyOffsetY(for: progress))"),
+                      "树冠的位置必须走 `canopyOffsetY(for:)`（有课程关卡时挂在最高一格之上）")
+        XCTAssertTrue(raw.contains("if TreeCanvas.showsCourseBand(for: progress)"),
+                      "云带只在**有**课程关卡时出现 —— 没有更高的一段时挂一朵云等于凭空多一个层级")
+        XCTAssertTrue(raw.contains("CourseCloudBand(theme: theme)"),
+                      "正文与课程之间要有云带做分界（用户 2026-10-10 定的）")
+        // 云带必须画在关卡节点**之前**（更下层），否则会盖住关卡的读屏标签。
+        let band = try XCTUnwrap(raw.range(of: "CourseCloudBand(theme: theme)"))
+        let nodes = try XCTUnwrap(raw.range(of: "ForEach(progress.levels) { level in"))
+        XCTAssertLessThan(band.lowerBound, nodes.lowerBound, "云带要画在关卡节点之前（更下层）")
     }
 
     /// 学员只走树干：`climbFraction` 越界要夹在树冠，不许被送进课程段。

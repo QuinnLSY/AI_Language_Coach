@@ -122,11 +122,6 @@ final class CourseLevelTreeRenderTests: XCTestCase {
         return CourseTreeRule.merge(progress: .seed(), courses: [course])
     }
 
-    /// 树冠之上那一片的 y 范围（树冠画在 `topInset - 190` 起，所以它上面是干净的）。
-    private func aboveCanopy(_ progress: LearnerProgress) -> CGRect {
-        CGRect(x: 0, y: 0, width: width, height: max(TreeCanvas.topInset(for: progress) - 190, 1))
-    }
-
     // MARK: - 用例
 
     func testRenderingIsDeterministic() throws {
@@ -138,17 +133,52 @@ final class CourseLevelTreeRenderTests: XCTestCase {
     }
 
     /// 反证：把 `y(for:…)` 的课程段判据从 `> 1` 改回夹住 → 课程关卡全叠在树冠 →
-    /// 这一片要么全空、要么挤成一团。本条钉的是「**确实画在上面、且没被画布裁掉**」。
-    func testCourseLevelsAreDrawnAboveTheCrownAndInsideTheCanvas() throws {
-        let withCourse = try render(progress(courseLessons: 3), night: false)
-        let above = aboveCanopy(progress(courseLessons: 3))
-        let ink = inkPoints(withCourse, in: above)
-        XCTAssertGreaterThan(ink, 200, "树冠之上应该有课程关卡的墨迹（实测 \(ink) 点）")
+    /// 课程那一段会空出来。本条钉的是「**确实画在正文之上、且没被画布裁掉**」。
+    ///
+    /// ⚠️ 这里**没有**「无课程时同一片干净」那种成对断言：树的画面里到处都有墨
+    /// （树干、树枝、内置关卡、年轮），任何一个绝对矩形在两棵树上都能找到东西 ——
+    /// 那样的「反证」是自欺。分界靠 `showsCourseBand(for:)` 那种**纯函数**钉，
+    /// 「画没画出来」靠下面这条墨迹断言，最后靠 PNG 人眼判。
+    func testCourseLevelsAreDrawnAboveTheBuiltInOnes() throws {
+        let target = progress(courseLessons: 3)
+        let render = try render(target, night: false)
+        let band = CGRect(
+            x: 0,
+            y: TreeCanvas.topmostCourseY(for: target) - 40,
+            width: width,
+            height: 40 + CGFloat(target.levels.filter(\.isAboveCurriculum).count - 1) * TreeCanvas.courseNodeStep + 40
+        )
+        XCTAssertGreaterThan(inkPoints(render, in: band), 400,
+                             "课程关卡那一段应该有墨（实测 \(inkPoints(render, in: band)) 点）")
+    }
 
-        let withoutCourse = try render(progress(courseLessons: 0), night: false)
-        let plainInk = inkPoints(withoutCourse, in: aboveCanopy(progress(courseLessons: 0)))
-        XCTAssertEqual(plainInk, 0,
-                       "没有课程关卡时，树冠之上必须是干净的（实测 \(plainInk) 点 —— 那团墨是别的东西画上去的）")
+    /// 云带只在**有**课程关卡时出现 —— 这是分界的判据，纯函数、可单测。
+    func testCourseBandAppearsOnlyWithCourses() {
+        XCTAssertFalse(TreeCanvas.showsCourseBand(for: progress(courseLessons: 0)))
+        XCTAssertTrue(TreeCanvas.showsCourseBand(for: progress(courseLessons: 1)))
+        // 云带必须落在正文顶端与最低一格课程关卡**之间**。
+        let target = progress(courseLessons: 3)
+        let bandY = TreeCanvas.courseBandY(for: target)
+        XCTAssertLessThan(bandY, TreeCanvas.topInset(for: target), "云带在正文关卡之上")
+        XCTAssertGreaterThan(bandY, TreeCanvas.topmostCourseY(for: target) + TreeCanvas.courseNodeStep,
+                             "云带在最低一格课程关卡之下")
+    }
+
+    /// 树冠在树顶：课程关卡存在时，树冠的底沿必须**高于**最高一格，且整体在画布内。
+    func testCanopySitsAtTheTopOfTheTree() {
+        let target = progress(courseLessons: 3)
+        let offset = TreeCanvas.canopyOffsetY(for: target)
+        XCTAssertGreaterThanOrEqual(offset, 0, "树冠被推到画布顶端外面去了")
+        XCTAssertLessThanOrEqual(
+            offset + TreeCanvas.canopyHeight,
+            TreeCanvas.topmostCourseY(for: target) - TreeCanvas.canopyGap + 0.5,
+            "树冠底沿必须压在最高一格之上（树冠在树顶，课程关卡在树冠下）"
+        )
+        // 没有课程关卡时与从前逐像素相同（树冠仍罩着顶关）。
+        XCTAssertEqual(
+            TreeCanvas.canopyOffsetY(for: progress(courseLessons: 0)),
+            TreeCanvas.topInset(for: progress(courseLessons: 0)) - 190, accuracy: 0.001
+        )
     }
 
     /// 课程关卡一节都不能被画布裁掉：最上面那一格也要在画布内、且带墨。

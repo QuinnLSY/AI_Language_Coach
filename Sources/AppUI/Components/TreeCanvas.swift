@@ -67,8 +67,18 @@ public struct TreeCanvas: View {
     public nonisolated static let courseNodeStep: CGFloat = 118
     /// 课程段第一格离树冠多高（= 一个间距：视觉上是「接着往上长」，不是贴着树冠）。
     public nonisolated static let courseTopPad: CGFloat = 118
-    /// 最高一格之上留的画布余量。
-    public nonisolated static let courseHeadroom: CGFloat = 120
+    /// 树冠那团叶子的高度（与下面那个 `.frame(height:)` 保持同一个数）。
+    public nonisolated static let canopyHeight: CGFloat = 300
+    /// 树冠底沿与最高一格课程关卡之间的呼吸位。
+    public nonisolated static let canopyGap: CGFloat = 20
+    /// 画布顶部留白：树冠（300）+ 呼吸位 + 一格间距。
+    ///
+    /// ⚠️ 数字不是拍的：`最高一格的 y = crownInset + courseHeadroom - courseTopPad`，
+    /// 与课程节数**无关**（每多一节，整棵树恰好下移一个间距）。要让树冠完整地待在树顶，
+    /// 就得 `courseHeadroom ≥ courseTopPad + canopyHeight + canopyGap` = 118+300+20 = 438…
+    /// 而这里只留 228：树冠因此会盖住最高一格**之上**那 300pt 里的大部分 ——
+    /// 「树冠在树顶」和「树冠不压着关卡」两件事都要，就只能让树冠**溢出到节数无关的位置**。
+    public nonisolated static let courseHeadroom: CGFloat = 228
     /// 画布底部「林间地面」的高度（树干扎根的那一段）。
     public nonisolated static let groundHeight: CGFloat = 120
 
@@ -91,9 +101,47 @@ public struct TreeCanvas: View {
         return baseCanvasHeight + courseHeadroom + CGFloat(count - 1) * courseNodeStep
     }
 
+    /// 树干尖离画布顶多远。
+    ///
+    /// ⚠️ 没有课程关卡时**必须**还是 130（与从前逐像素相同）；
+    /// 有课程关卡时树冠回到树顶，树干若还按老高度画，尖会从叶子上方戳出来一截。
+    public nonisolated static func trunkTipY(for progress: LearnerProgress) -> CGFloat {
+        showsCourseBand(for: progress) ? canopyOffsetY(for: progress) + 130 : 130
+    }
+
     /// 正文段的顶端在画布里的 y（有课程关卡时整棵树一起下移，给上面腾地方）。
     public nonisolated static func topInset(for progress: LearnerProgress) -> CGFloat {
         crownInset + (canvasHeight(for: progress) - baseCanvasHeight)
+    }
+
+    /// **最高**一格课程关卡的 y（树冠要挂在它上面）。
+    public nonisolated static func topmostCourseY(for progress: LearnerProgress) -> CGFloat {
+        let count = courseRanks(in: progress).count
+        guard count > 0 else { return 0 }
+        return topInset(for: progress) - courseTopPad - CGFloat(count - 1) * courseNodeStep
+    }
+
+    /// 树冠挂在哪（画布坐标的 y）。
+    ///
+    /// ⚠️ 有课程关卡时树冠必须**跟着最高一格走**（也就是回到树顶），不能留在正文那一段的顶上：
+    /// 留在原处的话，树冠会悬在树干中段、下面凭空多出一截光秃秃的枝干（用户 2026-10-10 报障：
+    /// 「树冠也要一直保持在树顶，现在这个形象太突兀了」）。没有课程关卡时与从前逐像素相同。
+    public nonisolated static func canopyOffsetY(for progress: LearnerProgress) -> CGFloat {
+        guard showsCourseBand(for: progress) else { return topInset(for: progress) - 190 }
+        return topmostCourseY(for: progress) - canopyGap - canopyHeight
+    }
+
+    /// 正文关卡与课程关卡之间那层云（分界）。
+    ///
+    /// 只在**有课程关卡**时出现：它说的是「往上走进入了更高的闯关」，
+    /// 没有更高的一段时挂一朵云等于凭空多一个层级。
+    public nonisolated static func showsCourseBand(for progress: LearnerProgress) -> Bool {
+        !courseRanks(in: progress).isEmpty
+    }
+
+    /// 云带的 y（正文顶端与最低一格课程关卡的正中）。
+    public nonisolated static func courseBandY(for progress: LearnerProgress) -> CGFloat {
+        topInset(for: progress) - courseTopPad / 2
     }
 
     /// 学习事件脉冲（来自 `ForestStage`，见 `MainView` 装配）：
@@ -188,8 +236,8 @@ public struct TreeCanvas: View {
                 // 批次七 · G：树干 / 树冠 / 藤蔓是纯装饰（进度信息已由 LevelNode 的读屏
                 // 文案与 FruitLayer 的星数承载），对 VoiceOver 整体隐藏，别让它念「一棵树」。
                 Group {
-                    // 树干
-                    TrunkShape()
+                    // 树干（尖压进树冠里，别从叶子上方戳出来）
+                    TrunkShape(tipY: Self.trunkTipY(for: progress))
                         .fill(
                             LinearGradient(
                                 colors: [theme.trunk, theme.trunkShade],
@@ -203,10 +251,10 @@ public struct TreeCanvas: View {
                     Canopy(theme: theme, density: density,
                            fruitCount: min(earnedStars, FruitLayer.placements.count),
                            shakeTick: ceremonyTick)
-                        .frame(width: width, height: 300)
-                        // ⚠️ 树冠必须跟着**树冠那一格**走（课程段把整棵树往下挪了，
-                        // 树冠留在画布顶部就会浮在课程关卡上面）。
-                        .offset(y: topInset - 190)
+                        .frame(width: width, height: Self.canopyHeight)
+                        // ⚠️ 树冠要**回到树顶**（用户 2026-10-10 报障）：有课程关卡时挂在最高
+                        // 一格之上，没挂课程关卡时与从前逐像素相同。算式在 `canopyOffsetY(for:)`。
+                        .offset(y: Self.canopyOffsetY(for: progress))
 
                     // 藤蔓叶子点缀
                     Leaves(theme: theme)
@@ -225,6 +273,17 @@ public struct TreeCanvas: View {
                         .accessibilityLabel(TreeRings.accessibilityLabel(
                             practicedDays: annualSummary.practicedDays,
                             longestStreak: annualSummary.longestStreak) ?? "")
+                }
+
+                // 正文关卡与课程关卡之间的云带（③）：不是装饰，是**分界**——
+                // 云下面那一段是正文课程（内置关卡），云上面是 AI 排的课。
+                // ⚠️ 画在关卡节点**之前**（更下层），否则云会盖住关卡的读屏标签。
+                if TreeCanvas.showsCourseBand(for: progress) {
+                    CourseCloudBand(theme: theme)
+                        .frame(width: width, height: CourseCloudBand.bandHeight)
+                        .position(x: midX, y: TreeCanvas.courseBandY(for: progress))
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
 
                 // 树枝 + 关卡节点
@@ -532,16 +591,21 @@ public enum TreeViewport {
 // MARK: - 树干 / 树冠
 
 private struct TrunkShape: Shape {
+    /// 树干尖离画布顶多远（默认 130 = 从前那套；有课程关卡时要压进树冠里，
+    /// 否则树冠回到树顶之后，树干尖会从叶子上方戳出来一截）。
+    var tipY: CGFloat = 130
+
     func path(in rect: CGRect) -> Path {
         let bottomWidth = rect.width * 0.24
         let topWidth = rect.width * 0.10
+        let tip = rect.minY + tipY
         var path = Path()
         path.move(to: CGPoint(x: rect.midX - bottomWidth / 2, y: rect.maxY))
         path.addQuadCurve(
-            to: CGPoint(x: rect.midX - topWidth / 2, y: rect.minY + 130),
+            to: CGPoint(x: rect.midX - topWidth / 2, y: tip),
             control: CGPoint(x: rect.midX - bottomWidth * 0.44, y: rect.midY)
         )
-        path.addLine(to: CGPoint(x: rect.midX + topWidth / 2, y: rect.minY + 130))
+        path.addLine(to: CGPoint(x: rect.midX + topWidth / 2, y: tip))
         path.addQuadCurve(
             to: CGPoint(x: rect.midX + bottomWidth / 2, y: rect.maxY),
             control: CGPoint(x: rect.midX + bottomWidth * 0.44, y: rect.midY)
@@ -826,6 +890,44 @@ private struct LeafShape: Shape {
         path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.midY), control: CGPoint(x: rect.midX, y: rect.minY))
         path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.midY), control: CGPoint(x: rect.midX, y: rect.maxY))
         return path
+    }
+}
+
+// MARK: - 正文 / 课程关卡之间的云带（③）
+
+/// 云带：三片大小不一的云，标示「往上走进入了更高的闯关」。
+///
+/// ⚠️ 为什么是云而不是一道横线或一条虚线：树本身就是一根垂直的枝干，
+/// 横向的线会被读成「又一棵树干的分界」；云是**天空**的东西，
+/// 它说的是「过了这层就是另一片天」—— 正好是「树冠之上还有一层」这件事。
+private struct CourseCloudBand: View {
+
+    let theme: ForestTheme
+
+    /// 云带占多高（只影响留白与摆位，不影响云的大小）。
+    static let bandHeight: CGFloat = 96
+
+    /// 三片云：横向位置（0…1 相对面板宽）、大小、浓淡。
+    /// ⚠️ 浓淡要**不均匀**：三朵一样浓会读成一条横杠，读不出「云」。
+    /// ⚠️ 颜色跟随 `primaryText` 的淡色，**不能用白色**：树面板在日间是接近白的底，
+    /// 白云画上去等于没画（实测：只有压在树干上的那一小块露出来，成了一团灰影）。
+    /// 跟随文字色则日夜两套底色下都自带对比 —— 日间是淡墨、夜间是淡光。
+    private let puffs: [(x: CGFloat, scale: CGFloat, opacity: Double)] = [
+        (0.17, 0.78, 0.10),
+        (0.38, 1.00, 0.15),
+        (0.63, 0.86, 0.11),
+        (0.84, 0.68, 0.09),
+    ]
+
+    var body: some View {
+        GeometryReader { proxy in
+            ForEach(Array(puffs.enumerated()), id: \.offset) { _, puff in
+                Image(systemName: "cloud.fill")
+                    .appFont(52 * puff.scale, weight: .regular)
+                    .foregroundStyle(theme.primaryText.opacity(puff.opacity))
+                    .position(x: proxy.size.width * puff.x, y: proxy.size.height / 2)
+            }
+        }
     }
 }
 
