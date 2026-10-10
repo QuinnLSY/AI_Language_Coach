@@ -139,11 +139,15 @@ extension AppState {
         guard listeningIsPlaying else { return }
         let selection = await services.effectiveSpeechVoiceSelection()
         let base = Float(product.speechRate)
+        // 听力示范也是「那个老师」在说话：调门与语气同样要带上（慢速档只再乘一次倍速）。
+        let playback = await currentSpeechPlayback()
         await services.shadowing.playReference(
             drill,
             selection: selection,
             language: ShadowingService.practiceLanguage,
-            rate: listeningSlowPlayback ? base * ListeningRule.slowRateFactor : base
+            rate: listeningSlowPlayback ? base * ListeningRule.slowRateFactor : base,
+            pitch: playback.pitch,
+            tone: playback.tone
         )
         // ⚠️ S4-3：这一遍只算在**刚才那一句**头上。播放期间用户可能已经切到下一句
         // （`advanceListening` 会 `resetAnswerState()` 把遍数清零），

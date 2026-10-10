@@ -1,3 +1,4 @@
+import AppCore
 import Foundation
 
 // MARK: - ASR
@@ -141,33 +142,53 @@ public struct TTSRequest: Sendable {
     public var referenceAudioPath: String?
     /// 参考音频对应的文本（可选）。
     public var referenceText: String?
+    /// 朗读语气（风格 / 情感）。两个取值都是**供应商自己的词汇**（如 `cheerful`），
+    /// 应用只负责搬运，不解释含义、也不定义通用枚举。
+    ///
+    /// 缺省 `.none` 表示「不指定」而不是「静默丢弃」：没有供应商声明这个能力时，
+    /// 值本来就不会被设置（唯一入口 `ProviderConfig.toneFields(for:)`）。
+    ///
+    /// ⚠️ 音高**不在**这里 —— 它由播放侧实现（见 `SpeechPitch`），四个供应商没有一条给得出
+    /// 音高参数，放进请求只会是个永远没人读的字段。
+    public var tone: SpeechTone
 
     public init(
         text: String,
         voice: String? = nil,
         language: String? = nil,
         referenceAudioPath: String? = nil,
-        referenceText: String? = nil
+        referenceText: String? = nil,
+        tone: SpeechTone = .none
     ) {
         self.text = text
         self.voice = voice
         self.language = language
         self.referenceAudioPath = referenceAudioPath
         self.referenceText = referenceText
+        self.tone = tone
     }
 
-    public init(text: String, voice: SpeechVoiceSelection, language: String? = nil) {
+    public init(
+        text: String,
+        voice: SpeechVoiceSelection,
+        language: String? = nil,
+        tone: SpeechTone = .none
+    ) {
         self.init(
             text: text,
             voice: voice.voice,
             language: language,
             referenceAudioPath: voice.referenceAudioPath,
-            referenceText: voice.referenceText
+            referenceText: voice.referenceText,
+            tone: tone
         )
     }
 
     /// 是否要用克隆音色合成（判定口径与 `SpeechVoiceSelection.isCloned` 同源）。
     public var usesClonedVoice: Bool { ClonedVoiceRule.isCloned(referenceAudioPath: referenceAudioPath) }
+
+    /// 这次请求是否指定了朗读语气。
+    public var usesTone: Bool { !tone.isEmpty }
 }
 
 public struct TTSResult: Sendable {

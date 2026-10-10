@@ -308,6 +308,8 @@ extension AppState {
         isShadowingPlaying = true
         let selection = await services.effectiveSpeechVoiceSelection()
         let rate = Float(product.speechRate)
+        // 示范必须与对话区**同一个老师**：音色（含克隆）、语速、调门、语气四样一个不少。
+        let playback = await currentSpeechPlayback()
         switch shadowingMode {
         case .sentence:
             guard let drill = currentShadowingDrill else {
@@ -316,7 +318,8 @@ extension AppState {
                 return
             }
             await services.shadowing.playReference(
-                drill, selection: selection, language: ShadowingService.practiceLanguage, rate: rate
+                drill, selection: selection, language: ShadowingService.practiceLanguage,
+                rate: rate, pitch: playback.pitch, tone: playback.tone
             )
         case .passage:
             guard let passage = currentShadowingPassage else {
@@ -325,7 +328,8 @@ extension AppState {
                 return
             }
             await services.shadowing.playPassage(
-                passage, selection: selection, language: ShadowingService.practiceLanguage, rate: rate
+                passage, selection: selection, language: ShadowingService.practiceLanguage,
+                rate: rate, pitch: playback.pitch, tone: playback.tone
             )
         }
         shadowingNotice = await services.shadowing.lastError()

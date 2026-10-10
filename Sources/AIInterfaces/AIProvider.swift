@@ -94,6 +94,24 @@ extension ProviderCapabilities {
         return result
     }
 
+    /// 面向用户的语音能力自述（如「音色克隆 · 风格控制」）；**什么都没声明时返回 nil**。
+    ///
+    /// 存在的理由：这四个能力位原本在整仓里**没有任何读点** —— 配置里声明了也没人看得见，
+    /// 等于不存在（「预留未接通」的真身）。这一条把声明变成设置页上看得见的一行字。
+    ///
+    /// ⚠️ `pitchControl` 特意标「原生」：本应用的朗读**调门**由播放侧提供、所有供应商都能用
+    /// （见 `SpeechPitch`），与「这家供应商能在合成时变调」不是同一件事 ——
+    /// 不标一下，用户会困惑「为什么没声明也照样能调调门」。
+    /// 顺序固定（克隆 → 风格 → 情感 → 音高），读起来才稳定。
+    public var voiceCapabilitySummary: String? {
+        var names: [String] = []
+        if voiceCloning { names.append(VoiceCapability.voiceCloning.displayName) }
+        if style { names.append(VoiceCapability.style.displayName) }
+        if emotion { names.append(VoiceCapability.emotion.displayName) }
+        if pitchControl { names.append(VoiceCapability.pitchControl.displayName + "（原生）") }
+        return names.isEmpty ? nil : names.joined(separator: " · ")
+    }
+
     /// 该类 runtime 的适配器**结构上做不了**的能力：配置写了也不该生效。
     ///
     /// 这是「实现为权威」的那一半。配置声明能表达「这个部署开没开」，

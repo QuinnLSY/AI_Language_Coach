@@ -142,8 +142,17 @@ public final class RemoteTTSAdapter: TTSProvider, VoiceCatalogProvider, RuntimeI
                 contentType: "application/json"
             )
             // 语速由播放侧统一控制（时间拉伸），合成侧固定中性值，避免双重变速。
-            let body = TextSpeechRequest(text: text, voice: voice, rate: SpeechRequestStyle.neutralRate)
-            urlRequest.httpBody = try RemoteCommon.makeEncoder().encode(body)
+            // 语气字段：**键名来自配置、发不发由「声明的能力 ∩ 形态天花板」决定**
+            // （算式只在 `toneFields` 一处，这里不再自己判一遍，免得两处口径漂移）。
+            let body = TextSpeechRequest(
+                text: text,
+                voice: voice,
+                rate: SpeechRequestStyle.neutralRate,
+                tone: resolved.config.toneFields(for: request.tone)
+            )
+            // ⚠️ 必须用不做键名转换的编码器：语气键名是配置给的任意字符串，
+            // 被 `.convertToSnakeCase` 改写后服务端会静默忽略（见 `makeVerbatimEncoder`）。
+            urlRequest.httpBody = try RemoteCommon.makeVerbatimEncoder().encode(body)
         case .textQuery:
             var components = URLComponents(
                 url: RemoteCommon.speechURL(config: resolved.config, base: resolved.base),
@@ -152,6 +161,10 @@ public final class RemoteTTSAdapter: TTSProvider, VoiceCatalogProvider, RuntimeI
             var items = [URLQueryItem(name: "text", value: text)]
             if let voice { items.append(URLQueryItem(name: "voice", value: voice)) }
             items.append(URLQueryItem(name: "rate", value: SpeechRequestStyle.neutralRate))
+            // 查询串形态天然是「键名原样」——配置里写什么键就发什么键，没有键名转换这一层。
+            for field in resolved.config.toneFields(for: request.tone) {
+                items.append(URLQueryItem(name: field.key, value: field.value))
+            }
             components?.queryItems = items
             guard let url = components?.url else {
                 await RemoteCommon.endBillableCall(intent, outcome: .failed)
@@ -233,22 +246,25 @@ public final class RemoteTTSAdapter: TTSProvider, VoiceCatalogProvider, RuntimeI
         }
     }
 
-    /// 网关类（Edge TTS 代理等）的 JSON 形态：`{text, voice, rate}`。
+    /// 网关类（Edge TTS 代理等）的 JSON 形态：`{text, voice, rate, …语气}`。
     /// ⚠️ 字段名就是 `text`（不是 `input`）——实测服务端只认它，给 `input` 会读出空内容。
+    ///
+    /// ⚠️ 语气字段的键名**来自配置**（各家网关不同），所以这一处用动态键名 + 不做键名转换的
+    /// 编码器（见 `RemoteCommon.makeVerbatimEncoder`）—— 键名被改写等于这个参数白配。
     private struct TextSpeechRequest: Encodable {
         let text: String
         let voice: String?
         let rate: String
+        let tone: [SpeechToneField]
 
         func encode(to encoder: Encoder) throws {
-            var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(text, forKey: .text)
-            try container.encodeIfPresent(voice, forKey: .voice)
-            try container.encode(rate, forKey: .rate)
-        }
-
-        enum CodingKeys: String, CodingKey {
-            case text, voice, rate
+            var container = encoder.container(keyedBy: DynamicCodingKey.self)
+            try container.encode(text, forKey: DynamicCodingKey("text"))
+            if let voice { try container.encode(voice, forKey: DynamicCodingKey("voice")) }
+            try container.encode(rate, forKey: DynamicCodingKey("rate"))
+            for field in tone {
+                try container.encode(field.value, forKey: DynamicCodingKey(field.key))
+            }
         }
     }
 }

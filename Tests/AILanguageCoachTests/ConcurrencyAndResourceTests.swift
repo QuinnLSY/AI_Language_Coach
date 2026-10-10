@@ -204,7 +204,9 @@ final class ConcurrencyAndResourceTests: XCTestCase {
         let occurrences = raw.components(separatedBy: "withTaskCancellationHandler").count - 1
         XCTAssertEqual(occurrences, 2, "等比与变速两条等待路径都补取消钩子，缺一条就会永久卡住那条流水线")
 
-        let playAndWait = try Self.body(of: "public func playAndWait(wavData: Data, rate: Float = 1.0) async throws", in: raw)
+        // ⚠️ 标记只钉到**参数表开头**，不钉整串形参：形参会增长（② 给这两条路径加了 `pitch`），
+        // 钉死整串会让「加了个参数」被误报成「取消钩子丢了 / 临时文件没清」—— 哨兵盯的是行为，不是形参个数。
+        let playAndWait = try Self.body(of: "public func playAndWait(", in: raw)
         XCTAssertTrue(playAndWait.contains("parkAndPlay(continuation, player: player)"),
                       "登记等待者与起播要在同一个临界区里完成")
         XCTAssertTrue(playAndWait.contains("AudioPlaybackError.playerRefusedStart"),
@@ -221,7 +223,7 @@ final class ConcurrencyAndResourceTests: XCTestCase {
     /// #S3-12：变速播放落盘之后，每条抛错路径都要删掉临时文件（原来只有一处清理）。
     func testEnginePlaybackCleansItsTempFileOnEveryThrowPath() throws {
         let raw = try Self.source("Sources/AIInfrastructure/AudioPlayback.swift")
-        let body = try Self.body(of: "private func playWithEngine(wavData: Data, rate: Float) async throws", in: raw)
+        let body = try Self.body(of: "private func playWithEngine(", in: raw)
         XCTAssertTrue(body.contains("defer { try? FileManager.default.removeItem(at: url) }"),
                       "落盘之后要统一挂一个 defer 兜住所有抛错路径")
         XCTAssertTrue(body.contains("withTaskCancellationHandler"), "变速路径同样是长等待，也要能被打断")
@@ -508,7 +510,7 @@ final class ConcurrencyAndResourceTests: XCTestCase {
                       "先查重再淘汰：合流的后来者会再走一遍写入，键已经在队里")
         XCTAssertTrue(remember.contains("audioCache[oldest] = nil"), "淘汰要同时清掉字典与队列两侧")
 
-        let synth = try Self.body(of: "func synthesizeCached(_ text: String, voice: SpeechVoiceSelection, language: String)", in: raw)
+        let synth = try Self.body(of: "func synthesizeCached(", in: raw)
         XCTAssertTrue(synth.contains("synthInflight[key]"), "同键在途要合流")
         XCTAssertTrue(synth.contains("running.value"), "后来者等那一趟，而不是自己再发一次")
     }

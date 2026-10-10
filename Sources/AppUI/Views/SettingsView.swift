@@ -1617,36 +1617,64 @@ public struct SettingsView: View {
                 .help("立即试听当前音色")
             }
 
-            // 朗读语速：与对话区「听老师读」右侧的选择器共用同一份配置
-            HStack(spacing: 10) {
-                Text("朗读语速")
-                    .appFont(13, design: .rounded)
-                    .foregroundStyle(theme.primaryText)
-                HStack(spacing: 6) {
-                    ForEach(SpeechRate.allCases) { option in
-                        Button {
-                            Task { await state.setSpeechRate(option.rawValue) }
-                        } label: {
-                            Text(option.label)
-                                .appFont(12, weight: .semibold, design: .rounded)
-                                .foregroundStyle(isSelected(rate: option) ? Color.white : theme.primaryText)
-                                .padding(.horizontal, 10)
-                                .frame(height: 26)
-                                .background(
-                                    Capsule().fill(isSelected(rate: option) ? theme.accent : theme.surfaceAlt)
-                                )
-                                .overlay(
-                                    Capsule().strokeBorder(
-                                        isSelected(rate: option) ? theme.accent : theme.divider,
-                                        lineWidth: 1
-                                    )
-                                )
+            // 朗读语速：与对话区「听老师读」右侧的选择器共用同一份配置。
+            // 档位行的排版抽在 `SpeechToneRow` 里（与下面的调门共用一份配方，
+            // 也正因为抽出来了，它才能被离屏渲染用例单独出图）。
+            SpeechToneRow(
+                title: "朗读语速",
+                options: SpeechRate.allCases.map { option in
+                    .init(
+                        value: option.rawValue,
+                        label: option.label,
+                        help: "以 \(option.label) 语速朗读",
+                        isSelected: isSelected(rate: option)
+                    )
+                },
+                onSelect: { option in Task { await state.setSpeechRate(option.value) } }
+            )
+
+            // 朗读调门：与语速是**两条独立的旋钮** —— 语速改快慢、调门改音高，互不影响。
+            // 它由**播放侧**实现（`AVAudioUnitTimePitch.pitch`），所以不依赖任何供应商能力，恒可用；
+            // 四条语音链路没有一条给得出音高参数，走合成侧就是「做完也没效果」。
+            SpeechToneRow(
+                title: "朗读调门",
+                options: SpeechPitch.allCases.map { option in
+                    .init(
+                        value: option.rawValue,
+                        label: option.label,
+                        help: "以\(option.detail)朗读（只改音高、不改快慢）",
+                        isSelected: isSelected(pitch: option)
+                    )
+                },
+                onSelect: { option in Task { await state.setSpeechPitch(option.value) } }
+            )
+
+            // 朗读语气（风格 / 情感）：**只有供应商真给了候选值才渲染**。
+            // 今天四条语音链路都没有这两个字段位，所以这一段在真机上是空的 ——
+            // 这不是没接通，而是接通之后如实沉默；供应商一支持，这里就自己亮起来
+            // （判定与取值表都在 `TeacherVoiceTone.controls` 这个纯函数里，视图不做判断）。
+            ForEach(TeacherVoiceTone.controls(
+                options: state.speechToneOptions,
+                selectedStyle: state.speechStyle,
+                selectedEmotion: state.speechEmotion
+            )) { control in
+                ForestSelect(
+                    control.title,
+                    icon: "theatermasks",
+                    selection: Binding(
+                        get: { control.selected ?? TeacherVoiceTone.unspecified },
+                        set: { value in
+                            Task { await state.setSpeechTone(control.capability, value) }
                         }
-                        .buttonStyle(.appPressable)
-                        .help("以 \(option.label) 语速朗读")
-                    }
-                }
-                Spacer(minLength: 0)
+                    ),
+                    options: [ForestSelectOption(value: TeacherVoiceTone.unspecified, title: "不指定")]
+                        + control.options.map { ForestSelectOption(value: $0, title: $0) },
+                    // 宽度**量**出来（候选值长短由供应商决定，写死会被截成省略号，
+                    // 而截断在控件的几何空档里看不出来 —— 2026-09-14 的「语速不显示」就是这么来的）。
+                    width: ForestSelect<String>.Metrics.regular
+                        .widthFitting([ "不指定" ] + control.options),
+                    help: control.help
+                )
             }
 
             Toggle("老师回复后自动朗读", isOn: Binding(
@@ -1656,16 +1684,37 @@ public struct SettingsView: View {
             .appFont(13, design: .rounded)
 
             // 朗读方式随当前生效的语音模型自动切换，在这里说清楚，免得用户以为是 bug。
-            Text("\(state.speechDelivery.explanation)在聊天框点 🎤 说话，松开后文字会填进输入框；每条老师回复下方可点「听老师读」，右侧小胶囊可切换朗读语速（只改快慢、不变音调）。")
+            Text("\(state.speechDelivery.explanation)在聊天框点 🎤 说话，松开后文字会填进输入框；每条老师回复下方可点「听老师读」，右侧小胶囊可切换朗读语速（只改快慢、不变音调），调门与语气则在上面这一组里调。")
                 .appFont(11, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
                 .lineSpacing(3)
+
+            // 供应商语音能力**如实写在设置页**：这四个能力位（克隆 / 风格 / 情感 / 原生音高）
+            // 以前在整仓里没有任何读点，配置里声明了也没人看得见，等于不存在。
+            // ⚠️ 什么都没声明时整行不显示 —— 「未声明」不该被显示成「支持：无」这种看着像故障的话。
+            if let summary = state.voiceCapabilities.voiceCapabilitySummary {
+                HStack(spacing: 5) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .appFont(10)
+                        .foregroundStyle(theme.accent)
+                    Text("当前供应商支持：\(summary)")
+                        .appFont(11, design: .rounded)
+                        .foregroundStyle(theme.secondaryText)
+                    Spacer(minLength: 0)
+                }
+            }
         }
     }
 
     /// 语速档位是否当前选中（浮点比较留容差）。
     private func isSelected(rate: SpeechRate) -> Bool {
-        abs(rate.rawValue - state.speechRate) < 0.01
+        abs(SpeechRate.nearest(to: state.speechRate).rawValue - rate.rawValue) < 0.01
+    }
+
+    /// 调门档位是否当前选中。**先落到最近档再比** —— 配置被手改成 `1.4` 时，
+    /// 界面上「高 1」那一档该亮着，而不是一档都不亮（那种画面看起来像控件坏了）。
+    private func isSelected(pitch: SpeechPitch) -> Bool {
+        abs(SpeechPitch.nearest(to: state.speechPitch).rawValue - pitch.rawValue) < 0.01
     }
 
     private func voiceStatusDot(_ title: String, _ health: ProviderHealth) -> some View {

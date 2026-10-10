@@ -117,7 +117,9 @@ public final class Qwen3TTSAdapter: TTSProvider, VoiceCatalogProvider, @unchecke
         var urlRequest = URLRequest(url: RemoteEndpoint.url(base: base, path: "v1/audio/speech"))
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.httpBody = try JSONEncoder().encode(
+        // ⚠️ 用不做键名转换的编码器：语气字段的键名来自配置（任意字符串），
+        // 被 `.convertToSnakeCase` 改写后 runtime 会静默忽略它（见 `makeVerbatimEncoder`）。
+        urlRequest.httpBody = try RemoteCommon.makeVerbatimEncoder().encode(
             SpeechRequest(
                 text: text,
                 voice: request.voice ?? config.model ?? "Serena",
@@ -128,7 +130,9 @@ public final class Qwen3TTSAdapter: TTSProvider, VoiceCatalogProvider, @unchecke
                 // 克隆音色：参考音频的原样路径一并交给 runtime，由它决定缓不缓存、
                 // 什么时候建音色。应用侧不碰厂商细节（Phase 24 红线）。
                 referenceAudio: request.referenceAudioPath,
-                referenceText: request.referenceText
+                referenceText: request.referenceText,
+                // 语气字段：键名与「发不发」都由配置与本 runtime 的能力声明决定。
+                tone: config.toneFields(for: request.tone)
             )
         )
 
@@ -238,9 +242,32 @@ public final class Qwen3TTSAdapter: TTSProvider, VoiceCatalogProvider, @unchecke
         let language: String
         let speed: Float
         /// 音色克隆用（第 24 步）：参考音频的本地路径与可选参考文本。
-        /// 非克隆请求为 nil，`Encodable` 的合成实现会**整键省略**，老 runtime 收到原样的请求。
+        /// 非克隆请求为 nil，编码时**整键省略**，老 runtime 收到原样的请求。
         let referenceAudio: String?
         let referenceText: String?
+        /// 朗读语气（风格 / 情感）。**键名来自配置**（`ProviderConfig.toneFields(for:)`），
+        /// 空数组 = 这个 runtime 没声明语气能力、或用户没选 —— 一个键都不发。
+        let tone: [SpeechToneField]
+
+        /// 逐键显式写出：语气键名是配置里的任意字符串，必须走动态键名，
+        /// 而且编码器不能做键名转换（见 `RemoteCommon.makeVerbatimEncoder`）。
+        /// 两个参考音频字段保持「nil 就整键省略」——与原来合成 `Encodable` 的行为一致。
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: DynamicCodingKey.self)
+            try container.encode(text, forKey: DynamicCodingKey("text"))
+            try container.encode(voice, forKey: DynamicCodingKey("voice"))
+            try container.encode(language, forKey: DynamicCodingKey("language"))
+            try container.encode(speed, forKey: DynamicCodingKey("speed"))
+            if let referenceAudio {
+                try container.encode(referenceAudio, forKey: DynamicCodingKey("referenceAudio"))
+            }
+            if let referenceText {
+                try container.encode(referenceText, forKey: DynamicCodingKey("referenceText"))
+            }
+            for field in tone {
+                try container.encode(field.value, forKey: DynamicCodingKey(field.key))
+            }
+        }
     }
 
     private struct HealthPayload: Decodable {

@@ -224,13 +224,33 @@ public actor VoiceService {
     /// - **云端模型** → 整段一次合成：每句独立请求会割裂韵律，整段才读得连贯自然。
     ///
     /// 再次调用会**打断**上一段（用户重复点击 = 重新读，而不是被静默忽略）。
-    /// - Parameter rate: 播放倍速（1 = 原速，由设置里的语速决定）。
+    /// - Parameters:
+    ///   - rate: 播放倍速（1 = 原速，由设置里的语速决定）。
+    ///   - pitch: 调门（半音）。**播放侧**变调，与供应商能力无关。
+    ///   - tone: 朗读语气（风格 / 情感）。**合成侧**透传，供应商声明且协议载得动才生效。
     ///
     /// ⚠️ `language` **不给默认值**：它以前默认 `"English"`，于是漏传的调用点
     /// 也能编译通过、跑起来也「像是对的」—— 直到换语言那天才发现读的是英语。
     /// 现在漏传是编译错误。
-    public func speak(_ text: String, voice: String, language: String, rate: Float = 1.0) async {
-        await speak(text, voice: SpeechVoiceSelection.builtin(voice), language: language, rate: rate)
+    ///
+    /// `pitch` / `tone` 则**给默认值**：它们的缺省（原声 / 不指定）就是「什么都不加」，
+    /// 漏传的后果只是少一层修饰；这与 `language` 那种「默认错了就整段读错语言」不是一回事。
+    public func speak(
+        _ text: String,
+        voice: String,
+        language: String,
+        rate: Float = 1.0,
+        pitch: SpeechPitch = .natural,
+        tone: SpeechTone = .none
+    ) async {
+        await speak(
+            text,
+            voice: SpeechVoiceSelection.builtin(voice),
+            language: language,
+            rate: rate,
+            pitch: pitch,
+            tone: tone
+        )
     }
 
     /// 朗读文本，音色用**选择结果**（含克隆音色的参考音频）。
@@ -241,7 +261,9 @@ public actor VoiceService {
         _ text: String,
         voice: SpeechVoiceSelection,
         language: String,
-        rate: Float = 1.0
+        rate: Float = 1.0,
+        pitch: SpeechPitch = .natural,
+        tone: SpeechTone = .none
     ) async {
         let delivery = await tts.delivery
         let cleaned = Self.cleanForSpeech(text, limit: delivery.maxCharacters)
@@ -269,9 +291,15 @@ public actor VoiceService {
 
         switch delivery {
         case .whole:
-            await speakWhole(cleaned, token: token, voice: voice, language: language, rate: rate)
+            await speakWhole(
+                cleaned, token: token, voice: voice, language: language,
+                rate: rate, pitch: pitch, tone: tone
+            )
         case .segmented:
-            await speakSegmented(cleaned, token: token, voice: voice, language: language, rate: rate)
+            await speakSegmented(
+                cleaned, token: token, voice: voice, language: language,
+                rate: rate, pitch: pitch, tone: tone
+            )
         }
     }
 
@@ -281,9 +309,11 @@ public actor VoiceService {
         token: UUID,
         voice: SpeechVoiceSelection,
         language: String,
-        rate: Float
+        rate: Float,
+        pitch: SpeechPitch,
+        tone: SpeechTone
     ) async {
-        let task = prefetchTask(text, voice: voice, language: language)
+        let task = prefetchTask(text, voice: voice, language: language, tone: tone)
         inflight = task
         let wav: Data
         do {
@@ -296,7 +326,7 @@ public actor VoiceService {
         inflight = nil
         setPhase(.speaking, speakingSource)
         do {
-            try await playback.playAndWait(wavData: wav, rate: rate)
+            try await playback.playAndWait(wavData: wav, rate: rate, pitch: pitch)
         } catch {
             if speakToken == token { lastError = Self.describe(error) }
         }
@@ -308,12 +338,16 @@ public actor VoiceService {
         token: UUID,
         voice: SpeechVoiceSelection,
         language: String,
-        rate: Float
+        rate: Float,
+        pitch: SpeechPitch,
+        tone: SpeechTone
     ) async {
         let sentences = SentenceSplitter.split(text)
         guard !sentences.isEmpty else { return }
 
-        var pending: Task<Data, Error>? = prefetchTask(sentences[0], voice: voice, language: language)
+        var pending: Task<Data, Error>? = prefetchTask(
+            sentences[0], voice: voice, language: language, tone: tone
+        )
         inflight = pending
 
         for (index, _) in sentences.enumerated() {
@@ -329,7 +363,7 @@ public actor VoiceService {
 
             // 播放本句的同时预取下一句：服务端串行合成，正好与播放时长重叠
             if index + 1 < sentences.count {
-                pending = prefetchTask(sentences[index + 1], voice: voice, language: language)
+                pending = prefetchTask(sentences[index + 1], voice: voice, language: language, tone: tone)
                 inflight = pending
             } else {
                 pending = nil
@@ -338,7 +372,7 @@ public actor VoiceService {
 
             setPhase(.speaking, speakingSource)
             do {
-                try await playback.playAndWait(wavData: wav, rate: rate)
+                try await playback.playAndWait(wavData: wav, rate: rate, pitch: pitch)
             } catch {
                 if speakToken == token { lastError = Self.describe(error) }
                 return
@@ -365,6 +399,10 @@ public actor VoiceService {
     public var recordingSampleRate: Double { MicrophoneRecorder.sampleRate }
 
     /// 回放最近一次录音。空录音时抛 `notInitialized`（由调用方转成可读文案）。
+    ///
+    /// ⚠️ 这里**刻意固定 `pitch: .natural`**：调门是「老师声音的设定」，而回放的是**学员自己的录音**。
+    /// 拿它去变调，跟读对照听到的就不是自己真实的声音 —— 而「听我的」这件事的全部意义
+    /// 恰恰在于对照真实的音高与音长（倍速同理：慢放是为了听得更清楚，不是为了改造自己的声音）。
     public func replayLastRecording(rate: Float = 1.0) async throws {
         guard !lastRecording.isEmpty else { throw AIProviderError.notInitialized }
         playback.stop()
@@ -372,7 +410,7 @@ public actor VoiceService {
             samples: lastRecording,
             sampleRate: Int(MicrophoneRecorder.sampleRate)
         )
-        try await playback.playAndWait(wavData: wav, rate: rate)
+        try await playback.playAndWait(wavData: wav, rate: rate, pitch: .natural)
     }
 
     /// 立刻停止一切播放（示范 / 回放共用）。
@@ -405,19 +443,36 @@ public actor VoiceService {
     }
 
     /// 后台合成一句（命中缓存则瞬时返回）。
-    private func prefetchTask(_ sentence: String, voice: SpeechVoiceSelection, language: String) -> Task<Data, Error> {
+    private func prefetchTask(
+        _ sentence: String,
+        voice: SpeechVoiceSelection,
+        language: String,
+        tone: SpeechTone
+    ) -> Task<Data, Error> {
         Task { [weak self] in
             guard let self else { throw AIProviderError.notInitialized }
-            return try await self.synthesizeCached(sentence, voice: voice, language: language)
+            return try await self.synthesizeCached(sentence, voice: voice, language: language, tone: tone)
         }
     }
 
     /// ⚠️ internal 而非 private：并发合流的行为（同一句只发一次请求）要能直接单测 ——
     /// 走公开的 `speak` 会牵到真实播放设备，测不了（见 `ConcurrencyAndResourceTests`）。
-    func synthesizeCached(_ text: String, voice: SpeechVoiceSelection, language: String) async throws -> Data {
+    func synthesizeCached(
+        _ text: String,
+        voice: SpeechVoiceSelection,
+        language: String,
+        tone: SpeechTone = .none
+    ) async throws -> Data {
         // 缓存键必须带上参考音频：换了克隆音色（或换了参考音频）就是另一个声音，
         // 沿用旧键会让「刚换的音色」听起来毫无变化，且怎么查都查不出原因。
-        let key = "\(voice.voice)|\(voice.referenceAudioPath ?? "")|\(language)|\(text)"
+        //
+        // 语气同理必须进键：风格 / 情感是要**发给合成器**的，换了语气就是另一段音频；
+        // 不进键的症状是「换了风格却还是老声音」。
+        // ⚠️ **调门不走这条键** —— 它在播放侧生效（`AVAudioUnitTimePitch.pitch`），
+        // 与缓存的音频无关；哪天有人把调门挪进合成请求，这个键就必须跟着加，
+        // 否则「改了调门听起来没变」会是一个查不出来源的 bug。
+        let key = "\(voice.voice)|\(voice.referenceAudioPath ?? "")|\(language)"
+            + "|\(tone.style ?? "")|\(tone.emotion ?? "")|\(text)"
         if let hit = audioCache[key] { return hit }
         // 同键已经在合成 → 直接等它那一趟，不再发一次请求（#S3-7）。
         if let running = synthInflight[key] { return try await running.value }
@@ -425,7 +480,7 @@ public actor VoiceService {
         let task = Task<Data, Error> { [weak self] in
             guard let self else { throw AIProviderError.notInitialized }
             let result = try await self.tts.synthesize(
-                TTSRequest(text: text, voice: voice, language: language)
+                TTSRequest(text: text, voice: voice, language: language, tone: tone)
             )
             return Self.wavData(for: result)
         }

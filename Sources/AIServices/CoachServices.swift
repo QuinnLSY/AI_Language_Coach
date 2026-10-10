@@ -365,28 +365,60 @@ public actor CoachServices {
 
     // MARK: - 克隆音色（第 24 步）
 
-    /// 当前 TTS 供应商是否支持音色克隆。
+    /// 当前 TTS 供应商**真正可用**的语音能力（音色克隆 / 风格 / 情感 / 音高原生）。
     ///
-    /// **实现为权威**：答案一律来自「真正会去做这次合成的那个实现」的 `capabilities()`，
+    /// **实现为权威**：答案一律来自「真正会去做这次合成的那个实现」的 `capabilities()`
+    /// （那里面已经是 `配置声明 ∩ 实现天花板`，见 `ProviderCapabilities.effectiveVoiceCapabilities`），
     /// 配置自报**不能**单独把结论变成「支持」。
     ///
-    /// 早先这里是「配置声明为真就直接算真」（`config.supportsVoiceCapability`）——不看实现。
-    /// 后果是配置里写一句 `capabilities: ["voiceCloning"]` 就能让界面显示
-    /// 「当前供应商支持克隆」，用户建完音色、点启用才发现合成直接报错（false capability）。
-    /// 现在配置只作**闸门**：适配器算出的能力是 `配置声明 ∩ 实现天花板`
-    /// （见 `ProviderCapabilities.effectiveVoiceCapabilities`），云端适配器结构上拒收
-    /// 参考音频，所以怎么声明都不会变成「支持」。
+    /// ⚠️ 这条是**唯一**的能力判定入口：`ttsSupportsVoiceCloning()` 取它的一位，
+    /// 设置页的能力徽标与语气入口也读它。分开各判一套的结果就是「设置页说支持、点了报错」
+    /// （false capability —— 早先正是「配置声明为真就直接算真」造成的）。
     ///
     /// 尚未装配时按同一个工厂造一个、喂同一份配置再问 ——
     /// 既不拿「还没装配」当「不支持」，也不让判定依赖装配时机。
-    public func ttsSupportsVoiceCloning() async -> Bool {
-        guard let provider = await config.current.resolvedProvider(for: .tts) else { return false }
+    public func ttsVoiceCapabilities() async -> ProviderCapabilities {
+        guard let provider = await config.current.resolvedProvider(for: .tts) else {
+            return ProviderCapabilities()
+        }
         if let live = await tts.current {
-            return live.capabilities().voiceCloning
+            return live.capabilities()
         }
         let adapter = Self.makeTTSProvider(provider)
         try? await adapter.initialize(config: provider)
-        return adapter.capabilities().voiceCloning
+        return adapter.capabilities()
+    }
+
+    /// 当前 TTS 供应商是否支持音色克隆。
+    public func ttsSupportsVoiceCloning() async -> Bool {
+        await ttsVoiceCapabilities().voiceCloning
+    }
+
+    /// 当前供应商给出的朗读语气候选值（风格 / 情感）。
+    ///
+    /// 空数组 = 不支持，设置页据此**不渲染**该选择器（宁可没有入口，也不给假入口）。
+    ///
+    /// ⚠️ 判据是**配置**（能力声明 ∩ 请求形态天花板），而不是上面的 `capabilities()`：
+    /// 后者只回答「能不能」，回答不出「能的话有哪些取值」。候选值只有供应商知道，应用编不出来。
+    /// 两者职责不重叠：一个管闸门，一个管取值表。
+    public func ttsSpeechToneOptions(for capability: VoiceCapability) async -> [String] {
+        guard let provider = await config.current.resolvedProvider(for: .tts) else { return [] }
+        return provider.toneOptions(for: capability)
+    }
+
+    /// 本次朗读要用的语气：**用户选定值 ∩ 供应商可用能力**，未声明的部分一律为 nil。
+    ///
+    /// 收在服务层而不是各朗读入口：与音色（`effectiveSpeechVoiceSelection`）同一条理由 ——
+    /// 六个朗读调用点各判一套，必然出现「对话区发了语气、跟读示范没发」这类一半生效。
+    /// 未声明的能力返回 nil 还顺带让合成缓存键稳定（供应商不支持时恒定是 `none` 那一份）。
+    public func effectiveSpeechTone() async -> SpeechTone {
+        let configuration = await config.current
+        guard let provider = configuration.resolvedProvider(for: .tts) else { return .none }
+        let product = configuration.product
+        return SpeechTone(
+            style: provider.toneOptions(for: .style).isEmpty ? nil : product.speechStyle,
+            emotion: provider.toneOptions(for: .emotion).isEmpty ? nil : product.speechEmotion
+        )
     }
 
     /// 全部音色档案。

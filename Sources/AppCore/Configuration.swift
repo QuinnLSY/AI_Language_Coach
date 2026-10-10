@@ -148,6 +148,88 @@ public enum SpeechRate: Double, Codable, Sendable, CaseIterable, Identifiable {
     }
 }
 
+/// 教师朗读调门（**半音**档位）。**只改音高、不改快慢** —— 与 `SpeechRate` 是两条独立的旋钮。
+///
+/// 为什么由**播放侧**实现（而不是让供应商合成时变调）：实测四条语音链路（本地 Qwen3、
+/// 本机 Edge 代理、OpenAI 兼容云端、mock）**没有一条**提供音高参数 —— 而播放链路挂的
+/// `AVAudioUnitTimePitch` 天生分着 `rate` 与 `pitch` 两个旋钮（见 `AudioPlayback`）。
+/// 走播放侧 = 所有供应商立刻都能调，且不必改任何供应商契约。
+///
+/// 档位取 ±2 个半音：再大就不像「同一个老师换了个调门」，而像换了个卡通角色。
+public enum SpeechPitch: Double, Codable, Sendable, CaseIterable, Identifiable {
+    case lower2 = -2
+    case lower1 = -1
+    case natural = 0
+    case higher1 = 1
+    case higher2 = 2
+
+    public var id: Double { rawValue }
+
+    /// 半音 → 音分（`AVAudioUnitTimePitch.pitch` 的单位，100 音分 = 1 个半音）。
+    public var cents: Double { rawValue * 100 }
+
+    public var label: String {
+        switch self {
+        case .lower2: "低 2"
+        case .lower1: "低 1"
+        case .natural: "原声"
+        case .higher1: "高 1"
+        case .higher2: "高 2"
+        }
+    }
+
+    /// 「升/降了几个半音」的自述，给 `help` 与无障碍标签用。
+    public var detail: String {
+        switch self {
+        case .natural: "不加修饰的原声"
+        case .lower2: "比原声低 2 个半音"
+        case .lower1: "比原声低 1 个半音"
+        case .higher1: "比原声高 1 个半音"
+        case .higher2: "比原声高 2 个半音"
+        }
+    }
+
+    /// 把任意取值落到最接近的档位（配置文件被手改时也能自愈）。
+    public static func nearest(to value: Double) -> SpeechPitch {
+        allCases.min { abs($0.rawValue - value) < abs($1.rawValue - value) } ?? .natural
+    }
+}
+
+/// 这次朗读要用的**语气**（风格 + 情感）。
+///
+/// ⚠️ 两个取值都是**供应商自己的词汇**（如 Edge/Azure 的 `cheerful`、某些网关的 `warm`）：
+/// 应用只负责透传，不解释含义、也不定义通用枚举 —— 一旦在这里写出一个「标准风格清单」，
+/// 就是把某家的词表当成了标准，换一家就对不上了（Phase 24 红线：不暴露厂商专属 API）。
+///
+/// 谁来填：候选值来自**配置**（`ProviderConfig.speechStyleOptions` 等），选定值存在
+/// `ProductConfig.speechStyle / speechEmotion`。今天没有任何供应商声明这两项能力，
+/// 所以设置页连入口都不会亮 —— 这**不是**没接通，而是接通了之后如实沉默（见
+/// `SpeechRequestStyle.supportedVoiceCapabilities` 与 `CoachServices.ttsVoiceCapabilities()`）。
+public struct SpeechTone: Sendable, Equatable {
+    public var style: String?
+    public var emotion: String?
+
+    public init(style: String? = nil, emotion: String? = nil) {
+        self.style = Self.normalized(style)
+        self.emotion = Self.normalized(emotion)
+    }
+
+    /// 不指定任何语气（缺省）。
+    public static let none = SpeechTone()
+
+    public var isEmpty: Bool { style == nil && emotion == nil }
+
+    /// 空串 / 纯空白一律按「没指定」算。
+    ///
+    /// 配置里把输入框清空会留下空串，若照发就是一个空值参数：有的网关 400，有的静默走默认 ——
+    /// 两种都不该由「用户清了个输入框」触发。判定口径与 `ClonedVoiceRule` 同源。
+    private static func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+}
+
 public enum RuntimeKind: String, Codable, Sendable, CaseIterable {
     case embedded
     case ollama
@@ -188,7 +270,27 @@ public enum SpeechRequestStyle: String, Codable, Sendable, CaseIterable {
     ///
     /// ⚠️ 朗读语速由**播放侧**统一控制（`ProductConfig.speechRate` → `AudioPlayback` 的时间拉伸），
     /// 合成时再传一次就会双重变速。所以这里固定中性值，不做语速映射。
+    /// **音高同理**（`ProductConfig.speechPitch` → 播放侧的 `AVAudioUnitTimePitch.pitch`）：
+    /// 四条语音链路没有一条给得出音高参数，走合成侧就是「做完也没效果」。
     public static let neutralRate = "+0%"
+
+    /// 该请求形态**结构上**能承载哪些语音能力。
+    ///
+    /// 为什么能力判定要分两层：`ProviderConfig.capabilities` 表达的是「**这个部署**开没开」，
+    /// 表达不了「**这套协议**根本没有这个字段位」。OpenAI 兼容的 `/audio/speech` 只认
+    /// `model` / `input` / `voice` / `response_format` / `speed` —— 往里塞 `style` 会被
+    /// 400 拒（`Unrecognized request argument`），而错误信息看起来像模型名或密钥的问题，
+    /// 排查方向会被彻底带偏。
+    ///
+    /// 于是和 `ProviderCapabilities.effectiveVoiceCapabilities(declared:runtime:)` 同一个道理：
+    /// **真正可用的能力 = 配置声明 ∩ 形态天花板**。网关形态（`textJSON` / `textQuery`）的键名
+    /// 由我们与网关约定，所以能承载任意语气字段；严格协议形态一律为空。
+    public var supportedVoiceCapabilities: Set<VoiceCapability> {
+        switch self {
+        case .openAISpeech: []
+        case .textJSON, .textQuery: [.style, .emotion]
+        }
+    }
 }
 
 /// 语音相关的**泛化能力位**（Implementation Plan §28 Phase 24）。
@@ -216,6 +318,21 @@ public enum VoiceCapability: String, Codable, Sendable, CaseIterable, Identifiab
 }
 
 // MARK: - Provider 配置
+
+/// 一个**要写进请求体的语气字段**（键名 + 值）。
+///
+/// 键名来自配置（各家不同），值来自用户设置 —— 应用只搬运，不理解。
+/// 单独成型而不是 `(String, String)` 元组：数组的相等比较要求元素是 `Equatable`，
+/// 而元组不满足协议一致性，测试里就没法直接断言「发出去的正是这两个字段」。
+public struct SpeechToneField: Sendable, Equatable {
+    public var key: String
+    public var value: String
+
+    public init(key: String, value: String) {
+        self.key = key
+        self.value = value
+    }
+}
 
 /// Provider 配置。**所有字段来自配置文件**，代码里不得出现端点 / 模型名字面量。
 public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
@@ -289,6 +406,22 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
     /// 而错误信息看起来像「请求格式错误」，用户根本想不到是「这个模型不吃图」。
     /// 没声明时，图片会退化成一句「附了一张图 xxx.png」的说明，对话照常能继续。
     public var vision: Bool?
+    /// 请求体里「朗读风格」的**键名**（nil = 用通用名 `style`）。
+    ///
+    /// 与 `speech_path` / `voice_list_path` 同一条理由：各家字段名不同，代码里不猜。
+    /// ⚠️ 它**不是**「能不能发」的开关 —— 那由 `capabilities` 声明 ∩
+    /// `SpeechRequestStyle.supportedVoiceCapabilities` 决定。同一个事实只留一个真源，
+    /// 否则「键名留空但能力声明了」会变成一种谁也不知道该按谁办的中间态。
+    public var speechStyleField: String?
+    /// 请求体里「朗读情感」的键名（nil = 用通用名 `emotion`）。
+    public var speechEmotionField: String?
+    /// 供应商给出的**风格候选值**（如 `["cheerful", "sad"]`）。
+    ///
+    /// nil / 空 = 该供应商不支持风格 —— 设置页据此**不渲染**风格选择器。
+    /// 候选值只有供应商知道，应用编不出来，也不该编。
+    public var speechStyleOptions: [String]?
+    /// 供应商给出的**情感候选值**。语义同 `speechStyleOptions`。
+    public var speechEmotionOptions: [String]?
 
     public init(
         id: String,
@@ -321,7 +454,11 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         apiKeyRequired: Bool? = nil,
         billable: Bool? = nil,
         capabilities: [String]? = nil,
-        vision: Bool? = nil
+        vision: Bool? = nil,
+        speechStyleField: String? = nil,
+        speechEmotionField: String? = nil,
+        speechStyleOptions: [String]? = nil,
+        speechEmotionOptions: [String]? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -354,6 +491,10 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
         self.billable = billable
         self.capabilities = capabilities
         self.vision = vision
+        self.speechStyleField = speechStyleField
+        self.speechEmotionField = speechEmotionField
+        self.speechStyleOptions = speechStyleOptions
+        self.speechEmotionOptions = speechEmotionOptions
     }
 
     public var userFacingName: String { displayName ?? id }
@@ -397,6 +538,66 @@ public struct ProviderConfig: Codable, Sendable, Equatable, Identifiable {
 
     /// 语音请求形态（默认 OpenAI 兼容）。
     public var resolvedSpeechRequestStyle: SpeechRequestStyle { speechRequestStyle ?? .openAISpeech }
+
+    /// 「朗读风格」字段的**键名**：配置留空就回落通用名（纯空白也算留空）。
+    public var resolvedSpeechStyleField: String { Self.fieldName(speechStyleField) ?? "style" }
+
+    /// 「朗读情感」字段的键名：同上。
+    public var resolvedSpeechEmotionField: String { Self.fieldName(speechEmotionField) ?? "emotion" }
+
+    /// 该部署**真正可用**的语气能力 = 声明的能力 ∩ 请求形态天花板。
+    ///
+    /// 两层缺一不可：声明了但形态载不动 → 会被 400 拒；形态能载但没声明 → 供应商没开这个口子。
+    /// 与 `ProviderCapabilities.effectiveVoiceCapabilities(declared:runtime:)` 是同一个算式，
+    /// 只是这里的「实现天花板」是**协议**而不是 runtime。
+    ///
+    /// ⚠️ 这里只谈**语气**（风格 / 情感）。音高不在其中：它由播放侧提供，
+    /// 与供应商能力无关（见 `SpeechPitch`）。
+    public func supportedToneCapabilities() -> Set<VoiceCapability> {
+        declaredVoiceCapabilities.intersection(resolvedSpeechRequestStyle.supportedVoiceCapabilities)
+    }
+
+    /// 某个语气能力的候选值。**未声明能力、或候选值缺失时统一返回空数组** ——
+    /// 调用方（设置页）只看「空不空」就能决定渲不渲染，不必自己判两遍。
+    public func toneOptions(for capability: VoiceCapability) -> [String] {
+        guard supportedToneCapabilities().contains(capability) else { return [] }
+        let raw: [String]?
+        switch capability {
+        case .style: raw = speechStyleOptions
+        case .emotion: raw = speechEmotionOptions
+        default: return []
+        }
+        return (raw ?? []).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    /// 这次朗读实际要写进请求体的**语气字段**（键名 + 值）。**规则只此一份。**
+    ///
+    /// 本地与云端两个适配器都调它，免得出现「本地发了情感、云端忘了发」这种只有一条链路走通的漂移。
+    /// 判定是三层与：① 用户给了值；② 供应商声明了该能力；③ 这套请求形态载得动它
+    /// （后两条合起来就是 `supportedToneCapabilities()`）。
+    ///
+    /// ⚠️ 键名是配置给的**任意字符串**，写进 JSON 时绝不能被键名转换策略改写 ——
+    /// 实测 `.convertToSnakeCase` 会把 `prosodyStyle` 改成 `prosody_style`：
+    /// 配置里写的是什么键，发出去就该是什么键（见 `RemoteCommon.makeVerbatimEncoder`）。
+    public func toneFields(for tone: SpeechTone) -> [SpeechToneField] {
+        guard !tone.isEmpty else { return [] }
+        let supported = supportedToneCapabilities()
+        var fields: [SpeechToneField] = []
+        if supported.contains(.style), let value = tone.style {
+            fields.append(SpeechToneField(key: resolvedSpeechStyleField, value: value))
+        }
+        if supported.contains(.emotion), let value = tone.emotion {
+            fields.append(SpeechToneField(key: resolvedSpeechEmotionField, value: value))
+        }
+        return fields
+    }
+
+    /// 键名归一：留空（含纯空白）→ nil，由调用方回落通用名。
+    private static func fieldName(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
 
     /// 音色的展示名（没有友好名时返回 nil，由 UI 决定怎么显示 id）。
     public func voiceLabel(for voice: String) -> String? {
@@ -498,6 +699,16 @@ public struct ProductConfig: Sendable, Equatable {
     public var autoSpeak: Bool
     /// 教师朗读语速（1 = 正常）。可选档位见 `SpeechRate`，非法取值落回 1。
     public var speechRate: Double
+    /// 教师朗读调门（半音，0 = 原声）。可选档位见 `SpeechPitch`，非法取值落回原声。
+    ///
+    /// 与语速分开存：语速改的是**快慢**、调门改的是**音高**，是两条互不影响的旋钮。
+    public var speechPitch: Double
+    /// 教师朗读**风格**（供应商自定义取值；空串 = 不指定）。
+    ///
+    /// 候选值来自 `ProviderConfig.speechStyleOptions` —— 应用不认识这些词，只负责透传。
+    public var speechStyle: String
+    /// 教师朗读**情感**（供应商自定义取值；空串 = 不指定）。语义同 `speechStyle`。
+    public var speechEmotion: String
     /// 每日练习目标（分钟）。Dashboard 的「Learning goals」用它算完成度。
     public var dailyGoalMinutes: Int
     /// 每日目标档位：保底 5 分钟 / 进阶目标（按 `dailyGoalMinutes` 排任务）。
@@ -554,6 +765,9 @@ public struct ProductConfig: Sendable, Equatable {
         voicePreview: Bool = true,
         autoSpeak: Bool = true,
         speechRate: Double = SpeechRate.x1.rawValue,
+        speechPitch: Double = SpeechPitch.natural.rawValue,
+        speechStyle: String = "",
+        speechEmotion: String = "",
         dailyGoalMinutes: Int = 15,
         dailyGoalMode: DailyGoalMode = .advanced,
         practiceReminderEnabled: Bool = false,
@@ -589,6 +803,9 @@ public struct ProductConfig: Sendable, Equatable {
         self.voicePreview = voicePreview
         self.autoSpeak = autoSpeak
         self.speechRate = SpeechRate.nearest(to: speechRate).rawValue
+        self.speechPitch = SpeechPitch.nearest(to: speechPitch).rawValue
+        self.speechStyle = speechStyle
+        self.speechEmotion = speechEmotion
         self.dailyGoalMinutes = min(max(dailyGoalMinutes, 5), 180)
         self.dailyGoalMode = dailyGoalMode
         self.practiceReminderEnabled = practiceReminderEnabled
@@ -622,6 +839,7 @@ extension ProductConfig: Codable {
         case soundEffects, forestWelcomed, activeProviders
         case teacherBubbles, animalBubbles, animalActivity
         case animalActivityFrequency, voicePreview, autoSpeak, speechRate
+        case speechPitch, speechStyle, speechEmotion
         case dailyGoalMinutes, dailyGoalMode
         case practiceReminderEnabled, practiceReminderHour, practiceReminderMinute
         case activeVoiceProfileID
@@ -676,6 +894,9 @@ extension ProductConfig: Codable {
         voicePreview = try value(.voicePreview, fallback.voicePreview)
         autoSpeak = try value(.autoSpeak, fallback.autoSpeak)
         speechRate = SpeechRate.nearest(to: try value(.speechRate, fallback.speechRate)).rawValue
+        speechPitch = SpeechPitch.nearest(to: try value(.speechPitch, fallback.speechPitch)).rawValue
+        speechStyle = try value(.speechStyle, fallback.speechStyle)
+        speechEmotion = try value(.speechEmotion, fallback.speechEmotion)
         dailyGoalMinutes = min(max(try value(.dailyGoalMinutes, fallback.dailyGoalMinutes), 5), 180)
         // ⚠️ 老配置一律落回 advanced —— 那是保底档引入前的唯一行为，升级不改口径。
         dailyGoalMode = try value(.dailyGoalMode, fallback.dailyGoalMode)
@@ -717,6 +938,9 @@ extension ProductConfig: Codable {
         try container.encode(voicePreview, forKey: .voicePreview)
         try container.encode(autoSpeak, forKey: .autoSpeak)
         try container.encode(speechRate, forKey: .speechRate)
+        try container.encode(speechPitch, forKey: .speechPitch)
+        try container.encode(speechStyle, forKey: .speechStyle)
+        try container.encode(speechEmotion, forKey: .speechEmotion)
         try container.encode(dailyGoalMinutes, forKey: .dailyGoalMinutes)
         try container.encode(dailyGoalMode, forKey: .dailyGoalMode)
         try container.encode(practiceReminderEnabled, forKey: .practiceReminderEnabled)

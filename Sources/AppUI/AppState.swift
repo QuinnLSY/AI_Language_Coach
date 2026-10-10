@@ -312,6 +312,14 @@ public final class AppState {
     public internal(set) var voiceProfiles: [VoiceProfile] = []
     /// 当前 TTS 供应商是否支持音色克隆（不支持时 UI 直接说明，而不是让用户配完才发现不行）。
     public internal(set) var voiceCloningSupported = false
+    /// 当前 TTS 供应商声明的语音能力（克隆 / 风格 / 情感 / 原生音高），随语音装配刷新。
+    ///
+    /// 与 `voiceCloningSupported` 的关系：后者就是它的 `voiceCloning` 一位 ——
+    /// 保留旧名字是因为设置页的克隆卡片一直读它；两者由同一次刷新一起写，不会各说各话。
+    public internal(set) var voiceCapabilities = ProviderCapabilities()
+    /// 当前供应商给出的朗读语气候选值（风格 / 情感）。**空 = 不支持**，设置页据此不渲染入口：
+    /// 宁可没有入口，也不给一个点了没反应的假入口。
+    public internal(set) var speechToneOptions: [VoiceCapability: [String]] = [:]
     /// 克隆音色操作的结果提示（成功 / 失败，可关闭）。
     public internal(set) var voiceProfileNotice: String?
     /// 正在试听 / 启用的克隆音色 id（按钮转圈用）。
@@ -1324,6 +1332,11 @@ public final class AppState {
     public var voicePreviewEnabled: Bool { product.voicePreview }
     /// 教师朗读语速（倍速，1 = 正常）。
     public var speechRate: Double { product.speechRate }
+    /// 教师朗读调门（半音，0 = 原声）。
+    public var speechPitch: Double { product.speechPitch }
+    /// 教师朗读风格 / 情感（供应商自定义取值；空串 = 不指定）。
+    public var speechStyle: String { product.speechStyle }
+    public var speechEmotion: String { product.speechEmotion }
     /// 实际生效的活动开关：配置开 && 非夜晚（夜晚自动安静）。
     public var animalActivityEffective: Bool { product.animalActivity && !theme.isNight }
 
@@ -1993,6 +2006,44 @@ public final class AppState {
         guard rate.rawValue != product.speechRate else { return }
         product.speechRate = rate.rawValue
         await persistProduct()
+    }
+
+    /// 教师朗读调门：落到最接近的档位（与语速同一套自愈口径）。
+    ///
+    /// 与语速分开存、分开播：语速改**快慢**、调门改**音高**，两条旋钮互不影响。
+    public func setSpeechPitch(_ value: Double) async {
+        let pitch = SpeechPitch.nearest(to: value)
+        guard pitch.rawValue != product.speechPitch else { return }
+        product.speechPitch = pitch.rawValue
+        await persistProduct()
+    }
+
+    /// 教师朗读风格 / 情感（供应商自定义取值；空串 = 不指定）。
+    ///
+    /// 不做取值校验：取值表由供应商给（`speechToneOptions`），应用不认识这些词，
+    /// 校验只会把「供应商新加了一个取值」变成「用户选不了」。
+    public func setSpeechStyle(_ value: String) async {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != product.speechStyle else { return }
+        product.speechStyle = trimmed
+        await persistProduct()
+    }
+
+    public func setSpeechEmotion(_ value: String) async {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != product.speechEmotion else { return }
+        product.speechEmotion = trimmed
+        await persistProduct()
+    }
+
+    /// 按能力写回朗读语气 —— UI 那边只有这一个入口（它只知道自己在改哪一行，不必知道是风格还是情感）。
+    public func setSpeechTone(_ capability: VoiceCapability, _ value: String) async {
+        switch capability {
+        case .style: await setSpeechStyle(value)
+        case .emotion: await setSpeechEmotion(value)
+        // 音色克隆与音高各有自己的入口：前者要授权与本地文件，后者由播放侧实现。
+        default: break
+        }
     }
 
     // MARK: - 伙伴形象

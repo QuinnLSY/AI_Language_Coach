@@ -1,6 +1,7 @@
 import AIDomain
 import AIInfrastructure
 import AIInterfaces
+import AppCore
 import Foundation
 
 /// 跟读（Shadowing）编排服务（第 22 步）。
@@ -67,13 +68,21 @@ public actor ShadowingService {
     ///
     /// 入参叫 `selection` 而不是 `voice`：本类型的 `voice` 是 VoiceService 属性，
     /// 再挂一个同名参数会让 `voice.speak` 到底指谁都看不出来。
+    ///
+    /// ⚠️ `pitch` / `tone` **不给默认值**：示范必须是「同一个老师、同一个音色、同一个调门」。
+    /// 给了默认值，漏传的调用点照样编译通过，症状是「对话区调了调门，跟读示范还是老调子」——
+    /// 与当初「只换对话区的音色、示范还是内置音色」是同一类一半生效。
     public func playReference(
         _ drill: ShadowingDrill,
         selection: SpeechVoiceSelection,
         language: String,
-        rate: Float
+        rate: Float,
+        pitch: SpeechPitch,
+        tone: SpeechTone
     ) async {
-        await voice.speak(drill.text, voice: selection, language: language, rate: rate)
+        await voice.speak(
+            drill.text, voice: selection, language: language, rate: rate, pitch: pitch, tone: tone
+        )
     }
 
     /// 听整段示范：把段落连成一段交给朗读流水线（分句 / 变速都在里面处理）。
@@ -84,9 +93,13 @@ public actor ShadowingService {
         _ passage: ShadowingPassage,
         selection: SpeechVoiceSelection,
         language: String,
-        rate: Float
+        rate: Float,
+        pitch: SpeechPitch,
+        tone: SpeechTone
     ) async {
-        await voice.speak(passage.text, voice: selection, language: language, rate: rate)
+        await voice.speak(
+            passage.text, voice: selection, language: language, rate: rate, pitch: pitch, tone: tone
+        )
     }
 
     /// 开始跟读录音（录音期间 VoiceService 会流式把识别结果推给 UI）。

@@ -162,8 +162,16 @@ extension AppState {
         speakRequestToken = token
         // 音色取值统一走 `effectiveSpeechVoiceSelection()`：启用克隆音色时它带档案 id **和参考音频**，
         // 否则是内置音色名。UI 不自己判断该用哪个 —— 那会让两处口径漂移。
-        await services.voice.speak(text, voice: await services.effectiveSpeechVoiceSelection(),
-                                   language: learningLanguageName, rate: Float(product.speechRate))
+        // 调门与语气同理收在 `currentSpeechPlayback()`，六个朗读入口取同一份。
+        let playback = await currentSpeechPlayback()
+        await services.voice.speak(
+            text,
+            voice: await services.effectiveSpeechVoiceSelection(),
+            language: learningLanguageName,
+            rate: Float(product.speechRate),
+            pitch: playback.pitch,
+            tone: playback.tone
+        )
         // 令牌已换 → 这次朗读已被后一次作废，**一个字都不许回写**。
         guard speakRequestToken == token else { return }
         isSpeaking = await services.voice.isSpeaking
@@ -198,18 +206,48 @@ extension AppState {
         product.teacherVoice = voice
         await persistProduct()
         if product.voicePreview {
-            await services.voice.speak("Nice to meet you!", voice: voice, language: learningLanguageName,
-                                       rate: Float(product.speechRate))
+            // 试听也带上当前的调门与语气：否则用户刚调完调门点试听，听到的还是老调子，
+            // 会以为「设置没生效」而反复再调一次。
+            let playback = await currentSpeechPlayback()
+            await services.voice.speak(
+                "Nice to meet you!",
+                voice: voice,
+                language: learningLanguageName,
+                rate: Float(product.speechRate),
+                pitch: playback.pitch,
+                tone: playback.tone
+            )
             voiceError = await services.voice.lastError
         }
     }
 
     // MARK: - 克隆音色（第 24 步）
 
-    /// 刷新音色档案，以及「当前供应商是否支持克隆」。
+    /// 刷新音色档案，以及当前供应商的语音能力（克隆 / 风格 / 情感）与语气候选值。
+    ///
+    /// 三类一次取齐：设置页的能力徽标读 `voiceCapabilities`、语气选择器读 `speechToneOptions`。
+    /// 分两次取会出现「徽标写着支持风格、选择器却是空的」这种自相矛盾的画面。
     public func refreshVoiceProfiles() async {
         voiceProfiles = await services.voiceProfiles()
-        voiceCloningSupported = await services.ttsSupportsVoiceCloning()
+        let capabilities = await services.ttsVoiceCapabilities()
+        voiceCapabilities = capabilities
+        voiceCloningSupported = capabilities.voiceCloning
+        var options: [VoiceCapability: [String]] = [:]
+        for capability in [VoiceCapability.style, .emotion] {
+            let values = await services.ttsSpeechToneOptions(for: capability)
+            if !values.isEmpty { options[capability] = values }
+        }
+        speechToneOptions = options
+    }
+
+    /// 本次朗读的播放参数：调门（播放侧变调）与语气（合成侧透传）。
+    ///
+    /// 收成一处的理由：它们是两条**不同链路**上的设置，而所有朗读入口（对话区、试听、
+    /// 跟读 / 段落 / 听力示范…）都得同时带上 —— 各取各的必然出现
+    /// 「对话区生效、跟读示范没生效」这类一半生效。语气还要先过供应商能力
+    /// （`CoachServices.effectiveSpeechTone` 里判），这一步同样不该让每个调用点自己判。
+    func currentSpeechPlayback() async -> (pitch: SpeechPitch, tone: SpeechTone) {
+        (SpeechPitch.nearest(to: product.speechPitch), await services.effectiveSpeechTone())
     }
 
     /// 新建一份克隆音色档案：把选中的本地参考音频**复制**进应用目录，并记下授权说明。

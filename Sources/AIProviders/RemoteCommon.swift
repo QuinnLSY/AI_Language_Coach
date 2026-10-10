@@ -500,6 +500,16 @@ public enum RemoteCommon {
         return encoder
     }
 
+    /// **不转换键名**的编码器：给「键名由配置给出」的请求体用。
+    ///
+    /// 为什么必须单独一个：`keyEncodingStrategy = .convertToSnakeCase` **连动态键名也转**
+    /// （实测 `prosodyStyle` 被写成 `prosody_style`）。而朗读语气的键名正是配置里的字符串 ——
+    /// 配置里写的是什么键、发出去就该是什么键。被改写之后的症状是**服务端静默忽略该参数**：
+    /// 不报错、不生效，用户只看得出「风格设置了没用」，而键名对不上这件事从任何日志里都看不出来。
+    public static func makeVerbatimEncoder() -> JSONEncoder {
+        JSONEncoder()
+    }
+
     public static func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         do {
             return try makeDecoder().decode(type, from: data)
@@ -527,4 +537,25 @@ public enum RemoteCommon {
             let message: String?
         }
     }
+}
+
+/// 任意字符串键名 —— 请求体里的键名由**配置**给出时用（目前是朗读语气的风格 / 情感）。
+///
+/// 为什么不能用 `enum CodingKeys`：那些键名来自配置文件（各家不同），编译期根本不知道。
+/// ⚠️ 配合它的编码器必须是不做键名转换的那个（`RemoteCommon.makeVerbatimEncoder()`）——
+/// 带 `.convertToSnakeCase` 的编码器会把动态键名一起改写（实测 `prosodyStyle` → `prosody_style`）。
+public struct DynamicCodingKey: CodingKey {
+    public var stringValue: String
+    public var intValue: Int? { nil }
+
+    public init(stringValue: String) {
+        self.stringValue = stringValue
+    }
+
+    /// 便捷写法：`DynamicCodingKey("style")`。
+    public init(_ name: String) {
+        self.stringValue = name
+    }
+
+    public init?(intValue: Int) { nil }
 }

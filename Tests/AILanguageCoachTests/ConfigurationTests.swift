@@ -345,6 +345,9 @@ final class ConfigurationTests: XCTestCase {
             voicePreview: false,
             autoSpeak: false,
             speechRate: SpeechRate.x1_5.rawValue,
+            speechPitch: SpeechPitch.higher1.rawValue,
+            speechStyle: "cheerful",
+            speechEmotion: "calm",
             dailyGoalMinutes: 45,
             dailyGoalMode: .baseline,
             practiceReminderEnabled: true,
@@ -369,6 +372,7 @@ final class ConfigurationTests: XCTestCase {
             "soundEffects", "forestWelcomed", "activeProviders",
             "teacherBubbles", "animalBubbles", "animalActivity", "animalActivityFrequency",
             "voicePreview", "autoSpeak", "speechRate", "dailyGoalMinutes", "dailyGoalMode",
+            "speechPitch", "speechStyle", "speechEmotion",
             "practiceReminderEnabled", "practiceReminderHour", "practiceReminderMinute",
             "activeVoiceProfileID", "autoBackupEnabled", "autoBackupIntervalDays",
             "typeSize", "interfaceDensity",
@@ -398,5 +402,20 @@ final class ConfigurationTests: XCTestCase {
         let explicitDecoded = try JSONDecoder().decode(ProductConfig.self, from: explicit)
         XCTAssertFalse(explicitDecoded.forestFollowsClock)
         XCTAssertTrue(explicitDecoded.forestFollowsSeason)
+    }
+
+    /// 朗读调门与语速同一个自愈口径：手改到档位之外的值要落回最近档，
+    /// 而不是把一个越界音分原样送进播放链路（`AVAudioUnitTimePitch.pitch` 上限 ±2400）。
+    func testPitchSelfHealsOnDecode() throws {
+        let decoded = try JSONDecoder().decode(ProductConfig.self, from: Data(#"{"speechPitch":9}"#.utf8))
+        XCTAssertEqual(decoded.speechPitch, SpeechPitch.higher2.rawValue)
+
+        let negative = try JSONDecoder().decode(ProductConfig.self, from: Data(#"{"speechPitch":-40}"#.utf8))
+        XCTAssertEqual(negative.speechPitch, SpeechPitch.lower2.rawValue)
+
+        let missing = try JSONDecoder().decode(ProductConfig.self, from: Data("{}".utf8))
+        XCTAssertEqual(missing.speechPitch, SpeechPitch.natural.rawValue, "老配置没有这个字段 → 原声")
+        XCTAssertEqual(missing.speechStyle, "")
+        XCTAssertEqual(missing.speechEmotion, "")
     }
 }

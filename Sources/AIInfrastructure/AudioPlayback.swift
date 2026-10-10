@@ -1,4 +1,5 @@
 @preconcurrency import AVFoundation
+import AppCore
 import Foundation
 
 /// 音频播放器：播放 runtime 返回的 WAV（教师语音）。用完即释放，不驻留缓存。
@@ -58,9 +59,18 @@ public final class AudioPlayback: NSObject, AVAudioPlayerDelegate, @unchecked Se
     /// 打断有两条路，都得能唤醒等待者：显式 `stop()`，以及**等待方自己的任务被取消**
     /// （`onCancel`）。后者必需 —— `withCheckedContinuation` 不会因为任务取消而恢复，
     /// 少这一条钩子，被取消的那次朗读会把整条流水线永久卡在这行 `await` 上。
-    public func playAndWait(wavData: Data, rate: Float = 1.0) async throws {
+    ///
+    /// - Parameter pitch: 朗读调门。
+    ///   ⚠️ `AVAudioPlayer` 那条**快路径没有变调能力**，所以只有「原速 + 原声」才许走它。
+    ///   少判这一个条件，症状是「调门设了没反应，把速度拨到 1.5× 才听得出来」——
+    ///   而两次播放的差别看起来只与速度有关，几乎不可能联想到调门被吃掉。
+    public func playAndWait(
+        wavData: Data,
+        rate: Float = 1.0,
+        pitch: SpeechPitch = .natural
+    ) async throws {
         stop()
-        if abs(rate - 1.0) < 0.01 {
+        if abs(rate - 1.0) < 0.01, pitch == .natural {
             let player = try AVAudioPlayer(data: wavData)
             player.delegate = self
             player.prepareToPlay()
@@ -76,7 +86,7 @@ public final class AudioPlayback: NSObject, AVAudioPlayerDelegate, @unchecked Se
             if case .notStarted = end { throw AudioPlaybackError.playerRefusedStart }
             return
         }
-        try await playWithEngine(wavData: wavData, rate: rate)
+        try await playWithEngine(wavData: wavData, rate: rate, pitch: pitch)
     }
 
     /// ⚠️ `nonisolated` 是刻意的：打断播放要能从语音服务的**同步**方法里立刻生效
@@ -196,8 +206,12 @@ public final class AudioPlayback: NSObject, AVAudioPlayerDelegate, @unchecked Se
 
     // MARK: - 变速链路（引擎 + 时间拉伸）
 
-    /// 引擎播放：临时落盘 → AVAudioFile 读取 → 时间拉伸节点 → 输出，并等待整段播完。
-    private func playWithEngine(wavData: Data, rate: Float) async throws {
+    /// 引擎播放：临时落盘 → AVAudioFile 读取 → 变速 / 变调节点 → 输出，并等待整段播完。
+    ///
+    /// `AVAudioUnitTimePitch` 的两个旋钮**互相独立**：`rate` 改快慢（`pitch` 保持不动）、
+    /// `pitch` 改音高（单位**音分**，100 音分 = 1 个半音）。所以「2× 语速」与「+2 半音」
+    /// 可以同时成立 —— 这正是把调门放在这一层而不是合成侧的理由（见 `SpeechPitch`）。
+    private func playWithEngine(wavData: Data, rate: Float, pitch: SpeechPitch) async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("coach-tts-\(UUID().uuidString).\(Self.containerExtension(of: wavData))")
         try wavData.write(to: url)
@@ -210,13 +224,14 @@ public final class AudioPlayback: NSObject, AVAudioPlayerDelegate, @unchecked Se
         let file = try AVAudioFile(forReading: url)
         let engine = AVAudioEngine()
         let node = AVAudioPlayerNode()
-        let pitch = AVAudioUnitTimePitch()
-        pitch.rate = rate
+        let timePitch = AVAudioUnitTimePitch()
+        timePitch.rate = rate
+        timePitch.pitch = Float(pitch.cents)
 
         engine.attach(node)
-        engine.attach(pitch)
-        engine.connect(node, to: pitch, format: file.processingFormat)
-        engine.connect(pitch, to: engine.mainMixerNode, format: file.processingFormat)
+        engine.attach(timePitch)
+        engine.connect(node, to: timePitch, format: file.processingFormat)
+        engine.connect(timePitch, to: engine.mainMixerNode, format: file.processingFormat)
 
         guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat,
                                             frameCapacity: AVAudioFrameCount(file.length)) else {
