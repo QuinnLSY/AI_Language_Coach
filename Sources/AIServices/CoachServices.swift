@@ -2646,9 +2646,14 @@ public actor CoachServices {
     }
 
     /// 清理缓存，返回清理前的快照（供 UI 展示释放量）。
+    ///
+    /// ⚠️ 磁盘那部分由 `CacheManager` 管；**进程内**的几份缓存（词典查词结果）也得在这条路上一起倒掉 ——
+    /// 否则用户点了「清缓存」、内存占用纹丝不动，那个按钮就只是心理安慰（#S3-6）。
     @discardableResult
     public func clearCaches() async -> CacheSnapshot {
-        await CacheManager.clearCaches(database: learning)
+        let snapshot = await CacheManager.clearCaches(database: learning)
+        await dictionary.clearCache()
+        return snapshot
     }
 
     // MARK: - 隐私（设置页「隐私与安全」）

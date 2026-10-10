@@ -21,16 +21,14 @@ public final class MicrophoneRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var engine: AVAudioEngine?
     private var buffer: [Float] = []
-    private var _isRecording = false
+    /// 录音生命周期的并发闸门（#S3-10，见 `RecordingGate`）。
+    private let gate = RecordingGate()
     /// 采集链路上的故障（重采样失败等）；nil = 正常。
     private var _captureError: String?
 
     public init() {}
 
-    public var isRecording: Bool {
-        lock.lock(); defer { lock.unlock() }
-        return _isRecording
-    }
+    public var isRecording: Bool { gate.isRecording }
 
     /// 采集过程中的错误（重采样失败、引擎异常等），供上层提示用户。
     public var captureError: String? {
@@ -54,18 +52,20 @@ public final class MicrophoneRecorder: @unchecked Sendable {
     }
 
     /// 开始录音。已授权但未安装 tap 时抛错由调用方处理。
+    ///
+    /// ⚠️ `starting` 期间的重入一律**直接返回**（不抛错）：双击麦克风是常态，
+    /// 第二次调用应该什么都不做，而不是再造一套引擎（见 `Lifecycle` 的说明）。
     public func start() throws {
+        // ⚠️ 先占坑：解锁之后的整段构建过程里，谁再进来都看到「占用中」（#S3-10）。
+        guard gate.beginStarting() else { return }
         lock.lock()
-        if _isRecording {
-            lock.unlock()
-            return
-        }
         buffer = []
         buffer.reserveCapacity(Int(Self.sampleRate * 60))
         _captureError = nil
         lock.unlock()
 
         guard let target = Self.targetFormat() else {
+            gate.release()
             throw AppError.audio("无法创建录音格式")
         }
 
@@ -74,6 +74,7 @@ public final class MicrophoneRecorder: @unchecked Sendable {
         let hardware = input.outputFormat(forBus: 0)
         // 没有可用输入设备时硬件格式是 0Hz/0 声道；带着这种格式去 installTap 同样会崩，先拦掉。
         guard hardware.sampleRate > 0, hardware.channelCount > 0 else {
+            gate.release()
             throw AppError.audio("没有可用的麦克风输入设备")
         }
 
@@ -83,6 +84,7 @@ public final class MicrophoneRecorder: @unchecked Sendable {
         let isPassthrough = Self.isSameLayout(tapFormat, target)
         let converter = isPassthrough ? nil : AVAudioConverter(from: tapFormat, to: target)
         if !isPassthrough, converter == nil {
+            gate.release()
             throw AppError.audio("无法把麦克风音频转换成识别所需格式")
         }
 
@@ -104,26 +106,31 @@ public final class MicrophoneRecorder: @unchecked Sendable {
         } catch {
             // 失败路径必须拆掉 tap，否则本地 engine 释放时仍挂着回调。
             input.removeTap(onBus: 0)
+            gate.release()
             throw AppError.audio("无法启动录音：\(error.localizedDescription)")
         }
 
         lock.lock()
         self.engine = engine
-        _isRecording = true
         lock.unlock()
+        gate.markRecording()
     }
 
     /// 停止录音并返回本段音频采样（已释放 tap 与引擎）。
     public func stop() -> [Float] {
         lock.lock()
-        defer { lock.unlock() }
-        guard _isRecording else { return [] }
+        guard gate.isRecording else {
+            lock.unlock()
+            return []
+        }
         engine?.inputNode.removeTap(onBus: 0)
         engine?.stop()
         engine = nil
-        _isRecording = false
         let captured = buffer
         buffer = []
+        lock.unlock()
+        // 先解锁再放闸门：两把锁方向永远是 `lock → gate`，绝不反过来（否则会死锁）。
+        gate.release()
         return captured
     }
 
@@ -133,7 +140,7 @@ public final class MicrophoneRecorder: @unchecked Sendable {
     /// 返回的是副本，调用方随便处理；未录音时返回空数组。
     public func currentSamples() -> [Float] {
         lock.lock(); defer { lock.unlock() }
-        guard _isRecording else { return [] }
+        guard gate.isRecording else { return [] }
         return buffer
     }
 
@@ -230,5 +237,49 @@ public final class MicrophoneRecorder: @unchecked Sendable {
         lock.lock()
         _captureError = message
         lock.unlock()
+    }
+}
+
+/// 录音生命周期的并发闸门（#S3-10）。
+///
+/// 为什么不能只用「`isRecording` 布尔 + 两段加锁」：`start()` 里**检查与置位之间**
+/// 隔着一整段不加锁的代码 —— 建引擎、装 tap、`engine.start()`。并发进来的第二次
+/// `start()` 会看到「还没在录」，于是**再造一套引擎与 tap**，后写覆盖 `engine` 引用；
+/// 前一套再也无人引用、无人停止，麦克风就这样常开着。
+///
+/// 三态而不是布尔：`starting` 这一段**也算占用**（这正是原来缺的那一格）。
+/// 抽成独立类型是为了能直接单测这个竞态（见 `ConcurrencyAndResourceTests`）——
+/// 真去并发调 `start()` 要碰真麦克风，测不了。
+final class RecordingGate: @unchecked Sendable {
+
+    enum Phase { case idle, starting, recording }
+
+    private let lock = NSLock()
+    private var phase: Phase = .idle
+
+    /// 尝试开始一次录音。**只有从 `idle` 出发的那一次**拿得到 true；
+    /// 其余（已在录、或正在启动）一律 false，调用方应当直接返回。
+    func beginStarting() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard phase == .idle else { return false }
+        phase = .starting
+        return true
+    }
+
+    /// 构建成功，进入录音中。
+    func markRecording() {
+        lock.lock(); defer { lock.unlock() }
+        phase = .recording
+    }
+
+    /// 回到空闲（停止录音、或构建中途失败）。
+    func release() {
+        lock.lock(); defer { lock.unlock() }
+        phase = .idle
+    }
+
+    var isRecording: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return phase == .recording
     }
 }

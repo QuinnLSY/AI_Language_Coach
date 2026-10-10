@@ -328,8 +328,11 @@ final class ForestResponsivenessTests: XCTestCase {
                              in: try source("AppUI/Components/TreeCanvas.swift"))
         XCTAssertTrue(body.contains("for wave in 0..<3"), "庆祝必须跳好几下（三波）")
         XCTAssertTrue(body.contains("Double(order) * 0.18"), "同波之内各只要按位次错开")
-        let bubbleLoop = body.range(of: "for (order, index) in bubbled.enumerated()")
+        // 气泡这一路改成「先同步派号（`bubblePlan`）、再按位次错峰出场」：
+        // 派号与出场分开是为了让收尾那个 Task 知道要收哪几个号（#S3-11）。
+        let bubbleLoop = body.range(of: "for (order, entry) in bubblePlan.enumerated()")
         XCTAssertNotNil(bubbleLoop, "气泡要按位次错落着冒（不是同时冒）")
+        XCTAssertTrue(body.contains("Double(order) * 0.7"), "台词之间的错峰间隔不能被顺手删掉")
     }
 
     /// 森林自己也要放庆祝烟花：树面板上由 `state.celebrationTick` 驱动的一层。

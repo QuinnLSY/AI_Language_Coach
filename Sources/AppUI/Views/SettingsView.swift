@@ -2485,10 +2485,10 @@ public struct SettingsView: View {
                     .accessibilityLabel("重新统计缓存占用")
                 }
 
-                // 明细：学习记忆加锁标记（清理时保留）
+                // 明细：学习记忆加锁标记（清理时保留）；留痕单独点名（可清，但清的是对账证据）
                 ForEach(snapshot.items) { item in
                     HStack(spacing: 6) {
-                        Image(systemName: item.isLearningData ? "lock.fill" : "doc")
+                        Image(systemName: item.isLearningData ? "lock.fill" : (item.isCallLog ? "list.bullet.rectangle" : "doc"))
                             .appFont(9)
                             .foregroundStyle(item.isLearningData ? theme.accent : theme.secondaryText)
                         Text(item.name)
@@ -2501,6 +2501,13 @@ public struct SettingsView: View {
                                 .padding(.horizontal, 5)
                                 .appPadding(.vertical, 2)
                                 .background(Capsule().fill(theme.accent.opacity(0.12)))
+                        } else if item.isCallLog {
+                            Text("对账留痕")
+                                .appFont(9, weight: .semibold, design: .rounded)
+                                .foregroundStyle(theme.warning)
+                                .padding(.horizontal, 5)
+                                .appPadding(.vertical, 2)
+                                .background(Capsule().fill(theme.warning.opacity(0.12)))
                         }
                         Spacer()
                         Text(CacheSnapshot.byteCount(item.bytes))
@@ -2541,10 +2548,10 @@ public struct SettingsView: View {
                     }
                     .buttonStyle(.appPressable)
                     .disabled(isClearingCache || snapshot.items.isEmpty)
-                    .help("清理过期对话流水并回收磁盘空间")
+                    .help("清理过期对话流水与对外调用留痕，并回收磁盘空间")
                 }
 
-                Text("清除只影响可再生的对话流水与数据库碎片；学习记忆（错题本、进度）和配置始终保留。")
+                Text("清除只影响可再生的对话流水、数据库碎片与对外调用留痕（留痕会进废纸篓，可捞回）；学习记忆（错题本、进度）和配置始终保留。")
                     .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
 

@@ -155,7 +155,7 @@ final class BackupsBoundaryTests: XCTestCase {
     /// 解包必须真的调用自审 —— 只靠 `ditto` 的内部行为等于没有边界。
     func testUnpackActuallyAuditsTheTree() throws {
         let raw = try Self.code("Sources/AIInfrastructure/DataBackup.swift")
-        let body = try Self.declBody(matching: "private static func unpackBackup(at url: URL) throws -> URL", in: raw)
+        let body = try Self.declBody(matching: "private static func unpackBackup(at url: URL) async throws -> URL", in: raw)
         XCTAssertTrue(body.contains("try auditUnpackedTree(at: staging)"), "解包后必须自审")
         let audit = try Self.declBody(matching: "static func auditUnpackedTree(at staging: URL) throws", in: raw)
         for needle in ["maxUnpackedEntries", "maxUnpackedBytes", "isSymbolicLinkKey",

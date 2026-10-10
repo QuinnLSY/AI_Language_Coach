@@ -63,8 +63,10 @@ public actor DataBackup {
     /// 目录里没有的文件自动跳过（例如还没到 Journals 的全新安装），
     /// 但一个文件都凑不出来时**报错**——空 zip 会让人误以为备份成功了。
     /// `label` 用于特殊场合的标记（例如恢复前的自动留底：「恢复前」）。
+    ///
+    /// ⚠️ `async` 是刻意的（#S3-3）：打包要等 `ditto`，而等待期间绝不能堵住本 actor 的执行器。
     @discardableResult
-    public func export(now: Date = Date(), label: String? = nil) throws -> Snapshot {
+    public func export(now: Date = Date(), label: String? = nil) async throws -> Snapshot {
         try manager.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
 
         let stagingRoot = backupDirectory.appendingPathComponent(".staging-\(UUID().uuidString)", isDirectory: true)
@@ -92,7 +94,7 @@ public actor DataBackup {
         )
 
         let destination = backupDirectory.appendingPathComponent("\(Self.folderName(now: now, label: label)).zip")
-        try Self.zip(payload: payload, to: destination)
+        try await Self.zip(payload: payload, to: destination)
         let values = try destination.resourceValues(forKeys: [.creationDateKey, .fileSizeKey])
         return Snapshot(
             url: destination,
@@ -200,24 +202,43 @@ public actor DataBackup {
     /// 压缩包用什么方式打：macOS 自带的 `ditto`（系统二进制，无第三方依赖）。
     ///
     /// `ditto -c -k --keepParent` 与 Finder 的「压缩」等价，能保住扩展属性。
-    private static func zip(payload: URL, to destination: URL) throws {
+    private static func zip(payload: URL, to destination: URL) async throws {
         try? FileManager.default.removeItem(at: destination)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = ["-c", "-k", "--sequesterRsrc", "--keepParent", payload.path, destination.path]
-        let stderr = Pipe()
-        process.standardError = stderr
-        do {
-            try process.run()
-        } catch {
-            throw AppError.configuration("无法创建备份压缩包：\(error.localizedDescription)")
-        }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let detail = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            throw AppError.configuration("备份压缩失败：\(detail.trimmingCharacters(in: .whitespacesAndNewlines))")
+        let result = try await runDitto(
+            ["-c", "-k", "--sequesterRsrc", "--keepParent", payload.path, destination.path],
+            action: "创建备份压缩包"
+        )
+        guard result.status == 0 else {
+            throw AppError.configuration("备份压缩失败：\(result.output)")
         }
     }
+
+    /// 跑一次 `ditto` 并等它结束（#S3-3）。
+    ///
+    /// ⚠️ 走 `ProcessRunner` 而不是就地 `waitUntilExit()`：本类是个 actor，它的执行器就是
+    /// Swift 并发线程池里的一条线程，`waitUntilExit()` 会**把它堵住** —— 池子只有内核数量级
+    /// 条线程，堵几条足以把整个应用的并发拖停。打包动辄十几秒，这类阻塞不能留在并发线程池上。
+    ///
+    /// 超时给得宽：备份包可能上百 MB，`ditto` 慢起来是十几秒级的事。
+    private static func runDitto(_ arguments: [String], action: String) async throws -> ProcessRunner.Result {
+        do {
+            return try await ProcessRunner.run(
+                executable: "/usr/bin/ditto",
+                arguments: arguments,
+                timeout: dittoTimeout
+            )
+        } catch let failure as ProcessRunner.Failure {
+            // 底层英文文案不进用户界面：这里按「动作 + 后果」重新说一遍（动作名只写这一次）。
+            switch failure {
+            case .launchFailed(let reason): throw AppError.configuration("无法\(action)：\(reason)")
+            case .timedOut(let seconds, _): throw AppError.configuration("\(action)超过 \(seconds) 秒仍未结束")
+            case .cancelled: throw AppError.configuration("\(action)被中断")
+            }
+        }
+    }
+
+    /// `ditto` 的等待上限（秒）。打包 / 解包共用。
+    private static let dittoTimeout: TimeInterval = 120
 
     /// ⚠️ internal 而非 private：清单里那段「含明文 API Key」的提示是**安全告知**，
     /// 得能直接单测钉住（`BackupsBoundaryTests`），private 就只能靠哨兵读源码。
@@ -284,8 +305,8 @@ public actor DataBackup {
     /// 校验一份备份压缩包：能解开、有学习库且真是 SQLite 文件、配置若是 JSON 必须合法。
     ///
     /// 坏包在这里就被拦下并给出明确原因——绝不走到「替换了一半才发现不对」。
-    public func inspectBackup(at url: URL) throws -> ImportPlan {
-        let staging = try Self.unpackBackup(at: url)
+    public func inspectBackup(at url: URL) async throws -> ImportPlan {
+        let staging = try await Self.unpackBackup(at: url)
         defer { try? manager.removeItem(at: staging) }
         return try Self.validatePayload(in: staging)
     }
@@ -294,14 +315,14 @@ public actor DataBackup {
     ///
     /// 任何一步失败都不会动现有数据；暂存里的内容要等**重启**才真正生效。
     @discardableResult
-    public func stageRestore(at url: URL, now: Date = Date()) throws -> ImportPlan {
-        let plan = try inspectBackup(at: url)
+    public func stageRestore(at url: URL, now: Date = Date()) async throws -> ImportPlan {
+        let plan = try await inspectBackup(at: url)
 
         // 覆盖前的后悔药：当前数据（哪怕已经有点糟）先打包留底。
-        _ = try export(now: now, label: "恢复前")
+        _ = try await export(now: now, label: "恢复前")
 
         // 校验产物从解包现场直接搬进暂存（不再二次解压）。
-        let staging = try Self.unpackBackup(at: url)
+        let staging = try await Self.unpackBackup(at: url)
         defer { try? manager.removeItem(at: staging) }
         let payload = try Self.validatePayload(in: staging)
 
@@ -472,7 +493,7 @@ public actor DataBackup {
     // MARK: - 导入内部件
 
     /// 解开备份 zip 到临时目录。zip 布局兼容两种：带父文件夹（本应用导出的）与散装在根目录。
-    private static func unpackBackup(at url: URL) throws -> URL {
+    private static func unpackBackup(at url: URL) async throws -> URL {
         let manager = FileManager.default
         guard manager.fileExists(atPath: url.path) else {
             throw AppError.configuration("找不到备份文件：\(url.lastPathComponent)")
@@ -480,24 +501,10 @@ public actor DataBackup {
         let staging = Self.inspectContainer().appendingPathComponent("contents", isDirectory: true)
         try manager.createDirectory(at: staging, withIntermediateDirectories: true)
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = ["-x", "-k", url.path, staging.path]
-        let stderr = Pipe()
-        process.standardError = stderr
-        do {
-            try process.run()
-        } catch {
+        let result = try await runDitto(["-x", "-k", url.path, staging.path], action: "读取备份")
+        guard result.status == 0 else {
             try? manager.removeItem(at: staging)
-            throw AppError.configuration("无法读取备份：\(error.localizedDescription)")
-        }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            try? manager.removeItem(at: staging)
-            let detail = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            throw AppError.configuration(
-                "备份压缩包已损坏，无法读取：\(detail.trimmingCharacters(in: .whitespacesAndNewlines))"
-            )
+            throw AppError.configuration("备份压缩包已损坏，无法读取：\(result.output)")
         }
         // ⚠️ 解包**不能只信 ditto 的内部行为**（#S2-3）：条目路径、条目数、解压体积
         // 全靠它拦不住就等于没有边界 —— 一个构造过的包就能把文件写到暂存目录之外

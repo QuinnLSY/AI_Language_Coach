@@ -1,5 +1,4 @@
 import AIInfrastructure
-import AppCore
 import Foundation
 
 /// 模型生命周期管理器（Implementation Plan §29：ModelLifecycleManager）。
@@ -32,7 +31,10 @@ public actor ModelLifecycleManager {
         tickTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                let interval = await self.runOnce()
+                // ⚠️ `nil` = 拥有者（`CoachServices`）已经没了 → **收工**（#S3-9）。
+                // 原来是「这一轮什么都不做、照常返回一个间隔」，于是任务一辈子每 60 秒空醒一次，
+                // 而 `stop()` 在生产代码里零调用 —— 没有任何人能停它。
+                guard let interval = await self.runOnce() else { return }
                 // 下次巡检间隔由配置决定；设 1s 下限防止配置错误导致忙转。
                 try? await Task.sleep(nanoseconds: UInt64(max(1, interval) * 1_000_000_000))
             }
@@ -45,14 +47,14 @@ public actor ModelLifecycleManager {
         tickTask = nil
     }
 
-    /// 执行一次巡检。返回下次巡检建议间隔（秒，来自配置）。
+    /// 执行一次巡检。返回下次巡检建议间隔（秒，来自配置）；**`nil` = 拥有者已经不在，该收工了**。
     ///
     /// ⚠️ 巡检会**真的挂起模型**（停掉本地服务）。真源在 `CoachServices`，而界面读的是它
     /// 自己那份快照缓存 —— 不回调刷新，设置页与使用处就会继续显示「运行中」
     /// （2026-09-19 语音识别「设置里明明开着、一用就连接失败」的放大器）。
     @discardableResult
-    public func runOnce() async -> Double {
-        guard let services else { return ResourcePolicyConfig.standard.tickSeconds }
+    public func runOnce() async -> Double? {
+        guard let services else { return nil }
         let interval = await services.runResourceTick(monitor: monitor)
         await onTickFinished?()
         return interval

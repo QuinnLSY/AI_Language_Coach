@@ -29,7 +29,14 @@ public actor DictionaryService {
     private let llm: LLMManager
     private let store: DictionaryBookStore
     /// 进程内查词缓存（小写词 → 详情）。来回点派生词 / 重查同一个词都不再烧 token。
+    ///
+    /// ⚠️ **键是用户查过的词**（#S3-6）：不设上限就是一条只涨不落的曲线 ——
+    /// 翻一晚上词典就能攒出几千个条目，每个条目带搭配 / 例句 / 派生词，一直在内存里。
+    /// 容量口径照 `MarkdownText.parseCache`：到顶**整体清空**（不是 LRU）——
+    /// 词典条目本来就该按需重查，为它维护一套淘汰账目不值当。
     private var cache: [String: DictionaryDetail] = [:]
+    /// 条目数上限。超了整锅倒掉，下一条从干净的开始攒。
+    private let cacheLimit = 256
 
     public init(llm: LLMManager, store: DictionaryBookStore = .shared) {
         self.llm = llm
@@ -215,6 +222,8 @@ public actor DictionaryService {
         guard !detail.isEmpty else {
             throw AppError.unknown("模型没有给出可解析的词条，可以再点一次试试")
         }
+        // 到顶先倒掉再写：写进去的这一条一定活着（与 `parseCache` 同一顺序）。
+        if cache.count >= cacheLimit { cache.removeAll(keepingCapacity: true) }
         cache[key] = detail
         return detail
     }
@@ -224,6 +233,6 @@ public actor DictionaryService {
         cache[word.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()]
     }
 
-    /// 清掉查词缓存（重查 / 释放内存用）。
-    public func clearCache() { cache.removeAll() }
+    /// 清掉查词缓存（重查 / 释放内存用）。由「清缓存」入口调用（见 `CoachServices.clearCaches`）。
+    public func clearCache() { cache.removeAll(keepingCapacity: true) }
 }

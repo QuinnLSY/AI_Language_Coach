@@ -12,12 +12,16 @@ public struct CacheItemInfo: Sendable, Equatable, Identifiable {
     public var bytes: Int64
     /// 属于学习记忆本体（清除缓存时必须保留）。
     public var isLearningData: Bool
+    /// 对外调用留痕：**可以清**（清的时候进废纸篓），但它是用户跟服务商账单对账的证据，
+    /// 界面上必须点名说清它是谁，不能混在普通文件里被顺手扫掉（#S3-5）。
+    public var isCallLog: Bool
 
-    public init(name: String, fileName: String, bytes: Int64, isLearningData: Bool) {
+    public init(name: String, fileName: String, bytes: Int64, isLearningData: Bool, isCallLog: Bool = false) {
         self.name = name
         self.fileName = fileName
         self.bytes = bytes
         self.isLearningData = isLearningData
+        self.isCallLog = isCallLog
     }
 }
 

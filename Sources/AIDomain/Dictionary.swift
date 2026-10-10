@@ -1204,11 +1204,31 @@ public struct DictionaryLookupSession: Sendable, Equatable {
     /// 查过的词，**按查找顺序**（最后一个是当前页）。
     public private(set) var history: [String]
     /// 已取到的详情（键为小写词）——回退时**不重新请求**，来回点也不烧 token。
+    ///
+    /// ⚠️ 键是用户查过的词（#S3-6）：翻一晚上词典就是只涨不落的一大坨。
+    /// 上限之外**只清这一份缓存、不动 `history`** —— 历史是用户点出来的导航栈
+    /// （有界，且「上一页 / 回到最初」要靠它），缓存丢了顶多重查一遍。
     public private(set) var details: [String: DictionaryDetail]
+
+    /// 明细缓存的条数上限。到顶整体清空（与 `DictionaryService.cache` 同一口径）。
+    public static let detailLimit = 200
 
     public init(history: [String] = [], details: [String: DictionaryDetail] = [:]) {
         self.history = history
         self.details = details
+    }
+
+    /// 写入明细缓存的**唯一落笔处**：容量封顶只在这一处做，新增写入点不会绕过它。
+    ///
+    /// ⚠️ 到顶时**只倒掉「导航栈够不着」的那些**，栈里那几条必须留下：
+    /// `current` 就是靠 `details[currentWord]` 取正文的，倒掉了页面会一直停在
+    /// 「正在查…」上 —— 而那次请求早就回来了，没有任何东西会再唤醒它。
+    private mutating func storeDetail(_ detail: DictionaryDetail, key: String) {
+        if details.count >= Self.detailLimit, details.index(forKey: key) == nil {
+            let reachable = Set(history.map { $0.lowercased() })
+            details = details.filter { reachable.contains($0.key) }
+        }
+        details[key] = detail
     }
 
     /// 空会话（还没查过任何词）。
@@ -1238,7 +1258,7 @@ public struct DictionaryLookupSession: Sendable, Equatable {
         guard !word.isEmpty else { return }
         let key = word.lowercased()
         history = [word]
-        details[key] = detail
+        storeDetail(detail, key: key)
     }
 
     /// 开始查一个**新**词，详情还没到（UI 显示加载中）。
@@ -1255,7 +1275,7 @@ public struct DictionaryLookupSession: Sendable, Equatable {
     public mutating func remember(_ detail: DictionaryDetail) {
         let word = detail.word.trimmingCharacters(in: .whitespaces)
         guard !word.isEmpty else { return }
-        details[word.lowercased()] = detail
+        storeDetail(detail, key: word.lowercased())
         if history.last?.lowercased() != word.lowercased() {
             history.append(word)
         }
@@ -1307,6 +1327,6 @@ public struct DictionaryLookupSession: Sendable, Equatable {
     public mutating func cache(_ detail: DictionaryDetail) {
         let word = detail.word.trimmingCharacters(in: .whitespaces)
         guard !word.isEmpty else { return }
-        details[word.lowercased()] = detail
+        storeDetail(detail, key: word.lowercased())
     }
 }

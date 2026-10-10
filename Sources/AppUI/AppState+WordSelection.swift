@@ -137,6 +137,11 @@ extension AppState {
                     text: text, translation: translated, isPhrase: true, isFromModel: true
                 )
             } else {
+                // 到顶先倒掉再记（#S3-6）：闸门只挡「鼠标扫过的误触」，
+                // 被倒掉的那几个词允许再问一次，比让它无限涨划算。
+                if wordLookupAttempted.count >= Self.wordLookupAttemptLimit {
+                    wordLookupAttempted.removeAll(keepingCapacity: true)
+                }
                 wordLookupAttempted.insert(key)
                 // 变体：把本地推出的候选原形当**提示**带给模型（模型可以否掉）。
                 // 这一步是「subtitles / listening 查不到」的正解 —— 之前只把变体本身

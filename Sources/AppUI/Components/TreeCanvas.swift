@@ -1071,6 +1071,15 @@ struct ForestGroundBand: View {
     /// 画面上就是原地抽搐。批次号让**后发起的意图胜出**、前一个自己退场。
     @State private var hopTokens: [Int] = Array(repeating: 0, count: Self.maxResidents)
     @State private var hopCounter = 0
+    /// **庆祝演出的代际令牌**（#S3-11）。
+    ///
+    /// ⚠️ `celebrate()` 一次要起 24+ 个错峰 `Task`（三波欢跳 + 三只台词 + 一次收尾），
+    /// 它们谁也不持有、也没法取消 —— 而 `try? await Task.sleep` 会把取消错误吞掉，
+    /// 就算持有并取消也照样往下走。于是「演出进行到一半、全员已经回家」时，
+    /// 剩下的那几个 Task 仍会照常 `trigger(.hop)`，把刚站好的队伍又拽走一只。
+    /// 沿用本文件已有的对账风格（`hopTokens` / `bubbleStamps`）：演出开始时领号，
+    /// 每个 Task 动手之前先对一次账，**号对不上就直接退场**。
+    @State private var celebrationToken = 0
 
     private static let maxResidents = 8
     // 各类元素的**上限**：始终按上限创建视图，靠透明度控制显隐。
@@ -1531,6 +1540,9 @@ struct ForestGroundBand: View {
         // 作废所有在飞的移动：否则离场/游走那趟 `hopTo` 会在「回家」之后继续写
         // `offsets`，把刚站好的队伍又拽走一只（入夜那一刻最容易看见）。
         invalidateHops()
+        // 庆祝演出同样要作废（#S3-11）：它剩下的那些错峰 Task 不归 `hopTokens` 管，
+        // 不递令牌的话「回家」之后还会有人跳一下、冒一句。
+        celebrationToken += 1
         withAnimation(.spring(response: 0.7, dampingFraction: 0.8)) {
             for i in 0..<Self.maxResidents {
                 offsets[i] = .zero
@@ -1569,13 +1581,17 @@ struct ForestGroundBand: View {
     /// 夜晚 / 活动被关（`activityAllowed` 已含「配置 && 白天」）只冒气泡不跳——
     /// 睡着的小动物被吵醒跳就不礼貌了，但庆祝的话还是要说。
     private func celebrate() {
+        // 领号：这次演出的一切都挂在这个号上；期间只要有人递号（回家 / 重新庆祝），
+        // 剩下的 Task 一动手就对不上账、自行退场（#S3-11）。
+        celebrationToken += 1
+        let token = celebrationToken
         let present = presentResidents
         if activityAllowed {
             for wave in 0..<3 {
                 for (order, index) in present.enumerated() {
                     Task { @MainActor in
                         try? await Task.sleep(for: .seconds(Double(wave) * 0.85 + Double(order) * 0.18))
-                        guard !Task.isCancelled else { return }
+                        guard celebrationToken == token else { return }
                         trigger(index, action: .hop)
                     }
                 }
@@ -1583,22 +1599,38 @@ struct ForestGroundBand: View {
         }
         // 只让前三只在场的说话：八只同时冒泡会糊成一片；错落着冒才有「你一句我一句」的感觉。
         let bubbled = Array(present.prefix(3))
-        for (order, index) in bubbled.enumerated() {
+        // 派号与出场分开：**先同步派号**，出场顺序才与序号递增一致（zIndex 靠序号），
+        // 也才能把这几个号冻结成常量交给收尾 Task 去对账 —— 让每个 Task 自己派号的话，
+        // 收尾那一个根本不知道要收哪几个（原先它是无差别清空的，会连带清掉别人的话）。
+        var plan: [(index: Int, stamp: Int)] = []
+        for index in bubbled {
+            bubbleCounter += 1
+            bubbleStamps[index] = bubbleCounter
+            plan.append((index: index, stamp: bubbleCounter))
+        }
+        let bubblePlan = plan
+        for (order, entry) in bubblePlan.enumerated() {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(Double(order) * 0.7))
-                guard !Task.isCancelled else { return }
-                bubbleCounter += 1
-                bubbleStamps[index] = bubbleCounter
+                guard celebrationToken == token,
+                      bubbleStamps.indices.contains(entry.index),
+                      bubbleStamps[entry.index] == entry.stamp else { return }
                 withAnimation(.app(.panel)) {
-                    bubbleTexts[index] = Self.celebrationPhrases[(index + celebrationTick) % Self.celebrationPhrases.count]
+                    bubbleTexts[entry.index] =
+                        Self.celebrationPhrases[(entry.index + celebrationTick) % Self.celebrationPhrases.count]
                 }
             }
         }
         Task { @MainActor in
             // 最后一句话冒出来的时刻 + 3s 展示期，一起收。
-            try? await Task.sleep(for: .seconds(Double(bubbled.count - 1) * 0.7 + 3))
-            guard !Task.isCancelled else { return }
-            for i in bubbled { bubbleTexts[i] = nil }
+            try? await Task.sleep(for: .seconds(Double(bubblePlan.count - 1) * 0.7 + 3))
+            guard celebrationToken == token else { return }
+            // 只收**自己那一批**的号：期间这只被点了、或换过一句，就不是我们的泡泡了。
+            for entry in bubblePlan {
+                guard bubbleStamps.indices.contains(entry.index),
+                      bubbleStamps[entry.index] == entry.stamp else { continue }
+                withAnimation(.app(.reveal)) { bubbleTexts[entry.index] = nil }
+            }
         }
     }
 

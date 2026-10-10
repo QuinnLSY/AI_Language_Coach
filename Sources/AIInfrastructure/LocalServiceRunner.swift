@@ -16,6 +16,11 @@ public enum LocalServiceRunner {
         case emptyCommand
         case launchFailed(String)
         case commandExited(code: Int32, output: String)
+        /// 命令超时仍未结束。⚠️ 原来伪装成 `commandExited(code: -1, output: "超时未结束")`，
+        /// 用户看到的是「启停命令失败（退出码 -1）」—— 那个退出码是编的，进程根本没退出过。
+        case timedOut(seconds: Int, output: String)
+        /// 等待期间被取消（切服务 / 退出应用）。
+        case cancelled
         case notReachable(endpoint: String)
         /// 命令没被用户确认过（#S2-6）。**带出命令原文**，让 UI 能把它显示给用户看。
         case notApproved(command: String)
@@ -28,12 +33,26 @@ public enum LocalServiceRunner {
             case .launchFailed(let reason): "无法执行启停命令：\(reason)"
             case .commandExited(let code, let output):
                 output.isEmpty ? "启停命令失败（退出码 \(code)）" : "启停命令失败（退出码 \(code)）：\(output)"
+            case .timedOut(let seconds, let output):
+                output.isEmpty
+                    ? "启停命令超过 \(seconds) 秒仍未结束"
+                    : "启停命令超过 \(seconds) 秒仍未结束：\(output)"
+            case .cancelled: "启停命令在完成前被中断"
             case .notReachable(let endpoint): "服务启动后仍不可达：\(endpoint)"
             }
         }
     }
 
     /// 后台启动一条命令（**不等待结束**）。用于拉起常驻服务。
+    ///
+    /// ⚠️ 这里**故意不持有**那个 `Process`：拉起的常驻服务本就该活过本应用（脚本里的 nohup /
+    /// 重定向不会被应用退出带走），而且 Foundation 的 `Process` 自带独立于对象的回收机制。
+    /// 实测（2026-10-10，判据见 `ConcurrencyAndResourceTests`）：
+    /// - `run()` 到对象释放耗时 0.000s —— 释放**不阻塞**，拉起常驻服务不会卡住调用方；
+    /// - 子进程退出后 `kill(pid, 0)` 得 ESRCH、`waitpid` 得 ECHILD —— **没有 `<defunct>` 僵尸**；
+    /// - 对照组（裸 `posix_spawn` 且无人 wait）确实是僵尸 —— 判据不是空转的。
+    ///
+    /// 所以**不要**为了「防僵尸」再引入什么进程注册表：那是白加的复杂度。
     public static func launch(_ command: String) throws {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw Failure.emptyCommand }
@@ -55,7 +74,9 @@ public enum LocalServiceRunner {
     }
 
     /// 执行一条命令并**等待结束**。返回退出码与输出（供上层判断与提示）。
-    /// 异步等待，避免阻塞调用方 actor。
+    /// 异步等待，避免阻塞调用方 actor；等待期间被取消会立刻终止子进程。
+    ///
+    /// 真正跑子进程的活儿在 `ProcessRunner` —— 边跑边排空管道、等待不堵并发线程池（#S3-2）。
     @discardableResult
     public static func run(_ command: String, timeout: TimeInterval = 20) async throws -> (code: Int32, output: String) {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -63,31 +84,21 @@ public enum LocalServiceRunner {
         // 同 launch：执行前必须有用户授权（#S2-6）。
         guard ShellCommandApproval.isApproved(trimmed) else { throw Failure.notApproved(command: trimmed) }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-lc", trimmed]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-
         do {
-            try process.run()
-        } catch {
-            throw Failure.launchFailed(error.localizedDescription)
+            let result = try await ProcessRunner.run(
+                executable: "/bin/sh",
+                arguments: ["-lc", trimmed],
+                timeout: timeout
+            )
+            return (result.status, result.output)
+        } catch let failure as ProcessRunner.Failure {
+            // 翻成本模块自己的错误档：UI 只认这套文案（`ModelDiagnostics` 直接取 localizedDescription）。
+            switch failure {
+            case .launchFailed(let reason): throw Failure.launchFailed(reason)
+            case .timedOut(let seconds, let output): throw Failure.timedOut(seconds: seconds, output: output)
+            case .cancelled: throw Failure.cancelled
+            }
         }
-
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning, Date() < deadline {
-            try? await Task.sleep(nanoseconds: 50_000_000)
-        }
-        if process.isRunning {
-            process.terminate()
-            throw Failure.commandExited(code: -1, output: "超时未结束")
-        }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        let output = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return (process.terminationStatus, output)
     }
 
     /// 轮询端点，直到**服务接受连接**（任何 HTTP 应答都算，含 404）或超时。

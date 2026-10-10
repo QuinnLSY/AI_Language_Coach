@@ -70,6 +70,11 @@ public actor VoiceService {
     private var audioCache: [String: Data] = [:]
     private var cacheOrder: [String] = []
     private let cacheLimit = 48
+    /// 同键**在途**的合成（#S3-7）。命中判断与写入之间夹着一次 `await tts.synthesize`，
+    /// 那是个挂起点：同一句的第二次调用会重新走一遍「没命中」的分支。
+    /// 后果有两个 —— 重复合成（真金白银）、同一个键被 append 两遍进 `cacheOrder`
+    /// （FIFO 的账目从此对不上，淘汰时会错杀）。所以同键只跑一趟，后来者合流。
+    private var synthInflight: [String: Task<Data, Error>] = [:]
 
     public init(asr: ASRManager = ASRManager(), tts: TTSManager = TTSManager()) {
         self.asr = asr
@@ -422,24 +427,45 @@ public actor VoiceService {
         }
     }
 
-    private func synthesizeCached(_ text: String, voice: SpeechVoiceSelection, language: String) async throws -> Data {
+    /// ⚠️ internal 而非 private：并发合流的行为（同一句只发一次请求）要能直接单测 ——
+    /// 走公开的 `speak` 会牵到真实播放设备，测不了（见 `ConcurrencyAndResourceTests`）。
+    func synthesizeCached(_ text: String, voice: SpeechVoiceSelection, language: String) async throws -> Data {
         // 缓存键必须带上参考音频：换了克隆音色（或换了参考音频）就是另一个声音，
         // 沿用旧键会让「刚换的音色」听起来毫无变化，且怎么查都查不出原因。
         let key = "\(voice.voice)|\(voice.referenceAudioPath ?? "")|\(language)|\(text)"
         if let hit = audioCache[key] { return hit }
+        // 同键已经在合成 → 直接等它那一趟，不再发一次请求（#S3-7）。
+        if let running = synthInflight[key] { return try await running.value }
 
-        let result = try await tts.synthesize(
-            TTSRequest(text: text, voice: voice, language: language)
-        )
-        let wav = Self.wavData(for: result)
-        // 简单的 FIFO 淘汰，足够覆盖「反复朗读同一句」的场景
-        if audioCache.count >= cacheLimit, let oldest = cacheOrder.first {
+        let task = Task<Data, Error> { [weak self] in
+            guard let self else { throw AIProviderError.notInitialized }
+            let result = try await self.tts.synthesize(
+                TTSRequest(text: text, voice: voice, language: language)
+            )
+            return Self.wavData(for: result)
+        }
+        synthInflight[key] = task
+        // 不论成功还是抛错都要把在途登记撤掉，否则这个键永远合流到一个已结束的任务上。
+        defer { synthInflight[key] = nil }
+
+        let wav = try await task.value
+        remember(key: key, wav: wav)
+        return wav
+    }
+
+    /// 记进 FIFO 缓存（**同一个键只占一格**）。
+    ///
+    /// ⚠️ 先查重再淘汰：合流的后来者也会走到这里，此时的键已经在队里 ——
+    /// 不查重就会「新键没加、老键被删」两头错位，淘汰时把谁都算错。
+    private func remember(key: String, wav: Data) {
+        if let existing = cacheOrder.firstIndex(of: key) {
+            cacheOrder.remove(at: existing)
+        } else if audioCache.count >= cacheLimit, let oldest = cacheOrder.first {
             audioCache[oldest] = nil
             cacheOrder.removeFirst()
         }
         audioCache[key] = wav
         cacheOrder.append(key)
-        return wav
     }
 
     /// 去掉不适合朗读的标记（`[[FIX]]` 块、markdown 等），保留自然语句。

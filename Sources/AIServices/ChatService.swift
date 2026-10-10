@@ -120,6 +120,13 @@ public final class ChatService {
     public private(set) var lastTurnPlan: TurnPlan?
 
     private var generationTask: Task<Void, Never>?
+    /// 落库串行链：所有对消息表的写入（插入 / 删除）都排在这条队上（#S3-8）。
+    ///
+    /// ⚠️ 原先是「谁写谁起一个 `Task {}`」—— 两个 Task 之间没有任何顺序保证：
+    /// 删除可能先于插入落库，于是「刚删掉的那条消息下次打开又回来了」。
+    /// 排队之后**发起顺序 = 落库顺序**。只保证顺序，不做重试 ——
+    /// 写失败照旧由服务层记进落库失败账本，用户该看见的横幅一条不少。
+    private let persistenceQueue = SerialTaskQueue()
     /// 会话是否已落库。**启动时不建空会话**——否则「最近会话」永远是新会话，
     /// 上次的练习记录与情景就再也恢复不回来了；首条消息 / 首次进情景时才建行。
     private var didPersistSession = false
@@ -296,15 +303,18 @@ public final class ChatService {
         startTeacherTurn()
     }
 
-    /// 把删掉的消息从库里也删掉（fire-and-forget，与 `persist` 同一套节奏）。
+    /// 把删掉的消息从库里也删掉（与 `persist` 共用同一条串行链，见 `persistenceChain`）。
     ///
     /// ⚠️ 调用的地方**每一处都不能漏**：只清内存的话，界面看着干净了，
     /// 可这一段练习重新打开（或下次启动恢复）时，被「作废」的那些话会整批回来 ——
     /// 这正是测试抓出来的第一版实现（编辑只改了内存）。
+    /// ⚠️ 也**不能**各自起 Task：删与插没有顺序保证，删除可能先落库（#S3-8）。
     private func persistDeletion(of ids: [UUID]) {
         guard !ids.isEmpty else { return }
         let sessionID = self.sessionID
-        Task { [services] in
+        let services = self.services
+        // 同步入队（不包 Task）：删与插的先后由**调用顺序**决定，见 `persistenceQueue`。
+        persistenceQueue.enqueue {
             await services.deleteMessages(ids: ids, sessionID: sessionID)
         }
     }
@@ -506,11 +516,12 @@ public final class ChatService {
         // ⚠️ 模式必须跟着走：`ChatSession.mode` 有默认值 `.conversation`，
         // 不显式传就等于「所有会话都是情景对话」。
         let mode = sessionMode
-        // 建行与写消息放在同一个 Task 里，保证顺序（消息带外键）。
-        Task {
+        // 建行与写消息放在**同一次排队**里，保证顺序（消息带外键）；
+        // 这条队又与删除共用，所以「先删后插」这类错序从结构上不会发生（#S3-8）。
+        persistenceQueue.enqueue {
             if needsSession {
                 // ⚠️ 开始时刻用**这条消息自己的时间**，不用 `Date()`：
-                // 会话行是在这个延迟的 `Task` 里才落盘的，`Date()` 拿到的是「落盘那一刻」，
+                // 会话行是在这个延迟的排队里才落盘的，`Date()` 拿到的是「落盘那一刻」，
                 // 比学员真正开口晚若干秒。库里实测出现过 `started_at` 比末条消息还晚 5–6 秒的行，
                 // 「末条 − 开始」为负被夹成 0 —— 卡片上就是「练了一段、时长 0 秒」。
                 await services.persistSession(
