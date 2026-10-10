@@ -48,6 +48,12 @@ public struct Scenario: Codable, Sendable, Equatable, Identifiable {
         case builtIn
         /// 用户自建（一句话生成 / 材料拆解）。
         case custom
+        /// AI 排的课里的一节（`CourseBlueprint`）。
+        ///
+        /// ⚠️ 与 `custom` 分开而不是合成一个「非内置」：树上要把 AI 课程关卡跟正文关卡
+        /// **画得不一样**，删除时又要连整条课一起走 —— 两件事的判据都得是**数据**，
+        /// 靠分组名（「AI 排的课」）比较的话，哪天改了个字就静默失效。
+        case course
     }
 
     /// 稳定标识（如 `airport_checkin`）。

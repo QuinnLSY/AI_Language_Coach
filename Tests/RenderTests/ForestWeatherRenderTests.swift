@@ -182,21 +182,21 @@ final class ForestWeatherRenderTests: XCTestCase {
                        studentAnimal: .bear, companionAnimal: nil,
                        annualSummary: .empty())
                 .environment(\.appMotion, AppMotionDescriptor(reduceMotion: true, reduceTransparency: true))
-                .frame(width: canvas.width, height: TreeCanvas.canvasHeight),
-            size: CGSize(width: canvas.width, height: TreeCanvas.canvasHeight)
+                .frame(width: canvas.width, height: TreeCanvas.canvasHeight(for: progress)),
+            size: CGSize(width: canvas.width, height: TreeCanvas.canvasHeight(for: progress))
         )
         let practiced = try makeHost(
             TreeCanvas(theme: resolved(isNight: false, weather: nil), progress: progress,
                        studentAnimal: .bear, companionAnimal: nil,
                        annualSummary: TreeAnnualSummary(practicedDays: 45, longestStreak: 7))
                 .environment(\.appMotion, AppMotionDescriptor(reduceMotion: true, reduceTransparency: true))
-                .frame(width: canvas.width, height: TreeCanvas.canvasHeight),
-            size: CGSize(width: canvas.width, height: TreeCanvas.canvasHeight)
+                .frame(width: canvas.width, height: TreeCanvas.canvasHeight(for: progress)),
+            size: CGSize(width: canvas.width, height: TreeCanvas.canvasHeight(for: progress))
         )
         // ⚠️ 徽记区按 `TreeRings.emblemY` 算（跟着位置走），所以**必须另配一条绝对判据**：
         // 只靠「徽记区有墨」的话，把位置整个挪进林带遮住区也照样绿（判据跟着实现漂移）。
-        let emblemY = TreeRings.emblemY(canvasHeight: TreeCanvas.canvasHeight)
-        XCTAssertLessThan(emblemY, TreeCanvas.canvasHeight - TreeViewport.groundBandHeight,
+        let emblemY = TreeRings.emblemY(canvasHeight: TreeCanvas.canvasHeight(for: progress))
+        XCTAssertLessThan(emblemY, TreeCanvas.canvasHeight(for: progress) - TreeViewport.groundBandHeight,
                           "徽记画进了林间地面带的遮住区：滚到画布底也看不见")
         let emblemArea = CGRect(x: canvas.width / 2 - 40, y: emblemY - 45,
                                 width: 80, height: 90)

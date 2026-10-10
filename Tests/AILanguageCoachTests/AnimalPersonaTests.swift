@@ -206,8 +206,13 @@ final class AnimalPersonaTests: XCTestCase {
         let flat = tree.map(\.text).joined(separator: "\n")
         XCTAssertTrue(flat.contains("y: learnerY + ForestCompanion.besideLearner.height"),
                       "伙伴必须挂在学员的 y 上（陪着爬，不是各爬各的）")
-        XCTAssertTrue(flat.contains("public nonisolated static func learnerY(for climbFraction: Double) -> CGFloat"),
+        XCTAssertTrue(flat.contains("public nonisolated static func learnerY(for"),
                       "learnerY 的算式要原样留着")
+        // ⚠️ marker 只钉到**参数表开头**，不钉整串形参：③ 给它加了 progress（树高随课程变）。
+        // 钉死形参 = 加一个参数就报「不在文件里」，而这条守的是「算式不许被改写」，
+        // 真正要钉的是它仍然走同一套 y(for:…) 而不是自己算一条。
+        XCTAssertTrue(flat.contains("baseY: height - groundHeight,"),
+                      "learnerY 仍要落在「画布底 − 地面带」这条树干基线上")
     }
 
     /// 通关时伙伴先跑过去等着（`dashCompanionAhead` 挂在既有的 ceremonyTick 上）。

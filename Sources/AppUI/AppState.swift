@@ -226,7 +226,8 @@ public final class AppState {
     /// （可见性是 internal 而非 private：`isShortcutBlockingOverlayPresented` 在另一个文件里读它。）
     var coveringPanels: Bool {
         showingSettings || showingRecords || showingScenarios || showingMaterialUpload
-            || showingVocabulary || showingScenarioComposer || showingDictionary
+            || showingVocabulary || showingScenarioComposer || showingCourseComposer
+            || showingDictionary
             || showingProgress || showingWriting || showingReading
             || showingShadowing || showingListening || showingHelp
     }
@@ -238,6 +239,7 @@ public final class AppState {
     /// 而盖着遮罩时按 ⌘3 只会让面板关掉后「我怎么在另一个页面」。
     var blockingOverlays: Bool {
         showingSettings || showingScenarios || showingMaterialUpload || showingScenarioComposer
+            || showingCourseComposer
             || showingGlobalSearch || examReport != nil
     }
     // MARK: 模型 Provider（本地 + 云端并存）
@@ -496,6 +498,22 @@ public final class AppState {
     public var scenarioResult: String?
     /// 最近一次生成成功的情景（浮层里展示「生成了什么」）。
     public internal(set) var lastGeneratedScenarioDraft: ScenarioDraft?
+    // MARK: AI 自动课程（③）
+    /// 已排好的 AI 课程（按排课时间倒序；课内情景已并进 `scenarios`）。
+    public internal(set) var courses: [CourseBlueprint] = []
+    /// 「排一条课」浮层开关。
+    public var showingCourseComposer = false
+    /// 自填主题草稿（输入框内容；顿号 / 逗号 / 分号 / 换行都算分隔）。
+    ///
+    /// ⚠️ 与 `scenarioPromptText` 一样**不落盘**：它是一次性的表单字段，不是学习数据。
+    /// 存进配置的话，「上次写的主题」会在几个月后突然参与排课，而用户早忘了那是自己写的。
+    public var courseTopicDraft = ""
+    /// 是否正在排课（按钮 loading；一次排课 = 一次模型请求）。
+    public internal(set) var isGeneratingCourse = false
+    /// 排课结果回执（成功 / 失败都给，UI 展示后由 `dismissCourseResult` 清掉）。
+    public var courseResult: String?
+    /// 最近一次排好的课（浮层里展示「排出了什么」）。
+    public internal(set) var lastGeneratedCourse: CourseBlueprint?
     /// 学习记录数据（进入页面时加载）。
     public internal(set) var records: [SessionSummary] = []
     public internal(set) var mistakes: [GrammarCorrection] = []
@@ -1432,6 +1450,12 @@ public final class AppState {
         chat.profile.learningLanguage = configuration.product.learningLanguage
         chat.profile.nativeLanguage = configuration.product.nativeLanguage
         progress = await services.loadProgress()
+        // ③ AI 排的课：读一次课目录，把课内情景挂成大树上的关卡。
+        // ⚠️ 必须**在** `loadProgress()` **之后** —— `applyScenarioBindings` 会把关卡的
+        // `scenarioID` 覆盖成绑定表里的值，而它不在 `levels` 表里、每次都要重挂（见 `syncCourseLevels`）。
+        // 放在这里而不是等情景面板打开：树是开屏就在画的，课内关卡晚一拍出现等于「先看到树、
+        // 滚上去才发现少了几格」。
+        await refreshScenarioCatalog()
         // 批次八 · H：全新学员的第一次进入 → 林子欢迎一下（只此一次，落库记名）。
         // 这里只**记名**不演 —— 地面带还没上屏，现在发脉冲 onChange 收不到。
         await markForestWelcomeIfNeeded()

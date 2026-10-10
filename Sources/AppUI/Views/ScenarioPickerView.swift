@@ -31,6 +31,12 @@ public struct ScenarioPickerView: View {
     /// 存的是 id 而不是 Bool：一屏多个自建情景，Bool 会让点其中一个把其它几个也点亮。
     @State private var pendingDeleteScenarioID: String?
 
+    /// 待确认删除的**课** id（两步确认的第一下，同情景卡片那套）。
+    ///
+    /// ⚠️ 课内情景**不给单节删除**：删一节会把课断成两截，那一节的进度也接不上。
+    /// 删除只挂在整条课上，所以这个确认态与情景卡片那个分开存。
+    @State private var pendingDeleteCourseID: String?
+
     public init(state: AppState, onClose: @escaping () -> Void) {
         self.state = state
         self.onClose = onClose
@@ -41,18 +47,25 @@ public struct ScenarioPickerView: View {
             header
             Divider().overlay(theme.divider)
 
-            if state.scenarios.isEmpty && state.examBlueprints.isEmpty && state.materialKits.isEmpty {
+            if state.scenarios.isEmpty && state.examBlueprints.isEmpty
+                && state.materialKits.isEmpty && state.courses.isEmpty {
                 emptyState
             } else {
                 ScrollView(.vertical, showsIndicators: true) {
                     VStack(alignment: .leading, spacing: 18) {
+                        if !state.courses.isEmpty {
+                            courseSection
+                        }
                         if !state.materialKits.isEmpty {
                             materialSection
                         }
                         if !state.examBlueprints.isEmpty {
                             examSection
                         }
-                        ForEach(Scenario.groups(state.scenarios), id: \.category) { group in
+                        // ⚠️ 课内情景已经从上面那张课卡里逐节列出了，这里必须**滤掉** ——
+                        // 否则同一节会在面板上出现两次（一次在课里、一次在「AI 排的课」分组下），
+                        // 而用户看到的是两张一样的卡片、删课之后还剩一张打不开的。
+                        ForEach(Scenario.groups(looseScenarios), id: \.category) { group in
                             VStack(alignment: .leading, spacing: 10) {
                                 Text(group.category)
                                     .appFont(12, weight: .semibold, design: .rounded)
@@ -72,6 +85,11 @@ public struct ScenarioPickerView: View {
         .onChange(of: state.expandedScenarioID) { _, _ in
             pendingDeleteScenarioID = nil
         }
+    }
+
+    /// 走通用分组渲染的情景（**不含**课内情景 —— 它们在课卡里逐节列）。
+    private var looseScenarios: [Scenario] {
+        state.scenarios.filter { $0.origin != .course }
     }
 
     // MARK: - 头部
@@ -97,6 +115,26 @@ public struct ScenarioPickerView: View {
             }
 
             Spacer()
+
+            // 排一条课（③）：排它**什么都不用准备** —— 学员的水平、常犯的错、念不准的音
+            // 都已经在库里了，所以它排在三个入口最前面（另两个都要用户先有素材或先写一句）。
+            Button {
+                Task { await state.openCourseComposer() }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: CourseBlueprintRule.icon).appFont(10, weight: .semibold)
+                    Text("排一条课")
+                        .appFont(12, weight: .semibold, design: .rounded)
+                }
+                .foregroundStyle(theme.accent)
+                .padding(.horizontal, 12)
+                .appPadding(.vertical, 6)
+                .background(Capsule().strokeBorder(theme.accent.opacity(0.5), lineWidth: 1))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.appPressable)
+            .help("按你现在的水平、常犯的错和念不准的音，排一条由易到难的课")
+            .accessibilityLabel("排一条课，按你的状态排出几节由易到难的课程")
 
             // 描述场景（⑦）：与「上传材料」同为头部常驻入口，且排在它前面 ——
             // 「一句话生成」是零素材门槛的入口，比「先找一篇文章」用得多。
@@ -168,6 +206,243 @@ public struct ScenarioPickerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .appPadding(40)
+    }
+
+    // MARK: - AI 排的课（③）
+
+    /// 课分区：一条课一张卡，卡里**逐节列出**。
+    ///
+    /// ⚠️ 刻意**不套**情景卡片那套「点一下才展开」：一条课的价值就是**顺序**，
+    /// 藏起来等于把「由易到难的几节」缩成一行字。每一节直接给「开始任务」，
+    /// 想看细节仍有情景卡片那条路（点树上的那一格 / 从成长记录里进去）。
+    private var courseSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: CourseBlueprintRule.icon)
+                    .appFont(11, weight: .semibold)
+                    .foregroundStyle(theme.accent)
+                Text("AI 排的课")
+                    .appFont(12, weight: .semibold, design: .rounded)
+                    .foregroundStyle(theme.secondaryText)
+                Text("按你的状态排的，由易到难；点某一节直接开练")
+                    .appFont(10, design: .rounded)
+                    .foregroundStyle(theme.secondaryText.opacity(0.85))
+            }
+            ForEach(state.courses) { course in
+                courseCard(course)
+            }
+        }
+    }
+
+    private func courseCard(_ course: CourseBlueprint) -> some View {
+        let confirming = pendingDeleteCourseID == course.id
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: CourseBlueprintRule.icon)
+                    .appFont(17)
+                    .foregroundStyle(theme.accent)
+                    .frame(width: 42, height: 42)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(theme.surfaceAlt)
+                    )
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(course.displayTitle)
+                            .appFont(14, weight: .semibold, design: .rounded)
+                            .foregroundStyle(theme.primaryText)
+                        Text(course.title)
+                            .appFont(11, design: .rounded)
+                            .foregroundStyle(theme.secondaryText)
+                        Spacer(minLength: 0)
+                        courseDeleteButton(course, confirming: confirming)
+                    }
+
+                    if !course.focus.isEmpty {
+                        Text(course.focus)
+                            .appFont(11, design: .rounded)
+                            .foregroundStyle(theme.primaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .multilineTextAlignment(.leading)
+                    }
+
+                    HStack(spacing: 8) {
+                        chip(course.summary)
+                        chip(MaterialKitCard.dateText(course.createdAt))
+                    }
+
+                    // 「照着什么排」原样回显：排课是自动的，不透明就等于凭空出现。
+                    Text("照着排：\(course.rationale)")
+                        .appFont(10, design: .rounded)
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+
+            VStack(spacing: 8) {
+                ForEach(course.lessons) { lesson in
+                    courseLessonRow(lesson, course: course)
+                }
+            }
+
+            if confirming {
+                courseDeleteBanner(course)
+            }
+        }
+        .appPadding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(theme.surfaceAlt.opacity(0.6))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(confirming ? theme.danger.opacity(0.7) : theme.divider, lineWidth: 1)
+        )
+    }
+
+    /// 一节课一行：序号 + 标题 + 目标 + 进度 + 开始。
+    private func courseLessonRow(_ lesson: CourseLesson, course: CourseBlueprint) -> some View {
+        let scenario = lesson.scenario
+        let isActive = state.activeScenario?.scenario.id == scenario.id
+        let progress = state.questProgress(for: scenario)
+        return HStack(alignment: .top, spacing: 10) {
+            Text(lesson.orderText)
+                .appFont(10, weight: .semibold, design: .rounded)
+                .foregroundStyle(theme.accent)
+                .padding(.horizontal, 6)
+                .appPadding(.vertical, 2)
+                .background(Capsule().fill(theme.selection))
+                .frame(width: 46, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(lesson.displayTitle)
+                        .appFont(12, weight: .semibold, design: .rounded)
+                        .foregroundStyle(theme.primaryText)
+                    if isActive { badge("进行中", tint: theme.accent) }
+                    if state.boundLevel(for: scenario)?.state == .completed {
+                        badge("已过关", tint: theme.accentCool)
+                    }
+                }
+                if !scenario.objective.isEmpty {
+                    Text(scenario.objective)
+                        .appFont(10, design: .rounded)
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
+                }
+                HStack(spacing: 6) {
+                    chip("难度 \(scenario.difficultyDots)")
+                    chip("目标句 \(scenario.targetSentences.count) 句")
+                    if progress.total > 0 {
+                        chip(progress.isComplete ? "主线已完成" : progress.summary)
+                    }
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                Task { await state.startScenario(scenario) }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "play.fill").appFont(9, weight: .bold)
+                    Text(progress.doneCount > 0 && !progress.isComplete ? "继续" : "开始")
+                        .appFont(11, weight: .semibold, design: .rounded)
+                }
+                .foregroundStyle(theme.onAccentFill)
+                .padding(.horizontal, 12)
+                .appPadding(.vertical, 6)
+                .background(Capsule().fill(theme.accentFill))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.appPressable)
+            .help("进入「\(lesson.displayTitle)」\(course.nextLesson(after: lesson.id).map { "，练完接着「\($0.displayTitle)」" } ?? "（这是最后一节）")")
+        }
+        .appPadding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(theme.surface.opacity(0.7))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(isActive ? theme.accent.opacity(0.6) : theme.divider, lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(lesson.orderText) \(lesson.displayTitle)")
+    }
+
+    /// 删除整条课：两步确认（第一下只进确认态，第二下才真删）。
+    private func courseDeleteButton(_ course: CourseBlueprint, confirming: Bool) -> some View {
+        Button {
+            if confirming {
+                pendingDeleteCourseID = nil
+                Task { await state.deleteCourse(id: course.id) }
+            } else {
+                pendingDeleteCourseID = course.id
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: confirming ? "trash.fill" : "trash")
+                    .appFont(9, weight: .semibold)
+                Text(confirming ? "确认删除整条课" : "删课")
+                    .appFont(11, weight: .semibold, design: .rounded)
+            }
+            .foregroundStyle(confirming ? .white : theme.secondaryText)
+            .padding(.horizontal, 10)
+            .appPadding(.vertical, 6)
+            .background(Capsule().fill(confirming ? theme.danger : Color.clear))
+            .overlay(
+                Capsule().strokeBorder(confirming ? Color.clear : theme.divider, lineWidth: 1)
+            )
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.appPressable)
+        .help(confirming
+            ? "再点一次就真的删掉「\(course.displayTitle)」的 \(course.lessonCount) 节，无法恢复"
+            : "删掉整条课；已经收进词汇本的词不回收")
+    }
+
+    /// 删除确认条：自带「取消」，且说清「删的是几节」。
+    private func courseDeleteBanner(_ course: CourseBlueprint) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(theme.danger)
+            Text("再点一次「确认删除整条课」就会删掉「\(course.displayTitle)」的 \(course.lessonCount) 节"
+                + "（每一节的目标句与它在大树上的进度一起消失），无法恢复。已经收进词汇本的词会保留。")
+                .appFont(11, design: .rounded)
+                .foregroundStyle(theme.danger)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button {
+                pendingDeleteCourseID = nil
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.uturn.backward")
+                    Text("取消")
+                }
+                .appFont(11, weight: .semibold, design: .rounded)
+                .foregroundStyle(theme.primaryText)
+                .padding(.horizontal, 12)
+                .frame(height: 24)
+                .background(Capsule().fill(theme.surface))
+                .overlay(Capsule().strokeBorder(theme.divider, lineWidth: 1))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.appPressable)
+            .help("什么都不删，退回原来的样子")
+        }
+        .appPadding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(theme.danger.opacity(0.10))
+        )
     }
 
     // MARK: - 我的材料（上传材料自动出题，#208）

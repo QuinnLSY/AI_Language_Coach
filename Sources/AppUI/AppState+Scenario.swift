@@ -128,21 +128,20 @@ extension AppState {
     /// 加载内置场景（只读资源文件；失败时保持空列表，由 UI 提示）。
     public func loadScenarios() async {
         guard !didLoadScenarios else { return }
-        // 先把自建情景并进服务目录，再取列表 —— 反过来的话首次进页面看不到「我的情景」。
-        await services.reloadCustomScenarios()
-        scenarios = await services.availableScenarios()
+        // 先把自建情景与 AI 课程并进服务目录，再取列表 —— 反过来的话首次进页面
+        // 看不到「我的情景」，AI 排的课那几节更是点不进去（`scenario(id:)` 查不到）。
+        await refreshScenarioCatalog()
         // 绑定表与情景一起加载：课程阶梯要把关卡挂到档上，缺了它只能显示「未挂关」。
         levelBindings = await services.levelBindings()
         didLoadScenarios = true
     }
 
-    /// 重新取一遍情景目录（生成 / 删除自建情景之后调用）。
+    /// 重新取一遍情景与课程目录（生成 / 删除自建情景、排课 / 删课之后调用）。
     ///
     /// ⚠️ 不能复用 `loadScenarios()`：它有 `didLoadScenarios` 守卫，第二次调用直接返回 ——
     /// 刚生成完新情景再调它，列表纹丝不动，用户只会得出「生成没成功」这个结论。
     public func reloadScenarios() async {
-        await services.reloadCustomScenarios()
-        scenarios = await services.availableScenarios()
+        await refreshScenarioCatalog()
         didLoadScenarios = true
     }
 

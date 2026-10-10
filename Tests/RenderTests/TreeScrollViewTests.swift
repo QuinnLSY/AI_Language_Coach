@@ -63,7 +63,7 @@ final class TreeScrollViewTests: XCTestCase {
 
         let offset = scrolledOffset(scroll)
         let target = TreeViewport.learnerTargetY(viewportHeight: height)
-        let learnerContentY = TreeScrollView.topPadding + TreeCanvas.learnerY(for: 0)
+        let learnerContentY = TreeScrollView.topPadding + TreeCanvas.learnerY(for: 0, progress: seed(climb: 0))
         let learnerViewportY = learnerContentY - offset
 
         XCTAssertGreaterThan(
@@ -86,15 +86,15 @@ final class TreeScrollViewTests: XCTestCase {
         let scroll = try await host(viewportHeight: height, climb: 0)
 
         let expected = TreeScrollView.topPadding
-            + TreeCanvas.canvasHeight
-            + TreeViewport.bottomPadding(viewportHeight: height, climbFraction: 0)
+            + TreeCanvas.canvasHeight(for: seed(climb: 0))
+            + TreeViewport.bottomPadding(viewportHeight: height, climbFraction: 0, progress: seed(climb: 0))
         let actual = scroll.documentView?.frame.height ?? 0
         XCTAssertEqual(
             actual, expected, accuracy: 6,
             "内容总高 \(actual)pt，应当是 顶距 + 画布 + 底部留白 = \(expected)pt"
         )
         XCTAssertGreaterThan(
-            TreeViewport.bottomPadding(viewportHeight: height, climbFraction: 0), 0,
+            TreeViewport.bottomPadding(viewportHeight: height, climbFraction: 0, progress: seed(climb: 0)), 0,
             "全新学员压在树底时必须补底部留白"
         )
     }
@@ -107,7 +107,7 @@ final class TreeScrollViewTests: XCTestCase {
 
         let offset = scrolledOffset(scroll)
         let target = TreeViewport.learnerTargetY(viewportHeight: height)
-        let learnerViewportY = TreeScrollView.topPadding + TreeCanvas.learnerY(for: 0.6) - offset
+        let learnerViewportY = TreeScrollView.topPadding + TreeCanvas.learnerY(for: 0.6, progress: seed(climb: 0.6)) - offset
 
         XCTAssertGreaterThanOrEqual(
             offset, 0,
@@ -124,7 +124,7 @@ final class TreeScrollViewTests: XCTestCase {
             "学员的脚（\(learnerViewportY + 32)pt）必须露在林带之上（\(height - TreeViewport.groundBandHeight)pt）"
         )
         XCTAssertEqual(
-            TreeViewport.bottomPadding(viewportHeight: height, climbFraction: 0.6), 0, accuracy: 0.001,
+            TreeViewport.bottomPadding(viewportHeight: height, climbFraction: 0.6, progress: seed(climb: 0.6)), 0, accuracy: 0.001,
             "学员已经爬高，底部不该再补留白"
         )
     }
@@ -136,7 +136,7 @@ final class TreeScrollViewTests: XCTestCase {
         let scroll = try await host(viewportHeight: height, climb: 0)
 
         let offset = scrolledOffset(scroll)
-        let learnerViewportY = TreeScrollView.topPadding + TreeCanvas.learnerY(for: 0) - offset
+        let learnerViewportY = TreeScrollView.topPadding + TreeCanvas.learnerY(for: 0, progress: seed(climb: 0)) - offset
         XCTAssertGreaterThanOrEqual(learnerViewportY, 0, "学员被滚到视口上方去了")
         XCTAssertLessThanOrEqual(
             learnerViewportY + 32, height - TreeViewport.groundBandHeight,

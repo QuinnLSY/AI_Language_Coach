@@ -63,11 +63,13 @@ final class ExperienceLoopTests: XCTestCase {
                       "关闭按钮必须零尺寸（不参与布局）")
     }
 
-    /// 四个浮层挂 ESC；入学定级**刻意不挂**（答题中途误按太亏，与「点遮罩不关」同哲学）。
+    /// 五个浮层挂 ESC；入学定级**刻意不挂**（答题中途误按太亏，与「点遮罩不关」同哲学）。
     func testOverlaysCloseOnEscapeButPlacementDeliberatelyDoesNot() throws {
         let raw = try Self.code("Sources/AppUI/Views/MainView.swift")
-        XCTAssertEqual(Self.occurrences(of: ".escCloses", in: raw), 4,
-                       "escCloses 恰好挂 4 处（全局搜索 / 情景 / 描述场景 / 上传材料）；多了就是挂到了不该挂的浮层")
+        // ③ 加了「排一条课」浮层（从情景面板头部竖起来，同那两层一组）。
+        // 数量是**钉**不是描述：多一处 = 挂到了不该挂的浮层，少一处 = 那个浮层永远关不掉。
+        XCTAssertEqual(Self.occurrences(of: ".escCloses", in: raw), 5,
+                       "escCloses 恰好挂 5 处（全局搜索 / 情景 / 描述场景 / 排课 / 上传材料）；多了就是挂到了不该挂的浮层")
         // 入学定级的声明体里不能出现 escCloses —— 误按 ESC 会打断答题。
         let placement = try Self.declBody(matching: "private var placementOverlay: some View", in: raw)
         XCTAssertFalse(placement.contains(".escCloses"),

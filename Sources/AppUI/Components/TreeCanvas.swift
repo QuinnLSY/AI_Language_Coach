@@ -55,9 +55,46 @@ public struct TreeCanvas: View {
     /// 主 actor 隔离 —— 连这几个纯常量也一起。而 `TreeViewport`（纯几何函数命名空间，
     /// 不是 View）要拿它们算滚动锚点，一读就报「主 actor 隔离属性不能从非隔离上下文引用」。
     /// 这些数就是纯算术、没有任何状态，本来就该非隔离。
-    public nonisolated static let canvasHeight: CGFloat = 1080
+    /// 正文那一段的画布高度（没有 AI 课程关卡时就是全部）。
+    public nonisolated static let baseCanvasHeight: CGFloat = 1080
+    /// 正文段顶端（树冠那一格）的 inset。
+    public nonisolated static let crownInset: CGFloat = 210
+    /// AI 课程关卡之间的纵向间距（③）。
+    ///
+    /// ⚠️ 课程段**刻意不按正文跨度换算**：正文段是 `baseY → crownInset` 那 750pt，
+    /// 而课程段在它**之上**，若也按跨度换算，画布一长跨度跟着变长，
+    /// 等于自己把自己推出画布（解下来 6 节就到顶）。所以上面那一段按**名次**等分。
+    public nonisolated static let courseNodeStep: CGFloat = 118
+    /// 课程段第一格离树冠多高（= 一个间距：视觉上是「接着往上长」，不是贴着树冠）。
+    public nonisolated static let courseTopPad: CGFloat = 118
+    /// 最高一格之上留的画布余量。
+    public nonisolated static let courseHeadroom: CGFloat = 120
     /// 画布底部「林间地面」的高度（树干扎根的那一段）。
     public nonisolated static let groundHeight: CGFloat = 120
+
+    /// 课程关卡的**名次**（关卡 id → 0 起的名次；按高度排序）。
+    ///
+    /// 名次只决定像素位置，不承载任何语义（顺序由 `CourseTreeRule.height(index:)` 给）。
+    public nonisolated static func courseRanks(in progress: LearnerProgress) -> [String: Int] {
+        var ranks: [String: Int] = [:]
+        let ordered = progress.levels
+            .filter(\.isAboveCurriculum)
+            .sorted { $0.heightFraction < $1.heightFraction }
+        for (index, level) in ordered.enumerated() { ranks[level.id] = index }
+        return ranks
+    }
+
+    /// 画布高度：**没有课程关卡时一个像素都不动**（滚动锚点与开屏定位都读它）。
+    public nonisolated static func canvasHeight(for progress: LearnerProgress) -> CGFloat {
+        let count = courseRanks(in: progress).count
+        guard count > 0 else { return baseCanvasHeight }
+        return baseCanvasHeight + courseHeadroom + CGFloat(count - 1) * courseNodeStep
+    }
+
+    /// 正文段的顶端在画布里的 y（有课程关卡时整棵树一起下移，给上面腾地方）。
+    public nonisolated static func topInset(for progress: LearnerProgress) -> CGFloat {
+        crownInset + (canvasHeight(for: progress) - baseCanvasHeight)
+    }
 
     /// 学习事件脉冲（来自 `ForestStage`，见 `MainView` 装配）：
     /// 攒星 = 新果实弹入；通关 = 树冠抖三抖 + 落叶缤纷 + 烟花；
@@ -85,8 +122,12 @@ public struct TreeCanvas: View {
         return min(max(Double(earned) / Double(required), 0), 1)
     }
 
-    private var canvasHeight: CGFloat { Self.canvasHeight }
+    private var canvasHeight: CGFloat { Self.canvasHeight(for: progress) }
     private var groundHeight: CGFloat { Self.groundHeight }
+    /// 正文段顶端（课程段在它之上）。
+    private var topInset: CGFloat { Self.topInset(for: progress) }
+    /// 课程关卡名次（关卡 id → 0 起）。
+    private var courseRanks: [String: Int] { Self.courseRanks(in: progress) }
 
     /// 小伙伴「先跑过去等着」的横向偏移（通关时短暂离开学员身边）。
     @State private var companionDashX: CGFloat = 0
@@ -129,7 +170,7 @@ public struct TreeCanvas: View {
             let baseY = canvasHeight - groundHeight
             let currentLevelID = progress.currentLevelID
             /// 学员站的位置（树上那条「爬到哪」的线）。锚点与形象共用，不能各算一套。
-            let learnerY = Self.learnerY(for: progress.climbFraction)
+            let learnerY = Self.learnerY(for: progress.climbFraction, progress: progress)
             // 星星成果实：总进度物化成枝头的果子（数量 = 已得星，封顶到果位表）。
             let earnedStars = progress.levels.reduce(0) { $0 + $1.earnedStars }
             let requiredStars = progress.levels.reduce(0) { $0 + $1.requiredStars }
@@ -163,7 +204,9 @@ public struct TreeCanvas: View {
                            fruitCount: min(earnedStars, FruitLayer.placements.count),
                            shakeTick: ceremonyTick)
                         .frame(width: width, height: 300)
-                        .offset(y: 20)
+                        // ⚠️ 树冠必须跟着**树冠那一格**走（课程段把整棵树往下挪了，
+                        // 树冠留在画布顶部就会浮在课程关卡上面）。
+                        .offset(y: topInset - 190)
 
                     // 藤蔓叶子点缀
                     Leaves(theme: theme)
@@ -186,7 +229,12 @@ public struct TreeCanvas: View {
 
                 // 树枝 + 关卡节点
                 ForEach(progress.levels) { level in
-                    let y = Self.y(for: level.heightFraction, baseY: baseY)
+                    let y = Self.y(
+                        for: level.heightFraction,
+                        baseY: baseY,
+                        topInset: topInset,
+                        courseRank: courseRanks[level.id] ?? 0
+                    )
                     let side: CGFloat = level.branch == .left ? -1 : 1
                     let nodeX = midX + side * (width * 0.30)
 
@@ -287,18 +335,43 @@ public struct TreeCanvas: View {
         }
     }
 
-    private nonisolated static func y(for fraction: Double, baseY: CGFloat) -> CGFloat {
-        let topY: CGFloat = 210
+    /// 关卡节点的 y。**两段**算式（③）：
+    ///
+    /// - 正文段（0…1）：`baseY → topInset` 之间线性插值 —— 与课程功能之前**逐像素相同**；
+    /// - 课程段（> 1，AI 排的课）：按**名次**在 `topInset` 之上等分。
+    ///
+    /// ⚠️ 两段必须分开算。把课程段也按跨度换算的话，画布一长跨度跟着变长，
+    /// 节点会自己走出画布顶端；原先那个内联的 `min(max(fraction,0),1)` 更糟 ——
+    /// 它把课程关卡**全夹在同一个高度**，6 节叠成一个点（元数据对、画面错）。
+    nonisolated static func y(
+        for fraction: Double,
+        baseY: CGFloat,
+        topInset: CGFloat,
+        courseRank: Int
+    ) -> CGFloat {
+        if fraction > 1 {
+            return topInset - courseTopPad - CGFloat(max(courseRank, 0)) * courseNodeStep
+        }
         let clamped = min(max(fraction, 0), 1)
-        return baseY - (baseY - topY) * clamped
+        return baseY - (baseY - topInset) * clamped
     }
 
     /// 学员在**画布坐标系**里的 y（与 `body` 里真正画出来的是同一套算式）。
     ///
     /// 宿主（右侧栏）拿它算「视口该滚到哪、内容底部要补多少留白」，
     /// 各写一份迟早出现「锚点在这、形象在那」。
-    public nonisolated static func learnerY(for climbFraction: Double) -> CGFloat {
-        y(for: climbFraction, baseY: canvasHeight - groundHeight) - 36
+    public nonisolated static func learnerY(for climbFraction: Double, progress: LearnerProgress) -> CGFloat {
+        let height = canvasHeight(for: progress)
+        // ⚠️ 学员只走**树干**（0…1 段），必须先夹住：`climbFraction` 越界时（如 3）
+        // 若直接交给 `y(for:…)`，会落进 >1 的**课程段**、被放到树冠之上 —— 学员会「飞」到
+        // 课程关卡那一段去。越界的老规矩是夹在树冠。
+        let clamped = min(max(climbFraction, 0), 1)
+        return y(
+            for: clamped,
+            baseY: height - groundHeight,
+            topInset: topInset(for: progress),
+            courseRank: 0
+        ) - 36
     }
 }
 
@@ -443,9 +516,14 @@ public enum TreeViewport {
 
     /// 内容底部要补的留白：补到「学员下方至少有视口一半的余量」，
     /// 目标位置才滚得到（否则滚动被内容底边钳住，学员停在林带后面）。
-    public static func bottomPadding(viewportHeight: CGFloat, climbFraction: Double) -> CGFloat {
+    public static func bottomPadding(
+        viewportHeight: CGFloat,
+        climbFraction: Double,
+        progress: LearnerProgress
+    ) -> CGFloat {
         guard viewportHeight > 0 else { return 0 }
-        let belowLearner = TreeCanvas.canvasHeight - TreeCanvas.learnerY(for: climbFraction)
+        let belowLearner = TreeCanvas.canvasHeight(for: progress)
+            - TreeCanvas.learnerY(for: climbFraction, progress: progress)
         let needed = viewportHeight - learnerTargetY(viewportHeight: viewportHeight)
         return max(0, needed - belowLearner)
     }
@@ -774,7 +852,15 @@ private struct LevelNode: View {
                 .frame(width: 58, height: 58)
                 .overlay(
                     Circle()
-                        .strokeBorder(border, lineWidth: 2.5)
+                        .strokeBorder(
+                            border,
+                            // ③ 课程关卡用虚线圈：颜色之外再加一道形状差，
+                            // 色弱用户与深浅两套主题下都分得出来。
+                            style: StrokeStyle(
+                                lineWidth: 2.5,
+                                dash: level.isAboveCurriculum ? [5, 4] : []
+                            )
+                        )
                 )
                 .shadow(color: theme.shadow, radius: 6, x: 0, y: 3)
 
@@ -838,8 +924,13 @@ private struct LevelNode: View {
     }
 
     /// 关卡节点的读屏一句话（文案唯一出处见 `AccessibilityLines.levelLine`，可单测）。
+    ///
+    /// ③ 课程关卡补一句「AI 排的课」：读屏用户看不到虚线圈与冷色描边，
+    /// 不说就与正文关卡完全一样 —— 视觉上的区分对读屏用户不存在。
     static func voiceOverLine(level: TreeLevel, note: TreeLevelNote?) -> String {
-        AccessibilityLines.levelLine(level: level, note: note)
+        let base = AccessibilityLines.levelLine(level: level, note: note)
+        guard level.isAboveCurriculum else { return base }
+        return "AI 排的课 · " + base
     }
 
     private var fill: Color {
@@ -852,14 +943,19 @@ private struct LevelNode: View {
     }
 
     private var border: Color {
-        level.state == .locked ? theme.divider : theme.accentAlt
+        // ③ AI 排的课里的一节：**描边换成冷色 + 虚线**，一眼与正文关卡分开。
+        // 判据是 `isAboveCurriculum`（高度 > 1 这个**数据**），不是 id 前缀。
+        if level.isAboveCurriculum { return theme.accentCool }
+        return level.state == .locked ? theme.divider : theme.accentAlt
     }
 
     private var iconName: String {
+        // 课程关卡用「路线」图标，与课卡、情景卡（对话气泡 / sparkles）同一套来源识别。
+        if level.isAboveCurriculum { return CourseBlueprintRule.icon }
         switch level.state {
-        case .completed: "star.fill"
-        case .inProgress: "flame.fill"
-        default: "leaf.fill"
+        case .completed: return "star.fill"
+        case .inProgress: return "flame.fill"
+        default: return "leaf.fill"
         }
     }
 

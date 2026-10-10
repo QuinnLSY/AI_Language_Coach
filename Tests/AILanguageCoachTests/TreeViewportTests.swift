@@ -1,3 +1,4 @@
+import AIDomain
 @testable import AppUI
 import XCTest
 
@@ -71,9 +72,9 @@ final class TreeViewportTests: XCTestCase {
     func testBottomPaddingMakesTheTargetReachable() {
         for height in heights {
             for climb in [0.0, 0.05, 0.3, 0.75, 1.0] {
-                let padding = TreeViewport.bottomPadding(viewportHeight: height, climbFraction: climb)
-                let contentHeight = topPadding + TreeCanvas.canvasHeight + padding
-                let learnerContentY = topPadding + TreeCanvas.learnerY(for: climb)
+                let padding = TreeViewport.bottomPadding(viewportHeight: height, climbFraction: climb, progress: .seed())
+                let contentHeight = topPadding + TreeCanvas.canvasHeight(for: .seed()) + padding
+                let learnerContentY = topPadding + TreeCanvas.learnerY(for: climb, progress: .seed())
                 let desiredOffset = learnerContentY - TreeViewport.learnerTargetY(viewportHeight: height)
                 guard desiredOffset >= 0 else { continue }   // 树比视口还矮，本来就不需要滚
                 XCTAssertLessThanOrEqual(
@@ -90,8 +91,8 @@ final class TreeViewportTests: XCTestCase {
     /// 而林带盖住最下面 150pt。
     func testWithoutPaddingTheFreshLearnerEndsUpBehindTheBand() {
         let height: CGFloat = 735
-        let unpaddedOffset = topPadding + TreeCanvas.canvasHeight - height
-        let learnerViewportY = topPadding + TreeCanvas.learnerY(for: 0) - unpaddedOffset
+        let unpaddedOffset = topPadding + TreeCanvas.canvasHeight(for: .seed()) - height
+        let learnerViewportY = topPadding + TreeCanvas.learnerY(for: 0, progress: .seed()) - unpaddedOffset
         let bandTop = height - TreeViewport.groundBandHeight
         let bellyY = learnerViewportY + 32   // 64pt 高的小动物，+32 就是它的脚底
 
@@ -100,7 +101,7 @@ final class TreeViewportTests: XCTestCase {
             "不补留白时，学员的脚(\(bellyY))应当沉在林带上沿(\(bandTop))之下 —— 这条前提不成立说明算式变了"
         )
         XCTAssertGreaterThan(
-            TreeViewport.bottomPadding(viewportHeight: height, climbFraction: 0), 0,
+            TreeViewport.bottomPadding(viewportHeight: height, climbFraction: 0, progress: .seed()), 0,
             "全新学员在树底，必须补底部留白，否则目标位置滚不到"
         )
     }
@@ -109,7 +110,7 @@ final class TreeViewportTests: XCTestCase {
     func testNoWastedPaddingOnceTheLearnerClimbsHigh() {
         for height in [CGFloat(735), 900] {
             XCTAssertEqual(
-                TreeViewport.bottomPadding(viewportHeight: height, climbFraction: 1),
+                TreeViewport.bottomPadding(viewportHeight: height, climbFraction: 1, progress: .seed()),
                 0, accuracy: 0.001,
                 "学员已经在树顶，底部不该再有留白（视口 \(height)）"
             )
@@ -120,13 +121,68 @@ final class TreeViewportTests: XCTestCase {
 
     func testLearnerYMatchesTheCanvasGeometry() {
         // 树底（进度 0）：画布 1080，地面带 120 → 学员 y 落在树干底部。
-        XCTAssertEqual(TreeCanvas.learnerY(for: 0), 924, accuracy: 0.001)
+        XCTAssertEqual(TreeCanvas.learnerY(for: 0, progress: .seed()), 924, accuracy: 0.001)
         // 树顶（进度 1）：画布顶部 210 再上抬 36。
-        XCTAssertEqual(TreeCanvas.learnerY(for: 1), 174, accuracy: 0.001)
+        XCTAssertEqual(TreeCanvas.learnerY(for: 1, progress: .seed()), 174, accuracy: 0.001)
         // 越往上爬，y 越小（单调）。
-        XCTAssertLessThan(TreeCanvas.learnerY(for: 0.8), TreeCanvas.learnerY(for: 0.2))
+        XCTAssertLessThan(
+            TreeCanvas.learnerY(for: 0.8, progress: .seed()),
+            TreeCanvas.learnerY(for: 0.2, progress: .seed())
+        )
         // 越界的进度要被夹住，不能算到画布外去。
-        XCTAssertEqual(TreeCanvas.learnerY(for: -1), TreeCanvas.learnerY(for: 0), accuracy: 0.001)
-        XCTAssertEqual(TreeCanvas.learnerY(for: 3), TreeCanvas.learnerY(for: 1), accuracy: 0.001)
+        XCTAssertEqual(
+            TreeCanvas.learnerY(for: -1, progress: .seed()),
+            TreeCanvas.learnerY(for: 0, progress: .seed()), accuracy: 0.001
+        )
+        XCTAssertEqual(
+            TreeCanvas.learnerY(for: 3, progress: .seed()),
+            TreeCanvas.learnerY(for: 1, progress: .seed()), accuracy: 0.001
+        )
+    }
+
+    // MARK: - ④ AI 课程关卡（③）：树长高了，正文那一段不许变形
+
+    /// 树冠之上挂了课程关卡时，正文 8 关的**相对位置一根手指都不许动** ——
+    /// 只是整棵树往下挪了（给上面腾地方）。
+    func testCourseLevelsDoNotDistortTheBuiltInBand() {
+        let plain = TreeCanvas.baseCanvasHeight - TreeCanvas.groundHeight - TreeCanvas.crownInset
+        let grown = TreeCanvas.canvasHeight(for: .seed().withCourseLevels(3))
+            - TreeCanvas.groundHeight - TreeCanvas.topInset(for: .seed().withCourseLevels(3))
+        XCTAssertEqual(grown, plain, accuracy: 0.001,
+                       "正文段跨度必须与课程功能之前一致，否则加一节课就把整棵树压扁或拉长")
+    }
+
+    /// 每一节课程都要落在**画布之内**，且彼此不重叠（这一条是被那行
+    /// `min(max(fraction,0),1))` 教会的：夹住上界的话 6 节会叠成一个点）。
+    func testEveryCourseLevelLandsInsideTheCanvasAtItsOwnHeight() {
+        for count in 1...6 {
+            let progress = LearnerProgress.seed().withCourseLevels(count)
+            let height = TreeCanvas.canvasHeight(for: progress)
+            let topInset = TreeCanvas.topInset(for: progress)
+            let baseY = height - TreeCanvas.groundHeight
+            var ys: [CGFloat] = []
+            for level in progress.levels where level.isAboveCurriculum {
+                let rank = TreeCanvas.courseRanks(in: progress)[level.id] ?? 0
+                ys.append(TreeCanvas.y(
+                    for: level.heightFraction, baseY: baseY, topInset: topInset, courseRank: rank
+                ))
+            }
+            XCTAssertEqual(ys.count, count)
+            XCTAssertEqual(Set(ys.map { Int($0.rounded()) }).count, count,
+                           "\(count) 节课程里有关卡叠在同一高度")
+            XCTAssertEqual(ys, ys.sorted(by: >), "课内序号越大越靠上（y 更小）")
+            for y in ys {
+                XCTAssertGreaterThanOrEqual(y, 0, "\(count) 节的某一格跑到画布顶端外面去了")
+                XCTAssertLessThan(y, topInset, "\(count) 节的某一格没有排在树冠之上")
+            }
+            // 课程段整体还要留出画布顶部的余量（最高一格之上）。
+            XCTAssertGreaterThanOrEqual(ys.min() ?? 0, 0)
+        }
+    }
+
+    /// 没有课程关卡时画布高度**一个像素都不动** —— 滚动锚点与开屏定位都读它。
+    func testCanvasHeightIsUntouchedWithoutCourses() {
+        XCTAssertEqual(TreeCanvas.canvasHeight(for: .seed()), TreeCanvas.baseCanvasHeight)
+        XCTAssertEqual(TreeCanvas.topInset(for: .seed()), TreeCanvas.crownInset)
     }
 }

@@ -76,13 +76,28 @@ final class TreeRingsTests: XCTestCase {
     /// 底部 150pt 永远被它压住 —— 画在那后面等于没画。而第一圈年轮要练满 30 天才出现，
     /// 那时视口必然停在半空，于是「练了一整年，树根什么都没有」。
     func testEmblemSitsAboveTheGroundBand() {
-        let canvasHeight = TreeCanvas.canvasHeight
+        let canvasHeight = TreeCanvas.canvasHeight(for: .seed())
         let y = TreeRings.emblemY(canvasHeight: canvasHeight)
         XCTAssertLessThan(y, canvasHeight - TreeViewport.groundBandHeight,
                           "徽记画在林带遮住区里就永远看不见")
         XCTAssertGreaterThan(y, 0)
         // 也要躲开最低那一格关卡节点（不然徽记压在节点上）。
         XCTAssertLessThan(y, 960)
+    }
+
+    /// ⚠️ 徽记是**按画布底边往上定位**的（`canvasHeight - 林带 - 呼吸位`），
+    /// 而画布高度现在会随 AI 课程关卡数变长（③）。
+    /// 反证：树长高之后徽记必须跟着下移，否则它会停在半空、压在某一节课程关卡上。
+    func testEmblemFollowsTheGroundWhenTheTreeGrowsForCourses() {
+        let plain = TreeCanvas.canvasHeight(for: .seed())
+        let grown = TreeCanvas.canvasHeight(for: .seed().withCourseLevels(3))
+        XCTAssertGreaterThan(grown, plain, "有课程关卡时画布必须变长（否则节点被画到画布外）")
+
+        let plainY = TreeRings.emblemY(canvasHeight: plain)
+        let grownY = TreeRings.emblemY(canvasHeight: grown)
+        XCTAssertEqual(grownY - plainY, grown - plain, accuracy: 0.001,
+                       "徽记要贴着地面一起下移（它标的是「树根」那一圈年轮）")
+        XCTAssertLessThan(grownY, grown - TreeViewport.groundBandHeight)
     }
 
     // MARK: - ⑥ 装配哨兵
@@ -101,5 +116,50 @@ final class TreeRingsTests: XCTestCase {
         let scroll = try source("AppUI/Components/TreeScrollView.swift")
         XCTAssertTrue(scroll.contains("annualSummary: annualSummary"),
                       "TreeScrollView 必须把摘要透传给 TreeCanvas")
+    }
+}
+
+// MARK: - 夹具：给进度并上 n 个 AI 课程关卡（③）
+
+extension LearnerProgress {
+
+    /// 走**真实的** `CourseTreeRule.merge` 并上 n 个课程关卡。
+    ///
+    /// ⚠️ 不要在手搓 `TreeLevel(heightFraction: 1.08…)` 来测树的课程几何 ——
+    /// 那样测的是「我以为的高度」，不是产品真正并进来的高度。
+    func withCourseLevels(_ count: Int) -> LearnerProgress {
+        let course = CourseBlueprint(
+            id: "course-fixture",
+            title: "Fixture course",
+            titleZh: "夹具课",
+            focus: "",
+            targetLevel: .b1,
+            rationale: "",
+            lessons: (1...max(count, 1)).map { index in
+                let id = "course-fixture-l\(index)"
+                return CourseLesson(
+                    id: id,
+                    order: index,
+                    title: "Lesson \(index)",
+                    titleZh: "第\(index)节",
+                    goal: "",
+                    scenario: Scenario(
+                        id: id,
+                        title: "Lesson \(index)",
+                        titleZh: "第\(index)节",
+                        category: CourseBlueprintRule.category,
+                        difficulty: 3,
+                        level: "B1",
+                        objective: "",
+                        aiRole: "barista",
+                        learnerRole: "customer",
+                        opening: "Hi there!",
+                        targetSentences: ["Could I get a latte?", "Does it cost extra?"],
+                        origin: .course
+                    )
+                )
+            }
+        )
+        return CourseTreeRule.merge(progress: self, courses: [course])
     }
 }

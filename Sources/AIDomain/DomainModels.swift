@@ -111,6 +111,14 @@ public struct TreeLevel: Codable, Sendable, Equatable, Identifiable {
         self.earnedStars = earnedStars
         self.scenarioID = scenarioID
     }
+
+    /// 这一格是否在「正文之上」—— 即它是 AI 排的课里的一节（③）。
+    ///
+    /// ⚠️ 判据是**高度**（数据），不是 id 前缀：正文 8 关都在 0.06…0.92，
+    /// 课程关卡一律 > 1（见 `CourseTreeRule.firstCourseHeight`）。
+    /// 用前缀判的话，改一次命名约定就静默失效 —— 而它决定的是
+    /// 「删课时这一格撤不撤」「树上要不要换个图标区分」这两件会丢数据的事。
+    public var isAboveCurriculum: Bool { heightFraction > 1 }
 }
 
 public struct LearnerProgress: Codable, Sendable, Equatable {

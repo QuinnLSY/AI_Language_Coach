@@ -157,6 +157,7 @@ extension AppState {
             scenarios: showingScenarios,
             materialUpload: showingMaterialUpload,
             scenarioComposer: showingScenarioComposer,
+            courseComposer: showingCourseComposer,
             globalSearch: showingGlobalSearch
         )
     }

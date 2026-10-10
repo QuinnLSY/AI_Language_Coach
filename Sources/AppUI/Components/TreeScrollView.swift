@@ -63,7 +63,8 @@ struct TreeScrollView: View {
                     // 目标位置（会被内容底边钳住 → 学员缩在林带后面）。
                     .padding(.bottom, TreeViewport.bottomPadding(
                         viewportHeight: viewportHeight,
-                        climbFraction: progress.climbFraction
+                        climbFraction: progress.climbFraction,
+                        progress: progress
                     ))
                 }
                 // 一打开就停在**学员当前所在的位置**，不是树顶。

@@ -32,7 +32,8 @@ final class EscStackTests: XCTestCase {
     /// 回归本体：情景面板 + 上传材料（每次点「上传材料」必现的共存）必须由材料层响应 Esc。
     func testMaterialUploadOutranksScenarios() {
         let top = EscDismissLayer.topmost(
-            settings: false, scenarios: true, materialUpload: true, scenarioComposer: false, globalSearch: false
+            settings: false, scenarios: true, materialUpload: true, scenarioComposer: false,
+            courseComposer: false, globalSearch: false
         )
         XCTAssertEqual(top, .materialUpload, "材料浮层压在情景面板之上，Esc 该关它而不是底下那层")
     }
@@ -40,16 +41,27 @@ final class EscStackTests: XCTestCase {
     /// 描述场景浮层同理（它也是从情景面板头部竖起来的）。
     func testScenarioComposerOutranksScenarios() {
         let top = EscDismissLayer.topmost(
-            settings: false, scenarios: true, materialUpload: false, scenarioComposer: true, globalSearch: false
+            settings: false, scenarios: true, materialUpload: false, scenarioComposer: true,
+            courseComposer: false, globalSearch: false
         )
         XCTAssertEqual(top, .scenarioComposer)
+    }
+
+    /// 排课浮层同理（③，同样从情景面板头部竖起来）。
+    func testCourseComposerOutranksScenarios() {
+        let top = EscDismissLayer.topmost(
+            settings: false, scenarios: true, materialUpload: false, scenarioComposer: false,
+            courseComposer: true, globalSearch: false
+        )
+        XCTAssertEqual(top, .courseComposer)
     }
 
     /// 三层同屏（菜单栏「设置…」可在情景+材料开着时弹出来）——原先最坏情况是
     /// 一次 Esc 关掉设置页，底下两层都还挂着。
     func testThreeStackedOverlaysPickExactlyTheTopOne() {
         let top = EscDismissLayer.topmost(
-            settings: true, scenarios: true, materialUpload: true, scenarioComposer: false, globalSearch: false
+            settings: true, scenarios: true, materialUpload: true, scenarioComposer: false,
+            courseComposer: false, globalSearch: false
         )
         XCTAssertEqual(top, .materialUpload)
     }
@@ -57,7 +69,8 @@ final class EscStackTests: XCTestCase {
     /// 全局搜索挂在根 ZStack 闭合后的 `.overlay` 里，永远最上层。
     func testGlobalSearchIsAlwaysTheTopLayer() {
         let top = EscDismissLayer.topmost(
-            settings: true, scenarios: true, materialUpload: true, scenarioComposer: true, globalSearch: true
+            settings: true, scenarios: true, materialUpload: true, scenarioComposer: true,
+            courseComposer: true, globalSearch: true
         )
         XCTAssertEqual(top, .globalSearch)
     }
@@ -65,20 +78,24 @@ final class EscStackTests: XCTestCase {
     /// 设置页与材料层同为 zIndex 20，但声明更早 → 在下面。
     func testSettingsSitsBelowMaterialUpload() {
         let top = EscDismissLayer.topmost(
-            settings: true, scenarios: true, materialUpload: true, scenarioComposer: false, globalSearch: false
+            settings: true, scenarios: true, materialUpload: true, scenarioComposer: false,
+            courseComposer: false, globalSearch: false
         )
         XCTAssertNotEqual(top, .settings)
         let onlySettings = EscDismissLayer.topmost(
-            settings: true, scenarios: true, materialUpload: false, scenarioComposer: false, globalSearch: false
+            settings: true, scenarios: true, materialUpload: false, scenarioComposer: false,
+            courseComposer: false, globalSearch: false
         )
         XCTAssertEqual(onlySettings, .settings, "只有设置页与情景面板时，Esc 该关设置页")
     }
 
-    /// 32 种组合全覆盖：返回的那一层必须**确实开着**，且所有比它更上层的都关着。
+    /// 全部组合全覆盖：返回的那一层必须**确实开着**，且所有比它更上层的都关着。
     /// （只钉住几个例子的话，把中间某两层的顺序换掉照样绿。）
     func testTopmostIsConsistentForEveryCombination() {
-        let order: [EscDismissLayer] = [.globalSearch, .scenarioComposer, .materialUpload, .settings, .scenarios]
-        for mask in 0..<32 {
+        let order: [EscDismissLayer] = [
+            .globalSearch, .scenarioComposer, .courseComposer, .materialUpload, .settings, .scenarios,
+        ]
+        for mask in 0..<(1 << order.count) {
             var on: [EscDismissLayer: Bool] = [:]
             for (index, layer) in order.enumerated() { on[layer] = (mask >> index) & 1 == 1 }
             let top = EscDismissLayer.topmost(
@@ -86,6 +103,7 @@ final class EscStackTests: XCTestCase {
                 scenarios: on[.scenarios]!,
                 materialUpload: on[.materialUpload]!,
                 scenarioComposer: on[.scenarioComposer]!,
+                courseComposer: on[.courseComposer]!,
                 globalSearch: on[.globalSearch]!
             )
             let open = order.filter { on[$0]! }
@@ -101,17 +119,17 @@ final class EscStackTests: XCTestCase {
 
     // MARK: - 接线：每个挂载点都必须参与仲裁
 
-    /// MainView 四个浮层逐一传 `isActive`；漏一处那个浮层就又变成平等键等价项。
+    /// MainView 五个浮层逐一传 `isActive`；漏一处那个浮层就又变成平等键等价项。
     func testEveryOverlayPassesItsActiveFlag() throws {
         let raw = try Self.code("Sources/AppUI/Views/MainView.swift")
-        XCTAssertEqual(Self.occurrences(of: ".escCloses(", in: raw), 4, "四个浮层各挂一处")
-        for layer in ["globalSearch", "scenarios", "scenarioComposer", "materialUpload"] {
+        XCTAssertEqual(Self.occurrences(of: ".escCloses(", in: raw), 5, "五个浮层各挂一处")
+        for layer in ["globalSearch", "scenarios", "scenarioComposer", "courseComposer", "materialUpload"] {
             XCTAssertTrue(
                 raw.contains("isActive: state.escDismissLayer == .\(layer)"),
                 "\(layer) 浮层必须传 isActive"
             )
         }
-        XCTAssertEqual(Self.occurrences(of: "escDismissLayer", in: raw), 4,
+        XCTAssertEqual(Self.occurrences(of: "escDismissLayer", in: raw), 5,
                        "escCloses 与 isActive 一一对应，不许有多余或缺失的挂载点")
     }
 
@@ -147,6 +165,9 @@ final class EscStackTests: XCTestCase {
     ///
     /// ⚠️ S4-8 起拦截清单**只有一个真源**（`AppState.blockingOverlays`，与 `isContentCovered` 共用），
     /// 所以判据落在那一份上 —— 继续钉 `AppState+Shortcuts.swift` 会随「真源搬走」而扑空。
+    ///
+    /// 排课浮层（③）同样逐项列进来：它是第三张从情景面板竖起来的满屏遮罩，
+    /// 漏掉的话表现与描述场景一模一样（浮层开着、底下那页还能被 ⌘3 切走）。
     func testScenarioComposerAlsoBlocksPageShortcuts() throws {
         let appState = try Self.code("Sources/AppUI/AppState.swift")
         let overlays = try XCTUnwrap(
@@ -155,6 +176,16 @@ final class EscStackTests: XCTestCase {
             "找不到 blockingOverlays 的定义（真源搬走了？）"
         )
         XCTAssertTrue(overlays.contains("showingScenarioComposer"), "描述场景浮层必须进快捷键拦截")
+        XCTAssertTrue(overlays.contains("showingCourseComposer"), "排课浮层必须进快捷键拦截")
+
+        // ⚠️ 同一份清单也管划词气泡（`isContentCovered`）—— 两处都漏的话，
+        // 浮层开着时划词气泡还会浮在窗口最上层。
+        let covering = try XCTUnwrap(
+            appState.components(separatedBy: "var coveringPanels: Bool {").dropFirst().first?
+                .components(separatedBy: "\n    }").first,
+            "找不到 coveringPanels 的定义（真源搬走了？）"
+        )
+        XCTAssertTrue(covering.contains("showingCourseComposer"), "排课浮层必须进遮蔽面板清单")
 
         let shortcuts = try Self.code("Sources/AppUI/AppState+Shortcuts.swift")
         XCTAssertTrue(

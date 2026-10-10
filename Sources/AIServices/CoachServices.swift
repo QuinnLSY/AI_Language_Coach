@@ -81,6 +81,8 @@ public actor CoachServices {
     private let materialStore: MaterialStore
     /// 用户自建情景的落盘仓库（一句话生成，⑦）。
     private let customScenarioStore: CustomScenarioStore
+    /// AI 排的课的落盘仓库（③，一条课一个 JSON）。
+    private let courseStore: CourseStore
     private let config: ConfigStore
     private var llmProvider: (any LLMProvider)?
     /// 场景目录缓存（资源文件，进程内读一次即可）。
@@ -90,6 +92,13 @@ public actor CoachServices {
     /// ⚠️ 与 `scenarioCache` 分开存：内置那份读一次就永不变化，
     /// 这一份会随「生成 / 删除」变 —— 合在一起就得每次生成都重读一遍资源包。
     private var customScenarioCache: [Scenario] = []
+    /// 已排好的 AI 课程（进程内缓存，由 `reloadCourses()` 刷）。UI 拿它渲染「AI 排的课」。
+    private var courseCache: [CourseBlueprint] = []
+    /// 课内情景（`courseCache` 摊平后的那一份）。
+    ///
+    /// ⚠️ 与 `courseCache` **必须一起刷**：只刷课不刷它，情景面板会少那几节
+    /// （点进去练习也找不到）；只刷它不刷课，卡片上又会少一条课。见 `reloadCourses()`。
+    private var courseScenarioCache: [Scenario] = []
     /// 考卷目录缓存（同上）。
     private var examCache: [ExamBlueprint]?
     /// 进行中的 LLM 装配任务：并发调用只装配一次（见 `ensureLLMReady`）。
@@ -113,7 +122,8 @@ public actor CoachServices {
         dictionaryStore: DictionaryBookStore = .shared,
         shadowingDailyStore: ShadowingDailyStore = .shared,
         materialStore: MaterialStore = MaterialStore(),
-        customScenarioStore: CustomScenarioStore = CustomScenarioStore()
+        customScenarioStore: CustomScenarioStore = CustomScenarioStore(),
+        courseStore: CourseStore = CourseStore()
     ) {
         self.config = config
         self.llm = llm
@@ -151,6 +161,7 @@ public actor CoachServices {
         self.placement = PlacementService()
         self.materialStore = materialStore
         self.customScenarioStore = customScenarioStore
+        self.courseStore = courseStore
         self.vocabulary = VocabularyService(llm: self.llm, learning: database, events: self.events,
                                              failures: self.persistenceFailures)
         self.dictionary = DictionaryService(llm: self.llm, store: dictionaryStore)
@@ -2590,7 +2601,12 @@ public actor CoachServices {
     /// 每多一个「只认内置」的入口，自建情景就会在那里凭空消失一次。
     public func availableScenarios() -> [Scenario] {
         if scenarioCache == nil { scenarioCache = ScenarioCatalog.bundled() }
-        return ScenarioCatalog.deduplicated((scenarioCache ?? []) + customScenarioCache)
+        // ⚠️ 课内情景（③）必须并进来：一节课就是一个情景，它要能被分组展示、
+        // 被关卡绑定、被今日跟读轮换选中，还要能按 id 查回来（进行中的会话恢复靠
+        // `scenario(id:)`）—— 少并一份，AI 排的课在那些入口上就会凭空消失。
+        return ScenarioCatalog.deduplicated(
+            (scenarioCache ?? []) + customScenarioCache + courseScenarioCache
+        )
     }
 
     /// 重新读盘，把用户自建情景并进目录。
@@ -2674,6 +2690,89 @@ public actor CoachServices {
     /// 按 id 取场景（不存在返回 nil）。
     public func scenario(id: String) -> Scenario? {
         availableScenarios().first { $0.id == id }
+    }
+
+    // MARK: - AI 自动课程（③：由学员状态排出一条有序的课）
+
+    /// 已排好的课（按排课时间倒序）。
+    ///
+    /// 走缓存而不是每次读盘：开情景面板要它、树上挂关卡也要它，而它在同步上下文里被调用
+    /// （同 `availableScenarios()` 的理由）。刷新的唯一入口是 `reloadCourses()`。
+    public func availableCourses() -> [CourseBlueprint] { courseCache }
+
+    /// 按 id 取一条课（不存在返回 nil）。
+    public func course(id: String) -> CourseBlueprint? { courseCache.first { $0.id == id } }
+
+    /// 重新读盘：已排的课与它们的课内情景**一起**换掉。
+    ///
+    /// 调用点：开情景面板 / 排课成功 / 删除之后。
+    /// ⚠️ 两件必须一起刷：只刷课不刷情景，面板里那几节会消失、点进去也找不到；
+    /// 只刷情景不刷课，卡片上又会少一条课（`availableScenarios()` 与 `availableCourses()`
+    /// 就是靠这两份缓存对齐的）。
+    public func reloadCourses() async {
+        let courses = await courseStore.all()
+        courseCache = courses
+        courseScenarioCache = courses.flatMap(\.scenarios)
+    }
+
+    /// 删除一条课（它那几节情景同时从面板与树上消失；已进词汇本的词**不回收** ——
+    /// 那已经是学员自己的词了）。
+    public func deleteCourse(id: String) async {
+        await courseStore.delete(id: id)
+        await reloadCourses()
+    }
+
+    /// 由学员状态排一条课：**一次请求排出整条**。
+    ///
+    /// 不拆成「一节课一次请求」：一条课的**顺序**（由易到难、前后呼应）正是它的价值，
+    /// 分次生成时每节都看不见别节，顺序就丢了 —— 还得让用户等 N 趟、N 次之间更容易互相打架。
+    ///
+    /// 失败一律抛错、**不落盘**：宁可让用户改个主题重排，也不能在树上留一条缺胳膊少腿的课 ——
+    /// 它会占掉一格，还会以「AI 排的课」的名义长期留在面板里。
+    public func generateCourse(_ request: CourseRequest) async throws -> CourseBlueprint {
+        let clean = request.sanitized()
+        if let issue = CourseBlueprintRule.inputIssue(for: clean) {
+            throw AppError.unknown(issue.message)
+        }
+        guard isModelRunning(.llm) else { throw AIProviderError.notInitialized }
+        try await ensureLLMReady()
+
+        let configuration = await config.current
+        let provider = await config.current.resolvedProvider(for: .llm)
+        let llmRequest = LLMRequest(
+            messages: [LLMMessage(role: .system, content: PromptBuilder.courseBlueprintPrompt(
+                request: clean,
+                learningLanguage: promptLanguage(configuration),
+                nativeLanguage: configuration.product.nativeLanguage
+            ))],
+            model: await currentLLMModel(),
+            // 与情景生成同一档（0.6）：排课是创作任务，要一点温度（同一份状态不该排出
+            // 逐字一样的课），但不能飘 —— 排出来的每一节都要能直接拿去练。
+            temperature: 0.6,
+            maxTokens: min(provider?.maxTokens ?? 2048, 2048),
+            streaming: false,
+            reasoningEffort: LLMRequest.noThinkingEffort
+        )
+        let response = try await llm.generate(llmRequest)
+        guard let course = CourseBlueprintRule.parse(response.text, request: clean) else {
+            throw AppError.unknown(
+                "没能排出一条完整可练的课（至少 \(CourseBlueprintRule.minimumLessons) 节，每节都要有"
+                    + "场景、开场白和 \(CourseBlueprintRule.minimumTargetSentences) 句以上目标句）——"
+                    + "换个主题或再试一次。"
+            )
+        }
+        try await courseStore.save(course)
+        await reloadCourses()
+
+        // 课内每一节的目标词都进词汇本（`source: .scenario`）：一节课就是一次情景练习，
+        // 它的词理应像情景的词一样被每日推荐的**生词档**接住 —— 练过的词第二天再露一面，
+        // 排课与词汇本才算真正闭上环。
+        for lesson in course.lessons {
+            for word in lesson.words {
+                _ = await vocabulary.add(word: word.word, meaning: word.meaning, source: .scenario)
+            }
+        }
+        return course
     }
 
     /// 「关卡 → 情景」绑定表（来自 `Resources/Levels/level_bindings.json`，不落库）。

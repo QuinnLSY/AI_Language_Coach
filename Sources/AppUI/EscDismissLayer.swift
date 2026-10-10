@@ -17,29 +17,33 @@ import SwiftUI
 ///
 /// 顺序即叠放顺序（`topmost` 的判定依据）：
 /// - `globalSearch` 挂在根 ZStack **闭合之后**的 `.overlay` 里 → 永远最上层；
-/// - `materialUpload` / `scenarioComposer` 是从情景面板头部竖起来的，压在情景面板之上
-///   （`MainView` 里 zIndex 20 vs 情景面板 18）；两者之间由全屏遮罩互斥，不会同时出现；
-/// - `settings` 与上面两层同为 zIndex 20 但**声明更早**（`MainView:88`）→ 同屏时在它们下面；
+/// - `materialUpload` / `scenarioComposer` / `courseComposer` 是从情景面板头部竖起来的，
+///   压在情景面板之上（`MainView` 里 zIndex 20 vs 情景面板 18）；三者之间由全屏遮罩互斥，
+///   不会同时出现，彼此的先后无意义 —— 放在同一组里只是让清单读得顺；
+/// - `settings` 与上面几层同为 zIndex 20 但**声明更早**（`MainView:88`）→ 同屏时在它们下面；
 /// - `scenarios`（zIndex 18）垫底。
 public enum EscDismissLayer: String, Hashable, Sendable, CaseIterable {
     case globalSearch
     case scenarioComposer
+    case courseComposer
     case materialUpload
     case settings
     case scenarios
 
     /// 当前该响应 Esc 的那一层；nil = 没有浮层。
     ///
-    /// 纯函数（不碰 `@Observable` 状态）→ 32 种组合都能直接单测，不必渲染。
+    /// 纯函数（不碰 `@Observable` 状态）→ 全部组合都能直接单测，不必渲染。
     public static func topmost(
         settings: Bool,
         scenarios: Bool,
         materialUpload: Bool,
         scenarioComposer: Bool,
+        courseComposer: Bool,
         globalSearch: Bool
     ) -> EscDismissLayer? {
         if globalSearch { return .globalSearch }
         if scenarioComposer { return .scenarioComposer }
+        if courseComposer { return .courseComposer }
         if materialUpload { return .materialUpload }
         if settings { return .settings }
         if scenarios { return .scenarios }

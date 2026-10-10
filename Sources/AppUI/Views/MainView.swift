@@ -103,6 +103,11 @@ public struct MainView: View {
                     scenarioComposerOverlay
                 }
 
+                // 排课浮层（③）：同样从情景面板头部竖起来，与上面两层同层、互斥。
+                if state.showingCourseComposer {
+                    courseComposerOverlay
+                }
+
                 // 入学定级浮层：从学习进度页进来，与上传材料同一层。
                 if state.isPlacementShowing {
                     placementOverlay
@@ -191,6 +196,7 @@ public struct MainView: View {
         .appAnimation(.reveal, value: state.showingScenarios)
         .appAnimation(.reveal, value: state.showingMaterialUpload)
         .appAnimation(.reveal, value: state.showingScenarioComposer)
+        .appAnimation(.reveal, value: state.showingCourseComposer)
         .task {
             state.systemIsDark = (colorScheme == .dark)
             // ⚠️ 界面开关要在 `start()` **前后各压一次**：
@@ -785,6 +791,33 @@ public struct MainView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
         }
         .escCloses({ state.closeScenarioComposer() }, isActive: state.escDismissLayer == .scenarioComposer)
+        .zIndex(20)
+    }
+
+    // MARK: - 排课浮层（③，与描述场景同层）
+
+    private var courseComposerOverlay: some View {
+        ZStack {
+            state.theme.scrim
+                .contentShape(Rectangle())
+                .onTapGesture { state.closeCourseComposer() }
+
+            CourseComposerSheet(state: state) { state.closeCourseComposer() }
+                .frame(width: 560)
+                .frame(maxHeight: 620)
+                .background(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(state.theme.panel)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .strokeBorder(state.theme.divider, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .appElevation(.sheet)
+                .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .center)))
+        }
+        .escCloses({ state.closeCourseComposer() }, isActive: state.escDismissLayer == .courseComposer)
         .zIndex(20)
     }
 
