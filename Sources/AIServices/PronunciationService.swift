@@ -50,14 +50,28 @@ public actor PronunciationService {
     ///
     /// - Parameters:
     ///   - comparison: 传入跟读页已有的对齐结果，保证词准确度与逐词反馈**同源**。
+    ///   - wordTimings: ASR 的**词级时间戳**（④）。为空 / 是「按字符均摊的估计值」/ 录音静音
+    ///     → `prosody` 为 nil（**降级不报错、不阻塞**：这份报告的其余部分照常出）。
+    ///     ⚠️ 不要在这里「修正」不可信的时间戳 —— 那等于凭空编一个词边界，
+    ///     编出来的重音结论会把学员带偏（见 `WordTimelineTrust`）。
     public func report(
         reference: String,
         recognized: String,
         samples: [Float],
         sampleRate: Double,
-        comparison: ShadowingComparison? = nil
+        comparison: ShadowingComparison? = nil,
+        wordTimings: [ASRWord] = []
     ) async -> PronunciationReport {
         let metrics = SpeechAnalyzer.analyze(samples: samples, sampleRate: sampleRate)
+        // 逐词韵律：一次算完，**两条通道共用同一份** ——
+        // 只给其中一条 = 跟读页与结算卡对同一段录音给出两套说法。
+        let prosody = ProsodyWindowAnalyzer.analysis(
+            words: wordTimings.map {
+                ProsodyWordSample(word: $0.word, start: $0.start, end: $0.end)
+            },
+            pcm: samples,
+            sampleRate: sampleRate
+        )
 
         // ① 声学通道：拿到就用实测结论。
         if let phonemeProvider,
@@ -69,7 +83,8 @@ public actor PronunciationService {
                 phonemes: acoustic.ratings,
                 phonemeWords: acoustic.words,
                 phonemeSource: .acoustic,
-                comparison: comparison
+                comparison: comparison,
+                prosody: prosody
             )
         }
 
@@ -81,7 +96,8 @@ public actor PronunciationService {
             reference: reference, recognized: recognized, metrics: metrics,
             phonemeWords: words,
             phonemeSource: words.isEmpty ? .none : .inference,
-            comparison: comparison
+            comparison: comparison,
+            prosody: prosody
         )
     }
 

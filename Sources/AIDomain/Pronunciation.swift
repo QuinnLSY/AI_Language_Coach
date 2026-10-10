@@ -511,6 +511,8 @@ public struct PronunciationReport: Codable, Sendable, Equatable {
     public var phonemeWords: [PhonemeWordAssessment]
     /// 音素得分来源（推断 / 实测 / 无）。
     public var phonemeSource: PhonemeSource
+    /// 韵律 / 连读 / 词级重音（④）。**没有词级数据时为 nil**（老记录 / runtime 不支持）。
+    public var prosody: ProsodyAnalysis?
 
     public init(
         referenceText: String,
@@ -523,7 +525,8 @@ public struct PronunciationReport: Codable, Sendable, Equatable {
         tips: [String],
         createdAt: Date = Date(),
         phonemeWords: [PhonemeWordAssessment] = [],
-        phonemeSource: PhonemeSource = .none
+        phonemeSource: PhonemeSource = .none,
+        prosody: ProsodyAnalysis? = nil
     ) {
         self.referenceText = referenceText
         self.recognizedText = recognizedText
@@ -536,6 +539,7 @@ public struct PronunciationReport: Codable, Sendable, Equatable {
         self.createdAt = createdAt
         self.phonemeWords = phonemeWords
         self.phonemeSource = phonemeSource
+        self.prosody = prosody
     }
 
     // 老记录里没有音素字段（v6 之前落库的报告）：缺就降级成「无音素」，
@@ -543,6 +547,7 @@ public struct PronunciationReport: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case referenceText, recognizedText, overall, verdict, lines
         case metrics, weakest, tips, createdAt, phonemeWords, phonemeSource
+        case prosody
     }
 
     public init(from decoder: Decoder) throws {
@@ -559,7 +564,13 @@ public struct PronunciationReport: Codable, Sendable, Equatable {
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
         phonemeWords = try container.decodeIfPresent([PhonemeWordAssessment].self, forKey: .phonemeWords) ?? []
         phonemeSource = try container.decodeIfPresent(PhonemeSource.self, forKey: .phonemeSource) ?? .none
+        // ⚠️ 老记录里没有这一项 → nil（不是「零分」）。零分会被 UI 画成「你一句连读都没做对」，
+        // 而事实是「这份报告诞生时还没有这个维度」。
+        prosody = try container.decodeIfPresent(ProsodyAnalysis.self, forKey: .prosody)
     }
+
+    /// 韵律加分（0...10）。**不计入 `overall`** —— 见 `ProsodyBonus` 的口径说明。
+    public var prosodyBonus: Double { ProsodyBonus.score(prosody) }
 
     public var overallPercent: Int { Int(overall.rounded()) }
 
@@ -639,6 +650,7 @@ public enum PronunciationScorer {
         phonemeWords: [PhonemeWordAssessment] = [],
         phonemeSource: PhonemeSource = .none,
         comparison: ShadowingComparison? = nil,
+        prosody: ProsodyAnalysis? = nil,
         createdAt: Date = Date()
     ) -> PronunciationReport {
         let alignment = comparison ?? ShadowingScorer.compare(reference: reference, recognized: recognized)
@@ -684,7 +696,8 @@ public enum PronunciationScorer {
             tips: tips(for: lines),
             createdAt: createdAt,
             phonemeWords: phonemeWords,
-            phonemeSource: source
+            phonemeSource: source,
+            prosody: prosody
         )
     }
 

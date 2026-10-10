@@ -57,8 +57,20 @@ public actor ASRManager {
     public func transcribe(_ request: ASRRequest) async throws -> ASRResult {
         guard let provider else { throw AIProviderError.notInitialized }
         noteUsed()
-        return try await provider.transcribe(request)
+        let result = try await provider.transcribe(request)
+        // ⚠️ **必须在这里留住整份结果**，不能只把 `.text` 交给调用点（④ 的通电教训）：
+        // `ASRResult.words` 是词级时间戳的唯一来源，只取文本 = 当场把它丢掉，
+        // 下游再也补不回来。留住它，`VoiceService` 才能在**同一次**录音里同时拿到
+        // 音频与词边界 —— 跨轮次拼起来是一份错的分析（比不给更糟）。
+        lastResult = result
+        return result
     }
+
+    /// 最近一次识别结果（**含词级时间戳**；下一次转写覆盖）。
+    ///
+    /// ⚠️ 只保证「是最近一次」，不保证「是哪一次录音」：调用点必须紧接着取，
+    /// 隔了别的转写再回来拿就串了（`ShadowingService` 是在 `finishRecording` 之后立刻取的）。
+    public private(set) var lastResult: ASRResult?
 
     public func healthCheck() async -> ProviderHealth {
         guard let provider else { return .configurationInvalid(reason: "未注册 ASR Provider") }

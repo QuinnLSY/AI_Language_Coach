@@ -32,6 +32,9 @@ public actor ShadowingService {
     /// 刚结束的这次跟读录音。在 `finishRecording` 时截存，
     /// 避免 `evaluate` 时读到学员在对话区留下的旧录音。
     private var pendingSamples: [Float] = []
+    /// 刚结束的这次跟读的**词级时间戳**（④）。与 `pendingSamples` 同源同批取，
+    /// 同样在 `evaluate` 之后清空 —— 混用两轮的数据会得到一份错的韵律分析。
+    private var pendingWordTimings: [ASRWord] = []
 
     public init(
         voice: VoiceService,
@@ -115,12 +118,16 @@ public actor ShadowingService {
     public func finishRecording(language: String?) async -> String? {
         let text = await voice.stopRecordingAndTranscribe(language: language)
         pendingSamples = text != nil ? await voice.lastRecording : []
+        // ④ 词级时间戳与原始音频**在同一处**取 —— 分开放会出现「音频是这一轮的、
+        // 词是上一轮的」，拼出来是一份跨轮次的分析（比不给更糟，用户看不出来但结论是错的）。
+        pendingWordTimings = text != nil ? await voice.lastTranscriptWords() : []
         return text
     }
 
     public func cancelRecording() async {
         await voice.cancelRecording()
         pendingSamples = []
+        pendingWordTimings = []
     }
 
     /// 听我的：回放刚才录的音。
@@ -157,10 +164,12 @@ public actor ShadowingService {
                 recognized: recognized,
                 samples: pendingSamples,
                 sampleRate: await voice.recordingSampleRate,
-                comparison: comparison
+                comparison: comparison,
+                wordTimings: pendingWordTimings
             )
         }
         pendingSamples = []
+        pendingWordTimings = []
 
         if let learning {
             let attempt = ShadowingAttempt(
@@ -195,10 +204,12 @@ public actor ShadowingService {
                 reference: passage.text,
                 recognized: recognized,
                 samples: pendingSamples,
-                sampleRate: await voice.recordingSampleRate
+                sampleRate: await voice.recordingSampleRate,
+                wordTimings: pendingWordTimings
             )
         }
         pendingSamples = []
+        pendingWordTimings = []
 
         if let learning {
             for (index, drill) in passage.drills.enumerated() {

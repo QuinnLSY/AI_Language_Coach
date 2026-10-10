@@ -25,6 +25,18 @@ public enum SpeechPhase: Sendable, Equatable {
 public actor VoiceService {
 
     public let asr: ASRManager
+
+    /// **最近一次**识别的**词级时间戳**（④ 的韵律 / 连读分析用；没有就空数组）。
+    ///
+    /// ⚠️ 只能**紧接着** `stopRecordingAndTranscribe` 取：下一次转写就把它覆盖了。
+    /// 取晚了的症状是「分析用上了上一段录音的词边界」—— 界面看不出异常，
+    /// 但重音结论是错的。所以调用点要在同一个流程里立刻取（见 `ShadowingService.finishRecording`）。
+    ///
+    /// ⚠️ 刻意**不加** `stopRecordingAndTranscribe` 的返回值里：这个方法**对话也在用**，
+    /// 改它的签名会波及整条对话链；加并列方法是零波动的做法。
+    public func lastTranscriptWords() async -> [ASRWord] {
+        await asr.lastResult?.words ?? []
+    }
     public let tts: TTSManager
 
     private let recorder = MicrophoneRecorder()

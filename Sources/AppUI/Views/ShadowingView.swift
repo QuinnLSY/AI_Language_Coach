@@ -777,6 +777,14 @@ public struct ShadowingView: View {
                 PhonemeBreakdownCard(report: report, showsContainer: true)
             }
 
+            // 逐词韵律（④）：与音素条**同一个位置**并排 —— 它们都是「这句里逐个词发生了什么」，
+            // 分开摆会让读者以为是两个不同环节的结果。
+            // ⚠️ 没有词级数据时 `prosody` 为 nil（runtime 不给 / 时间戳是均摊估计 / 静音），
+            // 那就**整块不出现** —— 宁可少一块，也不摆一个空壳。
+            if let prosody = report.prosody, !prosody.isEmpty {
+                ProsodyBreakdownCard(analysis: prosody, bonus: report.prosodyBonus, showsContainer: true)
+            }
+
             ForEach(report.tips, id: \.self) { tip in
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "lightbulb.fill")
