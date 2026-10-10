@@ -36,6 +36,9 @@ struct DailyTasksCard: View {
             if let focus = plan.focus {
                 focusRow(focus)
             }
+            if let note = plan.tuningNote {
+                tuningRow(note)
+            }
         }
         .appPadding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -162,5 +165,26 @@ struct DailyTasksCard: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(theme.accentCool.opacity(0.12))
         )
+    }
+
+    // MARK: - 为什么今天的量和往常不一样
+
+    /// 自适应微调的理由（`DailyPlan.tuningNote`）：只有真的改了量才会出现。
+    ///
+    /// ⚠️ 只说一次、放在最后 —— 塞进每一项任务里会重复三遍，看着像廉价的话术。
+    private func tuningRow(_ note: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "arrow.left.arrow.right")
+                .appFont(10)
+                .foregroundStyle(theme.accent)
+            Text(note)
+                .appFont(10, design: .rounded)
+                .foregroundStyle(theme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("今日安排已调整：\(note)")
     }
 }

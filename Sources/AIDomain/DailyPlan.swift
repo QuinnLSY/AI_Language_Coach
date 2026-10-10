@@ -92,11 +92,22 @@ public struct DailyPlan: Sendable, Equatable {
     public var day: Date
     public var tasks: [DailyTask]
     public var focus: Focus?
+    /// 今天的量**为什么和往常不一样**（自适应微调的理由；没调就是 nil）。
+    ///
+    /// ⚠️ 单独成字段、不塞进每一项任务的 `reason`：调一次安排会在三行里重复同一句，
+    /// 用户只会觉得这个理由很廉价。它描述的是**整份计划**，就说一次。
+    public var tuningNote: String?
 
-    public init(day: Date, tasks: [DailyTask] = [], focus: Focus? = nil) {
+    public init(
+        day: Date,
+        tasks: [DailyTask] = [],
+        focus: Focus? = nil,
+        tuningNote: String? = nil
+    ) {
         self.day = day
         self.tasks = tasks
         self.focus = focus
+        self.tuningNote = tuningNote
     }
 
     public static let empty = DailyPlan(day: Date())
@@ -280,31 +291,47 @@ public enum DailyPlanner {
     ///   - now: 判定「今天」的基准时间（测试注入）。
     ///   - floor: 当天高水位（见 `DailyTaskFloor`）。传 nil = 只看此刻的记录。
     ///     传进来之后**三项的完成量都只增不减** —— 任务一旦完成就固定为已完成。
+    ///   - stance: 自适应档位（见 `AdaptivePathStance`）。决定今天的三项**各加减多少**；
+    ///     默认 `.observing` = 一份都不改（样本不足时改安排是把猜测当事实）。
+    ///     ⚠️ 生产调用点**必须显式传**：带默认值的新参数最容易出现「接了但没人传」的惰性功能，
+    ///     `DailyPlanStanceWiringTests` 钉着两处调用点。
     public static func plan(
         snapshot: ProgressSnapshot,
         mode: DailyGoalMode = .advanced,
         now: Date = Date(),
         calendar: Calendar = .current,
-        floor: DailyTaskFloor? = nil
+        floor: DailyTaskFloor? = nil,
+        stance: AdaptivePathStance = .observing
     ) -> DailyPlan {
         let day = calendar.startOfDay(for: now)
+        let tuning = DailyPlanTuningRule.tuning(for: stance)
         let tasks = [
-            conversationTask(snapshot, mode: mode, floor: floor),
-            shadowingTask(snapshot, mode: mode, floor: floor),
-            reviewTask(snapshot, mode: mode, floor: floor),
+            conversationTask(snapshot, mode: mode, floor: floor, tuning: tuning),
+            shadowingTask(snapshot, mode: mode, floor: floor, tuning: tuning),
+            reviewTask(snapshot, mode: mode, floor: floor, tuning: tuning),
         ].compactMap { $0 }
 
-        return DailyPlan(day: day, tasks: tasks, focus: focus(snapshot))
+        return DailyPlan(
+            day: day,
+            tasks: tasks,
+            focus: focus(snapshot),
+            // 没调量就不带理由（`isIdentity` 时 `note` 本就是 nil，这里再兜一层）。
+            tuningNote: tuning.isIdentity ? nil : tuning.note
+        )
     }
 
     // MARK: 三项任务
 
     private static func conversationTask(
-        _ snapshot: ProgressSnapshot, mode: DailyGoalMode, floor: DailyTaskFloor?
+        _ snapshot: ProgressSnapshot,
+        mode: DailyGoalMode,
+        floor: DailyTaskFloor?,
+        tuning: DailyPlanTuning
     ) -> DailyTask? {
-        let target = mode == .baseline
+        let base = mode == .baseline
             ? baselineConversationTarget
             : exchangeTarget(goalMinutes: snapshot.goalMinutes)
+        let target = DailyPlanTuningRule.clampedTarget(base + tuning.conversationDelta)
         let today = snapshot.today
         // ⚠️ 完成量取「此刻记录数」与「当天高水位」的较大者：
         // 复盘之后练习流水会被清掉，只看此刻的话「昨天聊够了」的对话数会掉回个位数，
@@ -335,7 +362,10 @@ public enum DailyPlanner {
     }
 
     private static func shadowingTask(
-        _ snapshot: ProgressSnapshot, mode: DailyGoalMode, floor: DailyTaskFloor?
+        _ snapshot: ProgressSnapshot,
+        mode: DailyGoalMode,
+        floor: DailyTaskFloor?,
+        tuning: DailyPlanTuning
     ) -> DailyTask? {
         let recorded = snapshot.today.shadowingAttempts
         // 与对话同一口径：跟读记录也会被「清除学习记忆」删掉，完成量同样取高水位。
@@ -344,7 +374,8 @@ public enum DailyPlanner {
         if let average = snapshot.shadowing.averagePronunciation {
             reason += " · 发音均分 \(Int(average.rounded()))"
         }
-        let target = mode == .baseline ? baselineShadowingTarget : shadowingTarget
+        let base = mode == .baseline ? baselineShadowingTarget : shadowingTarget
+        let target = DailyPlanTuningRule.clampedTarget(base + tuning.shadowingDelta)
         return DailyTask(
             kind: .shadowing,
             title: target == 1 ? "跟读 1 句，逐音素纠音" : "跟读 \(target) 句，逐音素纠音",
@@ -356,7 +387,10 @@ public enum DailyPlanner {
     }
 
     private static func reviewTask(
-        _ snapshot: ProgressSnapshot, mode: DailyGoalMode, floor: DailyTaskFloor?
+        _ snapshot: ProgressSnapshot,
+        mode: DailyGoalMode,
+        floor: DailyTaskFloor?,
+        tuning: DailyPlanTuning
     ) -> DailyTask? {
         // ⚠️ 指标取「**今天起初**到期」（`dueAtDayStart`），**不是**「此刻到期」（`due`）。
         // 复习答对会把间隔拉长，此刻到期数随复习一路变小 —— 拿它当指标的话，
@@ -365,7 +399,8 @@ public enum DailyPlanner {
         let due = snapshot.vocabulary.dueAtDayStart
         // 今天起初就没有到期的词 → 不排这一项，别挂个永远做不完的空任务。
         guard due > 0 else { return nil }
-        let cap = mode == .baseline ? baselineReviewCap : reviewCap
+        let base = mode == .baseline ? baselineReviewCap : reviewCap
+        let cap = DailyPlanTuningRule.clampedTarget(base + tuning.reviewCapDelta)
         let target = min(due, cap)
         // 完成度也只在**今天起初那批词**里数：今天新加的词被复习了不算数
         // （用户口径：「完成了表示今天已经达标，多完成的不应该再计入」）。

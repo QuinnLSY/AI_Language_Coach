@@ -60,6 +60,7 @@ extension PromptBuilder {
             .replacingOccurrences(of: "{max_words}", with: "\(CourseBlueprintRule.maximumTargetVocabulary)")
             .replacingOccurrences(of: "{state}", with: stateText(cleaned))
             .replacingOccurrences(of: "{topics_line}", with: topicsLine(cleaned))
+            .replacingOccurrences(of: "{avoid_line}", with: avoidLine(cleaned))
             .replacingOccurrences(of: "{level_line}", with: levelLine(cleaned.level))
     }
 
@@ -78,6 +79,19 @@ extension PromptBuilder {
     static func topicsLine(_ request: CourseRequest) -> String {
         guard !request.topics.isEmpty else { return "" }
         return "学员自己想练的主题（至少覆盖其中一个）：\(request.topics.joined(separator: "、"))"
+    }
+
+    /// 「已经有了、别再排一遍」的那一行（续排时才出现）。
+    ///
+    /// 没有就整行消失（与 `topicsLine` 同一条纪律）：留个空行会让模型以为
+    /// 「有个叫『别排这些』的槽位但是空的」，反而开始琢磨那件事。
+    ///
+    /// ⚠️ 说的是「换角度、接着往后」，不是「不许碰这些主题」：
+    /// 只说不许的话，模型最常见的反应是把整条课排得离题万里（躲开所有已知标题）。
+    static func avoidLine(_ request: CourseRequest) -> String {
+        guard !request.avoidTitles.isEmpty else { return "" }
+        return "这条课已经有了这几节：\(request.avoidTitles.joined(separator: "、"))。"
+            + "**不要重复排它们** —— 接着往后排新的，或者就同一件事换个角度再深一层。"
     }
 
     /// 档位 + 难度区间。档位未知时也给一句明确的话 —— 不留下一个空的 `（）`。

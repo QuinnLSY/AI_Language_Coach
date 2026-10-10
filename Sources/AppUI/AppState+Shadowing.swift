@@ -160,7 +160,8 @@ extension AppState {
         // 汇总与顽固音素是两件各读各的取数，**并行**做 —— 串起来会让进页面等两遍查询。
         async let stats: Void = refreshShadowingStats()
         async let weaknesses: Void = refreshPhonemeWeaknesses()
-        _ = await (stats, weaknesses)
+        async let comparison: Void = refreshPronunciationComparison()
+        _ = await (stats, weaknesses, comparison)
     }
 
     /// 取今日跟读素材。`regenerate == true` 时忽略当天缓存重新生成（页面上有按钮）。
@@ -250,6 +251,23 @@ extension AppState {
     public func refreshShadowingStats() async {
         shadowingStats = await services.shadowing.stats()
     }
+
+    /// 重算「最近几次 vs 之前几次」的发音对比。
+    ///
+    /// ⚠️ 必须**反序**：`recentAttempts` 是新的在前，而 `PronunciationComparisonRule.compare`
+    /// 吃的是「旧 → 新」—— 传倒序的话前后两段互换，结论正好反过来（进步说成退步）。
+    /// ⚠️ 只在**量到发音的那些次**里比：没音频的那几次（纯文本预览）连分都没有。
+    public func refreshPronunciationComparison() async {
+        let attempts = await services.shadowing.recentAttempts(limit: Self.pronunciationComparisonLimit)
+        let samples = attempts
+            .sorted { $0.createdAt < $1.createdAt }
+            .compactMap(\.pronunciation)
+            .map(PronunciationSample.init)
+        pronunciationComparison = PronunciationComparisonRule.compare(samples)
+    }
+
+    /// 拿最近这么多次来对比（够前后各两段分）。
+    static let pronunciationComparisonLimit = 40
 
     /// 切句 / 切粒度前先把在途的示范音停掉（S4-11）。
     ///
@@ -437,9 +455,12 @@ extension AppState {
             }
         }
         await refreshShadowingStats()
+        // 刚读的这一次已经进库，对比要跟着变 —— 否则学员读完之后看到的还是上一次的对比。
+        async let comparison: Void = refreshPronunciationComparison()
         // 跟读也是今日作业的一项：练完立刻刷新黑板/庆祝判定（force —— 练完的瞬间不许被节流吞掉）。
         // ⚠️ 以前这里不刷，跟读凑齐计划的最后一块时收尾仪式永远缺席（#227）。
         await refreshTodayPanel(force: true)
+        await comparison
         // 只有真的评出结果才通知森林：没听清那次不算「练完」。
         forest.ingest(.moduleCompleted(module: .shadowing))
     }

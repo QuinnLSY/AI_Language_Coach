@@ -137,7 +137,10 @@ extension AppState {
         let plan = DailyPlanner.plan(
             snapshot: raw,
             mode: product.dailyGoalMode,
-            now: Date()
+            now: Date(),
+            // ⚠️ 必须与 `AppState.dailyPlan` 传**同一个 stance**：高水位是从这份计划里抬出来的，
+            // 两处口径分叉的话，「今天已聊 N 轮」会与卡片上显示的目标对不上。
+            stance: adaptivePath.stance
         )
         // 时长与三项指标同一次抬：它们一起被自动复盘的清流水打下去，
         // 也该一起兜住（「今天」卡片上的分钟数与轮次数必须说同一件事）。

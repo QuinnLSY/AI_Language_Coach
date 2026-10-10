@@ -139,6 +139,59 @@ extension AppState {
         await loadCourses()
     }
 
+    // MARK: - 续排（课随进度往下接）
+
+    /// 这条课该不该接着排（UI 用它决定按钮出不出现、写哪句话）。
+    ///
+    /// 只**判断**，不排 —— 排是用户按了按钮之后的事（`continueCourse(id:)`）。
+    public func continuationDecision(for course: CourseBlueprint) -> CourseContinuationDecision {
+        CourseContinuationRule.decision(
+            for: CourseContinuationRule.progressState(of: course, in: progress)
+        )
+    }
+
+    /// 这条课练到哪了（「6 节里有 2 节卡住了」）。UI 只显示，不自己拼。
+    public func continuationSummary(for course: CourseBlueprint) -> String {
+        CourseContinuationRule.summary(
+            for: CourseContinuationRule.progressState(of: course, in: progress)
+        )
+    }
+
+    /// 等着续排的课：都闯完了的、或者卡住的。
+    ///
+    /// ⚠️ 「还有几节没动」的课**不出现在这里** —— 催人跳着练只会让课断成两截。
+    public var coursesAwaitingContinuation: [CourseBlueprint] {
+        courses.filter { CourseContinuationRule.shouldContinue($0, in: progress) }
+    }
+
+    /// 在一这条课**后面接一批新的节**（已有节与它们的进度一个都不动）。
+    ///
+    /// 判据与请求都由 `CourseContinuationRule` 出：卡住了就降一档，
+    /// 并且把「已经有了这几节」一起交给模型 —— 不然它会把练过的课再排一遍。
+    public func continueCourse(id: String) async {
+        guard !isContinuingCourse else { return }
+        guard let course = courses.first(where: { $0.id == id }),
+              let request = CourseContinuationRule.continuationRequest(
+                  base: courseRequest, course: course, progress: progress
+              ) else { return }
+        courseResult = nil
+        lastGeneratedCourse = nil
+        isContinuingCourse = true
+        defer { isContinuingCourse = false }
+        let before = course.lessonCount
+        do {
+            let merged = try await services.continueCourse(id, request: request)
+            lastGeneratedCourse = merged
+            await loadCourses()
+            let added = merged.lessonCount - before
+            courseResult = "接着排了 \(added) 节：「\(merged.displayTitle)」现在 \(merged.summary)。"
+                + "新节的目标词已收进词汇本。"
+        } catch {
+            let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            courseResult = reason
+        }
+    }
+
     /// 从一个情景反查它属于哪条课（不属于任何课返回 nil）。
     ///
     /// 情景卡片与大树都要用它：课内情景**不提供单节删除**（删一节会让课断成两截，

@@ -28,17 +28,25 @@ public struct CourseRequest: Sendable, Equatable {
     public var weakPhonemes: [String]
     /// 用户自填的主题 / 兴趣（「咖啡店点单」「面试」）。为空 = 只按状态排。
     public var topics: [String]
+    /// 已经有了、**别再排一遍**的节标题（续排时才带）。
+    ///
+    /// ⚠️ 它不是排课依据：不进指纹（`signature`）、不算 `hasSignal`、不进 `stateSummary`。
+    /// 排课依据变了才该是另一条课；「别重复这几节」只是给模型的一条约束 ——
+    /// 进了指纹的话，**同一条课的续排会算出一个新课 id**，树上凭空多出一条课。
+    public var avoidTitles: [String]
 
     public init(
         level: CEFRLevel? = nil,
         recurringErrors: [String] = [],
         weakPhonemes: [String] = [],
-        topics: [String] = []
+        topics: [String] = [],
+        avoidTitles: [String] = []
     ) {
         self.level = level
         self.recurringErrors = recurringErrors
         self.weakPhonemes = weakPhonemes
         self.topics = topics
+        self.avoidTitles = avoidTitles
     }
 
     /// 清洗后的副本（去空白 / 去重复 / 去结构符 / 截断到上限）。
@@ -100,6 +108,11 @@ public enum CourseBlueprintRule {
     public static let maximumTopics = 3
     /// 单个主题的长度上限（超了就截 —— Prompt 不该被一段话撑爆）。
     public static let maximumTopicLength = 40
+    /// 续排时告诉模型「别再排这些」的标题上限。
+    ///
+    /// 取 12：一条课最多 6 节、续排两三次也就十几节，够把「已经有了的」说全；
+    /// 再往上会占掉 Prompt 里的注意力，模型反而开始照抄这份清单。
+    public static let maximumAvoidTitles = 12
 
     /// 自定义课程的**分组名**。UI 只渲染这个字符串，不解释语义。
     ///
@@ -141,7 +154,8 @@ public enum CourseBlueprintRule {
             recurringErrors: cleaned(request.recurringErrors, limit: maximumRecurringErrors),
             weakPhonemes: cleaned(request.weakPhonemes, limit: maximumWeakPhonemes),
             // 主题是用户自己敲的，长度不可控（另两项来自库，本来就短）。
-            topics: cleaned(request.topics, limit: maximumTopics, transform: truncated(_:))
+            topics: cleaned(request.topics, limit: maximumTopics, transform: truncated(_:)),
+            avoidTitles: cleaned(request.avoidTitles, limit: maximumAvoidTitles, transform: truncated(_:))
         )
     }
 
@@ -205,6 +219,9 @@ public enum CourseBlueprintRule {
         StableFingerprint.hex(prefix: "course", of: signature(of: sanitized(request)))
     }
 
+    /// ⚠️ **只有四项**：`avoidTitles` 是给模型的约束，不是排课依据 ——
+    /// 进了指纹的话，同一条课的续排会算出另一个课 id（树上凭空多一条课）。
+    ///
     /// 指纹原文：四项按固定顺序拼，空项用 `-` 占位（否则「只有主题」和「只有档位」
     /// 可能拼成同一个串）。
     static func signature(of request: CourseRequest) -> String {

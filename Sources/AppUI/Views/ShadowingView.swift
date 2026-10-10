@@ -60,6 +60,12 @@ public struct ShadowingView: View {
                                 }
                             }
                         }
+                        // 跨次对比（④ 的纵向那一半）：在**两种粒度下都在** ——
+                        // 它比的是「最近几次 vs 之前几次」，与当前读的是一句还是一段无关。
+                        // 样本不够时 `comparison` 就是 nil，整块不出现。
+                        if let trend = state.pronunciationComparison {
+                            PronunciationComparisonCard(comparison: trend, showsContainer: true)
+                        }
                     } else if state.isShadowingLoading {
                         // 骨架屏（#359）：今天的句子是一次真实模型调用（5–20s），
                         // 原来这段时间只能看到空态引导 —— 内容马上就到却先看「没有」，

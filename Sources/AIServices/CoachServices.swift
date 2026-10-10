@@ -2730,6 +2730,51 @@ public actor CoachServices {
     /// 失败一律抛错、**不落盘**：宁可让用户改个主题重排，也不能在树上留一条缺胳膊少腿的课 ——
     /// 它会占掉一格，还会以「AI 排的课」的名义长期留在面板里。
     public func generateCourse(_ request: CourseRequest) async throws -> CourseBlueprint {
+        let course = try await requestBlueprint(request)
+        try await courseStore.save(course)
+        await reloadCourses()
+        await addCourseWords(course)
+        return course
+    }
+
+    /// 在这条课**后面接一批新的节**（已有节与它们的进度一个都不动）。
+    ///
+    /// 与 `generateCourse` 共用同一条请求链路（一次请求排一批，失败零落盘），
+    /// 差别只有落盘这一步：这里是**追加**（`CourseContinuationRule.appending`），
+    /// 而不是另存一条新课 —— 另存的话树上会凭空多出一条课，学员还得自己找哪条是续的。
+    ///
+    /// - Parameters:
+    ///   - courseID: 要续的那条课。
+    ///   - request: 续排请求（由 `CourseContinuationRule.continuationRequest` 产出，
+    ///     里面带着「别再排这几节」与降档后的档位）。
+    public func continueCourse(_ courseID: String, request: CourseRequest) async throws -> CourseBlueprint {
+        // 缓存里没有就回盘再找一次（缓存是「最近一次读盘」的快照，可能还没刷）。
+        var existing = course(id: courseID)
+        if existing == nil {
+            existing = await courseStore.all().first { $0.id == courseID }
+        }
+        guard let existing else {
+            throw AppError.unknown("这条课已经不在了（可能被删了）—— 刷新一下再试。")
+        }
+        let fresh = try await requestBlueprint(request)
+        let merged = CourseContinuationRule.appending(fresh.lessons, to: existing)
+        // 排出来的全是已有内容（模型没听进去「别重复」）→ 宁可不落盘：
+        // 学员按了「续排」却一条都没多，比报错更难解释。
+        guard merged.lessons.count > existing.lessons.count else {
+            throw AppError.unknown("排出来的几节和已有内容重复了 —— 换个主题再试一次。")
+        }
+        try await courseStore.save(merged)
+        await reloadCourses()
+        // 只有**新排的**那几节的词进词汇本：已有节的词上次就收过了。
+        await addCourseWords(merged, from: existing.lessons.count)
+        return merged
+    }
+
+    /// 请求模型排一批课（**只请求与解析，不落盘**）。
+    ///
+    /// 抽出来是为了让「排一整条」与「续排一批」共用同一条链路：
+    /// 两处各写一份的话，一边改了温度或解析判据，另一边迟早排出口径不一致的课。
+    private func requestBlueprint(_ request: CourseRequest) async throws -> CourseBlueprint {
         let clean = request.sanitized()
         if let issue = CourseBlueprintRule.inputIssue(for: clean) {
             throw AppError.unknown(issue.message)
@@ -2761,18 +2806,21 @@ public actor CoachServices {
                     + "换个主题或再试一次。"
             )
         }
-        try await courseStore.save(course)
-        await reloadCourses()
+        return course
+    }
 
-        // 课内每一节的目标词都进词汇本（`source: .scenario`）：一节课就是一次情景练习，
-        // 它的词理应像情景的词一样被每日推荐的**生词档**接住 —— 练过的词第二天再露一面，
-        // 排课与词汇本才算真正闭上环。
-        for lesson in course.lessons {
+    /// 课内每一节的目标词进词汇本（`source: .scenario`）。
+    ///
+    /// 一节课就是一次情景练习，它的词理应像情景的词一样被每日推荐的**生词档**接住 ——
+    /// 练过的词第二天再露一面，排课与词汇本才算真正闭上环。
+    ///
+    /// - Parameter from: 从第几节开始收（续排时跳过已有节 —— 它们的词上次就收过了）。
+    private func addCourseWords(_ course: CourseBlueprint, from index: Int = 0) async {
+        for lesson in course.lessons.dropFirst(max(0, index)) {
             for word in lesson.words {
                 _ = await vocabulary.add(word: word.word, meaning: word.meaning, source: .scenario)
             }
         }
-        return course
     }
 
     /// 「关卡 → 情景」绑定表（来自 `Resources/Levels/level_bindings.json`，不落库）。

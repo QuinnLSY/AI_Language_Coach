@@ -4,6 +4,7 @@
 学员状态：
 {state}
 {topics_line}
+{avoid_line}
 {level_line}
 
 规则：

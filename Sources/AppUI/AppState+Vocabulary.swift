@@ -198,7 +198,12 @@ extension AppState {
     ///
     /// 没有到期的词就如实说一声，不硬开一个空会话 —— 空会话只会让人看到一条「0/0」的进度条。
     public func startVocabularyReview() async {
-        let session = VocabularyReviewSession(entries: vocabularyEntries)
+        // 一轮走多少张由 stance 定（欠得多就多走，见 `DailyPlanTuning.reviewSessionLimit`）——
+        // 与每日任务里「复习 N 个」是同一个判断，别一处加量一处不加。
+        let session = VocabularyReviewSession(
+            entries: vocabularyEntries,
+            limit: DailyPlanTuningRule.tuning(for: adaptivePath.stance).reviewSessionLimit
+        )
         guard !session.queue.isEmpty else {
             vocabularyNotice = AppNotice(text: "今天没有到期的词。过几天再来，或者去每日推荐里挑几个加进复习列表。")
             return

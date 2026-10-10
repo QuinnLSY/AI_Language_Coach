@@ -510,6 +510,8 @@ public final class AppState {
     public var courseTopicDraft = ""
     /// 是否正在排课（按钮 loading；一次排课 = 一次模型请求）。
     public internal(set) var isGeneratingCourse = false
+    /// 是否正在**续**排（与排课是两件事，两个按钮各自 loading）。
+    public internal(set) var isContinuingCourse = false
     /// 排课结果回执（成功 / 失败都给，UI 展示后由 `dismissCourseResult` 清掉）。
     public var courseResult: String?
     /// 最近一次排好的课（浮层里展示「排出了什么」）。
@@ -763,6 +765,11 @@ public final class AppState {
     public internal(set) var shadowingAnalyses: [String: ShadowingResult] = [:]
     /// 跟读汇总（次数 / 最佳 / 平均 / 最近）。
     public internal(set) var shadowingStats: ShadowingStats = .empty
+    /// 「最近几次 vs 之前几次」的发音对比（样本不够时为 nil —— 不下假结论）。
+    ///
+    /// ⚠️ 它是**查库**算出来的（`recentAttempts`），不是快照的派生，
+    /// 所以只能由 `refreshPronunciationComparison()` 写 —— 派生属性里查库是不允许的。
+    public internal(set) var pronunciationComparison: PronunciationComparison?
     /// 正在跟读录音。
     public internal(set) var isShadowingRecording = false
     /// 跟读链路上的忙碌态（播放示范 / 识别中 / 回放中）。
@@ -1119,7 +1126,10 @@ public final class AppState {
         DailyPlanner.plan(
             snapshot: progressSnapshot,
             mode: product.dailyGoalMode,
-            floor: dailyTaskFloor
+            floor: dailyTaskFloor,
+            // ⚠️ stance 决定今天各项**加减多少**（见 `DailyPlanTuning`）。不传就用默认的
+            // `.observing` —— 那等于自适应永远不改安排，只有建议卡在动。
+            stance: adaptivePath.stance
         )
     }
 

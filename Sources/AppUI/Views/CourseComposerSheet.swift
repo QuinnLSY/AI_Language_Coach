@@ -32,6 +32,7 @@ struct CourseComposerSheet: View {
                     topicEditor
                     examples
                     actionRow
+                    continuations
 
                     if let notice = state.courseResult {
                         resultBanner(notice)
@@ -245,6 +246,81 @@ struct CourseComposerSheet: View {
             .disabled(state.isGeneratingCourse || !state.canComposeCourse)
             .help("一次排课 = 一次模型请求，排出整条")
         }
+    }
+
+    // MARK: - 接着往下排（课随进度接，不是重排）
+
+    /// 已经练完 / 卡住的课，在这里再接一批。
+    ///
+    /// ⚠️ 与「开始排课」是两件事：那个排**一条新课**，这个是在一条**已有课后面接**，
+    /// 已有那几节连同它们的星星一个都不动。按钮上的字因此也不同（`decision.title`）。
+    @ViewBuilder
+    private var continuations: some View {
+        let waiting = state.coursesAwaitingContinuation
+        if !waiting.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("接着往下排")
+                    .appFont(10, weight: .semibold, design: .rounded)
+                    .foregroundStyle(theme.secondaryText)
+                ForEach(waiting) { course in
+                    continuationRow(course)
+                }
+            }
+        }
+    }
+
+    private func continuationRow(_ course: CourseBlueprint) -> some View {
+        let decision = state.continuationDecision(for: course)
+        return HStack(spacing: 8) {
+            Image(systemName: CourseBlueprintRule.icon)
+                .appFont(10)
+                .foregroundStyle(theme.accent)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(course.displayTitle)
+                    .appFont(11, weight: .medium, design: .rounded)
+                    .foregroundStyle(theme.primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(state.continuationSummary(for: course))
+                    .appFont(10, design: .rounded)
+                    .foregroundStyle(theme.secondaryText)
+            }
+
+            Spacer(minLength: 8)
+
+            Button {
+                Task { await state.continueCourse(id: course.id) }
+            } label: {
+                HStack(spacing: 4) {
+                    if state.isContinuingCourse {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: decision == .easier ? "arrow.down.right" : "plus")
+                            .appFont(9, weight: .bold)
+                    }
+                    Text(decision.title)
+                        .appFont(11, weight: .semibold, design: .rounded)
+                }
+                .foregroundStyle(theme.accent)
+                .padding(.horizontal, 10)
+                .appPadding(.vertical, 5)
+                .background(Capsule().fill(theme.accent.opacity(0.10)))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.appPressable)
+            .disabled(state.isContinuingCourse)
+            .help(decision == .easier
+                  ? "卡住了：接着排一批，难度降一档（已有那几节不动）"
+                  : "都闯完了：接着往后排一批新的")
+        }
+        .appPadding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(theme.surfaceAlt.opacity(0.6))
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(course.displayTitle)：\(state.continuationSummary(for: course))，\(decision.title)")
     }
 
     private func resultBanner(_ notice: String) -> some View {
