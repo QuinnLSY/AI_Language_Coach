@@ -103,7 +103,7 @@ public struct LearningPlanCard: View {
             onFocus(item.action)
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: Self.focusIcon(item.action))
+                Image(systemName: item.action.symbolName)
                     .appFont(12)
                     .foregroundStyle(theme.accent)
                     .frame(width: 26, height: 26)
@@ -183,15 +183,6 @@ public struct LearningPlanCard: View {
         }
         .appPadding(.vertical, 4)
     }
-
-    /// 图标与「今日任务」/ 错题本等处保持一致，别为同一件事换第二套图标。
-    private static func focusIcon(_ action: LearningPlanFocus.Action) -> String {
-        switch action {
-        case .errorDrill: "arrow.triangle.2.circlepath"
-        case .phonemeDrill: "waveform"
-        case .vocabulary: "text.book.closed.fill"
-        case .shadowing: "waveform.badge.mic"
-        case .conversation: "bubble.left.and.bubble.right.fill"
-        }
-    }
+    // 图标统一住在 `LearningPlanFocus.Action.symbolName`：计划卡与自适应建议卡共用一份，
+    // 别为同一件事长出第二套图标。
 }

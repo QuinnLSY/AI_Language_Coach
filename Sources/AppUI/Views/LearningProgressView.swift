@@ -55,6 +55,7 @@ public struct LearningProgressView: View {
                             // `scrollTo(anchor:)` 按整张内容画布的百分比对位（大树那条老教训）。
                             .id(Self.dailyTasksAnchorID)
                         learningPlanCard
+                        adaptivePathCard
                         weeklyCard
                         annualRecapCard
                             // 侧栏火苗徽章点进来就滚到这里（见 `AppState.openAnnualRecapInProgress`）。
@@ -149,6 +150,24 @@ public struct LearningProgressView: View {
         card(title: "我的学习计划", systemImage: "map") {
             LearningPlanCard(plan: state.learningPlan) { action in
                 Task { await state.performLearningPlanFocus(action) }
+            }
+        }
+    }
+
+    // MARK: - 学习建议（⑤ 自适应学习路径）
+
+    /// 最近走向 → 当下该做什么。
+    ///
+    /// 内容在独立组件 `AdaptivePathCard` 里（页面里的 `private var` 渲染不到，
+    /// 提取出来才能离屏回归）；这里只提供卡壳，与计划卡共用同一份配方。
+    ///
+    /// ⚠️ 与计划卡的分工：那张说阶段与今天（静态聚合），这张说趋势（会变）。
+    /// 取数已由 `prepareLearningPlan()` 触发（学习记忆与顽固音素都是惰性的），
+    /// 不再另起一个触发点。
+    private var adaptivePathCard: some View {
+        card(title: "学习建议", systemImage: "arrow.triangle.branch") {
+            AdaptivePathCard(path: state.adaptivePath) { action in
+                Task { await state.performAdaptivePathAction(action) }
             }
         }
     }

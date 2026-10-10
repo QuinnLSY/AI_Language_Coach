@@ -35,6 +35,31 @@ public struct LearningPlanFocus: Sendable, Equatable, Identifiable {
         case shadowing
         /// 开口对话（`AppState.openPractice`）。
         case conversation
+
+        /// 这类练习的短标签（「改掉反复犯的错」）。**不带数字** —— 数量是另一回事。
+        ///
+        /// ⚠️ 只有这一份：`LearningPlanner.focusItems` 与自适应建议卡（它只拿到 `Action`，
+        /// 也要有个说法）都从这里取。写两遍就一定会漂移。
+        public var title: String {
+            switch self {
+            case .errorDrill: "改掉反复犯的错"
+            case .phonemeDrill: "练顽固音素"
+            case .vocabulary: "清掉到期单词"
+            case .shadowing: "跟读"
+            case .conversation: "开口对话"
+            }
+        }
+
+        /// SF Symbol 名：计划卡与建议卡共用同一套图标，别为同一件事换第二套。
+        public var symbolName: String {
+            switch self {
+            case .errorDrill: "arrow.triangle.2.circlepath"
+            case .phonemeDrill: "waveform"
+            case .vocabulary: "text.book.closed.fill"
+            case .shadowing: "waveform.badge.mic"
+            case .conversation: "bubble.left.and.bubble.right.fill"
+            }
+        }
     }
 
     public var action: Action
@@ -180,7 +205,7 @@ public enum LearningPlanner {
         if recurringErrorCount > 0 {
             items.append(LearningPlanFocus(
                 action: .errorDrill,
-                title: "改掉反复犯的错",
+                title: LearningPlanFocus.Action.errorDrill.title,
                 reason: "学习记忆里攒了 \(recurringErrorCount) 处还没练掉的错",
                 pending: recurringErrorCount,
                 unit: "处"
@@ -190,7 +215,7 @@ public enum LearningPlanner {
         if weakPhonemeCount > 0 {
             items.append(LearningPlanFocus(
                 action: .phonemeDrill,
-                title: "练顽固音素",
+                title: LearningPlanFocus.Action.phonemeDrill.title,
                 reason: "\(weakPhonemeCount) 个音反复念错（各已评够三次、错够两次）",
                 pending: weakPhonemeCount,
                 unit: "个"
@@ -200,7 +225,7 @@ public enum LearningPlanner {
         if dueVocabularyRemaining > 0 {
             items.append(LearningPlanFocus(
                 action: .vocabulary,
-                title: "清掉到期单词",
+                title: LearningPlanFocus.Action.vocabulary.title,
                 reason: "今天起初到期 \(dueVocabularyRemaining) 个词，还没复习",
                 pending: dueVocabularyRemaining,
                 unit: "词"
