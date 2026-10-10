@@ -107,6 +107,41 @@ public enum RemoteAuthDiagnostics {
         let trimmed = (message ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "（服务端未给出说明）" }
         // 服务端偶发返回整页 HTML；截断以免把报错框撑爆。
-        return trimmed.count > 200 ? String(trimmed.prefix(200)) + "…" : trimmed
+        let capped = trimmed.count > 200 ? String(trimmed.prefix(200)) + "…" : trimmed
+        // ⚠️ 服务端原文**会回显我们发过去的凭据片段**（`Invalid token: sk-abc…xyz`、
+        // `unauthorized for key 1234567890abcdef` 这类）。这段文案是直接显示给用户的，
+        // 截图/录屏/求助时就会带出去 —— 所以先把疑似凭据打码再展示（#S2-10）。
+        return redactCredentials(in: capped)
+    }
+
+    /// 把长串「疑似凭据」换成星号。
+    ///
+    /// 判定（`looksLikeCredential`）刻意区分「很长」与「中等长度混数字」两种形态：
+    /// - ≥ 20 位（`sk-…`、`AIza…`、JWT 都是这个量级）→ 直接打码；
+    /// - 12...20 位 → **必须含数字**才打码。服务端原文里全是英文句子与错误描述，
+    ///   12 位起步就会把 `Authorization`、`malformed` 这些词换成星号，排查价值全没了；
+    ///   而 Key 几乎必然混着数字。
+    ///
+    /// 短数字（错误码、余额、时间戳）一律留着 —— 那些才是真正有用的信息。
+    static func redactCredentials(in text: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: "[A-Za-z0-9._-]{12,}") else { return text }
+        let ns = text as NSString
+        var out = ""
+        var cursor = 0
+        regex.enumerateMatches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) { match, _, _ in
+            guard let match, match.numberOfRanges > 0 else { return }
+            let range = match.range(at: 0)
+            let candidate = ns.substring(with: range)
+            guard Self.looksLikeCredential(candidate) else { return }
+            out += ns.substring(with: NSRange(location: cursor, length: range.location - cursor))
+            out += "********"
+            cursor = range.location + range.length
+        }
+        return out + ns.substring(from: cursor)
+    }
+
+    static func looksLikeCredential(_ token: String) -> Bool {
+        if token.count >= 20 { return true }
+        return token.count >= 12 && token.contains(where: \.isNumber)
     }
 }

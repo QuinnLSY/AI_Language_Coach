@@ -36,11 +36,26 @@ public actor RemoteCallAudit {
     /// 可用环境变量 `ALC_REMOTE_CALL_LOG` 重定向——自动化测试必须把留痕写到
     /// 临时目录，**不能污染用户自己的对账文件**（否则用户 diff 账单时会看到
     /// 一堆来源不明的记录，反而更慌）。
+    ///
+    /// ⚠️ 环境变量是**外部输入**（#S2-12）：原先任何值都照收，于是
+    /// 「把留痕重定向到任意路径 + `.atomic` 覆写」= 既能抹掉别的文件的内容，
+    /// 也能抹掉对账证据。现在只放行测试真正需要的形状（临时目录下的 `.jsonl`），
+    /// 其余一律忽略并落日志说明。
     public nonisolated static func logURL() -> URL {
-        if let override = ProcessInfo.processInfo.environment["ALC_REMOTE_CALL_LOG"], !override.isEmpty {
-            return URL(fileURLWithPath: override)
+        let fallback = AppPaths.userDataDirectory().appendingPathComponent("remote-calls.jsonl")
+        guard let override = ProcessInfo.processInfo.environment["ALC_REMOTE_CALL_LOG"], !override.isEmpty else {
+            return fallback
         }
-        return AppPaths.userDataDirectory().appendingPathComponent("remote-calls.jsonl")
+        let url = URL(fileURLWithPath: override).standardizedFileURL
+        let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory()).standardizedFileURL
+        guard url.pathExtension == "jsonl", url.path.hasPrefix(tempRoot.path + "/") else {
+            AppLog.warning(
+                "已忽略 ALC_REMOTE_CALL_LOG：只允许指向临时目录下的 .jsonl（收到 \(url.path)）",
+                category: "billing"
+            )
+            return fallback
+        }
+        return url
     }
 
     public init(fileURL: URL? = nil) {

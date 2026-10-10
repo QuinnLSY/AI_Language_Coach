@@ -203,7 +203,9 @@ public struct SettingsView: View {
                     .background(Circle().fill(theme.surfaceAlt))
             }
             .buttonStyle(.appPressable)
-            .keyboardShortcut(.escape, modifiers: [])
+            // ⚠️ 栈顶仲裁（#S2-1）：设置页可与情景/材料浮层同屏并存，
+            // Esc 只该关最上面那一层，别把底下那层替用户关了。
+            .escShortcut(isActive: state.escDismissLayer == .settings)
             .help("关闭设置 (Esc)")
             .accessibilityLabel("关闭设置")
         }

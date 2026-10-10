@@ -146,6 +146,23 @@ extension AppState {
             // 全局搜索（2026-10-01 补）：它也是铺满窗口的遮罩浮层，底下那页此刻看不见，
             // 按 ⌘3 之类的切页键只会让面板关掉后「我怎么在另一个页面」。
             || showingGlobalSearch
+            // 描述场景浮层（#S2-1 补）：它是从情景面板头部竖起来的**满屏遮罩**，
+            // 与 `showingMaterialUpload` 同一层浮层，却漏在这里 → 按 ⌘3 会把底下那页切走。
+            || showingScenarioComposer
+    }
+
+    /// 当前该响应 Esc 的那一层（叠放栈顶）；nil = 没有浮层。
+    ///
+    /// 唯一出口：`escCloses(..., isActive:)` 与设置页的 `escShortcut(isActive:)` 都读它，
+    /// 保证同屏多个浮层时**只有栈顶**注册 `.escape` 键等价项（见 `EscDismissLayer`）。
+    var escDismissLayer: EscDismissLayer? {
+        EscDismissLayer.topmost(
+            settings: showingSettings,
+            scenarios: showingScenarios,
+            materialUpload: showingMaterialUpload,
+            scenarioComposer: showingScenarioComposer,
+            globalSearch: showingGlobalSearch
+        )
     }
 
     /// 真正跑一个动作。

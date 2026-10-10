@@ -152,10 +152,14 @@ public actor DataBackup {
     @discardableResult
     public func prune(keeping: Int = DataBackup.maxKeptBackups) throws -> Int {
         let limit = max(keeping, 1)
-        let all = snapshots() // 新的在前
-        guard all.count > limit else { return 0 }
+        // ⚠️ 只清**本应用自己产的**包（#S2-11）。外部拷进来的包文件名没有时间戳，
+        // 新鲜度只能退回文件属性 —— 那就是「拷进来的那一刻」，通常正好是最新的，
+        // 于是它们永远排在最前，而清理是从最旧开始砍：被砍掉的反而是本应用的正常
+        // 自动备份，目录长期只增不减。用户特意留下的包不该被自动回收。
+        let ours = snapshots().filter { Self.stampedDate(in: $0.url.lastPathComponent) != nil }
+        guard ours.count > limit else { return 0 }
         var removed = 0
-        for snapshot in all.suffix(all.count - limit) {
+        for snapshot in ours.suffix(ours.count - limit) {
             try manager.trashItem(at: snapshot.url, resultingItemURL: nil)
             removed += 1
         }
@@ -215,7 +219,17 @@ public actor DataBackup {
         }
     }
 
-    private static func manifestText(files: [String], createdAt: Date) -> String {
+    /// ⚠️ internal 而非 private：清单里那段「含明文 API Key」的提示是**安全告知**，
+    /// 得能直接单测钉住（`BackupsBoundaryTests`），private 就只能靠哨兵读源码。
+    static func manifestText(files: [String], createdAt: Date) -> String {
+        // ⚠️ 这一包里有**明文 API Key**（#S2-2）。产品口径是「保守：不剥离、只明示」——
+        // 剥离会让「换机后模型不用重配」这个备份的核心价值消失，而偷偷打进去才危险。
+        // 所以每次导出都把这句话写进包内的清单里：包自己会跟着走到哪里，提醒就跟到哪里。
+        let keyWarning: [String] = files.contains("config.json") ? [
+            "",
+            "⚠️ 安全提示：本包内的 config.json **明文保存着你在设置里填的 API Key**。",
+            "   请当作密码保管，不要发给他人、不要上传到公开网盘或聊天工具。",
+        ] : []
         let lines = [
             "AI Language Coach 数据备份",
             "导出时间：\(Self.displayStamp(createdAt))",
@@ -224,7 +238,7 @@ public actor DataBackup {
         ] + files.map { "  - \($0)" } + [
             "",
             "恢复方式：在设置里选「导入备份」，或退出应用后把上面的文件放回数据目录（默认 `.workbuddy/app-config/`），重启即可。",
-        ]
+        ] + keyWarning
         return lines.joined(separator: "\n")
     }
 
@@ -341,15 +355,41 @@ public actor DataBackup {
         let fm = FileManager.default
         guard fm.fileExists(atPath: pending.path) else { return nil }
 
+        // ⚠️ 替换下来的旧文件**改名留存**，恢复全部成功后才删（#S2-4）。
+        // 原来这里是 `removeItem` 永久删除：中途 `copyItem` 失败就是「旧库已删、
+        // 新库半拷」，用户既没有退路也看不见发生了什么。同卷改名是原子的，
+        // 留存期间它也不在 SQLite 找得到的位置上，不会污染新库。
+        var displaced: [URL] = []
+        let stamp = Self.fileStamp(Date())
+        func displace(_ url: URL) throws {
+            guard fm.fileExists(atPath: url.path) else { return }
+            let target = Self.displacedName(for: url, stamp: stamp)
+            if fm.fileExists(atPath: target.path) { try fm.removeItem(at: target) }
+            try fm.moveItem(at: url, to: target)
+            displaced.append(target)
+        }
+
         func finish(_ note: String, removePending: Bool) -> String? {
-            guard removePending else { return note }
+            var suffix = ""
+            if !displaced.isEmpty {
+                if removePending {
+                    // 恢复成功了：留存这时才是多余的垃圾，清掉。
+                    for url in displaced { try? fm.removeItem(at: url) }
+                    displaced = []
+                } else {
+                    let list = displaced.map(\.lastPathComponent).joined(separator: "、")
+                    suffix = "\n\n替换下来的旧文件我留着了（恢复失败，别丢）：\(list)"
+                }
+            }
+            guard removePending else { return note + suffix }
             // ⚠️ 原来是 `try?`：暂存清不掉的话它**还留在那儿**，下次启动会再恢复一遍
             // 同一份旧备份，把用户这两天的学习记录又覆盖回去。清不掉必须说出来。
             do {
                 try fm.removeItem(at: pending)
-                return note
+                return note + suffix
             } catch {
                 return note
+                    + suffix
                     + "\n\n⚠️ 恢复暂存目录没清掉（\(error.localizedDescription)）：下次启动会再恢复一次这份旧备份，"
                     + "请手动删除 \(pending.path)"
             }
@@ -377,23 +417,23 @@ public actor DataBackup {
         do {
             if !dbFiles.isEmpty {
                 // 伴生文件一律先清：备份没带 = 旧的必须删（不同库的 WAL 是毒药）；
-                // 备份带了 = copyItem 不覆盖已存在目标，也必须先删再拷。
+                // 备份带了 = copyItem 不覆盖已存在目标，也必须先让位。
                 for companion in ["learning.db-wal", "learning.db-shm"] {
                     let url = dataDirectory.appendingPathComponent(companion)
                     guard fm.fileExists(atPath: url.path) else { continue }
-                    // 删不掉就中止：上面刚说过「不同库的 WAL 是毒药」，残留的旧 WAL
+                    // 让不动就中止：上面刚说过「不同库的 WAL 是毒药」，残留的旧 WAL
                     // 会让新库打不开或内容错乱，而原来这里报的是「已从备份恢复」。
                     do {
-                        try fm.removeItem(at: url)
+                        try displace(url)
                     } catch {
                         throw AppError.storage(
-                            "旧库的伴生文件删不掉（\(companion)），已中止恢复以免污染新库：\(error.localizedDescription)"
+                            "旧库的伴生文件移不开（\(companion)），已中止恢复以免污染新库：\(error.localizedDescription)"
                         )
                     }
                 }
                 let target = dataDirectory.appendingPathComponent("learning.db")
                 if fm.fileExists(atPath: target.path) {
-                    try fm.removeItem(at: target)
+                    try displace(target)
                 }
                 for name in dbFiles {
                     try fm.copyItem(
@@ -405,7 +445,7 @@ public actor DataBackup {
             if configFile {
                 let target = dataDirectory.appendingPathComponent("config.json")
                 if fm.fileExists(atPath: target.path) {
-                    try fm.removeItem(at: target)
+                    try displace(target)
                 }
                 try fm.copyItem(
                     at: pending.appendingPathComponent("config.json"),
@@ -419,6 +459,16 @@ public actor DataBackup {
         }
     }
 
+    /// 替换下来的旧文件的留存名：`.replaced-<时刻>-<原名>`。
+    ///
+    /// 同一个数据目录里，`learning.db-wal` / `learning.db-shm` 这两个名字**必须**腾空
+    /// （SQLite 会按这两个名字找伴生文件），所以前缀一个点、换个名，既躲开 SQLite 的
+    /// 视线，又留在原地可捞。
+    static func displacedName(for url: URL, stamp: String) -> URL {
+        url.deletingLastPathComponent()
+            .appendingPathComponent(".replaced-\(stamp)-\(url.lastPathComponent)")
+    }
+
     // MARK: - 导入内部件
 
     /// 解开备份 zip 到临时目录。zip 布局兼容两种：带父文件夹（本应用导出的）与散装在根目录。
@@ -427,8 +477,7 @@ public actor DataBackup {
         guard manager.fileExists(atPath: url.path) else {
             throw AppError.configuration("找不到备份文件：\(url.lastPathComponent)")
         }
-        let staging = manager.temporaryDirectory
-            .appendingPathComponent("restore-inspect-\(UUID().uuidString)", isDirectory: true)
+        let staging = Self.inspectContainer().appendingPathComponent("contents", isDirectory: true)
         try manager.createDirectory(at: staging, withIntermediateDirectories: true)
 
         let process = Process()
@@ -450,8 +499,86 @@ public actor DataBackup {
                 "备份压缩包已损坏，无法读取：\(detail.trimmingCharacters(in: .whitespacesAndNewlines))"
             )
         }
+        // ⚠️ 解包**不能只信 ditto 的内部行为**（#S2-3）：条目路径、条目数、解压体积
+        // 全靠它拦不住就等于没有边界 —— 一个构造过的包就能把文件写到暂存目录之外
+        // （Zip Slip），或解压出一个撑爆磁盘的包。解压完立刻自审，不合格就地清掉。
+        do {
+            try auditUnpackedTree(at: staging)
+        } catch {
+            try? manager.removeItem(at: staging)
+            throw error
+        }
         return staging
     }
+
+    /// 解包现场的**专属容器目录**：解开的东西一律落在它的 `contents/` 里。
+    ///
+    /// ⚠️ 为什么要多这一层（#S2-3）：只检查「解包目录里每个条目的路径都在解包目录内」
+    /// 是**抓不到 Zip Slip 的** —— 真逃出去的文件（zip 里的 `../evil`）根本不在解包目录里，
+    /// 枚举它自然枚举不到，那条判据永远绿（实测把它删掉，测试照样通过）。
+    /// 改成「解包目录专属一个空容器」，事后核对容器里除了 `contents/` 什么都没多，
+    /// 才真能抓到同级的逃逸。更深的 `../../` 那类仍由 `ditto` 自己拒绝，
+    /// 我们不重复实现一个 zip 解析器。
+    private static func inspectContainer() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("restore-inspect-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    /// 解包后的安全校验（纯文件系统自审，不依赖 `ditto` 的行为）。
+    ///
+    /// 三道闸：容器里没多出东西（Zip Slip 同级逃逸）、不含符号链接、条目数与解压体积有上限。
+    ///
+    /// ⚠️ internal 而非 private：这是安全边界本身，必须能被单测直接打到每一道的正反两面
+    /// （`BackupsBoundaryTests`），private 就只能靠读源码猜它拦没拦住。
+    static func auditUnpackedTree(at staging: URL) throws {
+        let manager = FileManager.default
+        let keys: Set<URLResourceKey> = [.isSymbolicLinkKey, .fileSizeKey, .isDirectoryKey]
+        guard let enumerator = manager.enumerator(at: staging, includingPropertiesForKeys: Array(keys)) else {
+            throw AppError.configuration("备份内容无法遍历，已拒绝恢复")
+        }
+        var count = 0
+        var total: Int64 = 0
+        while let element = enumerator.nextObject() as? URL {
+            count += 1
+            guard count <= maxUnpackedEntries else {
+                throw AppError.configuration(
+                    "备份里的条目超过 \(maxUnpackedEntries) 项，不是正常备份，已拒绝恢复"
+                )
+            }
+            let values = try? element.resourceValues(forKeys: keys)
+            guard values?.isSymbolicLink != true else {
+                throw AppError.configuration("备份里含符号链接，已拒绝恢复")
+            }
+            // ⚠️ 这里曾还有一条「每个条目的路径都必须落在解包目录内」的检查，**已删**：
+            // 真逃出去的文件不在解包目录里，枚举它枚举不到 → 那条检查永远绿、根本
+            // 拦不住任何东西（实测删掉它测试照样通过）；而它能触发的唯一情形
+            // （符号链接指向外部）已经被上面那一条拦掉了。留着一个不可验证的闸
+            // 只会让人以为「路径逃逸已经被覆盖」。
+            if values?.isDirectory != true {
+                total += Int64(values?.fileSize ?? 0)
+                guard total <= maxUnpackedBytes else {
+                    throw AppError.configuration(
+                        "备份解压后超过 \(ByteFormatter.string(UInt64(maxUnpackedBytes)))，已拒绝恢复"
+                    )
+                }
+            }
+        }
+        // 容器里除了解包目录只允许有「解包目录自己」—— 每多出来一个都是逃出去的。
+        let container = staging.deletingLastPathComponent()
+        let siblings = (try? manager.contentsOfDirectory(atPath: container.path))?
+            .filter { $0 != staging.lastPathComponent } ?? []
+        guard siblings.isEmpty else {
+            throw AppError.configuration(
+                "备份里有 \(siblings.count) 项内容被写到解包目录之外"
+                    + "（\(siblings.prefix(3).joined(separator: "、"))），已拒绝恢复"
+            )
+        }
+    }
+
+    /// 解包后条目数上限（本应用导出的是 5~7 个文件，留足余量）。
+    public static let maxUnpackedEntries = 2_000
+    /// 解压后总体积上限：学习库上百 MB 是常态，512 MB 足够宽，又不至于撑爆磁盘。
+    public static let maxUnpackedBytes: Int64 = 512 * 1024 * 1024
 
     /// 在解包现场找文件（兼容带父文件夹的布局），找不到返回 nil。
     private static func locateFile(named name: String, in staging: URL) throws -> URL? {

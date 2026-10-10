@@ -343,7 +343,12 @@ public actor ConfigStore {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(configuration)
         try data.write(to: url, options: .atomic)
-    }
+        // ⚠️ 这一份文件里**明文躺着用户的全部 API Key**（#S2-5）。
+        // `.atomic` 写出来的文件跟随 umask，常见是 0644 = 同机其它用户可读；
+        // 而且这份文件在用户的项目空间里，同步盘 / Time Machine 都会照收。
+        // 改成 0600：只给本人读。（产品口径是「不剥离、只保护」——备份里仍明示，
+        // 见 `DataBackup.manifestText`。）
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)    }
 
     private static let decoder: JSONDecoder = {
         let decoder = JSONDecoder()

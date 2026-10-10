@@ -175,8 +175,13 @@ final class SilentFailureTests: XCTestCase {
         let raw = try Self.code("Sources/AIInfrastructure/DataBackup.swift")
         XCTAssertEqual(Self.occurrences(of: "已中止本次恢复", in: raw), 1)
         XCTAssertEqual(Self.occurrences(of: "已中止恢复以免污染新库", in: raw), 1)
-        XCTAssertEqual(Self.occurrences(of: "try? fm.removeItem", in: raw), 0,
-                       "旧库伴生文件的删除不能再是 try?")
+        // ⚠️ 判据跟着 S2-4 调整：旧库/配置现在走 `displace`（改名留存，恢复成功后才清），
+        // 所以「不许永久删除」要钉在 `displace` 声明体上。全文件数 `try? fm.removeItem`
+        // 是错的 —— 成功之后清理**留存**那一下仍然是 `try?`（此刻用户已有新数据、
+        // 且恢复前还有一份自动留底包），它不该被这条哨兵捎带着红。
+        let displace = try Self.declBody(matching: "func displace(_ url: URL) throws", in: raw)
+        XCTAssertFalse(displace.contains("removeItem(at: url)"), "旧文件本身一律改名留存，不许永久删除")
+        XCTAssertTrue(displace.contains("moveItem"), "留存靠同卷改名")
     }
 
     /// 配置落盘失败要有出口（原来是 try?，改完重启还原，用户毫无察觉）。
