@@ -54,6 +54,7 @@ public struct LearningProgressView: View {
                             // ⚠️ 锚点就是卡片本身，**不要给它套 `.position`**：那会让
                             // `scrollTo(anchor:)` 按整张内容画布的百分比对位（大树那条老教训）。
                             .id(Self.dailyTasksAnchorID)
+                        learningPlanCard
                         weeklyCard
                         annualRecapCard
                             // 侧栏火苗徽章点进来就滚到这里（见 `AppState.openAnnualRecapInProgress`）。
@@ -94,6 +95,10 @@ public struct LearningProgressView: View {
             if snapshot.activity.isEmpty || Date().timeIntervalSince(snapshot.generatedAt) > 15 {
                 await state.reloadProgress()
             }
+            // 学习计划卡要用的两块是**惰性**的（反复错只在记录页/改错练习里刷、
+            // 顽固音素只在跟读汇总时算），本页是它们唯一的取数时机 ——
+            // 不在这里补，计划永远显示「这个阶段没有重点」（不是真没有，是没取）。
+            await state.prepareLearningPlan()
         }
     }
 
@@ -128,6 +133,23 @@ public struct LearningProgressView: View {
                 target == .dailyTasks ? Self.dailyTasksAnchorID : Self.annualRecapAnchorID,
                 anchor: .top
             )
+        }
+    }
+
+    // MARK: - 我的学习计划（① 个性化学习计划）
+
+    /// 阶段层（我在哪 → 要去哪 → 这个阶段练什么）+ 今日层（今天还差几项）。
+    ///
+    /// 卡片**内容**在独立组件 `LearningPlanCard` 里 —— 提取出来是为了能离屏渲染回归
+    /// （页面里的 `private var` 渲染不到）；这里只提供卡壳，标题行 / 底 / 阴影只此一份。
+    ///
+    /// 与「能力定位」卡的分工：那张说**现状**（你现在什么水平、凭什么这么判），
+    /// 这张说**方向**（要往哪走、这个阶段练什么）。两张都不重算对方的数。
+    private var learningPlanCard: some View {
+        card(title: "我的学习计划", systemImage: "map") {
+            LearningPlanCard(plan: state.learningPlan) { action in
+                Task { await state.performLearningPlanFocus(action) }
+            }
         }
     }
 
