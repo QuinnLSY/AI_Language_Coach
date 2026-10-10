@@ -52,6 +52,56 @@ public struct RetryPolicy: Sendable {
     func delay(forAttempt attempt: Int) -> TimeInterval { baseDelay * Double(attempt) }
 }
 
+/// SSE 行装配器：把逐字节的流切成「一整行」，并给单行长度设上限。
+///
+/// 单独抽出来是因为它**必须能被单测**：`streamSSE` 整条路要真起 HTTP 连接才跑得起来，
+/// 而这里两条最要紧的纪律（只有遇 `\n` 才成行、单行超限立即中止）恰恰只能在无网络时钉住。
+struct SSELineBuffer {
+
+    enum Outcome: Equatable {
+        /// 还没等到换行，继续攒。
+        case incomplete
+        /// 收到一整行（已 trim；空行 / 非 `data:` 行由调用方忽略）。
+        case line(String)
+        /// 单行超过上限仍未换行 —— 被劫持 / 自建端点的典型症状，必须中止。
+        case oversized
+    }
+
+    /// 单行长度上限的默认值（1 MiB）。
+    ///
+    /// ⚠️ 缓冲必须有上限：SSE 只在遇 `\n` 时清空，接上一个**持续吐字节却永不换行**的端点，
+    /// 内存会单调增长到进程被杀（错误路径反而有 512 上限，正常路径原本没有）。
+    /// 1 MiB 对正常 SSE 极宽松 —— 流式补全是逐 token 成行的，单行很少超过几十 KB。
+    static let defaultMaxLineBytes = 1 * 1024 * 1024
+
+    /// 本实例实际采用的上限。
+    ///
+    /// 留成参数是为了让单测能把边界压到个位数、**精确**钉住「第几字节越限」；
+    /// 否则要真喂满 1 MiB 才碰得到，判据既慢又只能测个大概。
+    let maxLineBytes: Int
+
+    private var buffer = Data()
+
+    init(maxLineBytes: Int = SSELineBuffer.defaultMaxLineBytes) {
+        self.maxLineBytes = max(1, maxLineBytes)
+    }
+
+    /// 喂一个字节，返回这一步的结果。
+    mutating func append(_ byte: UInt8) -> Outcome {
+        buffer.append(byte)
+        guard buffer.count <= maxLineBytes else { return .oversized }
+        // 只有换行才算收到一整行；顺带清空（空行 / 非 UTF-8 也清，与改前一致）。
+        guard byte == UInt8(ascii: "\n") else { return .incomplete }
+        defer { buffer.removeAll(keepingCapacity: true) }
+        guard let text = String(data: buffer, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !text.isEmpty else {
+            return .incomplete
+        }
+        return .line(text)
+    }
+}
+
 /// 本地 runtime 专用 HTTP 客户端。
 ///
 /// 关键约束（AGENTS.md §0.1）：本机存在系统代理 `HTTP_PROXY=http://127.0.0.1:59067`，
@@ -205,28 +255,31 @@ public struct HTTPClient: Sendable {
                         continuation.finish(throwing: AIProviderError.serverError(status: http.statusCode, message: body))
                         return
                     }
-                    var buffer = Data()
+                    var lineBuffer = SSELineBuffer()
                     for try await byte in bytes {
                         if Task.isCancelled {
                             continuation.finish(throwing: AIProviderError.cancelled)
                             return
                         }
-                        buffer.append(byte)
-                        // SSE 以空行分隔事件
-                        guard byte == UInt8(ascii: "\n"),
-                              let line = String(data: buffer, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                              !line.isEmpty else {
-                            if byte == UInt8(ascii: "\n") { buffer.removeAll(keepingCapacity: true) }
+                        switch lineBuffer.append(byte) {
+                        case .incomplete:
                             continue
-                        }
-                        buffer.removeAll(keepingCapacity: true)
-                        guard line.hasPrefix("data:") else { continue }
-                        let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
-                        if payload == "[DONE]" {
-                            continuation.finish()
+                        case .oversized:
+                            // 不静默截断：这条流已经不可信了（多半不是我们要的端点），
+                            // 报出来让用户看到「流式响应异常」，而不是等着内存涨爆。
+                            continuation.finish(throwing: AIProviderError.invalidResponse(
+                                "流式响应单行超过 \(lineBuffer.maxLineBytes) 字节仍未换行，已中止"
+                            ))
                             return
+                        case .line(let line):
+                            guard line.hasPrefix("data:") else { continue }
+                            let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+                            if payload == "[DONE]" {
+                                continuation.finish()
+                                return
+                            }
+                            continuation.yield(String(payload))
                         }
-                        continuation.yield(String(payload))
                     }
                     continuation.finish()
                 } catch let error as URLError {

@@ -139,7 +139,11 @@ public final class RemotePronunciationAdapter: PronunciationProvider, @unchecked
         guard let config = await state.currentConfig else { throw AIProviderError.notInitialized }
         let resolved = try RemoteCommon.resolve(config)
         let locale = config.model ?? "en-US"
-        let path = Self.assessmentPath(locale: locale)
+        guard let path = Self.assessmentPath(locale: locale) else {
+            throw AIProviderError.invalidConfiguration(
+                "发音评测地址无法拼接：语言标识「\(locale)」含有不能作为 URL 片段的字符。"
+            )
+        }
         guard let url = URL(string: resolved.base.absoluteString + path) else {
             throw AIProviderError.invalidConfiguration("发音评测地址无法拼接")
         }
@@ -186,9 +190,21 @@ public final class RemotePronunciationAdapter: PronunciationProvider, @unchecked
     // MARK: - 厂商细节（只在本文件出现）
 
     /// 评测路径。语言作为查询参数，服务端据此选择声学模型。
-    static func assessmentPath(locale: String) -> String {
-        "/speech/recognition/conversation/cognitiveservices/v1"
-            + "?language=\(locale)&format=detailed"
+    ///
+    /// ⚠️ 查询参数**必须走 `URLQueryItem` 编码**，不能直接拼字符串：
+    /// `language` 是手填的，填 `en-US&format=simple&x=1` 就能改写整个 query；
+    /// 填 `en US` 这种带空格的更糟 —— 最终的 `URL(string:)` 静默返回 nil，
+    /// 用户只看到一句「地址无法拼接」，查不出是自己那个空格的问题。
+    ///
+    /// - Returns: nil = 这个语言标识没法表示成合法的 URL 片段，由调用方如实报出来。
+    static func assessmentPath(locale: String) -> String? {
+        var components = URLComponents()
+        components.path = "/speech/recognition/conversation/cognitiveservices/v1"
+        components.queryItems = [
+            URLQueryItem(name: "language", value: locale),
+            URLQueryItem(name: "format", value: "detailed"),
+        ]
+        return components.string
     }
 
     /// 评分参数头（base64 后的 JSON）。

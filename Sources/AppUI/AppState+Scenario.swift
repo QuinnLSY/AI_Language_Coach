@@ -61,9 +61,20 @@ extension AppState {
 
     /// 从文件导入材料正文（只认 txt / md；读不出来如实报错）。
     public func importMaterialFile(at path: String) {
-        let ext = (path as NSString).pathExtension.lowercased()
+        let url = URL(fileURLWithPath: path)
+        let ext = url.pathExtension.lowercased()
         guard ["txt", "md"].contains(ext) else {
             materialResult = "只支持 txt / md 文本文件。"
+            return
+        }
+        // ⚠️ 体积护栏：`String(contentsOfFile:)` 是**整份读进内存**，一个几百 MB 的文本
+        // 足以在导入这一步就把内存撑爆。先看体积，超限就不读（`byteCount` 读不到时返回 nil，
+        // 那就别拦，让下面真正的读取动作用它自己的错误消息报出来）。
+        if let byteCount = ImportLimitPolicy.byteCount(ofFileAt: url),
+           let reason = ImportLimitPolicy.materialRejectionReason(
+               fileName: url.lastPathComponent, byteCount: byteCount
+           ) {
+            materialResult = reason
             return
         }
         guard let content = try? String(contentsOfFile: path, encoding: .utf8), !content.isEmpty else {

@@ -75,6 +75,28 @@ public struct VocabularyEntry: Sendable, Equatable, Identifiable, Codable {
 
     /// 是否已掌握（mastery 封顶）。
     public var isMastered: Bool { mastery >= ReviewScheduler.masteredMastery }
+
+    /// ⚠️ 手写 `init(from:)`（合成 `Decodable` 不调用上面那个钳制 init）：
+    /// 一旦出现「单词本导入 / 云同步」这类**外部来源**，`"mastery": -3` 就能原样进来，
+    /// 而 `ReviewScheduler.reviewIntervalDays` 会拿它当数组下标 → 越界崩溃。
+    ///
+    /// 同样**委托**给带钳制的 init，不复制一份 `min/max` 常量。
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(UUID.self, forKey: .id),
+            word: try container.decode(String.self, forKey: .word),
+            meaning: try container.decodeIfPresent(String.self, forKey: .meaning) ?? "",
+            example: try container.decodeIfPresent(String.self, forKey: .example) ?? "",
+            difficulty: try container.decodeIfPresent(Int.self, forKey: .difficulty) ?? 3,
+            mastery: try container.decodeIfPresent(Int.self, forKey: .mastery) ?? 0,
+            reviewCount: try container.decodeIfPresent(Int.self, forKey: .reviewCount) ?? 0,
+            lastReviewedAt: try container.decodeIfPresent(Date.self, forKey: .lastReviewedAt),
+            ease: try container.decodeIfPresent(Double.self, forKey: .ease) ?? ReviewScheduler.defaultEase,
+            source: try container.decodeIfPresent(Source.self, forKey: .source) ?? .manual,
+            createdAt: try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        )
+    }
 }
 
 // MARK: - 复习调度（简化间隔重复）
@@ -123,7 +145,11 @@ public enum ReviewScheduler {
     /// 用同一份间隔等于默认它们一样难。系数来自这个词自己的历史表现
     /// （连对往上、答错往下），所以**总忘的词自然会更早被叫回来**。
     public static func reviewIntervalDays(for entry: VocabularyEntry) -> Double {
-        let base = Double(intervalDays[min(entry.mastery, intervalDays.count - 1)])
+        // ⚠️ 下限要在**取址处**再兜一次：`min(_, count - 1)` 只挡得住上限，
+        // mastery 若为负（钳制 init 被绕过 / 将来有别的构造路径）会直接取到
+        // `intervalDays[-3]` —— 越界崩溃。钳制与兜底各守一道，别只留一道。
+        let index = max(0, min(entry.mastery, intervalDays.count - 1))
+        let base = Double(intervalDays[index])
         return base * entry.ease / defaultEase
     }
 

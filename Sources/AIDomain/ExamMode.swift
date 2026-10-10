@@ -72,6 +72,24 @@ public struct ExamStage: Codable, Sendable, Equatable, Identifiable {
         self.timeLimitSeconds = max(timeLimitSeconds, 10)
         self.minimumWords = max(minimumWords, 5)
     }
+
+    /// ⚠️ 手写 `init(from:)`（`Codable` 合成的 `Decodable` **逐属性直赋**，不调用上面那个带钳制的 init）：
+    /// 素材 JSON 写 `"timeLimitSeconds": 0` 就能绕过 `max(_, 10)` —— 每题一开表就超时、
+    /// 全被跳过却照样出成绩单，是一类**假成功**。
+    ///
+    /// 这里刻意**委托**给同一个 init，而不是把 `max(_, 10)` 再抄一遍：钳制只能有一处，
+    /// 抄第二份的那天就是两份口径开始分叉的那天。
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(String.self, forKey: .id),
+            title: try container.decode(String.self, forKey: .title),
+            instructions: try container.decode(String.self, forKey: .instructions),
+            prompts: try container.decode([String].self, forKey: .prompts),
+            timeLimitSeconds: try container.decode(Int.self, forKey: .timeLimitSeconds),
+            minimumWords: try container.decode(Int.self, forKey: .minimumWords)
+        )
+    }
 }
 
 /// 一套考卷（形式 + 环节序列）。
@@ -101,6 +119,16 @@ public struct ExamBlueprint: Codable, Sendable, Equatable, Identifiable {
 
     /// 全场限时上限（各环节之和）——UI 的「整场还剩多久」用它，不另存一份。
     public var totalTimeLimitSeconds: Int { stages.reduce(0) { $0 + $1.timeLimitSeconds } }
+
+    /// 这套卷子能不能真的考：**每个**环节都得有题。
+    ///
+    /// ⚠️ 判据刻意不是「总题数 > 0」：中间只要有一个环节 `prompts` 为空，
+    /// `ExamSession.currentPrompt` 在那一环就恒为 nil —— 界面停在空白题上
+    /// （题号还会与下一问重号），只能等超时逐题爬过去，而且**没有任何提示**。
+    /// 这种卷子属于坏数据，宁可不出现（口径同「单个资源文件损坏只跳过该文件」）。
+    public var isRunnable: Bool {
+        !stages.isEmpty && stages.allSatisfy { !$0.prompts.isEmpty }
+    }
 }
 
 // MARK: - 作答
@@ -242,6 +270,10 @@ public struct ExamSession: Sendable, Equatable {
 
     /// 第 `number` 问的题面（从 1 起）。找不到返回 nil。
     public func prompt(forQuestion number: Int) -> String? {
+        // ⚠️ `number < 1` 必须在这里挡住：下面 `remaining <= stage.prompts.count` 对 `remaining = 0`
+        // **恒真**（`0 <= 0`），于是直接取 `stage.prompts[-1]` —— 越界崩溃。
+        // 目前靠调用方恰好不传 0 躲过（题号恒 ≥ 1），但「靠上游自觉」不是防线。
+        guard number >= 1 else { return nil }
         var remaining = number
         for stage in blueprint.stages {
             if remaining <= stage.prompts.count { return stage.prompts[remaining - 1] }

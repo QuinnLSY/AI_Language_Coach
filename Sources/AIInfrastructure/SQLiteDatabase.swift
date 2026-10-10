@@ -131,18 +131,42 @@ public final class SQLiteDatabase: @unchecked Sendable {
         }
     }
 
+    /// 单条 SQL 允许携带的绑定变量上限（**保守取值**）。
+    ///
+    /// ⚠️ SQLite 的 `SQLITE_MAX_VARIABLE_NUMBER` 在旧版本是 **999**，新版本才提到 32766。
+    /// 批量 `IN (...)` 这类语句必须按它分页，否则 `sqlite3_prepare_v2` 直接失败 →
+    /// 整条事务回滚 → 表现为「界面上删掉了、库里一条没删」，下次启动整批复活。
+    /// 取 500 是刻意留余量：同一条语句里往往还有别的绑定参数（如 `session_id = ?N`）。
+    public static let maxBoundVariables = 500
+
     /// 当前 schema 版本（`PRAGMA user_version`）。
     public func schemaVersion() throws -> Int {
         try query("PRAGMA user_version", map: { $0.int(0) ?? 0 }).first ?? 0
     }
 
     public func setSchemaVersion(_ version: Int) throws {
+        // ⚠️ 这是全库**唯一**一处把值直接插进 SQL 的地方，别照抄到别处：
+        // PRAGMA **不接受绑定参数**（`PRAGMA user_version = ?1` 是语法错误），只能拼字符串。
+        // 拼进来的是 `Int`，本身没有注入面；下面这道 guard 是把这个前提**钉住** ——
+        // 哪天参数换成字符串，这里会立刻失败，而不是悄悄多出一条注入路。
+        guard version >= 0 else {
+            throw AppError.database("schema 版本不能为负（收到 \(version)）")
+        }
         try run("PRAGMA user_version=\(version)")
     }
 
     // MARK: - 私有
 
     private func prepare(_ sql: String, _ params: [SQLiteValue]) throws -> OpaquePointer {
+        // ⚠️ 绑定参数上限**由本层自己守**，不依赖 SQLite 的版本默认值：
+        // 旧版 SQLite 只有 999 个变量，超限时 `sqlite3_prepare_v2` 的报错指向 SQL 形状，
+        // 根本看不出是「参数太多」。这里提前给出可读错误，同时让「批量语句必须分页」
+        // 成为**可判定的**判据 —— 少了分页就会立刻抛错，而不是「碰巧这台机器的上限够用」。
+        guard params.count <= Self.maxBoundVariables else {
+            throw AppError.database(
+                "单条 SQL 的绑定参数过多（\(params.count) 个，上限 \(Self.maxBoundVariables)）：批量语句请分页"
+            )
+        }
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
             throw AppError.database("SQL 预处理失败：\(lastError())\nSQL: \(sql)")

@@ -96,23 +96,25 @@ public final class RemoteASRAdapter: ASRProvider, @unchecked Sendable {
         let model = intent.model
         let wav = WhisperASRAdapter.wavData(samples: request.audioSamples, sampleRate: wireSampleRate)
 
+        // 边界**每请求随机**：常量会被端点预知（见 `RemoteCommon.makeMultipartBoundary`）。
+        let boundary = RemoteCommon.makeMultipartBoundary()
         var urlRequest = RemoteCommon.request(
             url: RemoteEndpoint.url(base: resolved.base, path: "v1/audio/transcriptions"),
             apiKey: resolved.apiKey,
             method: "POST",
-            contentType: "multipart/form-data; boundary=\(Self.boundary)"
+            contentType: "multipart/form-data; boundary=\(boundary)"
         )
         var body = Data()
         body.append(RemoteCommon.multipartFileField(
             name: "file", filename: "speech.wav", mimeType: "audio/wav",
-            data: wav, boundary: Self.boundary
+            data: wav, boundary: boundary
         ))
-        body.append(RemoteCommon.multipartField(name: "model", value: model, boundary: Self.boundary))
+        body.append(RemoteCommon.multipartField(name: "model", value: model, boundary: boundary))
         // 语言要归一成主标签（en-US → en），云端接口不认区域后缀。
         if let language = RemoteEndpoint.primaryLanguageTag(request.language) {
-            body.append(RemoteCommon.multipartField(name: "language", value: language, boundary: Self.boundary))
+            body.append(RemoteCommon.multipartField(name: "language", value: language, boundary: boundary))
         }
-        body.append(Data("--\(Self.boundary)--\r\n".utf8))
+        body.append(RemoteCommon.multipartTerminator(boundary: boundary))
         urlRequest.httpBody = body
 
         let data: Data
@@ -136,8 +138,6 @@ public final class RemoteASRAdapter: ASRProvider, @unchecked Sendable {
     }
 
     // MARK: - 内部
-
-    private static let boundary = "AILanguageCoach-ASR"
 
     private func resolved() async throws -> RemoteCommon.Resolved {
         guard let config = await state.currentConfig else { throw AIProviderError.notInitialized }

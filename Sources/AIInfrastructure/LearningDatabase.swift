@@ -466,12 +466,17 @@ public actor LearningDatabase {
         ])
     }
 
-    /// 某会话的全部消息（按时间正序），用于启动时恢复上次会话。
-    public func messages(sessionID: UUID) throws -> [ChatMessage] {
-        let rows = try db.query(
-            "SELECT id, role, content, created_at, reasoning, attachments FROM messages WHERE session_id = ?1 ORDER BY created_at ASC, rowid ASC",
-            [.text(sessionID.uuidString)]
-        ) { row -> ChatMessage? in
+    /// 某会话的消息（按时间正序）。开屏恢复上次会话、导出学习记录都用它。
+    ///
+    /// - Parameter limit: 最多取多少条；`nil` = 不限。
+    ///
+    /// 超限时留**最近**的那些：内部按时间**倒序**取、返回前翻回正序 ——
+    /// 对话是有头的，丢掉最老的那一截不伤上下文，反过来（留最老的）等于把当前状态截没。
+    ///
+    /// ⚠️ 导出路径（`CoachServices.exportLearningRecords`）必须传 `nil`：截断等于悄悄
+    /// 少给用户几条学习记录，而那种「少」没有任何人会察觉。
+    public func messages(sessionID: UUID, limit: Int? = nil) throws -> [ChatMessage] {
+        let decodeRow: (SQLiteRow) -> ChatMessage? = { row in
             guard let idText = row.string(0), let id = UUID(uuidString: idText),
                   let roleRaw = row.string(1), let role = ChatRole(rawValue: roleRaw),
                   let content = row.string(2), let created = row.double(3)
@@ -483,6 +488,27 @@ public actor LearningDatabase {
                 attachments: Self.decodeAttachments(row.string(5))
             )
         }
+
+        if let limit {
+            guard limit > 0 else { return [] }
+            let rows = try db.query(
+                """
+                SELECT id, role, content, created_at, reasoning, attachments
+                FROM messages WHERE session_id = ?1
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT ?2
+                """,
+                [.text(sessionID.uuidString), .int(limit)],
+                map: decodeRow
+            )
+            return Array(rows.compactMap { $0 }.reversed())
+        }
+
+        let rows = try db.query(
+            "SELECT id, role, content, created_at, reasoning, attachments FROM messages WHERE session_id = ?1 ORDER BY created_at ASC, rowid ASC",
+            [.text(sessionID.uuidString)],
+            map: decodeRow
+        )
         return rows.compactMap { $0 }
     }
 
@@ -501,11 +527,17 @@ public actor LearningDatabase {
         guard !ids.isEmpty else { return 0 }
         return try db.runInTransaction {
             let before = try messageCount(sessionID: sessionID)
-            let placeholders = ids.enumerated().map { "?\($0.offset + 1)" }.joined(separator: ", ")
-            try db.run(
-                "DELETE FROM messages WHERE session_id = ?\(ids.count + 1) AND id IN (\(placeholders))",
-                ids.map { .text($0.uuidString) } + [.text(sessionID.uuidString)]
-            )
+            // ⚠️ 必须**分页**：SQLite 的绑定变量数有上限（旧版 999），长会话点「重新生成」会一次
+            // 传上千个 id —— 超限时 `sqlite3_prepare_v2` 直接失败、整条事务回滚，
+            // 表现为「界面上的消息消失了、库里一条没删」，下次启动整批复活。
+            // 一批留一个变量给 `session_id`，所以是 `maxBoundVariables - 1`。
+            for batch in ids.batched(SQLiteDatabase.maxBoundVariables - 1) {
+                let placeholders = batch.enumerated().map { "?\($0.offset + 1)" }.joined(separator: ", ")
+                try db.run(
+                    "DELETE FROM messages WHERE session_id = ?\(batch.count + 1) AND id IN (\(placeholders))",
+                    batch.map { .text($0.uuidString) } + [.text(sessionID.uuidString)]
+                )
+            }
             let after = try messageCount(sessionID: sessionID)
             try syncMessageCount(sessionID: sessionID)
             return max(before - after, 0)
@@ -558,6 +590,13 @@ public actor LearningDatabase {
         return decoder
     }()
 
+    /// 开屏恢复时最多回填多少条消息（见 `latestSession`）。
+    ///
+    /// 正常一次练习就几百条（复盘后流水还会被清），2000 已是极宽松的余量。
+    /// 定上限的理由是这一步跑在**开屏同步**路径上：真出现上万条的会话，
+    /// 一次性物化卡的正是启动那一下最不该卡的地方。
+    public static let maxRestoredMessages = 2000
+
     /// 最近一个会话（含消息）。没有历史会话时返回 nil。
     public func latestSession() throws -> (session: ChatSession, messages: [ChatMessage])? {
         let rows = try db.query(
@@ -571,7 +610,8 @@ public actor LearningDatabase {
         }
         guard let first = rows.compactMap({ $0 }).first else { return nil }
         let session = ChatSession(id: first.0, startedAt: first.1, mode: first.2, scenarioID: first.3)
-        return (session, try messages(sessionID: first.0))
+        // 只给**恢复**这条路加上限（导出学习记录那条路不传 limit，见 `messages(sessionID:limit:)`）。
+        return (session, try messages(sessionID: first.0, limit: Self.maxRestoredMessages))
     }
 
     public func finishSession(id: UUID, endedAt: Date = Date()) throws {
@@ -1115,30 +1155,38 @@ public actor LearningDatabase {
     /// 一次最多几十句，SQL 好读比省那点遍历更值钱。
     public func latestShadowingAttempts(drillIDs: [String]) throws -> [String: ShadowingAttempt] {
         guard !drillIDs.isEmpty else { return [:] }
-        let placeholders = drillIDs.enumerated().map { "?\($0.offset + 1)" }.joined(separator: ", ")
-        let rows = try db.query(
-            """
-            SELECT id, drill_id, reference, recognized, accuracy, pronunciation, created_at
-            FROM shadowing_attempts
-            WHERE drill_id IN (\(placeholders))
-            ORDER BY created_at DESC
-            """,
-            drillIDs.map { .text($0) }
-        ) { row -> ShadowingAttempt? in
-            guard let idText = row.string(0), let id = UUID(uuidString: idText),
-                  let drillID = row.string(1), let reference = row.string(2),
-                  let recognized = row.string(3), let accuracy = row.double(4),
-                  let created = row.double(6)
-            else { return nil }
-            return ShadowingAttempt(
-                id: id, drillID: drillID, referenceText: reference,
-                recognizedText: recognized, accuracy: accuracy,
-                pronunciation: Self.decodeJSON(row.string(5)),
-                createdAt: Date(timeIntervalSince1970: created)
-            )
-        }.compactMap { $0 }
+        // ⚠️ 同一个绑定变量上限的问题（见 `deleteMessages`），这里也分页。
+        // 合并口径与「一次取全再每句留第一条」**等价**：每批各自按时间倒序，
+        // 跨批取 `createdAt` 更晚的那条。
         var latest: [String: ShadowingAttempt] = [:]
-        for row in rows where latest[row.drillID] == nil { latest[row.drillID] = row }
+        for batch in drillIDs.batched(SQLiteDatabase.maxBoundVariables) {
+            let placeholders = batch.enumerated().map { "?\($0.offset + 1)" }.joined(separator: ", ")
+            let rows = try db.query(
+                """
+                SELECT id, drill_id, reference, recognized, accuracy, pronunciation, created_at
+                FROM shadowing_attempts
+                WHERE drill_id IN (\(placeholders))
+                ORDER BY created_at DESC
+                """,
+                batch.map { .text($0) }
+            ) { row -> ShadowingAttempt? in
+                guard let idText = row.string(0), let id = UUID(uuidString: idText),
+                      let drillID = row.string(1), let reference = row.string(2),
+                      let recognized = row.string(3), let accuracy = row.double(4),
+                      let created = row.double(6)
+                else { return nil }
+                return ShadowingAttempt(
+                    id: id, drillID: drillID, referenceText: reference,
+                    recognizedText: recognized, accuracy: accuracy,
+                    pronunciation: Self.decodeJSON(row.string(5)),
+                    createdAt: Date(timeIntervalSince1970: created)
+                )
+            }.compactMap { $0 }
+            for row in rows {
+                if let existing = latest[row.drillID], existing.createdAt >= row.createdAt { continue }
+                latest[row.drillID] = row
+            }
+        }
         return latest
     }
 
@@ -1552,5 +1600,22 @@ public actor LearningDatabase {
     /// VACUUM 整理数据库文件，回收删除留下的空洞。
     public func vacuum() throws {
         try db.run("VACUUM")
+    }
+}
+
+// MARK: - 绑定变量分页
+
+private extension Array {
+    /// 按 `size` 切成若干批。
+    ///
+    /// 存在的唯一理由是**绑定变量上限**：SQLite 旧版本单条语句最多 999 个 `?N`，
+    /// 批量 `IN (...)` 一旦越线就是 `sqlite3_prepare_v2` 失败 → 整条事务回滚。
+    /// 切批是唯一稳的解法（越限时报错信息指向 SQL 形状，不会告诉你是「参数太多」）。
+    func batched(_ size: Int) -> [[Element]] {
+        guard !isEmpty else { return [] }
+        guard size > 0, count > size else { return [self] }
+        return stride(from: 0, to: count, by: size).map {
+            Array(self[$0..<Swift.min($0 + size, count)])
+        }
     }
 }

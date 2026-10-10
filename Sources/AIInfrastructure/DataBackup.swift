@@ -591,6 +591,24 @@ public actor DataBackup {
         throw AppError.configuration("备份里出现了多个 \(name)，文件不可信")
     }
 
+    /// 备份内 `config.json` 的读取上限（8 MB）。
+    ///
+    /// 真实配置是几十 KB 量级，8 MB 已是「绝不可能是正常配置」的量级。定这个上限是因为
+    /// 校验发生在**用户确认导入之前** —— 不能让一个塞了几百 MB JSON 的包，在用户只是「看了一眼」
+    /// 的时候就撑爆内存（同一个函数里读 SQLite 就只取 16 字节头，标准要一致）。
+    static let maxConfigBytes = 8 * 1024 * 1024
+
+    /// 按 `limit` 上限读文件；**超过上限返回 `nil`**（调用方据此拒绝导入）。
+    ///
+    /// 多读 1 字节即可判出「不止这么大」—— 既不用把大文件读全，也不必真造一个几百 MB 的包。
+    /// 抽成独立函数是为了这条判据**能被单测**（`validatePayload` 本身是 private）。
+    static func readCapped(_ url: URL, limit: Int) throws -> Data? {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let data = try handle.read(upToCount: max(limit, 0) + 1) ?? Data()
+        return data.count <= limit ? data : nil
+    }
+
     /// 校验解包出来的内容：必须有学习库（且真是 SQLite），config.json 若在必须是合法 JSON。
     private static func validatePayload(in staging: URL) throws -> ImportPlan {
         var includesDatabase = false
@@ -607,7 +625,13 @@ public actor DataBackup {
 
         var includesConfig = false
         if let config = try locateFile(named: "config.json", in: staging) {
-            let raw = try Data(contentsOf: config)
+            // ⚠️ 按上限读（见 `readCapped`）：这一步跑在用户确认导入**之前**，
+            // 整读一份几百 MB 的 JSON 就是一处没有上限的内存风险。
+            guard let raw = try Self.readCapped(config, limit: Self.maxConfigBytes) else {
+                throw AppError.configuration(
+                    "备份里的配置文件超过 \(Self.maxConfigBytes / 1024 / 1024) MB，已拒绝恢复"
+                )
+            }
             guard let object = try? JSONSerialization.jsonObject(with: raw), object is [String: Any] else {
                 throw AppError.configuration("备份里的配置文件不是有效的 JSON，已拒绝恢复")
             }

@@ -424,15 +424,33 @@ public enum RemoteCommon {
 
     // MARK: - multipart（语音上传）
 
-    /// 构造 multipart 字段（文本字段与文件字段共用一套边界格式）。
+    /// 去掉 CR / LF。
+    ///
+    /// ⚠️ 这两个字符能直接把 multipart 的结构改写掉：`\r\n--<boundary>` 一出现，
+    /// 后面的内容就被对方当成「新字段 / 新文件」，请求体的形状由**值**说了算。
+    static func strippedOfNewlines(_ raw: String) -> String {
+        String(raw.filter { !$0.isNewline })
+    }
+
+    /// 引号内令牌（字段名 / 文件名）的净化：除了换行，还要中和 `"` —— 它会提前闭合 quoted-string。
+    static func sanitizedMultipartToken(_ raw: String) -> String {
+        strippedOfNewlines(raw).replacingOccurrences(of: "\"", with: "_")
+    }
+
+    /// 构造 multipart 文本字段。
+    ///
+    /// ⚠️ 字段名与值**一律净化**：`model` 这类值来自用户手填或 `GET /v1/models` 的返回，
+    /// 端点只要回一个带 `\r\n--<boundary>` 的模型名，请求体结构就被改写了。
+    /// 本函数只发**单行**字段（model / language / response_format 这类）；要发多行正文请用
+    /// `multipartFileField`。
     public static func multipartField(
         name: String,
         value: String,
         boundary: String
     ) -> Data {
         var field = "--\(boundary)\r\n"
-        field += "Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n"
-        field += "\(value)\r\n"
+        field += "Content-Disposition: form-data; name=\"\(sanitizedMultipartToken(name))\"\r\n\r\n"
+        field += "\(strippedOfNewlines(value))\r\n"
         return Data(field.utf8)
     }
 
@@ -445,11 +463,27 @@ public enum RemoteCommon {
     ) -> Data {
         var body = Data()
         body.append(Data("--\(boundary)\r\n".utf8))
-        body.append(Data("Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(filename)\"\r\n".utf8))
-        body.append(Data("Content-Type: \(mimeType)\r\n\r\n".utf8))
+        body.append(Data(
+            ("Content-Disposition: form-data; name=\"\(sanitizedMultipartToken(name))\"; "
+                + "filename=\"\(sanitizedMultipartToken(filename))\"\r\n").utf8
+        ))
+        body.append(Data("Content-Type: \(strippedOfNewlines(mimeType))\r\n\r\n".utf8))
         body.append(data)
         body.append(Data("\r\n".utf8))
         return body
+    }
+
+    /// multipart 的结束标记。收敛到一处，免得各适配器各写一遍 `--\(boundary)--`。
+    public static func multipartTerminator(boundary: String) -> Data {
+        Data("--\(boundary)--\r\n".utf8)
+    }
+
+    /// 一次请求用的 multipart 边界：**每次随机**。
+    ///
+    /// ⚠️ 不能做成编译期常量（早期 `RemoteASRAdapter` 用的是 `"AILanguageCoach-ASR"`）：
+    /// 常量意味着端点**事先就知道边界**，只要有一个未净化的字段值就能伪造出「边界提前收尾」。
+    public static func makeMultipartBoundary() -> String {
+        "AILanguageCoach-\(UUID().uuidString)"
     }
 
     // MARK: - 编解码

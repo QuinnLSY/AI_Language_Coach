@@ -29,7 +29,15 @@ public enum ExamCatalog {
             .filter({ $0.pathExtension.lowercased() == "json" })
             .sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             do {
-                blueprints.append(try decoder.decode(ExamBlueprint.self, from: Data(contentsOf: url)))
+                let blueprint = try decoder.decode(ExamBlueprint.self, from: Data(contentsOf: url))
+                // ⚠️ 有环节没题目的卷子在这里就丢掉：放进去只能等超时逐题爬过去，且没有任何提示。
+                guard blueprint.isRunnable else {
+                    if logging {
+                        AppLog.warning("考卷有环节没有题目（已跳过）\(url.lastPathComponent)", category: "exam")
+                    }
+                    continue
+                }
+                blueprints.append(blueprint)
             } catch {
                 if logging {
                     AppLog.warning("考卷解析失败（已跳过）\(url.lastPathComponent)：\(error)", category: "exam")
@@ -49,11 +57,13 @@ public enum ExamCatalog {
         return unique
     }
 
-    /// 按形式分组（保持传入顺序；空环节的考卷不出现 —— 那种卷子进去就结束了）。
+    /// 按形式分组（保持传入顺序；不能考的考卷不出现 —— 那种卷子进去就卡住）。
     public static func grouped(_ blueprints: [ExamBlueprint])
         -> [(format: ExamFormat, items: [ExamBlueprint])] {
         ExamFormat.allCases.compactMap { format in
-            let items = blueprints.filter { $0.format == format && $0.questionCount > 0 }
+            // 判据用 `isRunnable`（每个环节都得有题），不是「总题数 > 0」：
+            // 后者放得过「中间有一环是空的」那种卷子，而它正好是会让考试停在空白题上的那一种。
+            let items = blueprints.filter { $0.format == format && $0.isRunnable }
             return items.isEmpty ? nil : (format, items)
         }
     }
@@ -77,6 +87,7 @@ public enum ExamCatalog {
                     guard let data = try? Data(contentsOf: url) else { return nil }
                     return try? decoder.decode(ExamBlueprint.self, from: data)
                 }
+                .filter(\.isRunnable)   // 空环节的卷子同样不要（口径同 `load(from:)`）
             let unique = deduplicated(loaded)
             if !unique.isEmpty { return unique }
         }

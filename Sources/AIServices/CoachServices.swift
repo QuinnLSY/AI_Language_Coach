@@ -494,6 +494,15 @@ public actor CoachServices {
     /// 无论怎么注入仓库都照样写真实数据目录。
     public func importVoiceReference(from sourceURL: URL) async throws -> String {
         let manager = FileManager.default
+        // ⚠️ 体积护栏：这一路原来是「连扩展名以外什么都不查」就 `copyItem`。
+        // 选到一个 4 GB 的音频，写满的是**应用自己的数据目录** —— 学习库与配置跟它同处一室，
+        // 写挂的不只是这一个文件。与聊天附件一样，超限要在这里给出可读理由。
+        if let byteCount = ImportLimitPolicy.byteCount(ofFileAt: sourceURL),
+           let reason = ImportLimitPolicy.voiceReferenceRejectionReason(
+               fileName: sourceURL.lastPathComponent, byteCount: byteCount
+           ) {
+            throw AppError.configuration(reason)
+        }
         let directory = await voiceProfileStore.referenceAudioDirectory
         try manager.createDirectory(at: directory, withIntermediateDirectories: true)
         let ext = sourceURL.pathExtension.isEmpty ? "wav" : sourceURL.pathExtension.lowercased()

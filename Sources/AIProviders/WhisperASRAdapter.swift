@@ -108,18 +108,21 @@ public final class WhisperASRAdapter: ASRProvider, @unchecked Sendable {
 
         var urlRequest = URLRequest(url: base.appendingPathComponent("inference"))
         urlRequest.httpMethod = "POST"
-        let boundary = "AILanguageCoach-\(UUID().uuidString)"
+        let boundary = RemoteCommon.makeMultipartBoundary()
         urlRequest.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         var body = Data()
-        body.append(Self.multipartField(name: "file", filename: "speech.wav",
-                                        mimeType: "audio/wav", data: wav, boundary: boundary))
+        // ⚠️ 走 `RemoteCommon` 的那两个构造函数，**别在这里留私有副本**：
+        // 本次收编前这里有一份自己写的 multipart（字段名 / 值不净化），
+        // 两份实现一旦分叉，先修好的那道闸只护得住一半上传路径。
+        body.append(RemoteCommon.multipartFileField(name: "file", filename: "speech.wav",
+                                                    mimeType: "audio/wav", data: wav, boundary: boundary))
         if let language = request.language, !language.isEmpty {
-            body.append(Self.multipartField(name: "language", value: language, boundary: boundary))
+            body.append(RemoteCommon.multipartField(name: "language", value: language, boundary: boundary))
         }
         // verbose_json 才能拿到时间戳；字段缺失的老 runtime 只会回落成「有 text、无 segments」，
         // 不会让整段转写失败（见 `WhisperInferenceResponse` 的可选字段）。
-        body.append(Self.multipartField(name: "response_format", value: "verbose_json", boundary: boundary))
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        body.append(RemoteCommon.multipartField(name: "response_format", value: "verbose_json", boundary: boundary))
+        body.append(RemoteCommon.multipartTerminator(boundary: boundary))
         urlRequest.httpBody = body
 
         let (data, response) = try await client.perform(urlRequest, timeout: config.requestTimeout ?? 60)
@@ -184,28 +187,6 @@ public final class WhisperASRAdapter: ASRProvider, @unchecked Sendable {
     /// 而错误信息指不到根因。
     public static func wavData(samples: [Float], sampleRate: Int) -> Data {
         AudioPCM.wav16(samples: samples, sampleRate: sampleRate)
-    }
-
-    // MARK: multipart
-
-    private static func multipartField(name: String, value: String, boundary: String) -> Data {
-        var body = "--\(boundary)\r\n".data(using: .utf8)!
-        body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
-        body.append("\(value)\r\n".data(using: .utf8)!)
-        return body
-    }
-
-    private static func multipartField(name: String, filename: String, mimeType: String,
-                                       data: Data, boundary: String) -> Data {
-        var body = "--\(boundary)\r\n".data(using: .utf8)!
-        body.append(
-            "Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(filename)\"\r\n"
-                .data(using: .utf8)!
-        )
-        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
-        body.append(data)
-        body.append("\r\n".data(using: .utf8)!)
-        return body
     }
 
     /// whisper.cpp `/inference` 响应体（**逐字段实测**，未实测的一律不写）。
