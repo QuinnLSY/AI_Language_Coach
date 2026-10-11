@@ -51,32 +51,57 @@ public struct ScenarioPickerView: View {
                 && state.materialKits.isEmpty && state.courses.isEmpty {
                 emptyState
             } else {
-                ScrollView(.vertical, showsIndicators: true) {
-                    VStack(alignment: .leading, spacing: 18) {
-                        if !state.courses.isEmpty {
-                            courseSection
-                        }
-                        if !state.materialKits.isEmpty {
-                            materialSection
-                        }
-                        if !state.examBlueprints.isEmpty {
-                            examSection
-                        }
-                        // ⚠️ 课内情景已经从上面那张课卡里逐节列出了，这里必须**滤掉** ——
-                        // 否则同一节会在面板上出现两次（一次在课里、一次在「AI 排的课」分组下），
-                        // 而用户看到的是两张一样的卡片、删课之后还剩一张打不开的。
-                        ForEach(Scenario.groups(looseScenarios), id: \.category) { group in
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text(group.category)
-                                    .appFont(12, weight: .semibold, design: .rounded)
-                                    .foregroundStyle(theme.secondaryText)
-                                ForEach(group.items) { scenario in
-                                    card(scenario)
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: true) {
+                        VStack(alignment: .leading, spacing: 18) {
+                            // 盲盒（⑦-B③）：清单对「不知道练什么」的人没用，这一行替他抽一个。
+                            // 池子为空（一个可选情景都没有）时整行不画 —— 抽不出来的按钮是骗人的。
+                            if !state.blindBoxPool.isEmpty {
+                                BlindBoxRow(
+                                    poolCount: state.blindBoxPool.count,
+                                    revealed: revealedEntry
+                                ) {
+                                    state.revealRandomScenario()
+                                } onStart: {
+                                    Task { await state.startRevealedScenario() }
+                                }
+                            }
+                            if !state.courses.isEmpty {
+                                courseSection
+                            }
+                            if !state.materialKits.isEmpty {
+                                materialSection
+                            }
+                            if !state.examBlueprints.isEmpty {
+                                examSection
+                            }
+                            // ⚠️ 课内情景已经从上面那张课卡里逐节列出了，这里必须**滤掉** ——
+                            // 否则同一节会在面板上出现两次（一次在课里、一次在「AI 排的课」分组下），
+                            // 而用户看到的是两张一样的卡片、删课之后还剩一张打不开的。
+                            ForEach(Scenario.groups(looseScenarios), id: \.category) { group in
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text(group.category)
+                                        .appFont(12, weight: .semibold, design: .rounded)
+                                        .foregroundStyle(theme.secondaryText)
+                                    ForEach(group.items) { scenario in
+                                        // id 挂着是为了盲盒能滚过来（`scrollTo` 只认 id）；
+                                        // 顺带也让 SwiftUI 在列表变化时认得出哪张卡是哪张。
+                                        card(scenario)
+                                            .id(scenario.id)
+                                    }
                                 }
                             }
                         }
+                        .appPadding(20)
                     }
-                    .appPadding(20)
+                    // 盲盒开出一张卡：滚过去，否则「抽中了」等于什么都没发生 ——
+                    // 那张卡可能在这条长列表的最下面，用户根本看不见它展开了。
+                    .onChange(of: state.blindBoxLastID) { _, id in
+                        guard let id else { return }
+                        withAnimation(.app(.reveal)) {
+                            proxy.scrollTo(id, anchor: .center)
+                        }
+                    }
                 }
             }
         }
@@ -90,6 +115,15 @@ public struct ScenarioPickerView: View {
     /// 走通用分组渲染的情景（**不含**课内情景 —— 它们在课卡里逐节列）。
     private var looseScenarios: [Scenario] {
         state.scenarios.filter { $0.origin != .course }
+    }
+
+    /// 盲盒开出的是哪一条（判据在 `ScenarioBlindBox.revealedEntry`，这里只取值）。
+    private var revealedEntry: BlindBoxEntry? {
+        ScenarioBlindBox.revealedEntry(
+            in: state.blindBoxPool,
+            lastID: state.blindBoxLastID,
+            expandedID: state.expandedScenarioID
+        )
     }
 
     // MARK: - 头部

@@ -247,6 +247,49 @@ extension AppState {
         expandedScenarioID = expandedScenarioID == scenarioID ? nil : scenarioID
     }
 
+    // MARK: 盲盒情景（⑦-B③）
+
+    /// 盲盒的池：**面板上那批点得到的散装情景卡**。
+    ///
+    /// 判据（课内、正在练的都不进）全在 `ScenarioBlindBox.entries` 里，
+    /// 这里只负责把真数据喂进去：已过关的 id 来自 `progress.levels`，
+    /// 进行中的那个来自 `chat.scenarioProgress` —— 两处都是同一个真源，
+    /// 与情景卡片上「已过关 / 进行中」徽标同源。
+    public var blindBoxPool: [BlindBoxEntry] {
+        var completedIDs: Set<String> = []
+        for level in progress.levels where level.state == .completed {
+            guard let id = level.scenarioID else { continue }
+            completedIDs.insert(id)
+        }
+        return ScenarioBlindBox.entries(
+            from: scenarios,
+            completedIDs: completedIDs,
+            activeID: activeScenario?.scenario.id
+        )
+    }
+
+    /// 抽一个：**只把那张卡展开（并滚过去），不直接开练**。
+    ///
+    /// 这与面板既有的规矩一致（点卡片先看清任务与重点，再按「开始任务」）——
+    /// 盲盒抽的是「练什么」，不是「替他决定现在就开始」。想一步到位可以再按
+    /// 那一行上的「就练这个」。
+    public func revealRandomScenario() {
+        guard let picked = ScenarioBlindBox.pick(
+            from: blindBoxPool,
+            avoiding: blindBoxLastID,
+            roll: blindBoxRoll
+        ) else { return }
+        blindBoxRoll += 1
+        blindBoxLastID = picked.id
+        expandedScenarioID = picked.id
+    }
+
+    /// 开练抽中的那个（与情景卡片里的「开始任务」同一条链路，不多一条）。
+    public func startRevealedScenario() async {
+        guard let id = blindBoxLastID, let scenario = scenario(for: id) else { return }
+        await startScenario(scenario)
+    }
+
     /// 进入某个情景：**先自动复盘上一段练习并清掉流水**，再带着「前情提要」进任务。
     ///
     /// 与以前「点卡片直接开始」的区别（需求 3）：卡片只负责展开信息，

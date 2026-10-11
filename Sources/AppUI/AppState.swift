@@ -469,6 +469,14 @@ public final class AppState {
     public internal(set) var scenarios: [Scenario] = []
     /// 是否已尝试加载过场景（用于区分「加载中」与「确实为空」）。
     public internal(set) var didLoadScenarios = false
+    // MARK: 盲盒情景（⑦-B③）
+    /// 盲盒第几次抽（每抽一次 +1）。
+    ///
+    /// ⚠️ **不随面板开关重置**：重置了就会「每次开面板第一下抽到的都是同一个」，
+    /// 那不叫盲盒，叫每日推荐（每日推荐另有 `DailySeed` 那条路）。
+    public var blindBoxRoll: Int = 0
+    /// 盲盒上一次抽到的是哪个（下一次**绝不**再抽它）。
+    public var blindBoxLastID: String?
     // MARK: 上传材料自动出题（#208）
     /// 已生成的材料（材料 → 情景 + 跟读句 + 生词表），按生成时间倒序。
     public internal(set) var materialKits: [MaterialKit] = []
