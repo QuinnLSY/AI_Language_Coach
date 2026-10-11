@@ -93,6 +93,9 @@ extension AppState {
         // 话题卡的依据（今天做到哪儿 / 上次练到哪）就在这一批数据里，
         // 顺手重算：它是纯计算，不发请求。
         refreshKickoffs()
+        // 热身的依据（到期词）也在这一批数据里，同样顺手重排。
+        // ⚠️ 跑着的一轮不换题（`refreshWarmUp` 自己守着这条），多刷没有代价。
+        await refreshWarmUp()
         // ⚠️ 水位（含今日时长）由 `reloadProgress` 内部在拿到**原始快照**的那一刻抬高；
         // 这里紧接着用的 `dailyPlan` / `progressSnapshot` 已经是抬过水位的显示值。
 

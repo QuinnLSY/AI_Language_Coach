@@ -723,6 +723,27 @@ public final class AppState {
     /// 派生而不是存残骸：依据是「上次练到哪 / 今天有什么词」，这两件事每时每刻都在变，
     /// 存一份必然会出现「情景早就练完了，卡片还在催」。
     public internal(set) var kickoffSuggestions: [KickoffSuggestion] = []
+
+    // MARK: 碎片热身（⑦-B②）
+
+    /// 这一轮热身**能做哪几步**（纯派生：到期词 + 一句跟读 + 一句开口）。
+    /// 一步都排不出来时为 nil —— 那时入口整块不画，不留一张点不动的空壳。
+    public internal(set) var warmUpPlan: WarmUpPlan? = nil
+    /// 正在跑 / 已跑完的那一轮。nil = 没在跑（画入口卡）。
+    ///
+    /// ⚠️ 结算也住在这里（走完但没关掉）：`finishedAt` 一钉住，结算上的
+    /// 「用时」就不再往后长。
+    public internal(set) var warmUp: WarmUpProgress? = nil
+    /// 热身卡自己的提示（麦克风打不开 / 没听清这类）。文案与动作绑成一个值。
+    public internal(set) var warmUpNotice: AppNotice? = nil
+    /// 这一步刚读出来的发音分（按「继续」之前先摆出来给人看一眼）。
+    public internal(set) var warmUpStepScore: Double? = nil
+    /// 这一步听到的原话。
+    public internal(set) var warmUpHeardText: String? = nil
+    public internal(set) var isWarmUpRecording = false
+    /// 识别 / 评分在跑（这段窗口里不许重开麦克风）。
+    public internal(set) var isWarmUpBusy = false
+
     /// 翻译失败提示（对话区展示，可关闭）。
     public var translationNotice: String? { chat.translationError }
 

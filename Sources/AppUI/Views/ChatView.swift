@@ -86,6 +86,31 @@ public struct ChatView: View {
     var onKickoff: ((KickoffSuggestion) -> Void)? = nil
     /// 离屏注入的「鼠标停在哪张卡上」（真机 hover 在离屏里不产生，只能靠参数喂）。
     var forcedHoveredKickoffID: String? = nil
+
+    // MARK: 碎片热身（⑦-B②）
+    /// 这一轮热身能做哪几步（nil = 一步都排不出来 → 整块不画，不留空壳）。
+    var warmUpPlan: WarmUpPlan? = nil
+    /// 正在跑 / 已跑完的那一轮（nil = 画入口卡）。
+    var warmUp: WarmUpProgress? = nil
+    /// 热身卡自己的提示（麦克风打不开 / 没听清这类）。
+    var warmUpNotice: AppNotice? = nil
+    /// 这一步刚读出来的发音分。
+    var warmUpStepScore: Double? = nil
+    /// 这一步听到的原话。
+    var warmUpHeardText: String? = nil
+    var isWarmUpRecording = false
+    var isWarmUpBusy = false
+    var onStartWarmUp: (() -> Void)? = nil
+    var onGradeWarmUpWord: ((Bool) -> Void)? = nil
+    var onPlayWarmUpSentence: (() -> Void)? = nil
+    var onToggleWarmUpRecording: (() -> Void)? = nil
+    var onContinueWarmUp: (() -> Void)? = nil
+    var onSkipWarmUpStep: (() -> Void)? = nil
+    var onSendWarmUpSpoken: (() -> Void)? = nil
+    var onDismissWarmUp: (() -> Void)? = nil
+    var onDismissWarmUpNotice: (() -> Void)? = nil
+    /// 离开对话页时收掉热身的录音（麦克风不能跟着走到别的页面）。
+    var onCancelWarmUpRecording: (() -> Void)? = nil
     /// 取某条消息的译文（再点一次收起）。
     var onTranslate: ((UUID) async -> Void)? = nil
     /// 翻译失败提示（可关闭）。
@@ -240,6 +265,23 @@ public struct ChatView: View {
                 kickoffs: [KickoffSuggestion] = [],
                 onKickoff: ((KickoffSuggestion) -> Void)? = nil,
                 forcedHoveredKickoffID: String? = nil,
+                warmUpPlan: WarmUpPlan? = nil,
+                warmUp: WarmUpProgress? = nil,
+                warmUpNotice: AppNotice? = nil,
+                warmUpStepScore: Double? = nil,
+                warmUpHeardText: String? = nil,
+                isWarmUpRecording: Bool = false,
+                isWarmUpBusy: Bool = false,
+                onStartWarmUp: (() -> Void)? = nil,
+                onGradeWarmUpWord: ((Bool) -> Void)? = nil,
+                onPlayWarmUpSentence: (() -> Void)? = nil,
+                onToggleWarmUpRecording: (() -> Void)? = nil,
+                onContinueWarmUp: (() -> Void)? = nil,
+                onSkipWarmUpStep: (() -> Void)? = nil,
+                onSendWarmUpSpoken: (() -> Void)? = nil,
+                onDismissWarmUp: (() -> Void)? = nil,
+                onDismissWarmUpNotice: (() -> Void)? = nil,
+                onCancelWarmUpRecording: (() -> Void)? = nil,
                 onTranslate: ((UUID) async -> Void)? = nil,
                 translationError: String? = nil,
                 onDismissTranslationError: (() -> Void)? = nil,
@@ -313,6 +355,23 @@ public struct ChatView: View {
         self.kickoffs = kickoffs
         self.onKickoff = onKickoff
         self.forcedHoveredKickoffID = forcedHoveredKickoffID
+        self.warmUpPlan = warmUpPlan
+        self.warmUp = warmUp
+        self.warmUpNotice = warmUpNotice
+        self.warmUpStepScore = warmUpStepScore
+        self.warmUpHeardText = warmUpHeardText
+        self.isWarmUpRecording = isWarmUpRecording
+        self.isWarmUpBusy = isWarmUpBusy
+        self.onStartWarmUp = onStartWarmUp
+        self.onGradeWarmUpWord = onGradeWarmUpWord
+        self.onPlayWarmUpSentence = onPlayWarmUpSentence
+        self.onToggleWarmUpRecording = onToggleWarmUpRecording
+        self.onContinueWarmUp = onContinueWarmUp
+        self.onSkipWarmUpStep = onSkipWarmUpStep
+        self.onSendWarmUpSpoken = onSendWarmUpSpoken
+        self.onDismissWarmUp = onDismissWarmUp
+        self.onDismissWarmUpNotice = onDismissWarmUpNotice
+        self.onCancelWarmUpRecording = onCancelWarmUpRecording
         self.onTranslate = onTranslate
         self.translationError = translationError
         self.onDismissTranslationError = onDismissTranslationError
@@ -390,6 +449,8 @@ public struct ChatView: View {
         // 用户切去词典查个词，回来时录音还没停，中间那几分钟全被采进去了。
         .onDisappear {
             if voicePhase != .idle { onCancelVoiceInput?() }
+            // 同上：热身走到「读一遍 / 说这句」时切页，麦克风同样不能跟着走。
+            if isWarmUpRecording { onCancelWarmUpRecording?() }
         }
         // 教师回复完成后自动朗读（设置里可关）；挂在最外层，空态切换分支也不丢事件。
         // ⚠️ 一律读 `visibleMessages`：启动时被「藏起来待复盘」的上一段对话既不该上屏，
@@ -759,6 +820,26 @@ public struct ChatView: View {
                         suggestions: kickoffs,
                         onPick: onKickoff,
                         forcedHoveredID: forcedHoveredKickoffID
+                    )
+                    // 碎片热身（⑦-B②）：话题卡回答「说什么」，
+                    // 这一张回答「还没想好说什么，先动起来」。
+                    WarmUpCard(
+                        plan: warmUpPlan,
+                        progress: warmUp,
+                        notice: warmUpNotice,
+                        stepScore: warmUpStepScore,
+                        heardText: warmUpHeardText,
+                        isRecording: isWarmUpRecording,
+                        isBusy: isWarmUpBusy,
+                        onStart: { onStartWarmUp?() },
+                        onGrade: { remembered in onGradeWarmUpWord?(remembered) },
+                        onPlaySentence: { onPlayWarmUpSentence?() },
+                        onToggleRecording: { onToggleWarmUpRecording?() },
+                        onContinue: { onContinueWarmUp?() },
+                        onSkip: { onSkipWarmUpStep?() },
+                        onSendSpoken: { onSendWarmUpSpoken?() },
+                        onDismiss: { onDismissWarmUp?() },
+                        onDismissNotice: { onDismissWarmUpNotice?() }
                     )
                 }
                 .frame(width: geo.size.width, height: geo.size.height)

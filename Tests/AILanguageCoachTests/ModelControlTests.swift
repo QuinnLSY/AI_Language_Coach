@@ -256,6 +256,35 @@ final class ModelControlTests: XCTestCase {
         XCTAssertNotNil(view.onKickoff, "点了卡片没反应，等于推荐了个寂寞")
     }
 
+    /// 同一类 bug 的第四面（⑦-B②）：碎片热身的十五个入参同样全带默认值。
+    /// 漏赋值不会编译报错，但界面上就是「空态里永远没有热身卡」。
+    func testChatViewInitStoresWarmUpCard() {
+        let chat = ChatService(services: CoachServices(config: ConfigStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("alc-chatview-warmup-\(UUID().uuidString).json")), databasePath: ":memory:"))
+        let plan = WarmUpPlan(steps: [.word(entryID: UUID(), word: "resilient")])
+        var graded = false
+        let view = ChatView(
+            chat: chat,
+            modelName: "qwen3:8b",
+            health: .connected(model: "qwen3:8b"),
+            warmUpPlan: plan,
+            warmUp: WarmUpProgress(plan: plan),
+            warmUpStepScore: 82,
+            warmUpHeardText: "I had a good day.",
+            isWarmUpRecording: true,
+            onGradeWarmUpWord: { graded = $0 },
+            onSendWarmUpSpoken: { }
+        )
+        XCTAssertEqual(view.warmUpPlan, plan, "热身计划漏赋值 → 空态里永远没有那张卡")
+        XCTAssertNotNil(view.warmUp, "跑着的那一轮漏赋值 → 点了「开始」没有流程卡")
+        XCTAssertEqual(view.warmUpStepScore, 82, "发音分漏赋值 → 读完不给看分数")
+        XCTAssertEqual(view.warmUpHeardText, "I had a good day.")
+        XCTAssertTrue(view.isWarmUpRecording)
+        XCTAssertNotNil(view.onSendWarmUpSpoken, "结算卡上的「发给老师」没接上")
+        view.onGradeWarmUpWord?(true)
+        XCTAssertTrue(graded, "判分键漏赋值 → 点了「记得」什么都不发生")
+    }
+
     /// 同一类 bug 的第三面（需求 3/4）：前情提要 / 自动复盘回执 / 练习模式也带默认值。
     /// 漏赋值不会编译报错，但界面上就是「前情提要永远不出现」。
     func testChatViewInitStoresBriefingAndPracticeMode() {
