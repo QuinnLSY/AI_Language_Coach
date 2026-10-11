@@ -77,6 +77,15 @@ public struct ChatView: View {
     var modelStoppedNotice: String? = nil
     /// 输入框为空时轮换展示的预设学员提问（数据来自资源文件）；点发送即发送当前这一条。
     var starterQuestions: [String] = []
+    /// 开屏话题卡（今天聊什么）。**依据不足时是空数组** —— 那时只画问候，不画装饰。
+    ///
+    /// 与 `starterQuestions` 的区别：轮换提问是**输入框的占位提示**，想用得自己打一遍；
+    /// 话题卡是能点一下就开口的一整句话。
+    var kickoffs: [KickoffSuggestion] = []
+    /// 点一张话题卡。nil = 只读展示（渲染回归用）。
+    var onKickoff: ((KickoffSuggestion) -> Void)? = nil
+    /// 离屏注入的「鼠标停在哪张卡上」（真机 hover 在离屏里不产生，只能靠参数喂）。
+    var forcedHoveredKickoffID: String? = nil
     /// 取某条消息的译文（再点一次收起）。
     var onTranslate: ((UUID) async -> Void)? = nil
     /// 翻译失败提示（可关闭）。
@@ -228,6 +237,9 @@ public struct ChatView: View {
                 voiceTranscript: String? = nil,
                 modelStoppedNotice: String? = nil,
                 starterQuestions: [String] = [],
+                kickoffs: [KickoffSuggestion] = [],
+                onKickoff: ((KickoffSuggestion) -> Void)? = nil,
+                forcedHoveredKickoffID: String? = nil,
                 onTranslate: ((UUID) async -> Void)? = nil,
                 translationError: String? = nil,
                 onDismissTranslationError: (() -> Void)? = nil,
@@ -298,6 +310,9 @@ public struct ChatView: View {
         self.voiceTranscript = voiceTranscript
         self.modelStoppedNotice = modelStoppedNotice
         self.starterQuestions = starterQuestions
+        self.kickoffs = kickoffs
+        self.onKickoff = onKickoff
+        self.forcedHoveredKickoffID = forcedHoveredKickoffID
         self.onTranslate = onTranslate
         self.translationError = translationError
         self.onDismissTranslationError = onDismissTranslationError
@@ -738,8 +753,15 @@ public struct ChatView: View {
         ) {
             // 空态：小动物相对整个对话区垂直居中。
             GeometryReader { geo in
-                emptyHint
-                    .frame(width: geo.size.width, height: geo.size.height)
+                VStack(spacing: 14) {
+                    emptyHint
+                    KickoffRow(
+                        suggestions: kickoffs,
+                        onPick: onKickoff,
+                        forcedHoveredID: forcedHoveredKickoffID
+                    )
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
             }
         } else {
             ScrollViewReader { proxy in

@@ -228,6 +228,34 @@ final class ModelControlTests: XCTestCase {
         XCTAssertEqual(view.translationError, "翻译失败：模型未就绪")
     }
 
+    /// ⑦-B① 同一类 bug 的新面：话题卡也带默认值。
+    ///
+    /// ⚠️ 这里钉的是**装载**而不是「卡片长什么样」：手写 init 里漏一行赋值，
+    /// 编译照样通过，界面上就是「卡永远不出现」——而没有任何报错。
+    func testChatViewInitStoresKickoffCards() {
+        let chat = ChatService(services: CoachServices(config: ConfigStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("alc-chatview-kickoff-\(UUID().uuidString).json")), databasePath: ":memory:"))
+        let cards = [
+            KickoffSuggestion(
+                kind: .todayWord, title: "用今天这个词开口", detail: "resilient",
+                action: .send(text: "Can you help me use the word \"resilient\" in a sentence?")
+            ),
+            KickoffSuggestion(
+                kind: .resume, title: "接着练《咖啡店点单》", detail: "上次练到 2/3 步",
+                action: .openScenario(id: "s1")
+            )
+        ]
+        let view = ChatView(
+            chat: chat,
+            modelName: "qwen3:8b",
+            health: .connected(model: "qwen3:8b"),
+            kickoffs: cards,
+            onKickoff: { _ in }
+        )
+        XCTAssertEqual(view.kickoffs, cards, "话题卡漏赋值 → 空态永远只有一句问候，没有能点的东西")
+        XCTAssertNotNil(view.onKickoff, "点了卡片没反应，等于推荐了个寂寞")
+    }
+
     /// 同一类 bug 的第三面（需求 3/4）：前情提要 / 自动复盘回执 / 练习模式也带默认值。
     /// 漏赋值不会编译报错，但界面上就是「前情提要永远不出现」。
     func testChatViewInitStoresBriefingAndPracticeMode() {

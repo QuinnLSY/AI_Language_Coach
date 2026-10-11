@@ -392,6 +392,8 @@ public struct MainView: View {
                     voiceTranscript: state.voiceTranscript,
                     modelStoppedNotice: state.llmStoppedNotice,
                     starterQuestions: state.starterQuestions,
+                    kickoffs: state.kickoffSuggestions,
+                    onKickoff: { card in Task { await state.performKickoff(card) } },
                     onTranslate: { id in await state.translateMessage(id) },
                     translationError: state.translationNotice,
                     onDismissTranslationError: { state.clearTranslationNotice() },

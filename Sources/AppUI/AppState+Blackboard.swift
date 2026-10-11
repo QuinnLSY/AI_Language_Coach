@@ -90,6 +90,9 @@ extension AppState {
         trailingRefreshTask = nil
         lastTodayPanelRefreshAt = now
         await reloadProgress(includeAnnual: false)
+        // 话题卡的依据（今天做到哪儿 / 上次练到哪）就在这一批数据里，
+        // 顺手重算：它是纯计算，不发请求。
+        refreshKickoffs()
         // ⚠️ 水位（含今日时长）由 `reloadProgress` 内部在拿到**原始快照**的那一刻抬高；
         // 这里紧接着用的 `dailyPlan` / `progressSnapshot` 已经是抬过水位的显示值。
 

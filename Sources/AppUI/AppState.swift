@@ -717,6 +717,12 @@ public final class AppState {
     public internal(set) var pendingShellApproval: ShellApprovalRequest?
     /// 输入框的预设学员提问（数据来自资源文件；为空则退回普通占位文案）。
     public internal(set) var starterQuestions: [String] = []
+    /// 开屏话题卡（今天聊什么）。**纯派生、不落盘**：每次刷新重算，
+    /// 记在字段上的唯一理由是 UI 要订阅它。
+    ///
+    /// 派生而不是存残骸：依据是「上次练到哪 / 今天有什么词」，这两件事每时每刻都在变，
+    /// 存一份必然会出现「情景早就练完了，卡片还在催」。
+    public internal(set) var kickoffSuggestions: [KickoffSuggestion] = []
     /// 翻译失败提示（对话区展示，可关闭）。
     public var translationNotice: String? { chat.translationError }
 

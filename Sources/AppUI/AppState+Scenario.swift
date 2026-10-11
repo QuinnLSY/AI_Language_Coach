@@ -204,6 +204,8 @@ extension AppState {
     /// 刷新主线任务进度缓存（情景卡片与大树节点用；避免每帧查库）。
     public func refreshQuestRecords() async {
         questRecords = await services.allQuestProgress()
+        // 「上次练到哪」变了 → 话题卡跟着重算（纯计算，不发请求）。
+        refreshKickoffs()
     }
 
     /// 某情景的主线任务进度（没有记录时给一份「从零开始」的进度，界面不用判空）。
