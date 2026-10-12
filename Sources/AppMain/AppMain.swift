@@ -8,6 +8,19 @@ struct AILanguageCoachApp: App {
 
     @State private var state = AppState()
 
+    /// 应用级委派：冷启动的 `alc://` 落在它那里（`AppURLDelegate` 里有说明），
+    /// 菜单栏图标也在它 `applicationDidFinishLaunching` 时才装。
+    @NSApplicationDelegateAdaptor(AppURLDelegate.self) var appDelegate
+
+    init() {
+        // ⚠️ 这里刻意自己建好 `AppState` 再交给 delegate：
+        // delegate 的 `applicationDidFinishLaunching` 要用它装菜单栏、处理排队的深链，
+        // 而那一次回调发生在 App 之外，拿不到 SwiftUI 内部的 `@State` 值。
+        let created = AppState()
+        _state = State(initialValue: created)
+        appDelegate.state = created
+    }
+
     var body: some Scene {
         WindowGroup {
             MainView(state: state)

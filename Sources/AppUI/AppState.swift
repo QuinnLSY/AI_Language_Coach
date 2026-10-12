@@ -752,6 +752,31 @@ public final class AppState {
     /// 识别 / 评分在跑（这段窗口里不许重开麦克风）。
     public internal(set) var isWarmUpBusy = false
 
+    // MARK: 菜单栏常驻助手与深链（⑦-A）
+
+    /// `start()` 走完没有。在此之前收到深链**不许**立刻动页面 ——
+    /// 那时各页的数据一样都没加载，跳过去是一张空页。
+    public internal(set) var isDeepLinkReady = false
+
+    /// 还不到时候处理、排着队的那几条深链。
+    ///
+    /// 冷启动时 macOS 先把 URL 交给 AppDelegate，那一瞬间 `AppState` 还在 `start()`
+    /// 的前半段（连快照都没汇总），这时就跳页等于落在空页面上。
+    public internal(set) var pendingDeepLinks: [URL] = []
+
+    /// Dock 图标是否已收起（菜单栏模式）。
+    ///
+    /// ⚠️ 声明处直接读 UserDefaults，**不给常量默认值**：默认 false 会把用户上次的选择
+    /// 无声吞掉（同一条铁律：要跨启动恢复的状态不给默认值）。
+    public var dockIconHidden: Bool = UserDefaults.standard.bool(forKey: AppState.dockIconHiddenKey) {
+        didSet {
+            UserDefaults.standard.set(dockIconHidden, forKey: AppState.dockIconHiddenKey)
+            AppKitHost.setDockIconHidden(dockIconHidden)
+        }
+    }
+
+    static let dockIconHiddenKey = "MenuBarAssistant.dockIconHidden"
+
     /// 翻译失败提示（对话区展示，可关闭）。
     public var translationNotice: String? { chat.translationError }
 
@@ -1594,6 +1619,10 @@ public final class AppState {
         // 跨天监察（2026-09-24 报障）：应用开着跨过零点，每日任务 / 打卡也要自动换天，
         // 不许等用户点一下徽章才刷新（那次点击还会撞上换天瞬间的旧快照）。
         startDayRolloverWatch()
+        // ⑦-A 深链：到这一步各页的数据都就位了，之前排着的地址可以开始处理。
+        //（冷启动时 macOS 早在 AppDelegate 里就把 URL 交过来了，那时一动页面就是一页空白。）
+        isDeepLinkReady = true
+        await drainPendingDeepLinks()
     }
 
     /// 跨天监察：常驻低频轮询「今天是哪天」，一变就强刷今日面板。

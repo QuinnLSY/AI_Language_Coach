@@ -159,6 +159,20 @@ cat > "$INFO" <<PLIST
     <key>NSHighResolutionCapable</key><true/>
     <key>NSMicrophoneUsageDescription</key><string>语林需要使用麦克风进行口语练习与发音识别（完全本地处理，不上传）。</string>
     <key>NSHumanReadableCopyright</key><string>© 2026 AI Language Coach</string>
+    <!-- ⑦-A：alc:// 深链。注册了 scheme，LaunchServices 才会把 open alc://… 交给本应用
+         （冷启动也走同一条路），未注册时终端敲它会报「找不到能打开该网址的应用程序」。
+         CFBundleURLName 只是个可读标识；真正生效的是下面的 CFBundleURLSchemes。 -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeRole</key><string>Viewer</string>
+            <key>CFBundleURLName</key><string>com.ailanguagecoach.deeplink</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>alc</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
 PLIST
