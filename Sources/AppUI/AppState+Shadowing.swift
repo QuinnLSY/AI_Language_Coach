@@ -49,7 +49,9 @@ extension AppState {
         return value
     }
 
-    private func saveShadowingProgress() {
+    /// ⚠️ 放成 internal 而不是 private：连播（`AppState+Commute`）推进句子时
+    /// 也要存一次 —— 它是**另一个文件里的 extension**，private 在那里不可见。
+    func saveShadowingProgress() {
         UserDefaults.standard.set(
             "\(ShadowingDailyRule.dayKey())|\(shadowingIndex)",
             forKey: Self.shadowingProgressStorageKey

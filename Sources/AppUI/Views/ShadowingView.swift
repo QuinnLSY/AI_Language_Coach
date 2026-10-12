@@ -38,6 +38,17 @@ public struct ShadowingView: View {
                     }
                     if state.hasShadowingMaterial {
                         modeSwitch
+                        // 连播放在最上面：它是「这一轮怎么练」的选择，
+                        // 埋在结果卡下面等于练完了才告诉你还能这么练。
+                        if let queue = state.commuteQueue ?? state.commutePreview {
+                            CommuteCard(
+                                queue: queue,
+                                isRunning: state.isCommuteRunning,
+                                isBusy: state.isShadowingBusy,
+                                onStart: { Task { await state.startCommute() } },
+                                onStop: { Task { await state.stopCommute() } }
+                            )
+                        }
                         progressRow
                         // 两种粒度各有自己的「参考文本」与「结果卡」，但不共用一份：
                         // 段落要多渲染 N 行句子，混在一张卡里会让一句模式凭空长出空行。
@@ -91,7 +102,12 @@ public struct ShadowingView: View {
         // 而整段示范音是十几秒的朗读，留在后台念完同样莫名其妙。
         .onDisappear {
             Task { await state.cancelShadowingRecording() }
-            Task { await state.stopShadowingAudio() }
+            // ⚠️ 连播中**不收声**：那是用户明确按下「一路放下去」的意图，
+            // 通勤路上切去查个词还得继续听着（切页只销毁视图，循环活在 AppState 里）。
+            // 要停他会自己按「停止」。
+            if !state.isCommuteRunning {
+                Task { await state.stopShadowingAudio() }
+            }
         }
     }
 

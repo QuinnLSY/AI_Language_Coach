@@ -843,6 +843,35 @@ public final class AppState {
     /// 跟读提示（可关闭，nil = 正常）。
     public internal(set) var shadowingNotice: String?
 
+    // MARK: 通勤连播（⑦-D）
+
+    /// 连播队列（nil = 今天没有句子 / 没在连播）。
+    ///
+    /// ⚠️ **不随连播结束清空**：结束后界面还要显示一轮「放到第几句停下的」，
+    /// 而且「再按开始就从这句接着放」需要它。
+    public internal(set) var commuteQueue: CommuteQueue?
+    /// 是否正在连播。
+    public internal(set) var isCommuteRunning = false
+    /// 今日战绩海报（⑦-D）：`DailyPoster.make` 的纯函数结果，今天没练过就是 nil。
+    public var dailyPoster: DailyPoster? {
+        DailyPoster.make(
+            date: Date(),
+            activity: progressSnapshot.today,
+            streakDays: progressSnapshot.streakDays,
+            goalMinutes: progressSnapshot.goalMinutes,
+            goalReached: progressSnapshot.goalReached
+        )
+    }
+    /// 导出海报的回执（成功不响 —— 文件已经落在用户选的地方了；失败要说一句）。
+    public var posterNotice: AppNotice?
+
+    /// 连播的**世代令牌**。
+    ///
+    /// 与 `speakRequestToken` 同款：连播是几分钟的长循环，用户在中间按「开始」
+    /// 再按「停止」时，上一轮的收尾代码可能在下一轮已经开始之后才跑完 ——
+    /// 它会把过期状态（忙碌 / 队列下标）写回界面。令牌换了就一个字都不许回写。
+    var commuteToken: UUID?
+
     /// 正在生成今天的 20 句（页面上转圈，避免用户以为「卡住了」）。
     public internal(set) var isShadowingLoading = false
     /// 取今日素材的**并发闸门**（S4-6）。

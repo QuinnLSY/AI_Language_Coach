@@ -49,6 +49,7 @@ public struct LearningProgressView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         todayCard
+                        posterCard
                         dailyTasksCard
                             // 黑板上的小图标点进来就滚到这里（见 `AppState.openTodayTasksInProgress`）。
                             // ⚠️ 锚点就是卡片本身，**不要给它套 `.position`**：那会让
@@ -415,6 +416,47 @@ public struct LearningProgressView: View {
         }
         .padding(.horizontal, 18)
         .frame(height: 64)
+    }
+
+    // MARK: - 今日战绩海报（⑦-D）
+
+    /// 今天练出来的东西，画成一张能发出去的图。
+    ///
+    /// 与年度记录那张的区别：年度的要攒满一年才有东西看，这张**今天就能发** ——
+    /// 发一次就多一次回来的理由。右上角「导出图片」存成 PNG（跟随当前日夜主题）。
+    ///
+    /// ⚠️ 今天没练过整张不出现（`dailyPoster` 为 nil）：不给一张「练了 0 分钟」的空壳，
+    /// 海报上的数字都是承诺。没练那天上面「今天」那张卡已经在说实话了。
+    private var posterCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let poster = state.dailyPoster {
+                HStack {
+                    Spacer()
+                    Button {
+                        state.exportDailyPoster(theme: theme)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "square.and.arrow.up")
+                                .appFont(10, weight: .semibold)
+                            Text("导出图片")
+                                .appFont(11, weight: .semibold, design: .rounded)
+                        }
+                        .foregroundStyle(theme.secondaryText)
+                    }
+                    .buttonStyle(.appPressable)
+                    .help("把今天的战绩导出成 PNG 图片")
+                }
+                DailyPosterCard(poster: poster)
+            }
+            // 导出失败的回执（成功不响 —— 文件已经落在用户选的地方了）。
+            if let notice = state.posterNotice {
+                noticeBanner(notice)
+            }
+        }
+    }
+
+    private func noticeBanner(_ notice: AppNotice) -> some View {
+        NoticeBanner(notice: notice) { state.dismissPosterNotice() }
     }
 
     // MARK: - Today / Practice time / Learning goals
