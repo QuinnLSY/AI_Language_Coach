@@ -71,14 +71,32 @@ final class KickoffRowRenderTests: XCTestCase {
         try dump(hovered, name: "round37-kickoff-hovered.png")
     }
 
+    /// 窄聊天区（`chatMinWidth` = 340）里卡片不许溢出：宽度是上限不是定宽，
+    /// 提案只有 340 时卡必须收起来贴边。
+    ///
+    /// 反证：把 `KickoffRow` 里的 `.frame(maxWidth:)` 改回定宽 `.frame(width:)`
+    /// → 卡会探出 340 的提案宽，右侧留白条上出现卡面底色，这条红。
+    func testNarrowContainerDoesNotOverflow() throws {
+        let narrow = try renderRow(Self.allThree, proposalWidth: AppLayoutMetrics.chatMinWidth)
+        XCTAssertEqual(
+            stripInk(narrow, from: 350, to: canvas.width - 5), 0,
+            "提案宽只有 \(AppLayoutMetrics.chatMinWidth) 时，350pt 以右必须是留白 —— 卡片探出来了"
+        )
+    }
+
     // MARK: - 渲染与度量
 
-    private func renderRow(_ suggestions: [KickoffSuggestion], hovered: String? = nil) throws -> Render {
+    private func renderRow(
+        _ suggestions: [KickoffSuggestion],
+        hovered: String? = nil,
+        proposalWidth: CGFloat? = nil
+    ) throws -> Render {
         let theme = ForestThemeResolver.resolve(mode: .day, systemIsDark: false)
+        let inner = proposalWidth ?? (canvas.width - 40)
         let host = NSHostingView(rootView: AnyView(
             KickoffRow(suggestions: suggestions, onPick: { _ in }, forcedHoveredID: hovered)
-                .frame(width: canvas.width - 40, alignment: .topLeading)
-                .frame(width: canvas.width, height: canvas.height, alignment: .top)
+                .frame(width: inner, alignment: .topLeading)
+                .frame(width: canvas.width, height: canvas.height, alignment: .topLeading)
                 // 与 MainView 根上那一行一致：按压反馈是外部注入的，组件自己不写样式。
                 .buttonStyle(.appPressable)
                 .forestTheme(theme)
@@ -125,6 +143,28 @@ final class KickoffRowRenderTests: XCTestCase {
         var count = 0
         for y in stride(from: 0, to: rep.pixelsHigh, by: 2) {
             for x in stride(from: 0, to: rep.pixelsWide, by: 2) {
+                guard let color = rep.colorAt(x: x, y: y) else { continue }
+                let delta = abs(color.redComponent - background.redComponent)
+                    + abs(color.greenComponent - background.greenComponent)
+                    + abs(color.blueComponent - background.blueComponent)
+                if delta > 0.08 { count += 1 }
+            }
+        }
+        return count
+    }
+
+    /// 只数某一条竖带（pt 区间）里的「与底色不同」的像素数 ——
+    /// `testNarrowContainerDoesNotOverflow` 专用：卡探出提案宽时会在右侧留白带上
+    /// 留下卡面底色，整图墨迹度量对这点宽度不敏感，竖带一量就露出来。
+    private func stripInk(_ render: Render, from fromPt: CGFloat, to toPt: CGFloat) -> Int {
+        let rep = render.rep
+        guard let background = rep.colorAt(x: 1, y: 1) else { return 0 }
+        let scale = render.scale
+        let from = Int((fromPt * scale).rounded())
+        let to = min(Int((toPt * scale).rounded()), rep.pixelsWide - 1)
+        var count = 0
+        for y in stride(from: 0, to: rep.pixelsHigh, by: 2) {
+            for x in stride(from: from, to: to, by: 2) {
                 guard let color = rep.colorAt(x: x, y: y) else { continue }
                 let delta = abs(color.redComponent - background.redComponent)
                     + abs(color.greenComponent - background.greenComponent)

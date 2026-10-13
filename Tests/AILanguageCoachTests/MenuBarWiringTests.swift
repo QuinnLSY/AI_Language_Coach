@@ -129,11 +129,21 @@ final class MenuBarWiringTests: XCTestCase {
 
     /// `.ask` 那条分支最容易被人改成「只跳页不说话」：
     /// 那时用户点进来看到的是一个空输入框，而不是已经发出去的那句话。
+    ///
+    /// ⚠️ 顺序必须钉**区间**：`openPractice()` 与 `sendChat(text)` 互换之后，
+    /// 两条各自 `contains` 照样全绿，而用户看到的是消息落在别的页面上。
     func testAskRouteStillSendsTheSentence() throws {
         let raw = try Self.code("Sources/AppUI/AppState+DeepLink.swift")
         XCTAssertTrue(raw.contains("case let .ask(text):"), "ask 分支要还在")
-        XCTAssertTrue(raw.contains("_ = sendChat(text)"), "带一句话进来就该把它发出去")
-        XCTAssertTrue(raw.contains("await openPractice()"), "先到练习页，再发 —— 顺序反了消息落在别的页面上")
+        guard let openRange = raw.range(of: "await openPractice()"),
+              let sendRange = raw.range(of: "_ = sendChat(text)")
+        else {
+            return XCTFail("ask 分支必须「先到练习页、再把这句话发出去」—— 两行都得在")
+        }
+        XCTAssertTrue(
+            openRange.lowerBound < sendRange.lowerBound,
+            "顺序反了：消息会发在当前页面的会话里，用户看不到自己那句去了哪儿"
+        )
     }
 
     /// scheme 注册只写在打包脚本里：不注册，`open alc://…` 会说「找不到能打开的应用程序」。

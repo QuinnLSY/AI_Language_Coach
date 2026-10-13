@@ -33,13 +33,17 @@ struct KickoffRow: View {
                     kickoffButton(card)
                 }
             }
-            .frame(width: Self.width)
+            .frame(maxWidth: Self.width)
             .accessibilityElement(children: .contain)
         }
     }
 
     /// 卡片的宽度：**写死一个上限**。跟着父容器抻满一整行的话，
     /// 鼠标要横穿半个屏幕才能点到第一张卡 —— 推荐变成了负担。
+    ///
+    /// ⚠️ 是上限不是定宽：聊天区最窄只有 `AppLayoutMetrics.chatMinWidth`(340)，
+    /// 定宽 360 会在最窄那一侧溢出 20pt。`maxWidth` 让卡在宽容器里仍是 360，
+    /// 窄容器里收起来贴边（渲染回归 `testNarrowContainerDoesNotOverflow` 钉着）。
     static let width: CGFloat = 360
 
     private var header: some View {

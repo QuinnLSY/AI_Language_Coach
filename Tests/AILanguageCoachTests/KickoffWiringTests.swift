@@ -38,6 +38,29 @@ final class KickoffWiringTests: XCTestCase {
         )
     }
 
+    /// 步数分母来自**情景自己的主线计划**：同一套接线换一个 4 步情景，
+    /// 卡上就必须写「/4 步」—— 写死 3 的假派生在这里红。
+    ///
+    /// ⚠️ 这条堵的是 `testCardsComeFromRealRecords` 的反证缺口：coffee 恰好
+    /// 3 步，接线里写死 3 也绿。而 4 步分母只有显式 `questSteps` 走得出来
+    /// （目标句自动切分上限就是 3 步，4 句只会切成 2 步）。
+    func testStepDenominatorFollowsTheScenariosOwnPlan() {
+        let state = makeState()
+        state.scenarios = [Self.longQuest]
+        state.questRecords = ["test.longquest": ScenarioQuestRecord(
+            scenarioID: "test.longquest",
+            doneStepIDs: ["test.longquest-s1"],
+            updatedAt: Date()
+        )]
+
+        state.refreshKickoffs()
+
+        XCTAssertEqual(state.kickoffSuggestions.first?.kind, .resume, "练过一步就有「接着练」")
+        let detail = state.kickoffSuggestions.first?.detail ?? ""
+        XCTAssertTrue(detail.contains("/4 步"), "4 步情景的分母必须是 4：实测 \(detail)")
+        XCTAssertFalse(detail.contains("/3 步"), "不许把 3 步情景的分母套到 4 步情景上")
+    }
+
     /// 「今天做到了哪儿」变了就要跟着变：卡片是派生值，不是快照。
     func testCardsFollowQuestProgress() {
         let state = makeState()
@@ -144,6 +167,28 @@ final class KickoffWiringTests: XCTestCase {
         targetSentences: ["I'd like a latte.", "Can I have it iced?", "That's all, thanks."],
         maxTurns: 4,
         correctionMode: .gentle, icon: "cup.and.saucer.fill"
+    )
+
+    /// 素材里**显式写了 4 步主线**的情景。
+    ///
+    /// ⚠️ 超过 3 步的分母只有这条路走得出来：`ScenarioQuestRule.plan` 按目标句
+    /// 自动切分时上限是 3 步（4 句会切成 2 步），显式 `questSteps` 才原样进计划。
+    private static let longQuest = Scenario(
+        id: "test.longquest", title: "Trip", titleZh: "机场值机", category: "旅行",
+        difficulty: 3, level: "B1",
+        objective: "Check in at the airport", aiRole: "agent", learnerRole: "traveler",
+        opening: "May I see your passport?",
+        targetVocabulary: [],
+        targetGrammar: [],
+        targetSentences: [],
+        questSteps: [
+            QuestStep(id: "test.longquest-s1", text: "Say where you are flying to", anchors: ["flying to Tokyo"]),
+            QuestStep(id: "test.longquest-s2", text: "Ask for an aisle seat", anchors: ["aisle seat"]),
+            QuestStep(id: "test.longquest-s3", text: "Check one bag", anchors: ["check one bag"]),
+            QuestStep(id: "test.longquest-s4", text: "Ask about the boarding gate", anchors: ["boarding gate"])
+        ],
+        maxTurns: 6,
+        correctionMode: .gentle, icon: "airplane"
     )
 
     private func makeState() -> AppState {

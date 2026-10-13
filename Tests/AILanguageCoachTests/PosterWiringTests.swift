@@ -76,6 +76,31 @@ final class PosterWiringTests: XCTestCase {
         )
     }
 
+    /// 年度回顾那条导出路径同样要过闸：它与今日战绩共用同一个 `NSSavePanel` 陷阱，
+    /// 少一道闸就是在测试进程里埋一颗挂死的雷。
+    func testAnnualRecapPanelIsGuardedOutsideThePackedApp() throws {
+        let raw = try Self.code("Sources/AppUI/ReportExporter.swift")
+        let normalized = raw.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        XCTAssertTrue(
+            normalized.contains("guard AppKitHost.isPackedApp else { return false }"),
+            "年度回顾导出面板也少了 .app 闸"
+        )
+    }
+
+    /// 导出失败的提示必须**带重试**：失败多半是临时的，没有「重试」的用户只能
+    /// 把整条路径从头再走一遍（回到进度页、再点一次导出）。
+    ///
+    /// ⚠️ 失败分支在测试进程里走不到（`.app` 闸先返回 `.cancelled`），
+    /// 所以钉源码形态：文案与动作绑成同一个 `AppNotice`，想漏也漏不掉。
+    func testExportFailureNoticeCarriesRetry() throws {
+        let raw = try Self.code("Sources/AppUI/AppState+Poster.swift")
+        let normalized = raw.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        XCTAssertTrue(
+            normalized.contains("AppNotice( text: \"导出今日战绩失败，请重试\", action: .retry"),
+            "失败提示必须是「文案 + 重试」绑在一起的那一条 AppNotice"
+        )
+    }
+
     /// 今天没练就按导出：给的是一句「先练两句」，不是一条「导出失败」。
     ///
     /// ⚠️ 这条用例能跑通的前提是 `dailyPoster` 为 nil → 在弹面板**之前**就返回了。

@@ -42,6 +42,9 @@ struct WarmUpCard: View {
     var onDismissNotice: () -> Void = {}
 
     /// 与话题卡同宽：两摞卡在空态里对齐，鼠标不用横穿半屏。
+    ///
+    /// ⚠️ 同上限不是定宽：聊天区最窄 340，定宽 360 会溢出。
+    /// 宽容器里仍是 360，窄容器里收起来贴边。
     static let width: CGFloat = 360
 
     var body: some View {
@@ -100,7 +103,7 @@ struct WarmUpCard: View {
             // ⚠️ 不写 `.buttonStyle(.plain)`：按压反馈由 MainView 根上那一行统一注入，
             // 自己包一层 `.plain` 会把它盖掉（`MotionTokenWiringTests` 钉着这条）。
         }
-        .frame(width: Self.width)
+        .frame(maxWidth: Self.width)
         .accessibilityElement(children: .contain)
     }
 
@@ -147,7 +150,7 @@ struct WarmUpCard: View {
                 NoticeBanner(notice: notice) { onDismissNotice() }
             }
         }
-        .frame(width: Self.width)
+        .frame(maxWidth: Self.width)
         .accessibilityElement(children: .contain)
     }
 
@@ -267,7 +270,7 @@ struct WarmUpCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .warmUpSurface(theme)
         }
-        .frame(width: Self.width)
+        .frame(maxWidth: Self.width)
         .accessibilityElement(children: .contain)
     }
 

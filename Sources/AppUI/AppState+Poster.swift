@@ -21,7 +21,16 @@ extension AppState {
             // 存好了、或用户自己关了面板 —— 都不必再说一句。
             return
         case .failed:
-            posterNotice = AppNotice(text: "导出今日战绩失败，请重试")
+            // ⚠️ 「重试」把同一张海报再存一次：失败多半是临时的（面板被抢占 /
+            // 磁盘满一瞬间），让用户不用从头再点一遍导出。theme 在这层捕获 ——
+            // 提示条只存一个闭包，别处拿不到当前主题。
+            posterNotice = AppNotice(
+                text: "导出今日战绩失败，请重试",
+                action: .retry { [weak self] in
+                    guard let self else { return }
+                    self.exportDailyPoster(theme: theme)
+                }
+            )
         }
     }
 

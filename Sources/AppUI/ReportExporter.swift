@@ -69,12 +69,17 @@ enum ReportExporter {
         return renderPNG(view: card, width: width)
     }
 
-    /// 弹保存面板导出年度卡 PNG。返回 false = 用户取消。
+    /// 弹保存面板导出年度卡 PNG。返回 false = 用户取消 / 未导出。
+    ///
+    /// ⚠️ **非 `.app` 进程直接返回 false**：与今日战绩同一条纪律 ——
+    /// `NSSavePanel.runModal()` 在没有窗口服务的进程里会**永久阻塞**
+    /// （实测挂死 20 分钟、0% CPU）。闸只写在 `AppKitHost.isPackedApp` 一处。
     @discardableResult
     static func exportAnnualRecapPanel(
         recap: AnnualRecap,
         theme: ForestTheme
     ) -> Bool {
+        guard AppKitHost.isPackedApp else { return false }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         panel.nameFieldStringValue = "学习报告_\(Self.fileStamp(Date())).png"

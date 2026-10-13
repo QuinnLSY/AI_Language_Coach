@@ -47,6 +47,19 @@ final class WarmUpCardRenderTests: XCTestCase {
         try dump(entry, name: "round38-warmup-entry.png")
     }
 
+    /// 窄聊天区（`chatMinWidth` = 340）里卡片不许溢出：与 `KickoffRow` 同一条纪律，
+    /// 两摞卡在空态里对齐，窄容器里必须一起收起来。
+    ///
+    /// 反证：把 `WarmUpCard` 里的 `.frame(maxWidth:)` 改回定宽 `.frame(width:)`
+    /// → 卡探出 340 的提案宽，右侧留白条上出现卡面底色，这条红。
+    func testNarrowContainerDoesNotOverflow() throws {
+        let narrow = try render(plan: Self.plan, progress: nil, proposalWidth: AppLayoutMetrics.chatMinWidth)
+        XCTAssertEqual(
+            stripInk(narrow, from: 350, to: canvas.width - 5), 0,
+            "提案宽只有 \(AppLayoutMetrics.chatMinWidth) 时，350pt 以右必须是留白 —— 卡片探出来了"
+        )
+    }
+
     /// 步骤多一轮，卡上的字就换一截 —— 构成文案与预估都是插出来的，不是写死的一句。
     ///
     /// ⚠️ 这里**不能比墨迹**：`ink` 量的是「覆盖面积」，而这两张卡的卡面一样大，
@@ -105,9 +118,11 @@ final class WarmUpCardRenderTests: XCTestCase {
         progress: WarmUpProgress?,
         notice: AppNotice? = nil,
         stepScore: Double? = nil,
-        heardText: String? = nil
+        heardText: String? = nil,
+        proposalWidth: CGFloat? = nil
     ) throws -> Render {
         let theme = ForestThemeResolver.resolve(mode: .day, systemIsDark: false)
+        let inner = proposalWidth ?? (canvas.width - 40)
         let host = NSHostingView(rootView: AnyView(
             WarmUpCard(
                 plan: plan,
@@ -119,8 +134,8 @@ final class WarmUpCardRenderTests: XCTestCase {
                 onToggleRecording: {}, onContinue: {}, onSkip: {},
                 onSendSpoken: {}, onDismiss: {}, onDismissNotice: {}
             )
-            .frame(width: canvas.width - 40, alignment: .topLeading)
-            .frame(width: canvas.width, height: canvas.height, alignment: .top)
+            .frame(width: inner, alignment: .topLeading)
+            .frame(width: canvas.width, height: canvas.height, alignment: .topLeading)
             // 与 MainView 根上那一行一致：按压反馈是外部注入的，组件自己不写样式。
             .buttonStyle(.appPressable)
             .forestTheme(theme)
@@ -166,6 +181,28 @@ final class WarmUpCardRenderTests: XCTestCase {
         var count = 0
         for y in stride(from: 0, to: rep.pixelsHigh, by: 2) {
             for x in stride(from: 0, to: rep.pixelsWide, by: 2) {
+                guard let color = rep.colorAt(x: x, y: y) else { continue }
+                let delta = abs(color.redComponent - background.redComponent)
+                    + abs(color.greenComponent - background.greenComponent)
+                    + abs(color.blueComponent - background.blueComponent)
+                if delta > 0.08 { count += 1 }
+            }
+        }
+        return count
+    }
+
+    /// 只数某一条竖带（pt 区间）里的「与底色不同」的像素数 ——
+    /// `testNarrowContainerDoesNotOverflow` 专用：卡探出提案宽时会在右侧留白带上
+    /// 留下卡面底色，整图墨迹度量对这点宽度不敏感，竖带一量就露出来。
+    private func stripInk(_ render: Render, from fromPt: CGFloat, to toPt: CGFloat) -> Int {
+        let rep = render.rep
+        guard let background = rep.colorAt(x: 1, y: 1) else { return 0 }
+        let scale = render.scale
+        let from = Int((fromPt * scale).rounded())
+        let to = min(Int((toPt * scale).rounded()), rep.pixelsWide - 1)
+        var count = 0
+        for y in stride(from: 0, to: rep.pixelsHigh, by: 2) {
+            for x in stride(from: from, to: to, by: 2) {
                 guard let color = rep.colorAt(x: x, y: y) else { continue }
                 let delta = abs(color.redComponent - background.redComponent)
                     + abs(color.greenComponent - background.greenComponent)
