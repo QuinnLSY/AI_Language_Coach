@@ -13,13 +13,13 @@ final class ForestEdgeCaseTests: XCTestCase {
     /// 正常档（量化宽 ≥448）：与批次四以来的历史公式**逐值一致**（一分不改）。
     func testWideTierMatchesTheLegacyFormulas() {
         // qw=560：居民 (560-120)/70+1=7，灌木 min(1+2,4)=3，花 min(2+3,7)=5
-        XCTAssertEqual(ForestGroundPlan.plan(width: 560),
+        XCTAssertEqual(ForestGroundPlan.plan(width: 560, unlocked: 8),
                        ForestGroundPlan.Plan(residents: 7, bushes: 3, flowers: 5))
         // qw=448：居民 5，灌木 3，花 4
-        XCTAssertEqual(ForestGroundPlan.plan(width: 448),
+        XCTAssertEqual(ForestGroundPlan.plan(width: 448, unlocked: 8),
                        ForestGroundPlan.Plan(residents: 5, bushes: 3, flowers: 4))
         // 很宽时封顶：居民 ≤8、灌木 ≤4、花 ≤7
-        let veryWide = ForestGroundPlan.plan(width: 1200)
+        let veryWide = ForestGroundPlan.plan(width: 1200, unlocked: 8)
         XCTAssertLessThanOrEqual(veryWide.residents, 8)
         XCTAssertLessThanOrEqual(veryWide.bushes, 4)
         XCTAssertLessThanOrEqual(veryWide.flowers, 7)
@@ -28,25 +28,40 @@ final class ForestEdgeCaseTests: XCTestCase {
     /// 窄档（336..<448）：居民钳到 2…3，灌木只留 1 丛、花 2 朵。
     func testNarrowTierThinsOutTheDecor() {
         // qw=420：公式给 5 → 钳到 3
-        XCTAssertEqual(ForestGroundPlan.plan(width: 420),
+        XCTAssertEqual(ForestGroundPlan.plan(width: 420, unlocked: 8),
                        ForestGroundPlan.Plan(residents: 3, bushes: 1, flowers: 2))
         // qw=336：公式给 3 → 仍 3
-        XCTAssertEqual(ForestGroundPlan.plan(width: 336),
+        XCTAssertEqual(ForestGroundPlan.plan(width: 336, unlocked: 8),
                        ForestGroundPlan.Plan(residents: 3, bushes: 1, flowers: 2))
     }
 
     /// 极窄档（<336）：只留 1 只（homePosition 自然把它摆到正中）、没灌木、1 朵花。
     /// 树面板最小 300pt → 量化 308，这一档**真实可达**（不是纸面防御）。
     func testExtremeNarrowTierKeepsExactlyOneResident() {
-        XCTAssertEqual(ForestGroundPlan.plan(width: 308),
+        XCTAssertEqual(ForestGroundPlan.plan(width: 308, unlocked: 8),
                        ForestGroundPlan.Plan(residents: 1, bushes: 0, flowers: 1))
         // 再窄也不空场：居民下限 1
-        XCTAssertEqual(ForestGroundPlan.plan(width: 160).residents, 1)
+        XCTAssertEqual(ForestGroundPlan.plan(width: 160, unlocked: 8).residents, 1)
+    }
+
+    /// ⑦-C③：解锁数是另一道闸 —— 林子里只有 4 位时，再宽的面板也只排 4 只。
+    ///
+    /// 没有这一条，「再练 25 分钟来一位新伙伴」就是句空话：宽度早把 8 只排满了，
+    /// 多练也不会多出一只。
+    func testUnlockedCountAlsoCapsTheResidents() {
+        XCTAssertEqual(ForestGroundPlan.plan(width: 1200, unlocked: 4).residents, 4,
+                       "宽面板摆得下 8 只，但林子里只有 4 位 —— 取小者")
+        XCTAssertEqual(ForestGroundPlan.plan(width: 560, unlocked: 6).residents, 6)
+        // 解锁数超过上限（数据源被改过 / 未来加了物种）不该把林子撑爆。
+        XCTAssertLessThanOrEqual(ForestGroundPlan.plan(width: 1200, unlocked: 99).residents, 8)
+        // 解锁数 0 / 负数也不能空场（下限 1）。
+        XCTAssertEqual(ForestGroundPlan.plan(width: 560, unlocked: 0).residents, 1)
+        XCTAssertEqual(ForestGroundPlan.plan(width: 560, unlocked: -3).residents, 1)
     }
 
     /// 量化幂等：传入已量化的宽度，结果与传原始宽度一致。
     func testPlanIsIdempotentOnQuantizedWidths() {
-        XCTAssertEqual(ForestGroundPlan.plan(width: 420), ForestGroundPlan.plan(width: 420))
+        XCTAssertEqual(ForestGroundPlan.plan(width: 420, unlocked: 8), ForestGroundPlan.plan(width: 420, unlocked: 8))
     }
 
     // MARK: - ForestErrorSign 举牌文案

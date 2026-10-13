@@ -611,7 +611,9 @@ public struct MainView: View {
                     conversationRounds: state.chat.learnerTurnCount,
                     // #418-C：连续剧情出幕（判定与记账在 ForestStage，草坪只管挑角演）
                     storyActTick: state.forest.storyActTick,
-                    lastStoryAct: state.forest.lastStoryAct
+                    lastStoryAct: state.forest.lastStoryAct,
+                    // ⑦-C③：林子里现有几位（按累计练习时长解锁，只增不减）
+                    unlockedCompanions: state.forestUnlockedCompanions
                 )
                 .frame(height: TreeViewport.groundBandHeight)
                 .allowsHitTesting(true)

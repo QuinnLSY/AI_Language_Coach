@@ -28,21 +28,29 @@ public enum ForestGroundPlan {
         }
     }
 
-    /// `step`：量化档宽（与 `ForestGroundBand` 同一步长）——一切离散决策只在档位上变化，
-    /// 拖动分割线时才不会逐帧重排。传入已量化的宽度时结果是幂等的。
-    public static func plan(width: CGFloat, step: CGFloat = 28) -> Plan {
+    /// - `width`：面板宽（内部按 `step` 量化）。
+    /// - `unlocked`：**已解锁的伙伴数**（⑦-C③，`ForestUnlock.companions`）。
+    ///   宽度决定「这个面板摆得下几只」，解锁决定「林子里现有几位」，取小者 ——
+    ///   不然「再练 25 分钟来一位新伙伴」就是句空话（宽度早就把 8 只排满了）。
+    /// - `step`：量化档宽（与 `ForestGroundBand` 同一步长）——一切离散决策只在档位上变化，
+    ///   拖动分割线时才不会逐帧重排。传入已量化的宽度时结果是幂等的。
+    ///
+    /// ⚠️ `unlocked` **刻意不给默认值**：漏传就会静默沿用旧行为（只按宽度排），
+    /// 而「森林随练习长起来」这件事会无声失效。
+    public static func plan(width: CGFloat, unlocked: Int, step: CGFloat = 28) -> Plan {
         let qw = (width / step).rounded() * step
+        let cap = max(unlocked, 1)
         if qw < 336 {
-            return Plan(residents: 1, bushes: 0, flowers: 1)
+            return Plan(residents: min(1, cap), bushes: 0, flowers: 1)
         }
         // 窄档：历史公式在 336…448 会给 3–5 只；为避免拖过边界时 5→2 的跳变，
         // 只把公式**钳**到 2…3（灌木与花才是这一档真正让路的东西）。
         if qw < 448 {
             let residents = min(max(Int((qw - 120) / 70) + 1, 2), 3)
-            return Plan(residents: residents, bushes: 1, flowers: 2)
+            return Plan(residents: min(residents, cap), bushes: 1, flowers: 2)
         }
         return Plan(
-            residents: min(max(Int((qw - 120) / 70) + 1, 3), 8),
+            residents: min(min(max(Int((qw - 120) / 70) + 1, 3), 8), cap),
             bushes: min(1 + Int(qw / 190), 4),
             flowers: min(2 + Int(qw / 150), 7)
         )

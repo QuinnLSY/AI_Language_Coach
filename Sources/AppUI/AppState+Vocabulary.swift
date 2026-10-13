@@ -216,6 +216,8 @@ extension AppState {
         vocabularyReviewNotice = nil
         isVocabularyReviewRecording = false
         isVocabularyReviewBusy = false
+        // ⑦-C①：一轮复习配一轮 60 秒连击（队列判空之后才开 —— 空队列上挂倒计时是骗人）。
+        startReviewBlitz()
     }
 
     /// 翻面看释义（正面只给词，先自己想一遍）。
@@ -235,6 +237,8 @@ extension AppState {
             pronunciationScore: vocabularyReviewReport?.overall,
             phonemeSource: vocabularyReviewReport?.phonemeSource
         )
+        // ⑦-C①：连击只记一笔，判词（间隔规则）在上面那一行已经落库了。
+        gradeReviewBlitz(remembered: remembered)
         vocabularyReviewRevealed = false
         vocabularyReviewReport = nil
         vocabularyReviewRecognized = nil
@@ -259,6 +263,8 @@ extension AppState {
         let abandoned = vocabularyReview?.current != nil
         if isVocabularyReviewRecording { await cancelVocabularyReviewRecording() }
         await services.shadowing.stopAudio()
+        // ⑦-C①：收起复习就收掉连击（纪录在这一步结掉，最后一秒连的不算白连）。
+        stopReviewBlitz()
         vocabularyReview = nil
         vocabularyReviewRevealed = false
         vocabularyReviewReport = nil

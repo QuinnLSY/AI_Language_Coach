@@ -32,6 +32,7 @@ public struct VocabularyView: View {
                         // 复习模式：整段换成复习卡（一张一张过），词表暂时让位。
                         // 不是「另开一个页面」——复习完就在原地回到词表，少一次跳转。
                         if state.vocabularyReview != nil {
+                            blitzBar
                             reviewCard
                         } else {
                             reviewEntryCard
@@ -765,6 +766,24 @@ public struct VocabularyView: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .strokeBorder(due > 0 ? theme.accent.opacity(0.3) : theme.divider, lineWidth: 1)
             )
+        }
+    }
+
+    /// ⑦-C① 限时连击条：只在这一轮复习跑着的时候出现。
+    ///
+    /// 「还剩几秒」由状态源每秒写进来（`state.reviewBlitzRemaining`），
+    /// 这里**不再抓一次时钟** —— 见 `BlitzBar` 顶部那条说明。
+    @ViewBuilder
+    private var blitzBar: some View {
+        if let blitz = state.reviewBlitz {
+            BlitzBar(
+                blitz: blitz,
+                remaining: state.reviewBlitzRemaining,
+                record: state.reviewBlitzBest,
+                isNewRecord: state.reviewBlitzIsNewRecord
+            ) {
+                state.restartReviewBlitz()
+            }
         }
     }
 

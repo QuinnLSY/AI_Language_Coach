@@ -30,6 +30,30 @@ public enum AnimalKind: String, CaseIterable, Sendable, Identifiable {
         }
     }
 
+    /// **解锁顺序**（⑦-C③）：固定打乱过的全序列，林子里第 k 位伙伴就是这一个。
+    ///
+    /// 为什么非要单独拎出来：地面带原本在视图里自己打乱取前 N 只，
+    /// 那么「再练 25 分钟来一位新伙伴」就**指不出是谁要来** —— 预告点不出名字，
+    /// 而且两处各打乱一次迟早对不上（写着「小刺猬要来」，来的却是小狐狸）。
+    /// 现在顺序只此一处，地面带取前 N 个、预告取第 N 个，两边必然一致。
+    ///
+    /// ⚠️ 打乱是**确定性**的（同一套 sin 伪随机，不是 `Hasher`、也不是每启动重摇）：
+    /// 换了顺序等于把老用户林子里的居民换了一批。
+    public static var unlockOrder: [AnimalKind] {
+        let all = allCases
+        var order = all
+        for i in stride(from: all.count - 1, through: 1, by: -1) {
+            let j = Int(unlockSeed(i, 11) * CGFloat(i + 1))
+            order.swapAt(i, min(j, i))
+        }
+        return order
+    }
+
+    private static func unlockSeed(_ index: Int, _ salt: Int) -> CGFloat {
+        let x = sin(Double(index * 137 + salt * 61)) * 43758.5453
+        return CGFloat(x - floor(x))
+    }
+
     /// 每只动物 8~10 条符合自身特性的小语句（产品文案；树上的伙伴被点击时冒泡）。
     public var phrases: [String] {
         switch self {

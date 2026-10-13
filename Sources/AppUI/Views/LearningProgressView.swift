@@ -51,6 +51,10 @@ public struct LearningProgressView: View {
                         todayCard
                         posterCard
                         dailyTasksCard
+                        // ⑦-C② / ③：练出来的东西要有两处看得见的落点 ——
+                        // 一面墙（已经做到什么）+ 一条预告（再练一会儿来什么）。
+                        achievementCard
+                        forestUnlockCard
                             // 黑板上的小图标点进来就滚到这里（见 `AppState.openTodayTasksInProgress`）。
                             // ⚠️ 锚点就是卡片本身，**不要给它套 `.position`**：那会让
                             // `scrollTo(anchor:)` 按整张内容画布的百分比对位（大树那条老教训）。
@@ -457,6 +461,27 @@ public struct LearningProgressView: View {
 
     private func noticeBanner(_ notice: AppNotice) -> some View {
         NoticeBanner(notice: notice) { state.dismissPosterNotice() }
+    }
+
+    /// ⑦-C② 成就墙：已达成全列，未达成只摆最接近的三条。
+    private var achievementCard: some View {
+        AchievementWallCard(
+            headline: state.achievementHeadline,
+            items: state.achievementWall
+        )
+    }
+
+    /// ⑦-C③ 森林解锁预告：林子里现有几位、下一位是谁、还差多少。
+    ///
+    /// 摆在这里而不是硬塞进树面板：树那一栏的高度是钉死的（地面带固定吸附在底部），
+    /// 再加一行字就要挤掉树。而这一行和「今天练了多少」是同一类话，同页更顺。
+    private var forestUnlockCard: some View {
+        ForestUnlockCard(
+            companions: state.forestCompanions,
+            next: state.forestNextCompanion,
+            headline: state.forestUnlockHeadline,
+            preview: state.forestUnlockPreview
+        )
     }
 
     // MARK: - Today / Practice time / Learning goals

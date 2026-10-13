@@ -780,6 +780,33 @@ public final class AppState {
     /// 翻译失败提示（对话区展示，可关闭）。
     public var translationNotice: String? { chat.translationError }
 
+    // MARK: 复习限时连击（⑦-C①）
+
+    /// 跑着的那一轮连击（nil = 没在复习 / 已收起）。
+    ///
+    /// ⚠️ 它**只覆盖这一轮复习的过程**，不碰 `ReviewScheduler` 的间隔规则：
+    /// 判词照旧落库，连击只回答「这一轮手顺不顺」。
+    public internal(set) var reviewBlitz: ReviewBlitz?
+
+    /// 倒计时还剩几秒（界面读它；由 `startReviewBlitzTicker` 每秒刷新一次）。
+    ///
+    /// 为什么不放在 `ReviewBlitz` 里自己算：视图不该自己抓 `Date()`，
+    /// 而「还剩几秒」必须随时间走 —— 由状态源每拍写一次，界面就还是纯展示。
+    public internal(set) var reviewBlitzRemaining: Int = 0
+
+    /// 连击的历史纪录（跨轮、跨启动）。
+    ///
+    /// ⚠️ 声明处直接读 UserDefaults（同 `dockIconHidden`）：**不给默认值**，
+    /// 否则每次启动都从 0 开始，「新纪录」就会天天弹。
+    public var reviewBlitzBest: Int = UserDefaults.standard.integer(forKey: AppState.reviewBlitzBestKey) {
+        didSet { UserDefaults.standard.set(reviewBlitzBest, forKey: AppState.reviewBlitzBestKey) }
+    }
+
+    /// 这一轮是不是破了纪录（结算那一格才画「新纪录」；开新一轮时清掉）。
+    public internal(set) var reviewBlitzIsNewRecord = false
+
+    static let reviewBlitzBestKey = "ReviewBlitz.bestCombo"
+
     // MARK: 聊天附件（第 3 项需求：图片 / 视频 / 文件）
 
     /// 已选好、还没发出去的附件（输入框上方那一行胶囊）。
@@ -1324,6 +1351,8 @@ public final class AppState {
     /// 上一次见到的日子键（`ShadowingDailyRule.dayKey`）。**只在内存里** ——
     /// 它描述的是「这个进程见过哪一天」，不该跨启动恢复。
     var lastSeenDayKey: String = ShadowingDailyRule.dayKey()
+    /// 连击倒计时的那一拍（⑦-C①）：只在一轮复习跑着的时候存在，收起即取消。
+    var reviewBlitzTask: Task<Void, Never>?
 
     /// 注入外部装配好的服务（**测试专用**：真实 `CoachServices` 会去启停本机模型服务，
     /// 单测必须换掉它，否则会误杀用户正在运行的 TTS/ASR 进程）。

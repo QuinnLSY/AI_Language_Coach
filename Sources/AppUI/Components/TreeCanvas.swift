@@ -1121,6 +1121,9 @@ struct ForestGroundBand: View {
     /// （它有事件历史），这里只管挑角演 —— 判定在舞台、演在草坪，两边各管各的。
     var storyActTick: Int = 0
     var lastStoryAct: ForestStoryArc.Act? = nil
+    /// 已解锁的伙伴数（⑦-C③，`ForestUnlock.companions`）：面板摆得下几只由宽度定，
+    /// 林子里**现有几位**由它定，取小者（见 `ForestGroundPlan.plan(width:unlocked:)`）。
+    var unlockedCompanions: Int = ForestUnlock.maxCompanions
 
     /// 连续剧情的主角（#418-C）：一旦绑定，这一轮学习里的各幕都由它领衔
     /// （在场才认；暂离了就换角重绑）。会话级 @State，重启自然换人。
@@ -1293,16 +1296,8 @@ struct ForestGroundBand: View {
         return CGFloat(frac)
     }
 
-    /// 按宽度取前 N 只物种：伪随机打乱 8 个物种，前 N 个各不相同。
-    private func speciesOrder() -> [AnimalKind] {
-        let all = AnimalKind.allCases
-        var order = all
-        for i in stride(from: all.count - 1, through: 1, by: -1) {
-            let j = Int(pr(i, 11) * CGFloat(i + 1))
-            order.swapAt(i, min(j, i))
-        }
-        return order
-    }
+    /// 物种顺序已收到 `AnimalKind.unlockOrder`（⑦-C③）：预告要能点出「下一位是谁」，
+    /// 顺序就不能只活在视图里。
 
     var body: some View {
         GeometryReader { proxy in
@@ -1318,11 +1313,11 @@ struct ForestGroundBand: View {
             let qw = (width / step).rounded() * step
             // 退化档（批次八 · H）：多宽配多少动物 / 灌木 / 小花，收成一个纯函数
             // （正常 / 窄 / 极窄三档，树面板最小 300pt 时只留 1 只居中——林子不空也不挤）。
-            let plan = ForestGroundPlan.plan(width: qw)
+            let plan = ForestGroundPlan.plan(width: qw, unlocked: unlockedCompanions)
             let count = plan.residents
             let bushCount = plan.bushes
             let flowerCount = plan.flowers
-            let order = speciesOrder()
+            let order = AnimalKind.unlockOrder
 
             ZStack(alignment: .bottomLeading) {
                 // 批次七 · G：下面这一段（草坡 / 草叶 / 灌木 / 小花 / 点出来的花 / 栖木桠）
