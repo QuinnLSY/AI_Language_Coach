@@ -96,6 +96,35 @@ final class MenuBarWiringTests: XCTestCase {
         XCTAssertTrue(state.pendingDeepLinks.isEmpty)
     }
 
+    /// 冷启动**全链路**：`AppURLDelegate` 接到链接 → 排队 → `applicationDidFinishLaunching`
+    /// 里抽干 → 落到页面上。
+    ///
+    /// ⚠️ 这条补的是「委派接到之后」那一段：`receiveDeepLink` 与
+    /// `drainPendingDeepLinks` 各自有单测，但「LaunchServices 把 URL 交给 delegate、
+    /// delegate 转手、启动回调里抽干」整一条从前只有源码哨兵
+    /// （`testAppMainHandsStateToTheDelegate`）—— 行为上没人走过。
+    /// 安全前提：`applicationDidFinishLaunching` 里那两句 AppKit（装菜单栏 /
+    /// 摆 Dock 档位）都过 `isPackedApp` 闸，测试进程里是空转。
+    func testColdStartLaunchDrainsQueuedLinks() async throws {
+        let state = makeState()
+        let delegate = AppURLDelegate()
+        delegate.state = state
+
+        // start() 还没走完：链接先到 → 排队，不动页面
+        delegate.application(NSApplication.shared, open: [Self.url("alc://vocabulary")])
+        XCTAssertEqual(state.pendingDeepLinks.count, 1, "没准备好先排队")
+        XCTAssertEqual(state.activeSection, .practice, "没准备好不许动页面")
+
+        // 启动回调：把排队的处理掉（抽干在 delegate 起的 Task 里，给它一口气）
+        delegate.applicationDidFinishLaunching(
+            Notification(name: NSApplication.didFinishLaunchingNotification)
+        )
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        XCTAssertEqual(state.activeSection, .vocabulary, "冷启动那一下也要把人送到那一页")
+        XCTAssertTrue(state.pendingDeepLinks.isEmpty, "处理完要清干净")
+    }
+
     // MARK: - 菜单栏跳页
 
     func testOpenFromMenuBarSwitchesSection() async {
@@ -151,6 +180,41 @@ final class MenuBarWiringTests: XCTestCase {
         let raw = try Self.code("Scripts/make_app.sh")
         XCTAssertTrue(raw.contains("CFBundleURLSchemes"), "Info.plist 里要注册 URL scheme")
         XCTAssertTrue(raw.contains("<string>alc</string>"), "scheme 名与 AppDeepLink.scheme 必须一致")
+    }
+
+    /// 就绪状态的深链要**按到达顺序**执行：各起一个 `Task` 的话先后不保证
+    /// （ask 链接上就是消息乱序）。钉串行链的整串形态。
+    func testReadyLinksAreChainedNotRaced() throws {
+        let raw = try Self.code("Sources/AppUI/AppState+DeepLink.swift")
+        let normalized = raw.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        XCTAssertTrue(
+            normalized.contains(
+                "let previous = deepLinkTask deepLinkTask = Task { @MainActor in await previous?.value await applyDeepLink(url) }"
+            ),
+            "就绪链接必须串成一条链执行 —— 各起一个 Task 的先后不保证"
+        )
+    }
+
+    /// 串行链不许把链接弄丢：连收两条跳页链接，**两条都得被执行**
+    /// （最终停在后一条那一页）。
+    ///
+    /// 钉的是「一个都别少」—— 链写错了（后来的把前一个覆盖掉、没等它跑完）
+    /// 就会丢链接，那是比乱序更严重的回归。顺序本身由源码哨兵
+    /// `testReadyLinksAreChainedNotRaced` 钉。
+    ///
+    /// ⚠️ 为什么不在这条里发 ask 链接：`ChatService.send` 有
+    /// `guard !isGenerating`，第一条消息引发的生成没回来之前，第二条会被
+    /// **静默丢弃** —— 那是既有的产品行为（背靠背两条 ask 链接的老毛病，
+    /// 与串行链无关），混进来只会让这条用例测的不是它声称的东西。
+    func testChainedLinksAllGetApplied() async throws {
+        let state = makeState()
+        state.isDeepLinkReady = true
+        state.receiveDeepLink(Self.url("alc://vocabulary"))
+        state.receiveDeepLink(Self.url("alc://writing"))
+        // 尾结点的 value 回来时，整条链都跑完了。
+        await state.deepLinkTask?.value
+
+        XCTAssertEqual(state.activeSection, .writing, "两条都得执行，最终停在后一条那一页")
     }
 
     /// 状态栏图标不许在测试进程里装上（`AppKitHost.isPackedApp` 那道闸）。

@@ -49,11 +49,20 @@ final class AchievementWallCardRenderTests: XCTestCase {
         try dump(unlocked, name: "round42-wall-unlocked.png")
     }
 
-    /// 「还差 N」是插出来的真值：差 12 句和差 2 句画出来不一样。
-    func testRemainingIsInterpolatedNotHardcoded() throws {
-        let a = try render(items: Self.almostThere(12), headline: Self.headline)
-        let b = try render(items: Self.almostThere(2), headline: Self.headline)
-        XCTAssertGreaterThan(difference(a, b), 25, "差多少要跟着数字变（阈值小：它只是格子里的一行）")
+    /// 「还差 N」是插出来的真值：**进度条一模一样**时，只换「还差多少」那行字，
+    /// 两张图也必须不同。
+    ///
+    /// ⚠️ 这条堵的是旧写法的假闸：旧用例把 12 换成 2，进度比跟着从 0.76 变 0.96 ——
+    /// **条长变化本身就能让差分过线**，remainingText 写死也可能绿。这里两组的
+    /// 进度比完全相同（都是 0.1），条一分不差，剩下的差异只可能来自那行字。
+    /// 反证：把卡片里的 `item.remainingText` 换成写死的一句 → 这条必红。
+    func testRemainingTextChangesWhileProgressBarStaysPut() throws {
+        let a = try render(items: [Self.sameRatioTile(current: 5, target: 50)], headline: Self.headline)
+        let b = try render(items: [Self.sameRatioTile(current: 50, target: 500)], headline: Self.headline)
+        XCTAssertGreaterThan(
+            difference(a, b), 50,
+            "进度条一模一样时，「还差 N」必须跟着数字变：实测差 \(difference(a, b)) 像素"
+        )
     }
 
     /// **进度条真的按比例画**：差 1 句（98%）那几条比差 45 句（10%）那几条长得多。
@@ -163,6 +172,11 @@ final class AchievementWallCardRenderTests: XCTestCase {
     private static var allUnlocked: [Achievement] {
         mixed.map { Achievement(id: $0.id, title: $0.title, unit: $0.unit,
                                 current: $0.target, target: $0.target) }
+    }
+
+    /// 进度比**完全相同**（0.1）的两格：条一样长，只有「还差 45」与「还差 450」的差别。
+    private static func sameRatioTile(current: Int, target: Int) -> Achievement {
+        Achievement(id: "talk.scaled", title: "开口 50 句", unit: "句", current: current, target: target)
     }
 
     /// 只差 `remaining` 的那两条（同一个格数，只换「还差 N」里的数字）。

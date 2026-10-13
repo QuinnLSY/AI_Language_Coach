@@ -21,7 +21,14 @@ extension AppState {
             pendingDeepLinks.append(url)
             return
         }
-        Task { await applyDeepLink(url) }
+        // ⚠️ 串成一条链再派发：直接 `Task { await applyDeepLink(url) }` 的话，
+        // 两条链接几乎同时到达时两个 Task 的先后不保证 —— ask 链接上
+        // 就是「先发的那句后被发出去」。后来者等前一个的 `value` 再执行。
+        let previous = deepLinkTask
+        deepLinkTask = Task { @MainActor in
+            await previous?.value
+            await applyDeepLink(url)
+        }
     }
 
     /// 把排队的那几条处理掉（`start()` 末尾与 `AppURLDelegate` 各调一次，重复调用无害）。

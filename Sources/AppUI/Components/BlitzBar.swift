@@ -109,7 +109,7 @@ struct BlitzBar: View {
 
     /// 到点了：给一句成绩 + 一颗「再来一轮」。
     ///
-    /// ⚠️ 破纪录才挂那枚徽章 —— 见 `ReviewBlitzRecord.badgeText`：
+    /// ⚠️ 破纪录才挂那枚徽章 —— 见 `ReviewBlitzRecord.badgeTitle`：
     /// 第一次用就弹「新纪录」是在笑人（连击 0 不算破纪录）。
     private var settledRow: some View {
         HStack(spacing: 10) {

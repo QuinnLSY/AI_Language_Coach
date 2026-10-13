@@ -764,6 +764,15 @@ public final class AppState {
     /// 的前半段（连快照都没汇总），这时就跳页等于落在空页面上。
     public internal(set) var pendingDeepLinks: [URL] = []
 
+    /// 在途的深链任务（串行链的尾结点）。
+    ///
+    /// ⚠️ 两条链接几乎同时到达时各起一个 `Task`，先后**不保证** ——
+    /// ask 链接上那就是「先发的那句后被发出去」，用户看得见。串成一条链，
+    /// 后来者等前一个跑完再执行，顺序才等于到达顺序。
+    /// （`applyDeepLink` 里没有长耗时：`sendChat` 同步入队、导航不阻塞，
+    /// 链上等一会儿不会把第二条链接拖死。）
+    public internal(set) var deepLinkTask: Task<Void, Never>? = nil
+
     /// Dock 图标是否已收起（菜单栏模式）。
     ///
     /// ⚠️ 声明处直接读 UserDefaults，**不给常量默认值**：默认 false 会把用户上次的选择

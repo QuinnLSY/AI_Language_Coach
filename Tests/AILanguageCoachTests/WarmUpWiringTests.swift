@@ -184,6 +184,23 @@ final class WarmUpWiringTests: XCTestCase {
         XCTAssertNotNil(state.warmUp, "没发出去就不该把结算卡收掉")
     }
 
+    // MARK: - 结算脸不现取时钟（源码哨兵）
+
+    /// 结算卡挂在那儿，`summary(now:)` 的入参不许是视图里现取的 `Date()`：
+    /// body 随时可能被重算，现取时钟意味着「用时」有可能在自己往前走
+    /// （`summary(now:)` 的语义哪天变了就会露出来）。钉调用形态整串。
+    func testSettlementFaceUsesThePinnedSummary() throws {
+        let raw = try Self.code("Sources/AppUI/Components/WarmUpCard.swift")
+        XCTAssertTrue(
+            raw.contains("settlementFace(progress.settlement)"),
+            "结算脸必须走钉住结束时刻的摘要（WarmUpProgress.settlement）"
+        )
+        XCTAssertFalse(
+            raw.contains("summary(now: Date())"),
+            "视图体里不许现取时钟 —— 那是隐形的时钟依赖"
+        )
+    }
+
     // MARK: - 工装
 
     private static func entries(count: Int) -> [VocabularyEntry] {
@@ -201,5 +218,14 @@ final class WarmUpWiringTests: XCTestCase {
         )
         // ⚠️ 必须 `:memory:`：裸 `CoachServices()` 的库路径是 nil，会落到真实学习库上。
         return AppState(services: CoachServices(config: store, databasePath: ":memory:"))
+    }
+
+    /// 读源码做哨兵（去掉纯注释行，避免注释里的同款字串造成假绿）。
+    private static func code(_ path: String) throws -> String {
+        let raw = try String(contentsOfFile: path, encoding: .utf8)
+        return raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
     }
 }

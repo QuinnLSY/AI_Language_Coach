@@ -50,7 +50,7 @@ struct WarmUpCard: View {
     var body: some View {
         if let progress {
             if progress.isFinished {
-                settlement(progress.summary(now: Date()))
+                settlementFace(progress.settlement)
             } else if let step = progress.currentStep {
                 running(progress: progress, step: step)
             } else {
@@ -232,7 +232,10 @@ struct WarmUpCard: View {
 
     // MARK: - ③ 结算卡
 
-    private func settlement(_ summary: WarmUpSummary) -> some View {
+    /// ⚠️ 入参是**钉住结束时刻**的摘要（`WarmUpProgress.settlement`）：
+    /// 视图体里不现取 `Date()` —— body 随时可能被重算，现取时钟意味着
+    /// 「用时」有可能在自己往前走。
+    private func settlementFace(_ summary: WarmUpSummary) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.circle.fill")

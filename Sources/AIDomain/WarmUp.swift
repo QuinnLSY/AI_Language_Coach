@@ -310,6 +310,16 @@ public struct WarmUpProgress: Sendable, Equatable {
             totalSteps: plan.total
         )
     }
+
+    /// 结算摘要：**不现取时钟**。
+    ///
+    /// 跑完的轮次用时钉在 `finishedAt`（`finish()` 写下的那一刻）；
+    /// 没跑完的那一档界面上本来也不显示结算脸 —— 真出现了就按当前时刻算，
+    /// 绝不显示 0。给界面用：视图体里现取 `Date()` 是一次隐形的时钟依赖，
+    /// `summary(now:)` 的语义哪天变了，结算卡上那行字就会自己往前走。
+    public var settlement: WarmUpSummary {
+        summary(now: finishedAt ?? Date())
+    }
 }
 
 /// 一轮热身的结算。

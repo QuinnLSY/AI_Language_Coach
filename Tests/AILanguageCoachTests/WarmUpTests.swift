@@ -225,6 +225,23 @@ final class WarmUpTests: XCTestCase {
         )
     }
 
+    /// 结算摘要那条**不取时钟**的路：跑完的轮次，用时钉在 `finishedAt`。
+    ///
+    /// ⚠️ 这条钉的是「视图走的那条入口」端到端的行为：`finishedAt` 的钉住
+    /// 一旦破了（`elapsedSeconds` 改成一律按传入时刻算），视图边上就会红。
+    /// 它分不清 `settlement` 与 `summary(now: Date())`（对已完成轮次二者
+    /// 本来无差别）—— 「视图体里不许现取时钟」那一层由
+    /// `WarmUpWiringTests.testSettlementFaceUsesThePinnedSummary` 的源码哨兵钉。
+    func testSettlementDoesNotReadTheWallClock() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var progress = Self.progress(steps: [.word(entryID: UUID(), word: "resilient")], now: start)
+        XCTAssertTrue(progress.gradeCurrentWord(remembered: true))
+        progress.finish(now: start.addingTimeInterval(30))
+
+        XCTAssertEqual(progress.settlement.elapsedSeconds, 30, "结算摘要不许现取时钟")
+        XCTAssertEqual(progress.settlement.headline, "记得 1/1 · 用时 30 秒")
+    }
+
     func testSummaryWithoutWordsDoesNotClaimAScore() {
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         var progress = Self.progress(steps: [.shadow(sentence: "Hello there.")], now: start)

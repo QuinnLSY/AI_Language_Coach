@@ -131,6 +131,26 @@ final class ReadingLookupBubbleRenderTests: XCTestCase {
         view.endHoverTracking()
     }
 
+    /// 轮询等一个条件成立（带上限），替代「固定 sleep 等计时器到点」。
+    ///
+    /// ⚠️ 固定 sleep 是假闸之源：拖选计时器是 main actor 上的 `Task` 唤醒，
+    /// 全量套件把 CPU 吃满时它会被饿出 500ms 窗口 —— 实测无端假红过一次
+    /// （`probes` 是空的）。轮询把「等到」和「机器快慢」解耦，判据回到业务本身；
+    /// 条件永远不成立时返回 false，随后的断言红在该红的地方。
+    private func waitUntil(
+        _ condition: @MainActor () -> Bool,
+        timeout: Duration = .seconds(3),
+        poll: Duration = .milliseconds(20)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while true {
+            if condition() { return true }
+            if clock.now >= deadline { return false }
+            try? await Task.sleep(for: poll)
+        }
+    }
+
     private func render(_ host: NSView) throws -> NSBitmapImageRep {
         let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: rep)
@@ -171,9 +191,11 @@ final class ReadingLookupBubbleRenderTests: XCTestCase {
         dragSelect(harness.textView, NSRange(location: 0, length: 7))
         // 计时器还没到点（0.28s）就抖一次 mouseExited —— 线上那一拍就是这样。
         pokeMouseExit(harness.textView)
-        try await Task.sleep(nanoseconds: 500_000_000)
+        // 轮询等拖选计时器到点上报（固定 sleep 在全量负载下被饿出窗口过）。
+        let reported = await waitUntil { !harness.log.probes.isEmpty }
         settle(harness.host)
 
+        XCTAssertTrue(reported, "mouseExited 之后拖选计时器仍须到点上报")
         XCTAssertEqual(
             harness.log.probes, ["Weather"],
             "鼠标移出视图只该掐掉悬停计时器，不该把刚起的拖选计时器一起掐掉"
@@ -191,8 +213,12 @@ final class ReadingLookupBubbleRenderTests: XCTestCase {
         try await Task.sleep(nanoseconds: 300_000_000)
 
         dragSelect(harness.textView, NSRange(location: 0, length: 7))
-        try await Task.sleep(nanoseconds: 500_000_000)
+        // 等拖选计时器到点上报探针（`request` 按设计要等卡到达才非 nil，
+        // 见 `WordLookupBubblePresenter.updateRequest` —— 能等的是探针）。
+        let reportedBeforeCard = await waitUntil { !harness.log.probes.isEmpty }
         settle(harness.host)
+
+        XCTAssertTrue(reportedBeforeCard, "探测必须先上报，锚点才有「卡到之后重报」的那一拍")
         // 探测已上报、卡还没到：这一刻锚点只能是 nil。
         harness.log.anchorOwners.removeAll()
 
@@ -215,7 +241,8 @@ final class ReadingLookupBubbleRenderTests: XCTestCase {
         try await Task.sleep(nanoseconds: 300_000_000)
 
         dragSelect(harness.textView, NSRange(location: 0, length: 7))
-        try await Task.sleep(nanoseconds: 500_000_000)
+        let reportedBeforeCard = await waitUntil { !harness.log.probes.isEmpty }
+        XCTAssertTrue(reportedBeforeCard, "划词之后探针必须先上报，气泡才有得摆")
         settle(harness.host)
 
         let probed = try render(harness.host)
