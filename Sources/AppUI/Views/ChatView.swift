@@ -526,7 +526,8 @@ public struct ChatView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            CuteAnimalView(kind: teacherKind, isSleeping: theme.isNight, size: 44)
+            // 老师平时不跳（只眨眼）——与侧栏座位同一条规矩。
+            CuteAnimalView(kind: teacherKind, isSleeping: theme.isNight, size: 44, bobbing: false)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(teacherKind.displayName)老师")
@@ -1031,7 +1032,7 @@ public struct ChatView: View {
         let streamingMessage = ChatMessage(role: .assistant, content: chat.streamingText)
         if !chat.streamingReasoning.isEmpty {
             HStack(alignment: .top, spacing: 8) {
-                CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
+                CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30, bobbing: false)
                 ThinkingPanel(reasoning: chat.streamingReasoning, isStreaming: chat.streamingText.isEmpty)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -1039,7 +1040,7 @@ public struct ChatView: View {
             bubble(streamingMessage)
         } else if chat.isThinking {
             HStack(spacing: 8) {
-                CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
+                CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30, bobbing: false)
                 Text("思考中…")
                     .appFont(12, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
@@ -1047,7 +1048,7 @@ public struct ChatView: View {
             }
         } else {
             HStack(spacing: 8) {
-                CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
+                CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30, bobbing: false)
                 TypingDots(color: theme.secondaryText)
             }
         }
@@ -1135,7 +1136,7 @@ public struct ChatView: View {
         return HStack(alignment: .bottom, spacing: 8) {
             if isUser { Spacer(minLength: 36) }
             if !isUser {
-                CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
+                CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30, bobbing: false)
             }
             bubbleColumn(message, isUser: isUser, isHovered: isHovered, canRegenerate: canRegenerate)
             if isUser {

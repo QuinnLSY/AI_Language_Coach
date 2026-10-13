@@ -234,6 +234,12 @@ public struct CuteAnimalView: View {
     ///
     /// 只有「老师黑板」这一处会传 —— 那是唯一需要「敲黑板引起注意」的地方。
     public var knockTick: Int = 0
+    /// 庆祝跳一下的计数（+1 = 跳一次）。**默认 0**。
+    ///
+    /// 与 `bobbing`（常驻浮动）是两回事：老师**平时不跳**（只眨眼 + 挥教棍），
+    /// 今日任务全完成那天由 `TeacherCorner` 传一次庆祝 tick 才跳。
+    /// 森林里的动物不传这个参数，行为一个字节都不变。
+    public var hopTick: Int = 0
 
     /// **离屏渲染夹具专用总闸**：置 `false` 时动物不启动任何定时动画（眨眼 / 跳动）。
     ///
@@ -249,17 +255,23 @@ public struct CuteAnimalView: View {
 
     @State private var isBlinking = false
     @State private var isHopping = false
+    /// 庆祝跳一下的抬起量（一次性）。与 `isHopping` 的常驻浮动各走各的 offset，互不打断。
+    @State private var hopLift: CGFloat = 0
+
+    @Environment(\.appMotion) private var motion
 
     private let blinkTimer = Timer.publish(every: 3.2, on: .main, in: .common).autoconnect()
 
     public init(kind: AnimalKind, isSleeping: Bool = false, size: CGFloat = 64,
-                accessory: AnimalAccessory = .none, bobbing: Bool = true, knockTick: Int = 0) {
+                accessory: AnimalAccessory = .none, bobbing: Bool = true,
+                knockTick: Int = 0, hopTick: Int = 0) {
         self.kind = kind
         self.isSleeping = isSleeping
         self.size = size
         self.accessory = accessory
         self.bobbing = bobbing
         self.knockTick = knockTick
+        self.hopTick = hopTick
     }
 
     public var body: some View {
@@ -284,6 +296,19 @@ public struct CuteAnimalView: View {
         .frame(width: size, height: size)
         .offset(y: isSleeping ? size * 0.02 : (isHopping ? -size * 0.045 : 0))
         .loopAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: isHopping)
+        // 庆祝跳一下（一次性）：与上面的常驻浮动分开两条 offset，谁都不打断谁。
+        .offset(y: hopLift)
+        .onChange(of: hopTick) { _, tick in
+            // 睡着了不跳（Zzz 会脱离身体）；渲染夹具关着动画也不跳。
+            guard tick > 0, !isSleeping, Self.animationsEnabled else { return }
+            // emphasis 档：全项目唯一允许过冲的一条曲线，「成功 / 里程碑」专用 ——
+            // 今日任务全完成正是这样的时刻。reduceMotion 下它自动退化成 0.12s 线性。
+            withAnimation(motion.animation(.emphasis)) { hopLift = -size * 0.22 }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(0.34))
+                withAnimation(motion.animation(.emphasis)) { hopLift = 0 }
+            }
+        }
         .onAppear {
             guard bobbing, !isSleeping, Self.animationsEnabled else { isHopping = false; return }
             isHopping = true

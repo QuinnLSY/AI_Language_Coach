@@ -33,7 +33,8 @@ struct TeacherPreparingCard: View {
             let seconds = max(Int(context.date.timeIntervalSince(startedAt)), 0)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
-                    CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30)
+                    // 老师平时不跳（只眨眼）——与侧栏座位同一条规矩。
+                    CuteAnimalView(kind: teacherKind, isSleeping: false, size: 30, bobbing: false)
                     Text(TeacherWaitCopy.title(seconds: seconds))
                         .appFont(12, design: .rounded)
                         .foregroundStyle(theme.secondaryText)

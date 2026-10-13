@@ -61,6 +61,8 @@ public struct TeacherCorner: View {
     @State private var nudge: TodayPanel.BubbleLine?
     @State private var nudgeTick = 0
     @State private var knockTick = 0
+    /// 庆祝跳一下的 tick（今日任务全完成时 +1，见 body 里的接线）。
+    @State private var hopTick = 0
     private let nudgeTimer = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
 
     public init(
@@ -120,9 +122,18 @@ public struct TeacherCorner: View {
             guard expanded else { return }
             announceBoard()
         }
+        // 今日任务全完成 → 老师跳一下。庆祝时侧栏会被 `celebrateToday` 拉开，
+        // 本视图可能是庆祝**之后**才挂上来的 —— 那一刻 onChange 等不到这次变化，
+        // 由下面的 onAppear 补跳（庆祝窗口 5 秒内重复挂上就重复跳，那正是进行中的庆祝）。
+        .onChange(of: isCelebrating) { _, celebrating in
+            if celebrating { hopTick += 1 }
+        }
         // 以「已经展开」的姿态被挂上来（侧栏从收起态拉出来时）也要敲 —— 不然
         // 这次开板会静悄悄，用户以为没反应。`onAppear` 只在首次挂载时跑一次。
-        .onAppear { if isExpanded { announceBoard() } }
+        .onAppear {
+            if isExpanded { announceBoard() }
+            if isCelebrating { hopTick += 1 }
+        }
         .task(id: nudgeTick) {
             guard nudge != nil else { return }
             try? await Task.sleep(nanoseconds: 3_600_000_000)
@@ -171,7 +182,11 @@ public struct TeacherCorner: View {
                     isSleeping: isSleeping,
                     size: BlackboardLayout.animalFrame,
                     accessory: .teacher,
-                    knockTick: knockTick
+                    // 老师平时不跳：只眨眼 + 挥教棍（2026-10-13 用户报障「从早跳到晚」）。
+                    bobbing: false,
+                    knockTick: knockTick,
+                    // 今日任务全完成 → 跳一下庆祝（一天一次，见 body 里的接线）。
+                    hopTick: hopTick
                 )
                 .zIndex(2)
             }

@@ -241,7 +241,8 @@ public struct AppSidebar: View {
             // ⚠️ 点它**先拉开侧栏、动画结束后再开板** —— 两步走而不是同时动，
             // 否则「侧栏变宽」和「板展开」两个弹簧叠在一起会抖。
             // 直接开板也不行：76pt 宽装不下一块板。
-            CuteAnimalView(kind: state.teacherAnimalKind, isSleeping: theme.isNight, size: 46, accessory: .teacher)
+            // 老师平时不跳（只眨眼 + 挥教棍）——与展开态座位同一条规矩。
+            CuteAnimalView(kind: state.teacherAnimalKind, isSleeping: theme.isNight, size: 46, accessory: .teacher, bobbing: false)
                 .frame(height: 96)
                 .contentShape(Rectangle())
                 .onTapGesture { openBoardFromCollapsedSidebar() }
