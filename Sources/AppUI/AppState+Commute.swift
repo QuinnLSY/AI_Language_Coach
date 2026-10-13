@@ -40,11 +40,27 @@ extension AppState {
     ///
     /// ⚠️ **不推进下标**：停在这里就是为了「再按开始还能从这句接着放」
     /// （刚放的那一句多半只听了个头，再听一遍才对）。
+    /// 自然放完相反 —— 那一轮到头了，播放头复位到第一句，见
+    /// `resetCommuteAfterNaturalCompletion`。
     public func stopCommute() async {
         // 令牌先作废：循环里那次 `playReference` 随后跑完时别再把状态写回来。
         commuteToken = nil
         isCommuteRunning = false
         await stopShadowingAudio()
+    }
+
+    /// 自然放完之后的复位：播放头回到第一句，下一轮「开始」放整批。
+    ///
+    /// ⚠️ 只有**自然放完**才走这里。`startCommute` 的队列是从 `shadowingIndex`
+    /// 起排的，放完不复位的话它停在末句，再按「开始」只重播最后一句 ——
+    /// 「连播」想再听一遍却只有 1 句。被「停止」叫停时走 `stopCommute`，
+    /// 语义是「从这句接着放」，两者故意相反。
+    func resetCommuteAfterNaturalCompletion() {
+        commuteQueue = nil
+        shadowingIndex = 0
+        // 换句三件套的老规矩：下标变了，摆回界面的结果必须同属这一句。
+        restoreShadowingResultForCurrentDrill()
+        saveShadowingProgress()
     }
 
     // MARK: - 循环
@@ -81,6 +97,8 @@ extension AppState {
         guard commuteToken == token else { return }
         isCommuteRunning = false
         commuteToken = nil
+        // 自然放完 ≠ 停止：播放头复位到第一句，再按「开始」放整批。
+        resetCommuteAfterNaturalCompletion()
         shadowingNotice = "这一轮放完了，明天换一批新句子。"
     }
 }

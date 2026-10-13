@@ -7,7 +7,7 @@ import XCTest
 @testable import AppUI
 
 /// ⑦-D 通勤连播的**接线**：队列来自真素材、起点是当前这句、段落模式不给连播、
-/// 教师语音没开时按下去要说一句为什么。
+/// 教师语音没开时按下去要说一句为什么、自然放完把播放头复位到第一句。
 ///
 /// ⚠️ 播放循环本身跑不起来（要真 TTS），这里只钉**进入循环之前**的那几件事 ——
 /// 那段恰恰是最容易「按下去什么都没发生」的地方。
@@ -81,6 +81,54 @@ final class CommuteWiringTests: XCTestCase {
         XCTAssertNotNil(state.commuteQueue)
     }
 
+    // MARK: - ④ 自然放完 → 播放头复位
+
+    /// 连播自然放完后播放头停在末句，再按「开始」只重播最后一句
+    /// （用户报障：「连播想再听一遍却只有 1 句」）→ 放完复位到第一句。
+    func testNaturalCompletionResetsThePlayhead() {
+        let state = makeState()
+        state.shadowingDrills = Self.drills
+        // 停在末句：自然放完收尾那一刻 `shadowingIndex` 就是这个值。
+        state.shadowingIndex = Self.drills.count - 1
+        state.commuteQueue = CommuteQueue.build(drills: Self.drills, from: Self.drills.count - 1)
+
+        state.resetCommuteAfterNaturalCompletion()
+
+        XCTAssertEqual(state.shadowingIndex, 0, "放完了必须回到第一句")
+        XCTAssertNil(state.commuteQueue, "这一轮的队列收掉，界面回落到入口预览")
+        XCTAssertEqual(state.commutePreview?.index, 0, "再按「开始」从整批第一句放")
+        XCTAssertEqual(state.commutePreview?.count, Self.drills.count)
+    }
+
+    /// 对照面：**停止**不是放完 —— 播放头必须留在当前句（「从这句接着放」）。
+    /// 与上一条合起来就是「两种收尾结果相反」：复位写错成无条件执行时这条红。
+    func testStopKeepsThePlayheadWhereItStopped() async {
+        let state = makeState()
+        state.shadowingDrills = Self.drills
+        state.shadowingIndex = 2
+        state.commuteQueue = CommuteQueue.build(drills: Self.drills, from: 2)
+        state.isCommuteRunning = true
+        state.commuteToken = UUID()
+
+        await state.stopCommute()
+
+        XCTAssertEqual(state.shadowingIndex, 2, "停止不是放完：播放头留在当前句")
+    }
+
+    /// 复位必须挂在**自然放完的收尾路径**上（循环尾部），不是写在
+    /// `stopCommute` 里、也不是压根没人调。行为测试调用的是方法本身，
+    /// 调用点由这条哨兵钉：撤掉循环尾部那行即红。
+    func testCompletionTailResetsThePlayhead() throws {
+        let raw = try Self.code("Sources/AppUI/AppState+Commute.swift")
+        let normalized = raw.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        XCTAssertTrue(
+            normalized.contains(
+                "isCommuteRunning = false commuteToken = nil resetCommuteAfterNaturalCompletion() shadowingNotice = \"这一轮放完了，明天换一批新句子。\""
+            ),
+            "自然放完的收尾必须复位播放头（撤掉这一行 → 再按开始只重播末句）"
+        )
+    }
+
     // MARK: - 工装
 
     private static let drills: [ShadowingDrill] = [
@@ -98,5 +146,14 @@ final class CommuteWiringTests: XCTestCase {
         )
         // ⚠️ 必须 `:memory:`：裸 `CoachServices()` 的库路径是 nil，会落到真实学习库上。
         return AppState(services: CoachServices(config: store, databasePath: ":memory:"))
+    }
+
+    /// 读源码做哨兵（去掉纯注释行，避免注释里的同款字串造成假绿）。
+    private static func code(_ path: String) throws -> String {
+        let raw = try String(contentsOfFile: path, encoding: .utf8)
+        return raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
     }
 }
