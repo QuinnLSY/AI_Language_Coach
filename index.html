@@ -411,6 +411,7 @@
 
   <div class="gallery-tabs" id="galleryTabs">
     <button class="active" data-shot="main-day">主界面</button>
+    <button data-shot="chat">对话 · 纠错</button>
     <button data-shot="reading">阅读 · 划词</button>
     <button data-shot="vocabulary">词汇本</button>
     <button data-shot="progress">学习进度</button>
@@ -420,6 +421,9 @@
   <div class="gallery-stage" id="galleryStage">
     <div class="gallery-frame active" data-shot="main-day">
       <img src="screenshots/main-day.jpg" alt="主界面：对话与成长之树" loading="lazy">
+    </div>
+    <div class="gallery-frame" data-shot="chat">
+      <img src="screenshots/chat.jpg" alt="AI 对话练习与语法纠错卡" loading="lazy">
     </div>
     <div class="gallery-frame" data-shot="reading">
       <img src="screenshots/reading.jpg" alt="阅读短文与划词气泡" loading="lazy">
@@ -546,6 +550,7 @@ swift run AILanguageCoach
     var caption = document.getElementById('galleryCaption');
     var captions = {
       'main-day': '对话练习与成长之树：左边上课，右边看树一点点长大。',
+      'chat': 'AI 对话练习：说错当场纠正，三色纠错卡自动进错题本，反复犯的错会被反复追问。',
       'reading': '每日短文 + 划词气泡：文中任意单词一点，释义、音标、收词一气呵成。',
       'vocabulary': '词汇本：记忆曲线安排复习，每日推荐自动接入练习中遇到的生词。',
       'progress': '学习进度：能力定位、语法趋势、词汇增长、发音趋势一页看全。',
