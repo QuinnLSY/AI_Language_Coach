@@ -52,6 +52,16 @@ struct AILanguageCoachApp: App {
                     .keyboardShortcut(",", modifiers: .command)
             }
 
+            // 退出（自停）：接管 ⌘Q，退出前先停掉**本应用亲手拉起**的本地服务
+            // （Edge-TTS 代理、whisper 等）—— 见 `AppServiceShutdown`。
+            // 不接管的话，⌘Q 走系统默认项直接退出，那些服务会残留成孤儿进程。
+            // ⚠️ 与全局快捷键系统不冲突：`ShortcutAction` 里没有 quit 动作，
+            // `ShortcutMonitor` 不会同吃这一次按键。
+            CommandGroup(replacing: .appTermination) {
+                Button("退出语林") { AppKitHost.terminate(services: state.services) }
+                    .keyboardShortcut("q")
+            }
+
             // 帮助（#413）：系统那个「Help」菜单默认指向应用自己的帮助书册（本应用没有），
             // 换成直接开应用内帮助中心 —— 说明不该只有「先打开设置、再滚到第一张卡」这一条路。
             CommandGroup(replacing: .help) {

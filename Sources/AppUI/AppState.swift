@@ -611,6 +611,12 @@ public final class AppState {
     /// 没有任何天然症状 —— 用户练一整天，退出重进才发现历史是空的，还以为自己记错了。
     /// 静默丢数据比崩溃更糟：崩溃有声音，这个没有。
     public internal(set) var persistenceNotice: AppNotice?
+    /// 开屏自启本地服务没起来时的提示（#546；按能力各一条，nil = 该能力一切正常）。
+    ///
+    /// ⚠️ 只挂「没起来且用户能动手」的两档（未授权 / 失败）：`.notConfigured`
+    /// （当前没用本机服务）与 `.alreadyRunning`（用户自己拉的）都不提示 ——
+    /// 提示条是稀缺注意力，不该为「一切正常」亮。
+    public internal(set) var serviceLaunchNotices: [AIProviderKind: AppNotice] = [:]
     /// 备份导入：已通过校验、等用户确认的恢复计划（nil = 没在导入流程中）。
     public internal(set) var backupImportPlan: BackupImportPlan?
     /// 备份导入：选中的压缩包路径（确认后交给 stageRestore）。
@@ -1616,17 +1622,20 @@ public final class AppState {
         await chat.restoreLastSessionIfNeeded()
         await bootstrapVoice()
         // 应用启动即拉起本机语音：Edge-TTS 代理（免费微软音色）+ **当前选中的本机语音识别**。
-        // 两者都用「的服务/port 流程」，不阻断开屏；拉起后重新装配语音，让真实健康状态即时可见。
+        // 两者都不阻断开屏；结果转成用户可见的提示（#546）—— 未授权 / 失败从前只有日志，
+        // 用户只会觉得「朗读没声音」「麦克风用不了」，完全不知道服务根本没起来。
         Task { [weak self] in
-            await self?.services.ensureEdgeTTSProxyOnLaunch()
-            guard await self?.services.ensureLocalASROnLaunch() == true else {
-                await self?.bootstrapVoice()
-                return
+            guard let self else { return }
+            let ttsOutcome = await self.services.ensureEdgeTTSProxyOnLaunch()
+            let asrOutcome = await self.services.ensureLocalASROnLaunch()
+            self.applyLocalServiceLaunchNotice(ttsOutcome, kind: .tts)
+            self.applyLocalServiceLaunchNotice(asrOutcome, kind: .asr)
+            if asrOutcome == .started {
+                // 起来了：设置页的「运行中」标记与 ASR 健康态跟着刷新一次。
+                self.modelRunStates = await self.services.modelRunStates()
+                await self.refreshStatus()
             }
-            // 起来了：设置页的「运行中」标记与 ASR 健康态跟着刷新一次。
-            self?.modelRunStates = (await self?.services.modelRunStates()) ?? [:]
-            await self?.refreshStatus()
-            await self?.bootstrapVoice()
+            await self.bootstrapVoice()
         }
         // 发音评测的声学通道（云端发音评估）：没配置也不报错，评测自动走规则推断。
         pronunciationHealth = await services.bootstrapPronunciation()

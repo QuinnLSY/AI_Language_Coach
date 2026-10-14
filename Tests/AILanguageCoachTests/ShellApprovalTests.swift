@@ -109,8 +109,8 @@ final class ShellApprovalTests: XCTestCase {
     /// 自动路径（开屏 / 兄弟服务）**不许**执行未授权命令，但也不该抛错刷红字。
     func testAutomaticPathsSkipQuietly() throws {
         let raw = try Self.code("Sources/AIServices/CoachServices.swift")
-        for marker in ["public func ensureEdgeTTSProxyOnLaunch() async",
-                        "public func ensureLocalASROnLaunch() async -> Bool",
+        for marker in ["public func ensureEdgeTTSProxyOnLaunch() async -> LocalServiceLaunchOutcome",
+                        "public func ensureLocalASROnLaunch() async -> LocalServiceLaunchOutcome",
                         "private func syncSiblingLocalServices(kind: AIProviderKind, running: Bool) async"] {
             let body = try Self.declBody(matching: marker, in: raw)
             XCTAssertTrue(body.contains("ShellCommandApproval.isApproved"),
@@ -133,10 +133,17 @@ final class ShellApprovalTests: XCTestCase {
         // 命令原文必须原样传给 UI。
         XCTAssertTrue(raw.contains("public let command: String"))
 
-        let view = try Self.code("Sources/AppUI/Views/SettingsView.swift")
-        XCTAssertTrue(view.contains("pendingShellApproval"), "确认框要挂在设置页")
-        XCTAssertTrue(view.contains("state.approvePendingShellCommand()"), "确认按钮要能放行")
-        XCTAssertTrue(view.contains("state.declinePendingShellCommand()"), "也要能拒绝")
+        // 确认框的挂点：**MainView 根上，全局唯一**（2026-10-14 从设置页挪来）——
+        // 开屏自启的提示条（#546）在对话区也要能弹它，挂在设置页里的话
+        // 用户不在设置页时框永远不出现。
+        let main = try Self.code("Sources/AppUI/Views/MainView.swift")
+        XCTAssertTrue(main.contains("pendingShellApproval"), "确认框要挂在 MainView 根上")
+        XCTAssertTrue(main.contains("state.approvePendingShellCommand()"), "确认按钮要能放行")
+        XCTAssertTrue(main.contains("state.declinePendingShellCommand()"), "也要能拒绝")
+
+        let settings = try Self.code("Sources/AppUI/Views/SettingsView.swift")
+        XCTAssertFalse(settings.contains(".alert(item:"),
+                       "确认框只挂一处：设置页再挂一份会双弹")
     }
 
     // MARK: - S2-7 验证钩子只留在 DEBUG 构建

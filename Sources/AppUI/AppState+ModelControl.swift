@@ -60,6 +60,61 @@ extension AppState {
         showModelToast("没有确认这条启停命令，本机服务不会被启动或关闭。", isSuccess: false)
     }
 
+    // MARK: - 开屏自启本地服务的结果提示（#546）
+
+    /// 开屏自启的结果 → 对话区顶部提示条。
+    ///
+    /// 只有「没起来且用户能动手」的两档挂提示：`.needsApproval` / `.failed`。
+    /// `.notConfigured`（当前没用本机服务）与 `.alreadyRunning`（用户自己拉的）
+    /// 都不提示 —— 提示条是稀缺注意力，不该为「一切正常」亮。
+    func applyLocalServiceLaunchNotice(_ outcome: CoachServices.LocalServiceLaunchOutcome, kind: AIProviderKind) {
+        let label = Self.localServiceLabel(for: kind)
+        switch outcome {
+        case .started, .alreadyRunning, .notConfigured:
+            serviceLaunchNotices[kind] = nil
+        case .needsApproval(let command):
+            serviceLaunchNotices[kind] = AppNotice(
+                text: "\(label)没有随应用启动：它的启动命令需要你的确认",
+                action: NoticeAction(title: "去确认") { [weak self] in
+                    // 直接把命令原文摆进 #S2-6 的确认框（全局唯一挂点在 MainView）：
+                    // 确认后 `approvePendingShellCommand` 会重试启动，与本应用其它
+                    // 启停入口同一个框、同一套授权记录。⚠️ 不能图省事调
+                    // `setModelRunning` —— Edge-TTS 代理没有服务控制器，
+                    // 那条路对它只会静默跳过，确认框永远弹不出来。
+                    self?.dismissServiceLaunchNotice(kind)
+                    self?.pendingShellApproval = ShellApprovalRequest(
+                        providerLabel: label,
+                        command: command,
+                        kind: kind,
+                        running: true
+                    )
+                }
+            )
+        case .failed(let reason):
+            serviceLaunchNotices[kind] = AppNotice(
+                text: "\(label)启动失败：\(reason)",
+                action: NoticeAction(title: "重试") { [weak self] in
+                    self?.dismissServiceLaunchNotice(kind)
+                    Task { await self?.setModelRunning(kind, running: true) }
+                }
+            )
+        }
+    }
+
+    /// 关掉某能力的开屏自启提示（点提示条上的 × / 点动作时）。
+    func dismissServiceLaunchNotice(_ kind: AIProviderKind) {
+        serviceLaunchNotices[kind] = nil
+    }
+
+    /// 提示条与确认框上用的能力名（tts→教师语音，asr→语音识别）。
+    private static func localServiceLabel(for kind: AIProviderKind) -> String {
+        switch kind {
+        case .tts: return "教师语音"
+        case .asr: return "语音识别"
+        default: return kind.displayName
+        }
+    }
+
     /// 顶部弹框：成功为绿、失败为红，展示后自动向上收起。
     /// 失败文案更长，多留一点时间让人读完。
     public func showModelToast(_ message: String, isSuccess: Bool) {

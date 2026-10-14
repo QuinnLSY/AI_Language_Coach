@@ -1279,17 +1279,38 @@ public actor CoachServices {
         }
     }
 
+    /// 开屏自启一个本地服务的结果（#546：自启可见性）。
+    ///
+    /// 「没起来」必须让用户看得见：未授权 / 失败从前只有日志，用户只会觉得
+    /// 「朗读没声音」「麦克风用不了」，完全不知道服务根本没起来。
+    public enum LocalServiceLaunchOutcome: Sendable, Equatable {
+        /// 本次启动真的执行了启动命令，且服务已可达。
+        case started
+        /// 服务本来就在跑（用户自己拉的或上次残留），未执行任何命令。
+        case alreadyRunning
+        /// 没配启动命令 / 当前选的不是本地 Provider —— 不是每个用户都用本机服务。
+        case notConfigured
+        /// 启动命令还没得到用户确认（#S2-6）。**带上命令原文**：提示条的动作直接
+        /// 把它摆进确认框，不依赖「设置页点启动」—— Edge-TTS 代理没有服务控制器，
+        /// 那条路对它只会静默跳过（`syncSiblingLocalServices`），永远弹不出确认框。
+        case needsApproval(command: String)
+        /// 启动命令执行了但服务没起来（带上原因）。
+        case failed(String)
+    }
+
     /// 应用启动时默认拉起 Edge-TTS 本地代理（remote.kina-tts）：它是免费微软音色（如
     /// en-GB-SoniaNeural）的来源，如今跑在本机 127.0.0.1:8856。只处理这一个轻量代理，
     /// 不动 Qwen3 等重型本地模型（后者仍由设置页「启动」按钮按需拉起，避免拖慢开屏）。
     ///
     /// 最佳努力、不阻断启动；代理已运行时跳过（脚本幂等，端口被占用直接退出）。
-    public func ensureEdgeTTSProxyOnLaunch() async {
+    /// - Returns: 本次自启的结果（#546：未授权 / 失败要变成用户可见的提示）。
+    @discardableResult
+    public func ensureEdgeTTSProxyOnLaunch() async -> LocalServiceLaunchOutcome {
         let configuration = await config.current
         guard let provider = configuration.providers.first(where: {
             $0.id == Self.edgeTTSProxyProviderID && $0.kind == .tts && $0.enabled
-        }) else { return }
-        guard let command = provider.serviceStartCommand, !command.isEmpty else { return }
+        }) else { return .notConfigured }
+        guard let command = provider.serviceStartCommand, !command.isEmpty else { return .notConfigured }
         // ⚠️ 未获用户授权的命令**不执行**（#S2-6）。开屏路径没有任何交互机会，
         // 所以这里只能是「跳过 + 留痕」：执行了就等于让一份备份包里的命令自动开跑。
         guard ShellCommandApproval.isApproved(command) else {
@@ -1297,15 +1318,16 @@ public actor CoachServices {
                 "开屏未拉起教师语音代理：它的启动命令还没得到你的确认（可在设置里点「启动」后确认）",
                 category: "service"
             )
-            return
+            return .needsApproval(command: command)
         }
         // 端口已被占用（代理在跑）就直接跳过，避免重复拉起
         if let endpoint = provider.endpoint,
            await LocalServiceRunner.waitUntilReachable(endpoint: endpoint, timeout: 1.5, interval: 0.3) {
-            return
+            return .alreadyRunning
         }
         do {
             try await LocalServiceControl.start(config: provider, reachTimeout: 12)
+            return .started
         } catch {
             // 启动失败不阻断应用，但这一次的失败必须留痕：原注释假设「用户会去设置页
             // 再点一次」，而开屏这一次在本次启动内没有任何出口 —— 用户只会觉得
@@ -1314,6 +1336,7 @@ public actor CoachServices {
                 "开屏拉起教师语音代理失败：\(error.localizedDescription)",
                 category: "service"
             )
+            return .failed(error.localizedDescription)
         }
     }
 
@@ -1325,30 +1348,88 @@ public actor CoachServices {
     /// 与 Edge-TTS 代理同一套打法：最佳努力、不阻断开屏；服务已经在跑就直接跳过
     /// （whisper 载入几百 MB 权重要十几秒，重复拉一次很贵）。
     ///
-    /// - Returns: 是否真的执行了启动（调用方据此决定要不要刷新界面状态）。
+    /// - Returns: 本次自启的结果（#546：未授权 / 失败要变成用户可见的提示）。
     @discardableResult
-    public func ensureLocalASROnLaunch() async -> Bool {
+    public func ensureLocalASROnLaunch() async -> LocalServiceLaunchOutcome {
         let configuration = await config.current
-        guard let provider = configuration.resolvedProvider(for: .asr), provider.enabled else { return false }
+        guard let provider = configuration.resolvedProvider(for: .asr), provider.enabled else { return .notConfigured }
         // ⚠️ 命令要从**补齐后的**配置里取：存量用户的配置文件是加这个字段之前写下的，
         // 合并时整条 provider 替换会把内置默认的命令吞掉（`ConfigStore.merge`）——
         // 不补的话，本机语音识别永远只能靠用户手动点「启动」。
         let launchable = Self.fillServiceCommands(provider)
-        guard let command = launchable.serviceStartCommand, !command.isEmpty else { return false }
+        guard let command = launchable.serviceStartCommand, !command.isEmpty else { return .notConfigured }
         // ⚠️ 未获授权就不执行（#S2-6），理由同 ensureEdgeTTSProxyOnLaunch。
-        guard ShellCommandApproval.isApproved(command) else { return false }
-        guard let endpoint = launchable.endpoint, !endpoint.isEmpty else { return false }
+        guard ShellCommandApproval.isApproved(command) else { return .needsApproval(command: command) }
+        guard let endpoint = launchable.endpoint, !endpoint.isEmpty else { return .notConfigured }
         // 端口已经通了（服务在跑）就跳过。
         if await LocalServiceRunner.waitUntilReachable(endpoint: endpoint, timeout: 1.5, interval: 0.3) {
-            return false
+            return .alreadyRunning
         }
         do {
             try await LocalServiceControl.start(config: launchable, reachTimeout: 25)
-            return true
+            return .started
         } catch {
             // 启动失败不阻断应用：用户在设置里点「启动」能看到真实原因。
-            return false
+            return .failed(error.localizedDescription)
         }
+    }
+
+    /// 退出应用：停掉**本进程亲手拉起**的本地服务（自停）。
+    ///
+    /// 台账来自 `LaunchedLocalServices`：只有启动成功的服务在册；用户自己拉起的服务
+    /// （启动前就在跑）不在册、退出时不碰；Ollama 的 keep_alive 载入不走启动入口，
+    /// 同样不会被误停。停止成功即注销，失败留在台账里，下次退出重试。
+    ///
+    /// 最佳努力、不抛错：单个服务停不掉（未授权 / 超时 / 命令失败）只进摘要，
+    /// 绝不阻断退出 —— 退出路径没有任何交互机会。
+    /// - Parameter stopTimeout: 单个停止命令的最长等待秒数。各服务并发执行，总耗时不乘数量。
+    /// - Returns: 没能停掉的服务摘要（`provider id：原因`，按序排序）；空数组 = 全部停妥或无可停。
+    public func stopServicesStartedByApp(stopTimeout: TimeInterval = 4) async -> [String] {
+        let started = await LaunchedLocalServices.shared.snapshot()
+        guard !started.isEmpty else { return [] }
+        // 没配停止命令的 Provider（如 Ollama —— 停它等于杀掉用户的常驻应用）不碰。
+        let stoppable = started.filter {
+            !($0.serviceStopCommand ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let withoutCommand = started.count - stoppable.count
+        guard !stoppable.isEmpty else { return [] }
+
+        var leftovers: [String] = []
+        await withTaskGroup(of: (String, String?).self) { group in
+            for config in stoppable {
+                group.addTask {
+                    // ⚠️ 未授权的命令不执行（#S2-6）：退出路径没有弹确认框的机会，只能跳过。
+                    guard ShellCommandApproval.isApproved(config.serviceStopCommand ?? "") else {
+                        return (config.id, "停止命令还没得到你的确认")
+                    }
+                    do {
+                        try await LocalServiceControl.stop(config: config, timeout: stopTimeout)
+                        return (config.id, nil)
+                    } catch {
+                        return (config.id, error.localizedDescription)
+                    }
+                }
+            }
+            for await (id, reason) in group {
+                if let reason { leftovers.append("\(id)：\(reason)") }
+            }
+        }
+
+        leftovers.sort()
+        let stoppedCount = stoppable.count - leftovers.count
+        if leftovers.isEmpty {
+            AppLog.info(
+                "退出应用：已停止本应用拉起的 \(stoppedCount) 个本地服务"
+                    + (withoutCommand > 0 ? "（\(withoutCommand) 个未配停止命令，保持原样）" : ""),
+                category: "service"
+            )
+        } else {
+            AppLog.warning(
+                "退出应用：\(leftovers.count)/\(stoppable.count) 个本地服务未能停止 —— \(leftovers.joined(separator: "；"))",
+                category: "service"
+            )
+        }
+        return leftovers
     }
 
     /// 该能力当前生效 Provider 的真实健康状态；尚无真实 runtime 的能力返回 nil。

@@ -137,21 +137,35 @@ public enum LocalServiceControl {
 
     /// 启动本地服务：执行启动命令 → 等端点接受连接。
     /// 端点为空（无 HTTP 服务的场景）时只执行命令，不做可达性等待。
+    ///
+    /// 启动成功即登记进 `LaunchedLocalServices`（「本应用亲手拉起」的台账）：
+    /// 退出时据此只停自己拉起的服务，不碰用户自己拉的服务。两条路径都要登记 ——
+    /// 无端点的服务命令跑完即算拉起，有端点的以可达为准。
     public static func start(config: ProviderConfig, reachTimeout: TimeInterval = 60) async throws {
         try LocalServiceRunner.launch(config.serviceStartCommand ?? "")
-        guard let endpoint = config.endpoint, !endpoint.isEmpty else { return }
+        guard let endpoint = config.endpoint, !endpoint.isEmpty else {
+            await LaunchedLocalServices.shared.record(config)
+            return
+        }
         let reachable = await LocalServiceRunner.waitUntilReachable(endpoint: endpoint, timeout: reachTimeout)
         guard reachable else { throw LocalServiceRunner.Failure.notReachable(endpoint: endpoint) }
+        await LaunchedLocalServices.shared.record(config)
     }
 
     /// 停止本地服务：执行停止命令。
     ///
     /// 退出码 1 视为成功——`pkill` 在「本来就没有该进程」时正是返回 1，
     /// 对「关闭」这个动作而言这就是幂等成功，不该报错吓唬用户。
-    public static func stop(config: ProviderConfig) async throws {
-        let result = try await LocalServiceRunner.run(config.serviceStopCommand ?? "")
+    ///
+    /// - Parameter timeout: 停止命令的最长等待秒数。退出收尾走有界短超时（见
+    ///   `CoachServices.stopServicesStartedByApp`），设置页手动关闭用默认值。
+    public static func stop(config: ProviderConfig, timeout: TimeInterval = 20) async throws {
+        let result = try await LocalServiceRunner.run(config.serviceStopCommand ?? "", timeout: timeout)
         guard result.code == 0 || result.code == 1 else {
             throw LocalServiceRunner.Failure.commandExited(code: result.code, output: result.output)
         }
+        // 只在停成功之后注销：失败（未授权 / 超时 / 退出码异常）时服务可能还在跑，
+        // 留在台账里，下次退出才会重试 —— 否则一次停不掉就永远失联。
+        await LaunchedLocalServices.shared.remove(id: config.id)
     }
 }

@@ -197,6 +197,28 @@ public struct MainView: View {
         .appAnimation(.reveal, value: state.showingMaterialUpload)
         .appAnimation(.reveal, value: state.showingScenarioComposer)
         .appAnimation(.reveal, value: state.showingCourseComposer)
+        // ⚠️ 本机服务启停命令的**首次确认**（#S2-6）。命令原文必须原样展示 ——
+        // 用户要靠它判断这是不是自己以为的那条命令；配置文件能被备份包覆盖，
+        // 不看见就执行等于把「导入备份 → 重启 → 点一下启动」变成任意命令执行。
+        //
+        // 挂点纪律：**全局唯一，就在 MainView 根上**（2026-10-14 从设置页挪来）。
+        // 开屏自启的提示条（#546）在对话区也要能弹这个框 —— 挂在设置页里的话，
+        // 提示条动作把请求置起来时用户根本不在设置页，框永远不出现。
+        .alert(item: Binding(
+            get: { state.pendingShellApproval },
+            set: { if $0 == nil { state.declinePendingShellCommand() } }
+        )) { request in
+            Alert(
+                title: Text("确认这条\(request.running ? "启动" : "关闭")命令"),
+                message: Text("「\(request.providerLabel)」要执行下面这条命令。\n它来自配置文件，配置文件可以被备份包覆盖 —— 请确认这是你预期的命令：\n\n\(request.command)"),
+                primaryButton: .default(Text("确认并执行")) {
+                    Task { await state.approvePendingShellCommand() }
+                },
+                secondaryButton: .cancel(Text("不执行")) {
+                    state.declinePendingShellCommand()
+                }
+            )
+        }
         .task {
             state.systemIsDark = (colorScheme == .dark)
             // ⚠️ 界面开关要在 `start()` **前后各压一次**：
@@ -338,6 +360,22 @@ public struct MainView: View {
     private var chatArea: some View {
         VStack(spacing: 0) {
             persistenceBanner
+            // 开屏自启本地服务没起来时的提示（#546）：按能力各一条，可关。
+            // ⚠️ 外层那层 `if` 不能省：空 VStack 也会把上下 padding 算进去，
+            // 没有提示时平白多出一段空白。
+            if !state.serviceLaunchNotices.isEmpty {
+                VStack(spacing: 8) {
+                    ForEach(AIProviderKind.allCases, id: \.self) { kind in
+                        if let notice = state.serviceLaunchNotices[kind] {
+                            NoticeBanner(notice: notice) {
+                                state.dismissServiceLaunchNotice(kind)
+                            }
+                        }
+                    }
+                }
+                .appPadding(.horizontal, 12)
+                .appPadding(.top, 8)
+            }
             // 今日作业不在中间栏：它在左栏老师的黑板上（见 `TeacherCorner`）。
             // 中间栏保持一种版式 —— 卷轴挂在这里会破坏三栏的一致性。
             Group {

@@ -119,24 +119,10 @@ public struct SettingsView: View {
         // 设置页里散落着好几个文本输入（学习语言 / 母语 / 教师音色 / 手动模型名…）：
         // 点它们之外的地方就该交出焦点，否则快捷键会一直被输入框吃掉。
         .releaseKeyboardFocusOnOutsideClick()
-        // ⚠️ 本机服务启停命令的**首次确认**（#S2-6）。命令原文必须原样展示 ——
-        // 用户要靠它判断这是不是自己以为的那条命令；配置文件能被备份包覆盖，
-        // 不看见就执行等于把「导入备份 → 重启 → 点一下启动」变成任意命令执行。
-        .alert(item: Binding(
-            get: { state.pendingShellApproval },
-            set: { if $0 == nil { state.declinePendingShellCommand() } }
-        )) { request in
-            Alert(
-                title: Text("确认这条\(request.running ? "启动" : "关闭")命令"),
-                message: Text("「\(request.providerLabel)」要执行下面这条命令。\n它来自配置文件，配置文件可以被备份包覆盖 —— 请确认这是你预期的命令：\n\n\(request.command)"),
-                primaryButton: .default(Text("确认并执行")) {
-                    Task { await state.approvePendingShellCommand() }
-                },
-                secondaryButton: .cancel(Text("不执行")) {
-                    state.declinePendingShellCommand()
-                }
-            )
-        }
+        // ⚠️ 本机服务启停命令的首次确认框（#S2-6）**不在这里**：2026-10-14 挪到
+        // MainView 根上做全局唯一挂点 —— 开屏自启的提示条（#546）在对话区也要能弹它，
+        // 挂在设置页里的话，用户不在设置页时框永远不出现。设置页点「启动」弹出的
+        // 还是同一个框（MainView 是这棵树的根，窗口级呈现）。
         .task {
             await loadRuntimeValues()
             // 用已保存的配置回填外部模型草稿：Key、模型列表、选中的供应商。

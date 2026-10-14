@@ -121,6 +121,9 @@ final class ModelControlTests: XCTestCase {
 
     func testStartWithoutEndpointOnlyRunsCommand() async throws {
         // 没有端点时不等待可达性，命令执行完即返回。
+        // ⚠️ start 成功会登记进进程级登记簿（自停台账）—— 首行清掉，
+        // 别把 "local.x" 留给同进程后续用例（登记簿是 actor， setUp 里 await 不了）。
+        await LaunchedLocalServices.shared.resetForTesting()
         let config = ProviderConfig(
             id: "local.x", kind: .tts, runtime: .externalLocalRuntime,
             serviceStartCommand: "true"

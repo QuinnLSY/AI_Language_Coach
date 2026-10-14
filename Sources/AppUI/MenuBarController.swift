@@ -86,7 +86,7 @@ struct MenuBarPanelHost: View {
             },
             onOpenMainWindow: { AppKitHost.bringFront() },
             onToggleDockIcon: { state.setDockIconHidden(!state.dockIconHidden) },
-            onQuit: { AppKitHost.terminate() }
+            onQuit: { AppKitHost.terminate(services: state.services) }
         )
         // ⚠️ popover 不在 MainView 的视图树里，收不到那一处的 `.appPressable` 注入 ——
         // 缺了它，面板上的按钮会退回系统默认外观（蓝色高亮块），与全应用不一致。

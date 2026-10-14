@@ -1,3 +1,4 @@
+import AIServices
 import AppKit
 import Foundation
 
@@ -42,8 +43,13 @@ public enum AppKitHost {
     }
 
     /// 退出（面板上那颗「退出」）。
-    public static func terminate() {
+    ///
+    /// 先做退出收尾 —— 停掉**本应用亲手拉起**的本地服务（Edge-TTS 代理、whisper 等），
+    /// 见 `AppServiceShutdown`：收尾有界等待，超时也放行，退出不会被卡死。
+    /// `services` 为 nil（拿不到状态源）时跳过收尾直接退。
+    public static func terminate(services: CoachServices? = nil) {
         guard isPackedApp else { return }
+        if let services { AppServiceShutdown.run(services: services) }
         NSApp?.terminate(nil)
     }
 }
@@ -72,5 +78,15 @@ public final class AppURLDelegate: NSObject, NSApplicationDelegate {
 
     public func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls { state?.receiveDeepLink(url) }
+    }
+
+    /// 退出兜底：⌘Q / App 菜单「退出」/ Dock 右键退出都会落到这里
+    /// （`AppKitHost.terminate(services:)` 里的收尾在前，这里再跑一遍是幂等的 ——
+    /// 登记簿「停成功即注销」，在册为空时直接返回，不会双停）。
+    ///
+    /// 单独要它的理由：Dock 右键退出、系统关机等路径**不经过**我们的菜单项，
+    /// 没有这一条，那些路径退出后本地服务照样残留。
+    public func applicationWillTerminate(_ notification: Notification) {
+        if let state { AppServiceShutdown.run(services: state.services) }
     }
 }
