@@ -27,13 +27,17 @@
   <img src="assets/screenshots/main-day.jpg" width="88%" alt="主界面：对话 + 成长之树">
 </p>
 
-| 练习对话 | 阅读 + 划词 |
+| 练习对话（带语法纠错卡） | 阅读 + 划词 |
 | :---: | :---: |
-| <img src="assets/screenshots/reading.jpg" width="100%"> | <img src="assets/screenshots/vocabulary.jpg" width="100%"> |
+| <img src="assets/screenshots/chat.jpg" width="100%"> | <img src="assets/screenshots/reading.jpg" width="100%"> |
 
 | 学习进度 | 跟读评分 |
 | :---: | :---: |
 | <img src="assets/screenshots/progress.jpg" width="100%"> | <img src="assets/screenshots/shadowing.jpg" width="100%"> |
+
+| 词汇本 | 词典查询 |
+| :---: | :---: |
+| <img src="assets/screenshots/vocabulary.jpg" width="100%"> | <img src="assets/screenshots/dictionary.jpg" width="100%"> |
 
 ## 功能清单
 

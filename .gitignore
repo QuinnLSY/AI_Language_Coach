@@ -39,3 +39,6 @@ venv/
 node_modules/
 release/
 UPGRADE
+
+# 发布用截图暂存目录（本地手动截图放这里，不进仓库）
+public_pic/
