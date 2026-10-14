@@ -52,8 +52,11 @@ final class LearningMemoryTests: XCTestCase {
     // MARK: - 缓存值类型
 
     func testCacheSnapshotByteCount() {
-        XCTAssertTrue(CacheSnapshot.byteCount(0).contains("0"))
+        // ⚠️ 0 的展示随 locale 变（中文「0 字节」/ 英文「Zero bytes」）：
+        // 钉「含 0」在 CI 英文环境必红。这里只断言「给出了非空展示」。
+        XCTAssertFalse(CacheSnapshot.byteCount(0).isEmpty, "0 也要有可读展示")
         let display = CacheSnapshot.byteCount(1_048_576)
-        XCTAssertTrue(display.contains("MB") || display.contains("字节") || display.contains("bytes"))
+        XCTAssertTrue(display.contains("MB") || display.contains("字节") || display.contains("bytes"),
+                      "1 MB 的展示要带单位词，实测：\(display)")
     }
 }

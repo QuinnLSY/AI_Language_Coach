@@ -304,7 +304,13 @@ final class ResourceLifecycleTests: XCTestCase {
         approveDefaultServiceCommands()
         defer { ShellCommandApproval.revokeAll() }
         try await registerMockASR(services)
+        // ⚠️ 必须把默认的 local.asr 一并禁用：`CoachServices.preferredProvider(.asr)`
+        // 优先非 mock，不禁用的话 bootstrapVoice 装配的是**真实 WhisperASRAdapter** ——
+        // 恢复时会跑它的启动命令、等 8858 满 60s（CI 上没有服务，必红；本地则靠
+        // `$HOME/AI_Models/bin/start-asr.sh` 偷偷把真 whisper 拉起来才绿）。
+        // 禁用后 asr 能力只剩 mock：suspend/resume 全程应用层面，不碰任何真实命令。
         let store = await services.configStore
+        try await store.mutateProvider(id: "local.asr") { $0.enabled = false }
         try await store.mutateResourcePolicy { policy in
             policy.asrIdleUnloadMinutes = 0.001 // 60ms 即挂起
         }

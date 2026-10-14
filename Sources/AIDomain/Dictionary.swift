@@ -223,7 +223,11 @@ public struct DictionaryLibrary: Sendable, Equatable, Codable {
             if left != right { return left < right }
             // 同优先级里词组书在前（用户显式排的名次仍然优先于这一条）。
             if (lhs.id == phraseBookID) != (rhs.id == phraseBookID) { return lhs.id == phraseBookID }
-            return lhs.name.localizedCompare(rhs.name) == .orderedAscending
+            // ⚠️ 最后这条 tie-break 必须 **locale 无关**：它决定 `searchableWords()`
+            // 逐本去重时同名词条归谁（见该函数文档）—— 用 `localizedCompare` 会让
+            // 「give up 归导入书还是内置书」随机器语言变化（中文按拼音 / 英文按码位），
+            // 同一份数据在不同电脑上搜索结果不同。用 Unicode 标量比较，全环境一致。
+            return lhs.name < rhs.name
         }
     }
 
@@ -243,7 +247,9 @@ public struct DictionaryLibrary: Sendable, Equatable, Codable {
         if !selected.isEmpty { return selected.map(\.id) }
         return books.sorted { lhs, rhs in
             if (lhs.id == phraseBookID) != (rhs.id == phraseBookID) { return lhs.id == phraseBookID }
-            return lhs.name.localizedCompare(rhs.name) == .orderedAscending
+            // 同 searchOrder：tie-break 用 Unicode 标量比较，不随机器语言变化
+            // （localizedCompare 在中文按拼音、英文按码位，推荐词源顺序会漂）。
+            return lhs.name < rhs.name
         }.map(\.id)
     }
 }

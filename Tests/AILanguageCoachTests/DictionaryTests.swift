@@ -334,7 +334,7 @@ final class DictionaryTests: XCTestCase {
         XCTAssertEqual(
             library.sourceBookIDs(builtIns: books(), phraseBookID: phraseBookID),
             [phraseBookID, "builtin.cet6", "builtin.oxford", "builtin.ielts"],
-            "词组书排最前；其余兜底顺序按 localizedCompare 按名字排：六(liu) < 牛(niu) < 雅(ya)"
+            "词组书排最前；其余兜底顺序按 Unicode 标点序按名字排：六 < 牛 < 雅（不用 localizedCompare——它按机器语言变，CI 英文环境与本地中文会给不同顺序）"
         )
         // 显式勾选仍然压过那条兜底规则（用户的排序是他的意思表示）。
         library = DictionaryLibrary.togglingSource("builtin.oxford", in: library)
@@ -852,7 +852,16 @@ final class DictionaryTests: XCTestCase {
         _ = try await store.removeBook(id: DictionaryCatalog.phraseBookID)
         let withoutPhraseBook = await store.searchableWords()
         let fallback = withoutPhraseBook.first { $0.word.lowercased() == "give up" }
-        XCTAssertEqual(fallback?.bookID, imported.id, "没有词组书时才会轮到导入的那本")
+        // ⚠️ 来源换成「剩余书里排最前」的那本，且**全环境确定**：同优先级兜底是
+        // Unicode 标量序（牛 U+725B < 阿 U+963F），牛津核心词恒定赢。曾经用
+        // localizedCompare，同一份数据在中文系统归导入书、英文系统归牛津 ——
+        // 2026-10-14 CI 首跑就红在这里。产品侧已改为 locale 无关（见 searchOrder）。
+        XCTAssertNotEqual(fallback?.bookID, DictionaryCatalog.phraseBookID,
+                          "词组书删了，这条词不该消失，只是换了来源")
+        XCTAssertEqual(fallback?.bookID, "builtin.oxford",
+                       "同优先级兜底按 Unicode 标点序：牛 < 阿，牛津核心词排最前")
+        XCTAssertNotEqual(fallback?.translation, phraseBookGiveUp?.translation,
+                          "换过来的释义不再是词组书那份")
     }
 
     // MARK: - 词典库仓库（落盘）

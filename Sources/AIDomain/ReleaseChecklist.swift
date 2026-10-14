@@ -236,6 +236,9 @@ public struct ReleaseCheckResult: Identifiable, Sendable, Equatable {
         case failed(String)
         /// 只能人工验证。**不是通过**，也不是未知——需要有人去跑 `item.guidance`。
         case manual
+        /// 环境不满足、本次跳过（如基准产物未生成）。**不算未通过**，也不算通过：
+        /// 判红会让「CI 检出里本来就没有的产物」天天把门禁卡红，比没有检查更糟。
+        case skipped(String)
 
         public var isPassed: Bool {
             if case .passed = self { return true }
@@ -279,6 +282,12 @@ public struct ReleaseReadinessReport: Sendable {
             return false
         }
     }
+    public var skippedResults: [ReleaseCheckResult] {
+        results.filter {
+            if case .skipped = $0.status { return true }
+            return false
+        }
+    }
 
     /// 能不能发：**自动检查全绿**（人工项不算通过，但也不拦发布——它们是「待办」而非「缺陷」）。
     public var isReleaseReady: Bool { failedResults.isEmpty }
@@ -287,7 +296,7 @@ public struct ReleaseReadinessReport: Sendable {
     public func markdownSummary() -> String {
         var lines: [String] = ["# 发布就绪检查", ""]
         lines.append("时间：\(Self.stamp(generatedAt))")
-        lines.append("自动检查：\(passedCount) 通过 · \(failedResults.count) 未通过 · \(manualResults.count) 待人工验证")
+        lines.append("自动检查：\(passedCount) 通过 · \(failedResults.count) 未通过 · \(manualResults.count) 待人工验证 · \(skippedResults.count) 跳过")
         lines.append("结论：**\(isReleaseReady ? "可以发布" : "存在未通过项，禁止发布")**")
         lines.append("")
 
@@ -302,6 +311,8 @@ public struct ReleaseReadinessReport: Sendable {
                     lines.append("- [x] \(result.item.title)")
                 case .manual:
                     lines.append("- [ ] \(result.item.title) — 待人工验证：\(result.item.guidance)")
+                case .skipped(let reason):
+                    lines.append("- [-] \(result.item.title) — 跳过：\(reason)")
                 case .failed(let reason):
                     lines.append("- [ ] \(result.item.title) — **未通过**：\(reason)")
                 }
