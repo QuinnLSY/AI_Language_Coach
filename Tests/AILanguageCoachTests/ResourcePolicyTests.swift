@@ -53,7 +53,7 @@ final class ResourcePolicyTests: XCTestCase {
         ]
         let decisions = ResourcePolicy.suspendDecisions(
             states: states,
-            idleTimeouts: [.llm: 15 * 60, .asr: 10 * 60],
+            idleTimeouts: [.llm: 15 * 60.0, .asr: 10 * 60.0],
             activeWindowSeconds: 2 * 60,
             budget: budget(),
             availableMemoryBytes: 8_000_000_000
@@ -112,7 +112,7 @@ final class ResourcePolicyTests: XCTestCase {
         let states = [state(.llm, idle: 99 * 60), state(.asr, idle: 30)]
         let decisions = ResourcePolicy.suspendDecisions(
             states: states,
-            idleTimeouts: [.llm: 15 * 60, .asr: 10 * 60],
+            idleTimeouts: [.llm: 15 * 60.0, .asr: 10 * 60.0],
             activeWindowSeconds: 120,
             budget: budget(),
             availableMemoryBytes: 10_000_000_000

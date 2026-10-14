@@ -28,10 +28,14 @@ final class ReportExporterTests: XCTestCase {
         // PNG 魔数：89 50 4E 47。
         XCTAssertEqual([UInt8](data.prefix(4)), [0x89, 0x50, 0x4E, 0x47], file: file, line: line)
         // IHDR 里的像素宽（大端）：等于导出宽度 × backing scale（2x 屏出 2x 图，更清晰）。
-        let pngWidth = Int(data[data.index(data.startIndex, offsetBy: 16)])
-            << 24 | Int(data[data.index(data.startIndex, offsetBy: 17)]) << 16
-            | Int(data[data.index(data.startIndex, offsetBy: 18)]) << 8
-            | Int(data[data.index(data.startIndex, offsetBy: 19)])
+        // ⚠️ 逐字节拆开写：整根表达式（四次 `data.index(...)` + 移位混算）在老版本
+        // Swift 类型检查器上会触发 "unable to type-check in reasonable time"（CI 的
+        // Xcode 16 实测炸过），这里以可编译性优先，宁可多两行。
+        let header = [UInt8](data.prefix(24))
+        let pngWidth = Int(header[16]) << 24
+            | Int(header[17]) << 16
+            | Int(header[18]) << 8
+            | Int(header[19])
         let scale = pngWidth > Int(expectedWidth) ? 2 : 1
         XCTAssertEqual(CGFloat(pngWidth), expectedWidth * CGFloat(scale), accuracy: 1, file: file, line: line)
     }
