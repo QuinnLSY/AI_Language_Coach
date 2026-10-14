@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>语林 AI Language Coach — 本地优先的 AI 语言私教</title>
+<meta name="description" content="语林是一款跑在 macOS 上的本地优先 AI 语言学习应用：AI 私教对话、实时语音交互、发音纠正、长期学习记忆。">
+<style>
+  :root {
+    --cream: #FFF4E6;
+    --cream-deep: #F9E8D4;
+    --paper: #FFFBF4;
+    --ink: #3D2B1F;
+    --ink-soft: #7A6A5C;
+    --accent: #BE4E04;
+    --accent-fill: #F0A24A;
+    --glow: #FFB703;
+    --pink: #FF8FA3;
+    --purple: #6F5CE8;
+    --leaf: #4E8A5A;
+    --sky: #7FD4F0;
+    --trunk: #A9743F;
+    --card-shadow: 0 6px 24px rgba(61, 43, 31, 0.08);
+    --card-shadow-hover: 0 14px 40px rgba(190, 78, 4, 0.16);
+    --radius: 22px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+    background: var(--cream);
+    color: var(--ink);
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+  ::selection { background: var(--accent-fill); color: var(--ink); }
+
+  /* ---------- 顶部导航 ---------- */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px clamp(20px, 5vw, 64px);
+    background: rgba(255, 244, 230, 0.86);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid rgba(190, 78, 4, 0.10);
+  }
+  .nav-brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; color: var(--ink); text-decoration: none; }
+  .nav-brand img { width: 34px; height: 34px; border-radius: 9px; }
+  .nav-links { display: flex; gap: clamp(14px, 3vw, 34px); align-items: center; }
+  .nav-links a { color: var(--ink-soft); text-decoration: none; font-size: 14.5px; font-weight: 600; transition: color .2s; }
+  .nav-links a:hover { color: var(--accent); }
+  .nav-cta {
+    background: var(--accent); color: #FFF8EF !important;
+    padding: 8px 20px; border-radius: 999px; font-size: 14px; font-weight: 700;
+    box-shadow: 0 4px 14px rgba(190, 78, 4, 0.35);
+    transition: transform .2s, box-shadow .2s;
+  }
+  .nav-cta:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(190, 78, 4, 0.42); color: #FFF8EF; }
+  @media (max-width: 760px) { .nav-links a:not(.nav-cta) { display: none; } }
+
+  /* ---------- Hero ---------- */
+  header {
+    min-height: 100svh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center;
+    padding: 120px 24px 80px;
+    position: relative;
+    background:
+      radial-gradient(ellipse 80% 55% at 50% -10%, rgba(255, 183, 3, 0.20), transparent 60%),
+      radial-gradient(ellipse 60% 45% at 85% 30%, rgba(255, 143, 163, 0.14), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 12% 40%, rgba(127, 212, 240, 0.16), transparent 60%),
+      var(--cream);
+  }
+  .hero-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--paper); border: 1.5px solid rgba(190, 78, 4, 0.22);
+    color: var(--accent); font-size: 13.5px; font-weight: 700;
+    padding: 7px 18px; border-radius: 999px; margin-bottom: 28px;
+    box-shadow: var(--card-shadow);
+    animation: rise .7s cubic-bezier(.22,1,.36,1) both;
+  }
+  .hero-badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--leaf); animation: pulse 2.2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1);} 50% { opacity: .55; transform: scale(.8);} }
+  .hero-logo {
+    width: clamp(108px, 16vw, 148px); height: clamp(108px, 16vw, 148px);
+    border-radius: 30px; box-shadow: 0 20px 54px rgba(190, 78, 4, 0.28);
+    margin-bottom: 30px;
+    animation: rise .8s .08s cubic-bezier(.22,1,.36,1) both, floaty 5.5s 1s ease-in-out infinite;
+  }
+  @keyframes floaty { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+  @keyframes rise { from { opacity: 0; transform: translateY(26px); } to { opacity: 1; transform: translateY(0); } }
+  h1 {
+    font-size: clamp(38px, 6.4vw, 68px); font-weight: 900; letter-spacing: 1px;
+    line-height: 1.18; margin-bottom: 10px;
+    animation: rise .8s .16s cubic-bezier(.22,1,.36,1) both;
+  }
+  h1 .grad {
+    background: linear-gradient(100deg, var(--accent) 10%, var(--glow) 55%, var(--pink) 95%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero-sub {
+    font-size: clamp(16px, 2.4vw, 21px); color: var(--ink-soft); font-weight: 600;
+    max-width: 640px; margin: 0 auto 40px;
+    animation: rise .8s .24s cubic-bezier(.22,1,.36,1) both;
+  }
+  .hero-actions { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; animation: rise .8s .32s cubic-bezier(.22,1,.36,1) both; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 9px;
+    padding: 14px 32px; border-radius: 999px; font-size: 16px; font-weight: 700;
+    text-decoration: none; transition: transform .22s, box-shadow .22s;
+    border: none; cursor: pointer;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), #D95F0E);
+    color: #FFF8EF; box-shadow: 0 10px 28px rgba(190, 78, 4, 0.38);
+  }
+  .btn-primary:hover { transform: translateY(-3px); box-shadow: 0 16px 36px rgba(190, 78, 4, 0.45); }
+  .btn-ghost {
+    background: var(--paper); color: var(--ink);
+    border: 1.5px solid rgba(190, 78, 4, 0.30); box-shadow: var(--card-shadow);
+  }
+  .btn-ghost:hover { transform: translateY(-3px); border-color: var(--accent); color: var(--accent); }
+  .hero-meta { margin-top: 26px; font-size: 13.5px; color: var(--ink-soft); animation: rise .8s .4s cubic-bezier(.22,1,.36,1) both; }
+  .hero-meta code { background: rgba(190,78,4,.09); padding: 2px 8px; border-radius: 7px; font-size: 12.5px; color: var(--accent); }
+
+  .scroll-hint { position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%); opacity: .6; animation: bob 2s infinite; }
+  @keyframes bob { 0%,100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, 8px); } }
+
+  /* 森林剪影 */
+  .forest { position: absolute; bottom: -2px; left: 0; right: 0; pointer-events: none; }
+  .forest svg { display: block; width: 100%; height: auto; }
+
+  /* ---------- 通用区块 ---------- */
+  section { padding: clamp(64px, 9vw, 110px) clamp(20px, 6vw, 72px); max-width: 1200px; margin: 0 auto; }
+  .kicker {
+    display: inline-block; font-size: 13px; font-weight: 800; letter-spacing: 2.5px;
+    color: var(--accent); text-transform: uppercase; margin-bottom: 12px;
+  }
+  h2 { font-size: clamp(28px, 4vw, 42px); font-weight: 900; line-height: 1.25; margin-bottom: 16px; }
+  .section-lead { font-size: clamp(15px, 1.8vw, 17.5px); color: var(--ink-soft); max-width: 720px; margin-bottom: 48px; }
+  .center { text-align: center; }
+  .center .section-lead { margin-left: auto; margin-right: auto; }
+
+  /* ---------- 功能卡片 ---------- */
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(272px, 1fr)); gap: 22px; }
+  .card {
+    background: var(--paper); border-radius: var(--radius);
+    padding: 30px 28px; box-shadow: var(--card-shadow);
+    border: 1px solid rgba(190, 78, 4, 0.07);
+    transition: transform .28s cubic-bezier(.22,1,.36,1), box-shadow .28s;
+    position: relative; overflow: hidden;
+  }
+  .card::before {
+    content: ""; position: absolute; inset: 0 0 auto 0; height: 4px;
+    background: linear-gradient(90deg, var(--accent), var(--glow));
+    opacity: 0; transition: opacity .28s;
+  }
+  .card:hover { transform: translateY(-7px); box-shadow: var(--card-shadow-hover); }
+  .card:hover::before { opacity: 1; }
+  .card-icon {
+    width: 52px; height: 52px; border-radius: 15px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 18px; font-size: 24px;
+    background: linear-gradient(135deg, rgba(255,183,3,.22), rgba(240,162,74,.16));
+  }
+  .card h3 { font-size: 19px; font-weight: 800; margin-bottom: 9px; }
+  .card p { font-size: 14.5px; color: var(--ink-soft); }
+  .card .tag {
+    display: inline-block; margin-top: 14px; font-size: 12px; font-weight: 700;
+    color: var(--accent); background: rgba(190,78,4,.08);
+    padding: 3px 12px; border-radius: 999px;
+  }
+
+  /* ---------- 截图画廊 ---------- */
+  .gallery-tabs { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 36px; }
+  .gallery-tabs button {
+    border: 1.5px solid rgba(190,78,4,.25); background: var(--paper); color: var(--ink-soft);
+    font-size: 14px; font-weight: 700; padding: 9px 22px; border-radius: 999px; cursor: pointer;
+    transition: all .22s; font-family: inherit;
+  }
+  .gallery-tabs button:hover { border-color: var(--accent); color: var(--accent); }
+  .gallery-tabs button.active { background: var(--accent); border-color: var(--accent); color: #FFF8EF; box-shadow: 0 6px 18px rgba(190,78,4,.32); }
+  .gallery-stage { position: relative; }
+  .gallery-frame {
+    display: none; border-radius: 26px; overflow: hidden;
+    box-shadow: 0 24px 70px rgba(61,43,31,.20);
+    border: 1px solid rgba(190,78,4,.12);
+    background: var(--paper);
+    animation: fadein .45s cubic-bezier(.22,1,.36,1);
+  }
+  .gallery-frame.active { display: block; }
+  @keyframes fadein { from { opacity: 0; transform: scale(.985) translateY(10px); } to { opacity: 1; transform: none; } }
+  .gallery-frame img { display: block; width: 100%; height: auto; }
+  .gallery-caption { text-align: center; margin-top: 18px; font-size: 14.5px; color: var(--ink-soft); font-weight: 600; min-height: 26px; }
+
+  /* ---------- 三步上手 ---------- */
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 22px; counter-reset: step; }
+  .step {
+    background: var(--paper); border-radius: var(--radius); padding: 32px 28px 28px;
+    box-shadow: var(--card-shadow); position: relative;
+    border: 1px solid rgba(190,78,4,.07);
+  }
+  .step::before {
+    counter-increment: step; content: counter(step);
+    position: absolute; top: -20px; left: 26px;
+    width: 44px; height: 44px; border-radius: 14px;
+    background: linear-gradient(135deg, var(--accent), var(--glow));
+    color: #FFF8EF; font-size: 20px; font-weight: 900;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 8px 20px rgba(190,78,4,.35);
+  }
+  .step h3 { font-size: 18px; font-weight: 800; margin: 12px 0 9px; }
+  .step p { font-size: 14.5px; color: var(--ink-soft); }
+  .step code, .inline-code {
+    background: rgba(190,78,4,.09); color: var(--accent);
+    padding: 2px 8px; border-radius: 7px; font-size: 13px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+  }
+  .step pre {
+    margin-top: 14px; background: #2C1E12; color: #F5E3CC;
+    border-radius: 14px; padding: 16px 18px; font-size: 13px; line-height: 1.65;
+    overflow-x: auto; font-family: "SF Mono", Menlo, Consolas, monospace;
+  }
+  .step pre .c { color: #9C8570; }
+
+  /* ---------- 隐私条 ---------- */
+  .privacy-band {
+    background: linear-gradient(135deg, #3D2B1F 0%, #5A3A20 60%, #6E3A12 100%);
+    border-radius: 32px; color: #F7EBDC;
+    padding: clamp(40px, 6vw, 68px) clamp(28px, 5vw, 64px);
+    display: grid; grid-template-columns: 1.2fr .8fr; gap: 44px; align-items: center;
+    box-shadow: 0 24px 60px rgba(61,43,31,.28);
+    position: relative; overflow: hidden;
+  }
+  .privacy-band::after {
+    content: ""; position: absolute; right: -90px; top: -90px; width: 300px; height: 300px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,183,3,.28), transparent 70%);
+  }
+  .privacy-band h2 { color: #FFF8EF; }
+  .privacy-band .kicker { color: var(--glow); }
+  .privacy-band p { color: rgba(247,235,220,.82); font-size: 15.5px; }
+  .privacy-list { list-style: none; display: grid; gap: 14px; }
+  .privacy-list li { display: flex; gap: 13px; align-items: flex-start; font-size: 15px; color: rgba(247,235,220,.92); }
+  .privacy-list .tick {
+    flex: none; width: 24px; height: 24px; border-radius: 50%;
+    background: rgba(255,183,3,.22); border: 1.5px solid rgba(255,183,3,.55);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--glow); font-size: 13px; margin-top: 2px;
+  }
+  @media (max-width: 860px) { .privacy-band { grid-template-columns: 1fr; } }
+
+  /* ---------- FAQ ---------- */
+  .faq { display: grid; gap: 14px; max-width: 820px; margin: 0 auto; }
+  details {
+    background: var(--paper); border-radius: 18px; padding: 20px 26px;
+    box-shadow: var(--card-shadow); border: 1px solid rgba(190,78,4,.07);
+  }
+  summary { font-weight: 800; font-size: 15.5px; cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; font-size: 22px; color: var(--accent); font-weight: 400; transition: transform .25s; flex: none; }
+  details[open] summary::after { transform: rotate(45deg); }
+  details p { margin-top: 12px; font-size: 14.5px; color: var(--ink-soft); }
+
+  /* ---------- 下载 CTA ---------- */
+  .final-cta { text-align: center; }
+  .final-cta .box {
+    background: linear-gradient(160deg, var(--paper), var(--cream-deep));
+    border-radius: 36px; padding: clamp(48px, 7vw, 84px) clamp(24px, 5vw, 72px);
+    box-shadow: var(--card-shadow); border: 1.5px solid rgba(190,78,4,.16);
+    position: relative; overflow: hidden;
+  }
+  .final-cta .box::before, .final-cta .box::after {
+    content: ""; position: absolute; border-radius: 50%; pointer-events: none;
+  }
+  .final-cta .box::before { width: 220px; height: 220px; left: -70px; bottom: -70px; background: radial-gradient(circle, rgba(127,212,240,.30), transparent 70%); }
+  .final-cta .box::after { width: 260px; height: 260px; right: -80px; top: -80px; background: radial-gradient(circle, rgba(255,143,163,.26), transparent 70%); }
+  .final-cta h2 { position: relative; }
+  .final-cta .hero-actions { margin-top: 34px; position: relative; }
+  .final-note { margin-top: 22px; font-size: 13.5px; color: var(--ink-soft); position: relative; }
+
+  footer {
+    border-top: 1px solid rgba(190,78,4,.12);
+    padding: 40px clamp(20px, 6vw, 72px) 48px;
+    display: flex; flex-wrap: wrap; gap: 18px; align-items: center; justify-content: space-between;
+    font-size: 13.5px; color: var(--ink-soft);
+  }
+  footer a { color: var(--accent); text-decoration: none; font-weight: 700; }
+  footer a:hover { text-decoration: underline; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="nav-brand" href="#top">
+    <img src="logo.png" alt="语林" onerror="this.src='https://raw.githubusercontent.com/QuinnLSY/AI_Language_Coach/main/Sources/AppUI/Resources/Brand/brand-logo.png'">
+    语林 AI Language Coach
+  </a>
+  <div class="nav-links">
+    <a href="#features">功能</a>
+    <a href="#gallery">界面</a>
+    <a href="#start">上手</a>
+    <a href="#faq">常见问题</a>
+    <a class="nav-cta" href="https://github.com/QuinnLSY/AI_Language_Coach/releases" target="_blank" rel="noopener">下载 macOS 版</a>
+  </div>
+</nav>
+
+<header id="top">
+  <div class="hero-badge"><span class="dot"></span>v1.0.0 已发布 · macOS 15+ · Swift 6</div>
+  <img class="hero-logo" src="logo.png" alt="语林 AI Language Coach" onerror="this.src='https://raw.githubusercontent.com/QuinnLSY/AI_Language_Coach/main/Sources/AppUI/Resources/Brand/brand-logo.png'">
+  <h1>本地优先的<br><span class="grad">AI 语言私教</span></h1>
+  <p class="hero-sub">听得懂、记得住、纠得准。对着电脑说话，AI 老师用语音回应，说错了当场纠正——学习数据只留在你的 Mac 上。</p>
+  <div class="hero-actions">
+    <a class="btn btn-primary" href="https://github.com/QuinnLSY/AI_Language_Coach/releases" target="_blank" rel="noopener">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      下载应用
+    </a>
+    <a class="btn btn-ghost" href="https://github.com/QuinnLSY/AI_Language_Coach" target="_blank" rel="noopener">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55 0-.27-.01-1.17-.02-2.12-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.69 1.25 3.35.96.1-.75.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11.1 11.1 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.7 5.38-5.27 5.66.41.36.78 1.06.78 2.14 0 1.55-.01 2.79-.01 3.17 0 .31.21.67.8.55A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg>
+      GitHub 仓库
+    </a>
+  </div>
+  <p class="hero-meta">本地 Ollama /  whisper.cpp / Edge-TTS 即可运行 · 也可切换云端 API · <code>AGPL-3.0 + 禁商用</code></p>
+
+  <div class="forest" aria-hidden="true">
+    <svg viewBox="0 0 1440 130" preserveAspectRatio="none">
+      <path fill="#4E8A5A" opacity=".18" d="M0 130 L0 74 Q60 40 120 66 Q150 26 210 58 Q260 30 320 62 Q380 22 440 60 Q500 34 560 66 Q620 30 690 62 Q750 26 810 58 Q870 34 930 66 Q990 28 1050 60 Q1110 32 1170 64 Q1230 30 1290 62 Q1350 36 1440 66 L1440 130 Z"/>
+      <path fill="#3E6E49" opacity=".22" d="M0 130 L0 96 Q80 70 160 92 Q240 64 320 90 Q400 62 480 92 Q560 66 640 94 Q720 68 800 92 Q880 64 960 92 Q1040 66 1120 94 Q1200 68 1280 92 Q1360 70 1440 94 L1440 130 Z"/>
+      <path fill="#A9743F" d="M700 130 L700 84 Q716 70 732 84 L732 130 Z"/>
+      <circle cx="716" cy="66" r="30" fill="#4E8A5A" opacity=".85"/>
+      <circle cx="688" cy="78" r="20" fill="#3E6E49" opacity=".9"/>
+      <circle cx="744" cy="78" r="20" fill="#5FA06B" opacity=".9"/>
+    </svg>
+  </div>
+  <div class="scroll-hint" aria-hidden="true">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#BE4E04" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+  </div>
+</header>
+
+<section id="features">
+  <div class="center">
+    <span class="kicker">Features</span>
+    <h2>一个真正会教书的 AI 私教</h2>
+    <p class="section-lead">不是「ChatGPT + 麦克风」。语林把教学能力、纠错能力、记忆能力和语言训练能力装进一个原生 macOS 应用。</p>
+  </div>
+  <div class="features">
+    <div class="card">
+      <div class="card-icon">🎓</div>
+      <h3>入学定级 · 因材施教</h3>
+      <p>首次对话测定水平，老师从此按你的程度调整词汇难度、语速、句长与纠错频率——不是所有学生得到同样的回答。</p>
+      <span class="tag">难度自适应</span>
+    </div>
+    <div class="card">
+      <div class="card-icon">💬</div>
+      <h3>AI 对话练习</h3>
+      <p>自由对话、语音输入、「听老师读」。老师人设稳定，回复必然接住你的上一句，不会说着说着重新开场。</p>
+      <span class="tag">实时语音</span>
+    </div>
+    <div class="card">
+      <div class="card-icon">✏️</div>
+      <h3>语法纠错卡片</h3>
+      <p>每次口头纠正都落地为一张三色卡片：错误原文、修改建议、原因讲解，自动进错题本，反复犯的错误会被反复追问。</p>
+      <span class="tag">长期记忆</span>
+    </div>
+    <div class="card">
+      <div class="card-icon">🎭</div>
+      <h3>情景对话 · 面试模式</h3>
+      <p>一句话生成一个完整情景：机场、餐厅、面试、酒店、就医……多轮剧情带阶段目标；面试结束给出优势 / 短板 / 练习建议复盘。</p>
+      <span class="tag">动态生成</span>
+    </div>
+    <div class="card">
+      <div class="card-icon">🎙️</div>
+      <h3>跟读与发音评测</h3>
+      <p>段落级跟读，逐句录音、逐句评分。音素准确度、重音、语调、流畅度四维打分，分数与波形一目了然。</p>
+      <span class="tag">四维评分</span>
+    </div>
+    <div class="card">
+      <div class="card-icon">📖</div>
+      <h3>阅读 · 听力 · 写作</h3>
+      <p>每日短文配四选一理解题；听力三种形式（精听默写 / 关键词捕捉 / 听句选义）；写作每天一题，老师批改写建议。</p>
+      <span class="tag">每日更新</span>
+    </div>
+    <div class="card">
+      <div class="card-icon">📚</div>
+      <h3>词典与词汇本</h3>
+      <p>阅读划词即出气泡：释义、音标、例句，一键收进词汇本。按记忆曲线安排复习，练习中遇到的生词自动进入每日推荐。</p>
+      <span class="tag">记忆曲线</span>
+    </div>
+    <div class="card">
+      <div class="card-icon">🌳</div>
+      <h3>每日任务 · 成长之树</h3>
+      <p>老师黑板每天布置三项任务，完成即庆祝；成长之树随学习天数生长，打卡连续天数、年度学习记录陪你回看一整年。</p>
+      <span class="tag">习惯养成</span>
+    </div>
+    <div class="card">
+      <div class="card-icon">🌗</div>
+      <h3>日夜双主题</h3>
+      <p>白天森林时刻，夜晚星月主题，一键切换。动画效果与轻音效独立开关，尊重每一位用户的偏好与系统减少动态设置。</p>
+      <span class="tag">原生体验</span>
+    </div>
+  </div>
+</section>
+
+<section id="gallery" class="center">
+  <span class="kicker">Screenshots</span>
+  <h2>看一眼，就想坐下来学一会儿</h2>
+  <p class="section-lead">米奶油底、森林橘点缀的原生界面。左侧栏导航，中间是课堂，右边是成长之树。</p>
+
+  <div class="gallery-tabs" id="galleryTabs">
+    <button class="active" data-shot="main-day">主界面</button>
+    <button data-shot="reading">阅读 · 划词</button>
+    <button data-shot="vocabulary">词汇本</button>
+    <button data-shot="progress">学习进度</button>
+    <button data-shot="shadowing">跟读评分</button>
+    <button data-shot="dictionary">词典</button>
+  </div>
+  <div class="gallery-stage" id="galleryStage">
+    <div class="gallery-frame active" data-shot="main-day">
+      <img src="screenshots/main-day.jpg" alt="主界面：对话与成长之树" loading="lazy">
+    </div>
+    <div class="gallery-frame" data-shot="reading">
+      <img src="screenshots/reading.jpg" alt="阅读短文与划词气泡" loading="lazy">
+    </div>
+    <div class="gallery-frame" data-shot="vocabulary">
+      <img src="screenshots/vocabulary.jpg" alt="词汇本与每日推荐" loading="lazy">
+    </div>
+    <div class="gallery-frame" data-shot="progress">
+      <img src="screenshots/progress.jpg" alt="学习进度总览" loading="lazy">
+    </div>
+    <div class="gallery-frame" data-shot="shadowing">
+      <img src="screenshots/shadowing.jpg" alt="跟读逐句评分" loading="lazy">
+    </div>
+    <div class="gallery-frame" data-shot="dictionary">
+      <img src="screenshots/dictionary.jpg" alt="词典查询" loading="lazy">
+    </div>
+  </div>
+  <p class="gallery-caption" id="galleryCaption">对话练习与成长之树：左边上课，右边看树一点点长大。</p>
+</section>
+
+<section id="start">
+  <div class="center">
+    <span class="kicker">Get Started</span>
+    <h2>三步开始学习</h2>
+    <p class="section-lead">下载即用；想从源码构建也只要三条命令。</p>
+  </div>
+  <div class="steps">
+    <div class="step">
+      <h3>下载应用</h3>
+      <p>前往 GitHub Releases 下载 <span class="inline-code">AI_Language_Coach.app</span>，拖入「应用程序」。首次打开如被 Gatekeeper 拦住：</p>
+      <pre>xattr -dr com.apple.quarantine \
+  /Applications/AI_Language_Coach.app</pre>
+    </div>
+    <div class="step">
+      <h3>准备本地模型</h3>
+      <p>安装并运行 <span class="inline-code">Ollama</span>，拉一个对话模型。语音能力（Edge-TTS 代理 / whisper.cpp）开屏会自动拉起，失败只在对应功能处提示，可随时改云端 API。</p>
+      <pre>ollama pull qwen3:8b
+<span class="c"># 或换 DeepSeek / OpenAI / OpenRouter</span></pre>
+    </div>
+    <div class="step">
+      <h3>从源码构建</h3>
+      <p>需要 macOS 15+ 与 Swift 6.0 工具链（Xcode 16+）。开发者也可以直接编译运行、跑全部测试：</p>
+      <pre>git clone https://github.com/QuinnLSY/AI_Language_Coach.git
+cd AI_Language_Coach
+swift run AILanguageCoach
+<span class="c"># 打包：zsh Scripts/make_app.sh</span></pre>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="privacy-band">
+    <div>
+      <span class="kicker">Privacy First</span>
+      <h2>你的学习数据，只留在你的 Mac 上</h2>
+      <p style="margin-top:14px">语林从第一天就是 Local First：核心能力优先走本地模型，网络不是必需条件。应用内「隐私与安全」页列明每一项能力的数据去向——本地回环地址不算外发，哪些能力会联网一目了然。</p>
+      <p style="margin-top:14px">学习库（SQLite）与配置都在本机，支持一键备份与恢复，绝不随仓库分发。</p>
+    </div>
+    <ul class="privacy-list">
+      <li><span class="tick">✓</span><span><strong>本地优先</strong>：LLM / ASR / TTS / 发音评测 / 记忆索引均可本地运行</span></li>
+      <li><span class="tick">✓</span><span><strong>模型可插拔</strong>：本地 Ollama 与主流云端 API 自由切换</span></li>
+      <li><span class="tick">✓</span><span><strong>密钥只进本机</strong>：云端 API 密钥写入本机配置，不随仓库分发</span></li>
+      <li><span class="tick">✓</span><span><strong>数据可备份</strong>：学习库一键备份恢复，导出属于你自己</span></li>
+    </ul>
+  </div>
+</section>
+
+<section id="faq" class="center">
+  <span class="kicker">FAQ</span>
+  <h2>常见问题</h2>
+  <p class="section-lead">遇到问题先看这里，其余欢迎提 Issue。</p>
+  <div class="faq" style="text-align:left">
+    <details>
+      <summary>没有 Ollama 能用吗？</summary>
+      <p>可以。设置里可切换到任何云端 API（DeepSeek / OpenAI / OpenRouter / AgnesAI / SiliconFlow 等，自备密钥），或先用内置 Mock Provider 体验完整界面与流程。语音功能同理：Edge-TTS 代理、本地 TTS、云端音色任选。</p>
+    </details>
+    <details>
+      <summary>「听老师读」报 500 怎么办？</summary>
+      <p>默认的 Edge-TTS 走微软上游，偶发临时封堵会返回 500——稍后重试，或在「设置 → 模型提供商」切换本地 TTS（:8855）或云端音色即可。</p>
+    </details>
+    <details>
+      <summary>支持哪些语言？</summary>
+      <p>当前学习语言为英语（美式 / 英式 / 澳式口音可选），母语支持简体中文、繁體中文与 English——释义、翻译与讲解落在你选的母语上。</p>
+    </details>
+    <details>
+      <summary>数据存在哪里？会上传吗？</summary>
+      <p>学习库与配置在本机 <span class="inline-code">.workbuddy/app-config/</span>，已在 .gitignore 排除，不会上传。调用留痕（remote-calls.jsonl）也在本机。除你主动启用的云端 API 外，没有数据离开你的电脑。</p>
+    </details>
+    <details>
+      <summary>可以商用吗？</summary>
+      <p>不可以。项目采用 AGPL-3.0 + 附加非商用条款：仅允许非商业目的使用，网络部署同样需要开放对应源代码。商业授权请通过 GitHub Issues 联系。</p>
+    </details>
+  </div>
+</section>
+
+<section class="final-cta">
+  <div class="box">
+    <span class="kicker">Download</span>
+    <h2>今天，就开始和老师说话</h2>
+    <p class="section-lead" style="margin-bottom:0">免费 · 开源 · 本地优先。下载即用，数据归你。</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="https://github.com/QuinnLSY/AI_Language_Coach/releases" target="_blank" rel="noopener">前往 Releases 下载</a>
+      <a class="btn btn-ghost" href="https://github.com/QuinnLSY/AI_Language_Coach" target="_blank" rel="noopener">查看源码</a>
+    </div>
+    <p class="final-note">macOS 15 (Sequoia) 及以上 · Apple Silicon / Intel · v1.0.0 · AGPL-3.0 + 非商用附加条款</p>
+  </div>
+</section>
+
+<footer>
+  <span>语林 AI Language Coach · 用 ❤️ 与 Swift 打造</span>
+  <span>
+    <a href="https://github.com/QuinnLSY/AI_Language_Coach" target="_blank" rel="noopener">GitHub</a> ·
+    <a href="https://github.com/QuinnLSY/AI_Language_Coach/releases" target="_blank" rel="noopener">Releases</a> ·
+    <a href="https://github.com/QuinnLSY/AI_Language_Coach/issues" target="_blank" rel="noopener">Issues</a> ·
+    <a href="https://github.com/QuinnLSY/AI_Language_Coach/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+  </span>
+</footer>
+
+<script>
+  // 画廊切换
+  (function () {
+    var tabs = document.querySelectorAll('#galleryTabs button');
+    var frames = document.querySelectorAll('.gallery-frame');
+    var caption = document.getElementById('galleryCaption');
+    var captions = {
+      'main-day': '对话练习与成长之树：左边上课，右边看树一点点长大。',
+      'reading': '每日短文 + 划词气泡：文中任意单词一点，释义、音标、收词一气呵成。',
+      'vocabulary': '词汇本：记忆曲线安排复习，每日推荐自动接入练习中遇到的生词。',
+      'progress': '学习进度：能力定位、语法趋势、词汇增长、发音趋势一页看全。',
+      'shadowing': '跟读：逐句录音、逐句评分，分数与波形实时可见。',
+      'dictionary': '词典：中英释义 + 音标 + 例句，划词即查。'
+    };
+    tabs.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        tabs.forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        var key = btn.getAttribute('data-shot');
+        frames.forEach(function (f) {
+          f.classList.toggle('active', f.getAttribute('data-shot') === key);
+        });
+        caption.textContent = captions[key] || '';
+      });
+    });
+  })();
+</script>
+
+</body>
+</html>
