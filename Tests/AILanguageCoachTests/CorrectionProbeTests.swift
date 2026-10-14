@@ -160,6 +160,47 @@ final class CorrectionProbeTests: XCTestCase {
         XCTAssertEqual(chat.correctionCount, 0)
     }
 
+    // MARK: - 陈旧纠错（用户 2026-10-14 报障）
+
+    /// 老师把两轮前的纠错原样重发成 `[[FIX]]` 行：卡片挂在与学员最新一句
+    /// 毫无关系的回复下。解析层整条丢弃；这一轮因此仍算「没交代」→ 追问一次
+    /// （追问结果过同一道闸，拿不到就当作本轮无纠错）。
+    func testStaleCorrectionIsDroppedAndProbed() async throws {
+        let (chat, probes, cleanup) = try await makeChat(
+            mainReply: "Watermelon is a perfect summer treat! It is sweet and juicy.\n"
+                + "[[FIX]] I has no idea about what to chat. => I have no idea what to chat about. => has 改为 have",
+            probeReply: "[[FIX]] NONE"
+        )
+        defer { cleanup() }
+
+        chat.send("I am eating watermelon.")
+        await waitUntil { !chat.messages.isEmpty && chat.isGenerating == false }
+
+        XCTAssertEqual(probes.count, 1, "陈旧行不算交代，应当追问一次")
+        XCTAssertEqual(chat.correctionCount, 0, "陈旧纠错不许落成卡片 / 进错题本")
+        XCTAssertFalse(chat.messages.last?.content.contains("[[FIX]]") ?? true, "纠错行不许漏进正文")
+        XCTAssertNil(chat.errorMessage)
+    }
+
+    /// 同一轮里真纠错与陈旧纠错并存：只留本轮的，且不再追问。
+    func testStaleLineBesideARealOneKeepsOnlyTheRealOne() async throws {
+        let (chat, probes, cleanup) = try await makeChat(
+            mainReply: "Good try!\n"
+                + "[[FIX]] I eat fruit at my dinner today. => I ate fruit for dinner today. => 过去发生用 ate；for dinner\n"
+                + "[[FIX]] I has no idea about what to chat. => I have no idea what to chat about. => has 改为 have",
+            probeReply: "[[FIX]] 这一行不该被用到。"
+        )
+        defer { cleanup() }
+
+        chat.send("I eat fruit at my dinner today.")
+        await waitUntil { !chat.messages.isEmpty && chat.isGenerating == false }
+
+        XCTAssertEqual(probes.count, 0, "这一轮有真纠错 = 交代过了，不许再问")
+        XCTAssertEqual(chat.correctionCount, 1, "只留本轮这条")
+        let card = try XCTUnwrap(chat.correctionsByMessage.values.first?.first)
+        XCTAssertEqual(card.original, "I eat fruit at my dinner today.")
+    }
+
     // MARK: - 夹具
 
     /// 追问调用计数器（`responder` 是 `@Sendable`，要自己管同步）。

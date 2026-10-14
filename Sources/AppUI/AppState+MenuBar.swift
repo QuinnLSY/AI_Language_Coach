@@ -42,4 +42,12 @@ extension AppState {
     public func setDockIconHidden(_ hidden: Bool) {
         dockIconHidden = hidden
     }
+
+    /// 显示 / 收起状态栏那枚叶子（设置页「显示」卡里的开关）。
+    ///
+    /// 与 Dock 图标的分工：那个收起了菜单栏就是唯一入口，开关必须永远够得着；
+    /// 这个收起了应用照样从 Dock / 聚焦打开，所以开关放在设置里正合适。
+    public func setStatusBarIconHidden(_ hidden: Bool) {
+        statusBarIconHidden = hidden
+    }
 }

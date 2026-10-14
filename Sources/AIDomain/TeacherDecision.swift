@@ -41,7 +41,12 @@ public struct TeacherDecision: Codable, Sendable, Equatable {
             switch self {
             case .conversation: "Keep the conversation moving naturally."
             case .correction: "Spend a moment on the mistake below, then move on."
-            case .drill: "The learner keeps repeating this mistake — work it once more into a new sentence."
+            // ⚠️ 「集中练」≠「把旧纠错再纠一遍」：学员这一刻并没有说错话。
+            // 旧指令 "work it once more into a new sentence" 被模型读成
+            // 「再纠正一次」—— 用户 2026-10-14 报障：老师隔着两轮把
+            // "I has no idea… => …" 原样重发成 [[FIX]] 行，卡片挂在无关的最新回复下。
+            // 现在把动作说死：**示范**正确形式、邀请尝试；纠错行只认本轮新错。
+            case .drill: "The learner has made this mistake before. Model the correct form in a fresh sentence and invite them to try it — never re-correct the old sentence itself, and write a [[FIX]] line only for a NEW mistake in the learner's latest message."
             case .encouragement: "The learner has been answering briefly — make it easy and inviting to say more."
             case .wrapUp: "Wrap the scene up warmly and let the learner finish."
             }

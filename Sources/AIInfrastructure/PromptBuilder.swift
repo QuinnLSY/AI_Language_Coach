@@ -91,14 +91,15 @@ public enum PromptBuilder {
             template = loaded
         } else {
             // ⚠️ 兜底必须与 `learning_memory.txt` 口径一致（尤其「(x2) 以上要主动给机会」
-            // 那条）：模板文件万一取不到，老师拿到的指令不能因此少一条，
-            // 否则同一份记忆在不同机器上教出两种强度。
+            // 与「不许对没犯过的错落 [[FIX]] 行」那两条）：模板文件万一取不到，
+            // 老师拿到的指令不能因此少一条，否则同一份记忆在不同机器上教出两种强度。
             template = """
             Learner memory from earlier sessions — use it lightly, never recite it:
             {memory_items}
             - Mistakes marked (x2) or more: when the conversation naturally allows it, steer toward \
             a question the learner would have to answer using that form, and let them try before \
-            you correct. At most once per reply, and never announce it.
+            you correct. At most once per reply, and never announce it. Never write a [[FIX]] line \
+            for a listed mistake the learner did not just make — wait until they try.
             - Reply in {learning_language} only, even if the learner writes in {native_language}.
             """
         }

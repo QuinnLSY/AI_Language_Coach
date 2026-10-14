@@ -432,6 +432,11 @@ public struct MainView: View {
                     starterQuestions: state.starterQuestions,
                     kickoffs: state.kickoffSuggestions,
                     onKickoff: { card in Task { await state.performKickoff(card) } },
+                    // 「继续上次对话」（2026-10-14 引导卡改造）：第一位的那颗按钮。
+                    // 可用性在启动时只读算好（`prepareLaunchGuide`），点了才总结上次、发起聊天。
+                    canContinueLast: state.launchContinuationAvailable,
+                    isPreparingOpening: state.isPreparingOpening,
+                    onContinueLast: { state.continueLastConversationFromGuide() },
                     warmUpPlan: state.warmUpPlan,
                     warmUp: state.warmUp,
                     warmUpNotice: state.warmUpNotice,

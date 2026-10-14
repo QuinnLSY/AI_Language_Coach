@@ -154,7 +154,8 @@ public struct AppSidebar: View {
                     isActive: !state.showingSettings && state.activeSection == section,
                     shortcutDigit: section.shortcutDigit,
                     // 老师已经在后台开口了，但人不在对话页 —— 只在「练习」上点一个提示点，
-                    // 不弹窗、不抢画面（开场白现在是后台任务，见 `AppState.openInBackground`）。
+                    // 不弹窗、不抢画面（那一轮现在是点击「继续上次对话」后起的任务，
+                    // 见 `AppState.continueLastConversation`）。
                     badge: section == .practice && state.teacherOpenerPending
                 ) {
                     Task { await state.go(to: section) }

@@ -287,6 +287,26 @@ public struct SettingsView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
 
+                Divider().overlay(theme.divider)
+
+                // 状态栏那枚叶子（2026-10-14）：用户要求「展不展示由自己定」。
+                // ⚠️ 提示里必须带上「系统设置 → 菜单栏」：macOS 26 起菜单栏图标
+                // 还受一道系统级权限管（关掉后本应用里再打开也不显示），
+                // 不说的话用户只会以为这个开关是坏的。
+                Toggle(isOn: Binding(
+                    get: { !state.statusBarIconHidden },
+                    set: { on in state.setStatusBarIconHidden(!on) }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("显示菜单栏图标")
+                            .appFont(13, design: .rounded)
+                        Text(statusBarIconHint)
+                            .appFont(11, design: .rounded)
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                }
+                .toggleStyle(.switch)
+
                 Text(displayHint)
                     .appFont(12, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
@@ -306,6 +326,12 @@ public struct SettingsView: View {
             let density = d == .regular ? "留白保持标准" : "上下留白更\(d == .compact ? "紧凑" : "宽松")"
             return "\(size)，\(density)。只影响界面排版，不改动任何内容。"
         }
+    }
+
+    /// 菜单栏图标开关的说明。**常驻不变**（不随开关状态改口）——
+    /// 变来变去的说明本身就会让人怀疑开关没生效。
+    private var statusBarIconHint: String {
+        "菜单栏那枚叶子点开就能看到今天练什么，一步跳到对应页面。若打开后仍不显示，请在「系统设置 → 菜单栏」里允许语林显示。"
     }
 
     private var themeCard: some View {

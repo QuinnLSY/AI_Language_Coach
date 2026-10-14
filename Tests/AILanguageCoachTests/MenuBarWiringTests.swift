@@ -146,6 +146,29 @@ final class MenuBarWiringTests: XCTestCase {
         XCTAssertFalse(UserDefaults.standard.bool(forKey: AppState.dockIconHiddenKey))
     }
 
+    /// 状态栏图标开关同样要落盘（2026-10-14）：用户把它收起过一次，
+    /// 下次开屏就不该看它又冒出来 —— 那等于这个开关没存在过。
+    func testStatusBarIconPreferencePersists() {
+        let before = UserDefaults.standard.bool(forKey: AppState.statusBarIconHiddenKey)
+        addTeardownBlock { UserDefaults.standard.set(before, forKey: AppState.statusBarIconHiddenKey) }
+
+        let state = makeState()
+        state.setStatusBarIconHidden(true)
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: AppState.statusBarIconHiddenKey))
+        state.setStatusBarIconHidden(false)
+        XCTAssertFalse(UserDefaults.standard.bool(forKey: AppState.statusBarIconHiddenKey))
+    }
+
+    /// 启动时用户上次收起了图标：`install` 只记状态源、不装 ——
+    /// 启动那一刻就装回去，等于把用户的选择无声吞掉。
+    func testInstallRespectsThePersistedHiddenChoice() throws {
+        let raw = try Self.code("Sources/AppUI/MenuBarController.swift")
+        XCTAssertTrue(
+            raw.contains("guard !state.statusBarIconHidden else { return }"),
+            "install 必须在装之前问一句用户上次是不是收起了"
+        )
+    }
+
     // MARK: - 源码哨兵（删一行也不会编译报错的那几处）
 
     func testAppMainHandsStateToTheDelegate() throws {
@@ -221,6 +244,21 @@ final class MenuBarWiringTests: XCTestCase {
     func testMenuBarInstallGuardsUnpackedProcesses() throws {
         let raw = try Self.code("Sources/AppUI/MenuBarController.swift")
         XCTAssertTrue(raw.contains("guard AppKitHost.isPackedApp, statusItem == nil else { return }"))
+    }
+
+    /// 设置页那颗开关要真的通到控制器（2026-10-14）：
+    /// 开关接在 UI 上、`setStatusItemVisible` 没人调的话，图标永远不会消失。
+    func testStatusBarToggleReachesTheController() throws {
+        let state = try Self.code("Sources/AppUI/AppState.swift")
+        XCTAssertTrue(
+            state.contains("MenuBarController.shared.setStatusItemVisible(!statusBarIconHidden)"),
+            "didSet 要把开关翻成 setStatusItemVisible 调用"
+        )
+        let settings = try Self.code("Sources/AppUI/Views/SettingsView.swift")
+        XCTAssertTrue(
+            settings.contains("state.setStatusBarIconHidden(!on)"),
+            "设置页的开关要接到 setter 上"
+        )
     }
 
     // MARK: - 工装

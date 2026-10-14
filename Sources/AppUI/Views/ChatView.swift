@@ -13,8 +13,12 @@ public struct ChatView: View {
     let chat: ChatService
     let modelName: String?
     let health: ProviderHealth
-    /// 启动装配中（`AppState.isBooting`）：模型还没接上，对话区要给等待态 ——
-    /// 此时显示「和老师打个招呼」是在说谎，那一刻打招呼不会有回应。
+    /// 启动装配中（`AppState.isBooting`）：本地服务在拉起来、模型还没接上。
+    ///
+    /// ⚠️ 它**不再**决定对话区给不给等待卡（2026-10-14 报障）：开屏已不再自动开场，
+    /// 装配期直接显示引导卡，「老师正在准备…」那张卡只在 `isTeacherPreparing` 时出现。
+    /// 这个参数留着是因为自动朗读要挡它 —— 续做决策走完会揭开上次那段历史，
+    /// 那一下「条数从 0 跳上来」不该被念出来（见 `onChange(of: chat.visibleMessages.count)`）。
     var isBooting: Bool = false
     /// 状态栏用：生效 Provider 名称（本地模型 / DeepSeek / OpenRouter…）。
     var providerLabel: String = ""
@@ -86,6 +90,21 @@ public struct ChatView: View {
     var onKickoff: ((KickoffSuggestion) -> Void)? = nil
     /// 离屏注入的「鼠标停在哪张卡上」（真机 hover 在离屏里不产生，只能靠参数喂）。
     var forcedHoveredKickoffID: String? = nil
+
+    // MARK: 继续上次对话（2026-10-14 引导卡改造）
+    /// 有没有「上次」可继续（启动时只读地算好：内存里有恢复历史，或库里有会话行）。
+    ///
+    /// ⚠️ false 时那颗按钮**不画**：第一次打开、什么都没有的时候，
+    /// 凑一颗点下去只会收到一句泛泛招呼的按钮，比没有更糟。
+    var canContinueLast: Bool = false
+    /// 「继续上次对话」正在跑（总结上次 → 发起聊天）。这期间引导卡让位给等待卡，
+    /// 按钮也用不着画禁用态 —— 它所在的空态整块都不显示了。
+    var isPreparingOpening: Bool = false
+    /// 点「继续上次对话」。nil = 只读展示（渲染回归用）。
+    var onContinueLast: (() -> Void)? = nil
+    /// 离屏注入的「鼠标停在这颗按钮上」（真机 hover 在离屏里不产生，只能靠参数喂，
+    /// 与 `forcedHoveredKickoffID` 同款处理 —— 底色一致了，悬停色也得一起钉住）。
+    var forcedHoveredContinueLast: Bool = false
 
     // MARK: 碎片热身（⑦-B②）
     /// 这一轮热身能做哪几步（nil = 一步都排不出来 → 整块不画，不留空壳）。
@@ -223,6 +242,9 @@ public struct ChatView: View {
     @State private var editingDraft: String = ""
     /// 删除确认的两步状态（点垃圾桶只登记，确认之后才真删）。
     @State private var deleteConfirmation = DeleteConfirmation()
+    /// 「继续上次对话」的悬停态。与话题卡同款：真机由 `onHover` 喂，
+    /// 离屏渲染靠 `forcedHoveredContinueLast` 参数喂。
+    @State private var continueLastHovered = false
 
     /// 学员气泡那三颗图标**常驻时的透明度**（悬停时 100%）。
     ///
@@ -265,6 +287,10 @@ public struct ChatView: View {
                 kickoffs: [KickoffSuggestion] = [],
                 onKickoff: ((KickoffSuggestion) -> Void)? = nil,
                 forcedHoveredKickoffID: String? = nil,
+                canContinueLast: Bool = false,
+                isPreparingOpening: Bool = false,
+                onContinueLast: (() -> Void)? = nil,
+                forcedHoveredContinueLast: Bool = false,
                 warmUpPlan: WarmUpPlan? = nil,
                 warmUp: WarmUpProgress? = nil,
                 warmUpNotice: AppNotice? = nil,
@@ -355,6 +381,12 @@ public struct ChatView: View {
         self.kickoffs = kickoffs
         self.onKickoff = onKickoff
         self.forcedHoveredKickoffID = forcedHoveredKickoffID
+        // ⚠️ 这三个也必须显式赋值（同上一段）：漏一个的表现是
+        // 「有上次对话却不显示继续按钮」/「点了之后界面毫无反馈」。
+        self.canContinueLast = canContinueLast
+        self.isPreparingOpening = isPreparingOpening
+        self.onContinueLast = onContinueLast
+        self.forcedHoveredContinueLast = forcedHoveredContinueLast
         self.warmUpPlan = warmUpPlan
         self.warmUp = warmUp
         self.warmUpNotice = warmUpNotice
@@ -798,25 +830,45 @@ public struct ChatView: View {
 
     // MARK: - 消息区
 
-    /// 老师开场白 / 启动装配期间：这两段都没有流式内容，却可能是最长的一次等待
-    /// （冷启动实测 30–60s），必须由专门的等待卡承接（见 `pendingCard`）。
-    private var isTeacherPreparing: Bool { isBooting || chat.isGreeting }
+    /// 老师**真的被叫来了**、正要说话：点「继续上次对话」后的整段（总结上次 → 写开场白），
+    /// 或正在生成开场白。
+    ///
+    /// ⚠️ 这里**不含** `isBooting`（2026-10-14 报障）：启动装配那几秒属于「本地服务在拉起来」，
+    /// 开屏已经不再自动开场，老师根本没被叫来 —— 挂一张「老师正在准备…」等于无中生有一条
+    /// 老师发言（那张卡与老师的消息气泡同形），用户看到的就是「一打开老师先发起对话、
+    /// 过一会儿又被引导卡顶掉」。装配期直接显示引导卡。
+    private var isTeacherPreparing: Bool { chat.isGreeting || isPreparingOpening }
+
+    /// 等待卡上的真实阶段。两个信号的分界线都不是猜的：
+    /// 总结上次（`isPreparingOpening`）→ 写开场白（`chat.isGreeting`）。
+    ///
+    /// ⚠️ `chat.isGreeting` 必须排在前面判：总结与写开场白同属一次「继续上次对话」，
+    /// 复盘跑完紧接着就是生成 —— 顺序反了的话，开场白那半程会一直显示「正在总结上次的练习」。
+    private var waitStage: TeacherWaitStage {
+        if chat.isGreeting { return .greeting }
+        return .reviewing
+    }
 
     @ViewBuilder
     private var messageArea: some View {
         // ⚠️ 判据走 `ChatEmptyStateRule`（纯函数、有单测）：这条逻辑漏一个条件，
-        // 界面就开始说谎 —— 启动装配那几秒的「和老师打个招呼」正是这么来的。
+        // 界面就开始说谎 —— 开屏装配那几秒到底该给引导卡还是等待卡，正是这条判据说了算。
         if ChatEmptyStateRule.showsInvitation(
             messageCount: chat.visibleMessages.count,
             hasStreamingText: !chat.streamingText.isEmpty,
             hasStreamingReasoning: !chat.streamingReasoning.isEmpty,
             isGenerating: chat.isGenerating,
-            isBooting: isBooting
+            isTeacherPreparing: isTeacherPreparing
         ) {
             // 空态：小动物相对整个对话区垂直居中。
             GeometryReader { geo in
                 VStack(spacing: 14) {
                     emptyHint
+                    // 「继续上次对话」（2026-10-14 改造）：引导卡第一位。
+                    // 开屏不再自动开场 —— 点了它才进入「总结上次 → 发起聊天」。
+                    if canContinueLast {
+                        continueLastButton
+                    }
                     KickoffRow(
                         suggestions: kickoffs,
                         onPick: onKickoff,
@@ -869,10 +921,11 @@ public struct ChatView: View {
                             ))
                         }
 
-                        // 判据同样走纯函数：`isBooting` 那段 `isGenerating` 还是 false，
-                        // 漏掉就是几秒全白（消息也是空的）。
+                        // 判据同样走纯函数：`isTeacherPreparing` 那两段（总结上次 / 写开场白）
+                        // 里 `isGenerating` 都是 false，漏掉就是引导卡赖着不走。
                         if ChatEmptyStateRule.showsPendingCard(
-                            isGenerating: chat.isGenerating, isBooting: isBooting
+                            isGenerating: chat.isGenerating,
+                            isTeacherPreparing: isTeacherPreparing
                         ) {
                             pendingCard
                                 .id("streaming")
@@ -1015,11 +1068,11 @@ public struct ChatView: View {
     @ViewBuilder
     private var pendingCard: some View {
         if isTeacherPreparing {
-            // 真实阶段：装配（拉服务 / 加载模型）→ 生成开场白。分界线是
-            // `isBooting` / `chat.isGreeting` 这两个真实信号，不是按秒数编的。
+            // 真实阶段：总结上次 → 生成开场白。分界线是
+            // `isPreparingOpening` / `chat.isGreeting` 这两个真实信号，不是按秒数编的。
             TeacherPreparingCard(
                 teacherKind: teacherKind,
-                stage: isBooting ? .booting : .greeting
+                stage: waitStage
             )
         } else {
             streamingCard
@@ -1102,6 +1155,68 @@ public struct ChatView: View {
                 .appFont(14, design: .rounded)
                 .foregroundStyle(theme.secondaryText)
         }
+    }
+
+    /// 「继续上次对话」：引导卡第一位的那颗按钮（2026-10-14 改造）。
+    ///
+    /// 为什么它是主操作：点一下就走完整流程（总结上次的练习 → 换段 / 续做情景 →
+    /// 带着复盘开场），正是「打开应用接着上次练」那条需求；话题卡们只是备选。
+    ///
+    /// ⚠️ 底色 / 悬停色 / 描边与话题卡**完全同源**（2026-10-14 第二次报障）：
+    /// 之前它用强调色（accent）打底，于是同一屏里并排两种底色的卡，看着像两套控件。
+    /// 它本来就是话题卡列表里的**第一项**，靠位置说话就够了，不该靠变色说话 ——
+    /// 变色只会让用户以为「这个跟下面那些不是一回事」。
+    ///
+    /// ⚠️ 不画禁用态：点击后 `isPreparingOpening` 会把整块空态换成等待卡
+    /// （见 `ChatEmptyStateRule.showsInvitation`），按钮根本不在屏幕上；
+    /// 连点也有 `continueLastConversation` 里的重入守卫接着。
+    private var continueLastButton: some View {
+        let isHovered = continueLastHovered || forcedHoveredContinueLast
+        return Button {
+            onContinueLast?()
+        } label: {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "arrow.uturn.forward")
+                    .appFont(12)
+                    .foregroundStyle(theme.accent)
+                    .frame(width: 16)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("继续上次对话")
+                        .appFont(12, weight: .semibold, design: .rounded)
+                        .foregroundStyle(theme.primaryText)
+                        .lineLimit(1)
+                    Text("老师先总结上次练的内容，再接着聊")
+                        .appFont(11, design: .rounded)
+                        .foregroundStyle(theme.secondaryText)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 6)
+
+                Image(systemName: "arrow.right")
+                    .appFont(9)
+                    .foregroundStyle(theme.secondaryText)
+                    .opacity(isHovered ? 1 : 0.55)
+            }
+            .appPadding(.horizontal, 12)
+            .appPadding(.vertical, 9)
+            .frame(maxWidth: KickoffRow.width, alignment: .leading)
+            // ⚠️ 这三个值与 `KickoffRow.kickoffButton` 必须逐字一致（同一张底卡）：
+            // 底色 surface、悬停 selection 0.4、描边 divider 0.5。改一处就得改两处，
+            // `ContinueLastButtonRenderTests` 用**同一夹具渲染两张卡**的像素差钉着。
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(isHovered ? theme.selection.opacity(0.4) : theme.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(theme.divider, lineWidth: 0.5)
+                    )
+            )
+        }
+        // 同话题卡：按压反馈由 MainView 根上的 `.appPressable` 统一注入。
+        .onHover { inside in continueLastHovered = inside }
+        .accessibilityLabel("继续上次对话，老师先总结上次练的内容，再接着聊")
     }
 
     private func errorBanner(_ message: String) -> some View {

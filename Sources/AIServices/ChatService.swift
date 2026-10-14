@@ -910,7 +910,8 @@ public final class ChatService {
                     : rewritten
             }
             // 抽取老师标注的纠错块（[[FIX]] ...），不进聊天正文。
-            let parsed = Self.extractCorrections(finalText)
+            // learnerText：原句必须是学员**本轮**说过的话 —— 陈旧纠错在这里被丢弃。
+            let parsed = Self.extractCorrections(finalText, learnerText: learnerText)
             // 漏行兜底（用户 2026-09-24 口径：老师指出错误就必须出现改一改卡片）：
             // 老师这一轮**既没落纠错行、也没写「本轮无错」**时，追问一次把它逼出来。
             // ⚠️ 必须发生在 append(message) 之前 —— 卡片、错题本、「老师记住了你什么」
@@ -1026,7 +1027,9 @@ public final class ChatService {
             if !Task.isCancelled { engine.send(.generationFailed) }
             return
         }
-        let parsed = Self.extractCorrections(text)
+        // 开场轮没有新的学员发言，但恢复的会话里上一位学员消息还在 ——
+        // 拿它当比对基准，老师若把旧纠错原样吐进开场白，同样在这里被丢弃。
+        let parsed = Self.extractCorrections(text, learnerText: latestUserMessage())
         guard !parsed.cleanText.isEmpty else {
             engine.send(.generationFailed)
             return
@@ -1168,7 +1171,8 @@ public final class ChatService {
             return
         }
         let text = Self.stripThinking(response.text).trimmingCharacters(in: .whitespacesAndNewlines)
-        let parsed = Self.extractCorrections(text)
+        // 同 generateGreeting：开场轮拿上一位学员消息当比对基准。
+        let parsed = Self.extractCorrections(text, learnerText: latestUserMessage())
         guard !Task.isCancelled else { return }
         guard !parsed.cleanText.isEmpty else {
             engine.send(.generationFailed)
@@ -1393,7 +1397,9 @@ public final class ChatService {
             maxTokens: request.maxTokens
         )
         guard let response = try? await services.llm.generate(probe) else { return [] }
-        return Self.extractCorrections(Self.stripThinking(response.text)).corrections
+        // 追问结果同样过「原句是不是本轮说的话」这道闸：追问的原料里只有
+        // 学员这句话与老师正文，模型仍可能顺着正文把旧纠错再吐一遍。
+        return Self.extractCorrections(Self.stripThinking(response.text), learnerText: learnerMessage).corrections
     }
 
     /// 无流式兜底：同样请求再走一次非流式通道，返回可用的正文（失败返回 nil）。
@@ -1415,14 +1421,22 @@ public final class ChatService {
     /// 标记的识别与容错全在 `GrammarCorrectionLine`（朗读那边也用它）：
     /// 这里只管「剥出来 → 解析 → 不进正文」。
     ///
+    /// - Parameter learnerText: 学员**本轮**原话。给了它，原句跟这句话对不上的
+    ///   纠错行整条丢弃（老师把以前的纠错又纠了一遍 / 编了一句学员没说过的话，
+    ///   见 `GrammarCorrectionSanity.isUnrelatedToLatestMessage`）。
+    ///   nil / 空 = 没有可比对的对象（老师开场那类轮次），不做这个判断。
+    ///
     /// `didConclude`：老师这一轮到底有没有交代清楚「有错」还是「没错」——
     /// 落了一条真纠错算交代了，写 `[[FIX]] NONE` 也算交代了；
     /// **两者都没有 = 漏写**，调用方据此补问一次（`probeMissedCorrection`）。
-    nonisolated static func extractCorrections(_ text: String)
+    /// ⚠️ 被丢弃的陈旧纠错行**不算交代**：那一行纠的不是本轮的事，
+    /// 这一轮仍然欠一次收尾，追问逻辑照常触发（追问结果走同一个过滤）。
+    nonisolated static func extractCorrections(_ text: String, learnerText: String? = nil)
         -> (cleanText: String, corrections: [GrammarCorrection], didConclude: Bool) {
         var corrections: [GrammarCorrection] = []
         var keptLines: [String] = []
         var didConclude = false
+        let latestMessage = learnerText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         for line in text.components(separatedBy: "\n") {
             // ⚠️ 认不出标记的行**原样保留**：它可能只是一句普通的正文。
             // 但**认得出标记**、却切不出三段的，整行丢掉 —— 那是半个纠错块，
@@ -1440,6 +1454,13 @@ public final class ChatService {
             // 幻觉纠错整条丢弃：卡片 / 错题本 / 复盘 / 学习记忆共用这一份输出，
             // 判据放在解析层，下游全部干净（见 GrammarCorrectionSanity 注释里的真实事故）。
             guard !GrammarCorrectionSanity.isHallucinated(original: fields[0], corrected: fields[1]) else { continue }
+            // 陈旧纠错整条丢弃：原句不是学员本轮说过的话（用户 2026-10-14 报障：
+            // 老师隔着两轮把 "I has no idea…" 又纠了一遍，挂在无关的最新回复下）。
+            // 同样不进 didConclude —— 这一轮没有被真正交代。
+            if !latestMessage.isEmpty,
+               GrammarCorrectionSanity.isUnrelatedToLatestMessage(original: fields[0], learnerText: latestMessage) {
+                continue
+            }
             corrections.append(
                 GrammarCorrection(
                     original: fields[0],

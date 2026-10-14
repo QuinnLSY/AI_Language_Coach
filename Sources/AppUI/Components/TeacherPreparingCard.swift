@@ -1,9 +1,15 @@
 import AIDomain
 import SwiftUI
 
-/// 「老师正在准备」等待卡：开场白生成 / 启动装配期间对话区里的**明确等待态**。
+/// 「老师正在准备」等待卡：**老师真的被叫来了**（点「继续上次对话」后的复盘 / 正在写开场白）
+/// 期间对话区里的明确等待态。
 ///
-/// 为什么单独一张卡：这段时间里 `streamingText` 一直是空的（开场白不流式），
+/// ⚠️ 启动装配那几秒**不挂这张卡**（2026-10-14 报障）：它与老师的消息气泡同形
+/// （圆头像 + 名字 + 三个跳动的点），开屏时挂上去等于无中生有一条老师发言 ——
+/// 用户看到的就是「一打开老师先发起对话、过一会儿又被引导卡顶掉」。
+/// 装配期直接显示引导卡（见 `ChatEmptyStateRule`）。
+///
+/// 为什么单独一张卡：等待期间 `streamingText` 一直是空的（开场白不流式），
 /// 原来只能落在「三个跳动的点」那个兜底分支上 —— 与普通回复的思考态长得一模一样，
 /// 而它偏偏是最长的一次等待（冷启动 30–60s）。等这么久却看不出在等谁、等了多久，
 /// 用户只会以为应用死了。
@@ -24,9 +30,9 @@ struct TeacherPreparingCard: View {
     let teacherKind: AnimalKind
     /// 计时起点。默认 = 本视图创建时刻；留成参数是为了离屏渲染能把它固定下来。
     var startedAt: Date = Date()
-    /// 当前真实的等待阶段（装配 → 生成开场白）。**不是按秒数编的**：
-    /// `ChatView` 手里有真实信号（`isBooting` / `chat.isGreeting`），分界线不是猜的。
-    var stage: TeacherWaitStage = .greeting
+    /// 当前真实的等待阶段（总结上次 → 生成开场白）。**不是按秒数编的**：
+    /// `ChatView` 手里有真实信号（`isPreparingOpening` / `chat.isGreeting`），分界线不是猜的。
+    var stage: TeacherWaitStage = .reviewing
 
     var body: some View {
         TimelineView(.periodic(from: startedAt, by: 1)) { context in

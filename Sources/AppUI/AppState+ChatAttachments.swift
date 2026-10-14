@@ -165,8 +165,13 @@ extension AppState {
         }
         pendingAttachments.removeAll()
         attachmentNotice = nil
-        // 学员开口了：这一轮会话归他 —— 后台那句开场白不许再动会话（见 `openInBackground`）。
+        // 学员开口了：这一轮会话归他 —— 「继续上次对话」那一轮不许再动会话
+        // （见 `continueLastConversation` 的让位规则）。
         learnerEngagedThisLaunch = true
+        // 恢复出来的历史还按在手里（启动时按住，等「继续上次对话」决策）：
+        // 学员先开口时必须揭开 —— 否则他的话进了内存却不上屏
+        // （`visibleMessages` 仍为空），表现是「我打了一句，屏幕上什么都没有」。
+        chat.revealRestoredHistory()
         // 复盘回执是「你不在的时候我把上一段收好了」，说给**还没开口**的人听。
         // 学员一开始说下一句，它就过期了 —— 留在屏幕上只会挡住对话。
         practiceNotice = nil

@@ -11,13 +11,16 @@ import XCTest
 ///
 /// 只钉两件用户真能看见的事：
 /// 1. 等久了（≥8 秒）那张卡上真的**多出一行解释**，不是只改了字符串；
-/// 2. 启动中挂进对话区的是**等待卡**，而「和老师打个招呼」那张引导卡不再出现
-///    —— 引导卡是**垂直居中**的，等待卡贴在顶部，两者在图上位置完全不同。
+/// 2. 装配期对话区里进的是**引导卡**；「老师正在准备…」只在老师真被叫来时出现
+///    （2026-10-14 报障反转：那张卡与老师的消息气泡同形，装配期挂上去等于无中生有
+///    一条老师发言）。引导卡是**垂直居中**的，等待卡贴在顶部，两者在图上位置完全不同。
 ///
-/// ⚠️ 不做「文字内容」断言：离屏图上读不出字。所以两条都用**几何**证明 ——
+/// ⚠️ 不做「文字内容」断言：离屏图上读不出字。所以全部用**几何**证明 ——
 /// 「图里有没有那句话」是证明不了的。
 /// ⚠️ 坐标必须换算：离屏位图的像素尺寸受 backing scale 影响（实测约 1.2×），
 /// 直接拿 pt 当像素用会量错区域，所以统一走 `scale`。
+/// ⚠️ 比「两帧一致」时必须先关掉动物动画（`CuteAnimalView.animationsEnabled`），
+/// 否则相位差会算成差异点、把假红当成回归。
 @MainActor
 final class TeacherPreparingCardRenderTests: XCTestCase {
 
@@ -107,6 +110,27 @@ final class TeacherPreparingCardRenderTests: XCTestCase {
         return count
     }
 
+    /// 两张图逐像素的**差异点数**（2 像素步长采样）。
+    ///
+    /// 与 `ink` 的分工：`ink` 量「这一带有没有东西」，这一张量「两帧画的是不是同一件事」——
+    /// 「装配期不再换卡」只有靠它才证得了（同一块地方换没换内容）。
+    private func difference(_ a: Render, _ b: Render) -> Int {
+        let height = min(a.rep.pixelsHigh, b.rep.pixelsHigh)
+        let width = min(a.rep.pixelsWide, b.rep.pixelsWide)
+        var count = 0
+        for y in stride(from: 0, to: height, by: 2) {
+            for x in stride(from: 0, to: width, by: 2) {
+                guard let left = a.rep.colorAt(x: x, y: y),
+                      let right = b.rep.colorAt(x: x, y: y) else { continue }
+                let delta = abs(left.redComponent - right.redComponent)
+                    + abs(left.greenComponent - right.greenComponent)
+                    + abs(left.blueComponent - right.blueComponent)
+                if delta > 0.08 { count += 1 }
+            }
+        }
+        return count
+    }
+
     private func dump(_ render: Render, name: String) throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -163,9 +187,20 @@ final class TeacherPreparingCardRenderTests: XCTestCase {
         try dump(nightLate, name: "round33-wait-card-night-late.png")
     }
 
-    // MARK: - ③ 端到端：对话区里进的是等待卡，不是「和老师打个招呼」
+    // MARK: - ③ 端到端：装配期进的是**引导卡**（2026-10-14 报障反转）
 
-    func testChatShowsWaitingCardWhileBootingInsteadOfInvitation() async throws {
+    /// 装配那几秒对话区里是**引导卡**，不是「老师正在准备…」。
+    ///
+    /// ⚠️ 这条用例原来是反过来的（钉「装配期挂等待卡、不显示引导卡」）—— 那会儿开屏会
+    /// 自动开场，引导卡说「和老师打个招呼」而老师马上自己就开口了，确实在说谎。
+    /// 现在开屏不再自动开场：老师在装配期**根本没被叫来**，而「老师正在准备…」那张卡
+    /// 与老师的消息气泡同形（圆头像 + 名字 + 三个跳动的点）—— 用户看到的就是
+    /// 「一打开老师先发起对话、过一会儿又被引导卡顶掉」（报障原话）。
+    func testBootingNoLongerSwapsTheGuideCardForAWaitCard() async throws {
+        let saved = CuteAnimalView.animationsEnabled
+        CuteAnimalView.animationsEnabled = false
+        defer { CuteAnimalView.animationsEnabled = saved }
+
         let state = AppState(services: CoachServices(
             config: ConfigStore(fileURL: FileManager.default.temporaryDirectory
                 .appendingPathComponent("alc-wait-\(UUID().uuidString).json")),
@@ -173,7 +208,7 @@ final class TeacherPreparingCardRenderTests: XCTestCase {
         ))
 
         // 构造期漏赋值同样是静默失效（见 ModelControlTests 同款注释）：
-        // 漏了 `isBooting`，启动那 30–60s 又会显示「和老师打个招呼」。
+        // 漏了 `isBooting`，自动朗读那道守卫就失效（揭历史时把旧消息念出来）。
         let booting = ChatView(chat: state.chat, modelName: nil, health: state.health, isBooting: true)
         XCTAssertTrue(booting.isBooting, "isBooting 必须被 init 存入")
         let idle = ChatView(chat: state.chat, modelName: nil, health: state.health, isBooting: false)
@@ -182,23 +217,33 @@ final class TeacherPreparingCardRenderTests: XCTestCase {
         let boot = try renderChat(booting)
         let idleRender = try renderChat(idle)
 
-        // 顶栏 64pt；等待卡贴在消息区顶部，从 64+16=80pt 起、约 30pt 高。
-        // 这一段**不该**有那条分割线之外的东西 —— 两个版本都有分割线，会互相抵消。
-        let bootTop = ink(boot, fromPt: 82, toPt: 118)
-        let idleTop = ink(idleRender, fromPt: 82, toPt: 118)
-        XCTAssertGreaterThan(bootTop, idleTop + 400,
-                             "启动中：消息区顶部应当多出一张等待卡（启动 \(bootTop) vs 空闲 \(idleTop)）")
+        // ① 装配期与空闲期必须画成**同一件事**：`isBooting` 不再是空态的输入。
+        //    有人把它加回判据的话，这里立刻红（这是本用例的核心）。
+        let drift = difference(boot, idleRender)
+        XCTAssertLessThan(drift, 120, "装配期不该因为 isBooting 而换卡（实测差异 \(drift) 点）")
 
-        // 空态那张引导卡是**垂直居中**的（小动物 92pt + 一句话），
-        // 启动时整块都不该出现。取纵向 38%–62% 这段（居中带）。
+        // ② 装配期那张引导卡必须**在场**：它是垂直居中的（取纵向 38%–62% 这段）。
         let bootMid = ink(boot, fromPt: boot.size.height * 0.38, toPt: boot.size.height * 0.62)
-        let idleMid = ink(idleRender, fromPt: idleRender.size.height * 0.38,
-                          toPt: idleRender.size.height * 0.62)
-        XCTAssertGreaterThan(idleMid, 4000, "空闲态：中间该有那张引导卡（实测 \(idleMid) 像素）")
-        XCTAssertLessThan(bootMid, idleMid / 3,
-                          "启动中：中间不该再挂着「和老师打个招呼」（实测 \(bootMid) 像素）")
+        XCTAssertGreaterThan(bootMid, 4000, "装配期就该直接显示引导卡（实测 \(bootMid) 像素）")
 
-        try dump(boot, name: "round33-chat-booting.png")
-        try dump(idleRender, name: "round33-chat-invitation.png")
+        // ③ 反证的另一半：真的有老师要说话时，等待卡照样出现、引导卡照样让位
+        //    —— 不然「把等待卡整个删掉」也能骗过上面两条。
+        let preparing = ChatView(
+            chat: state.chat, modelName: nil, health: state.health,
+            isBooting: false, isPreparingOpening: true
+        )
+        let preparingRender = try renderChat(preparing)
+        // 等待卡贴在消息区顶部（顶栏 64pt 之下那一段）。
+        let prepTop = ink(preparingRender, fromPt: 82, toPt: 118)
+        XCTAssertGreaterThan(prepTop, 300, "老师真被叫来时，等待卡要贴在消息区顶部（实测 \(prepTop) 像素）")
+        let prepMid = ink(
+            preparingRender,
+            fromPt: preparingRender.size.height * 0.38,
+            toPt: preparingRender.size.height * 0.62
+        )
+        XCTAssertLessThan(prepMid, bootMid / 3, "老师在准备时引导卡必须让位（实测 \(prepMid) 像素）")
+
+        try dump(boot, name: "round58-chat-booting-invitation.png")
+        try dump(preparingRender, name: "round58-chat-teacher-preparing.png")
     }
 }

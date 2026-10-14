@@ -7,12 +7,8 @@ import XCTest
 
 /// 启动链路的回归（需求 #1：首屏不再等开场白）。
 ///
-/// 以前 `AppState.start()` 末尾 `await resumeOrOpenPractice()` —— 老师那句开场白是
-/// **一次真实模型调用**（本机冷加载实测 30～60s），于是
-///   ① 主界面 `.task` 里排在后面的启动钩子（--theme / --open-* / --send）全被堵住；
-///   ② 这半分钟里对话区只有一张等待卡。
-/// 现在开场白挪进后台任务，首屏由**本地聚合**的今日卷轴秒开。
-///
+/// 2026-10-14 改造后：开屏**不自动开场** —— 引导卡（不知道练什么 / 快速开始）
+/// 常驻，「继续上次对话」排在第一位，点了才总结上次、发起聊天。
 /// 这里钉的是「**模型不可用 / 网络慢时首屏照样有东西可练**」：
 /// 把 LLM 指到死端口（必定秒失败），启动后今日卷轴仍必须带着真实记录出现。
 @MainActor
@@ -112,21 +108,70 @@ final class LaunchTodayPanelTests: XCTestCase {
         XCTAssertEqual(state.progressSnapshot.today.messages, 0)
     }
 
-    // MARK: - ③ 学员先开口 → 后台开场不许把他的话清掉
+    // MARK: - ③ 学员先开口 / 点「继续上次对话」→ 那一轮不许把他的话清掉
 
-    /// 后台开场里有一条**破坏性**分支（隐藏历史 → 复盘 → 清空会话换新的）。
-    /// 学员一旦开口，这段会话就归他 —— 那是 `openInBackground` 让位规则的核心。
+    /// 「继续上次对话」里有一条**破坏性**分支（隐藏历史 → 复盘 → 清空会话换新的）。
+    /// 学员一旦开口，这段会话就归他 —— 那是让位规则的核心。
+    ///
+    /// 两条入口都钉：先开口再点（让位规则），以及 2026-10-14 起开屏不再自动开场、
+    /// 学员第一句话必须让被按住的历史揭开（否则他的话进了内存却不上屏）。
     func testLearnerEngagedKeepsHisOwnWords() async throws {
         let state = try await makeDeadLLMState(withSeededHistory: true)
         await state.start()
-        // 学员抢在老师开口之前说话（后台开场此刻还在跑）。
+        // 学员抢在老师前面说话（现在没有自动开场了，他就是第一个）。
         XCTAssertTrue(state.sendChat("I want to practise ordering food."))
-        // 等后台任务收尾（死端口会秒失败，1 秒足够）。
+        // 等他这一轮收尾（死端口会秒失败，1 秒足够）。
         try await Task.sleep(for: .seconds(1.5))
         XCTAssertTrue(
             state.chat.visibleMessages.contains { $0.role == .user && $0.content.contains("ordering food") },
-            "后台开场绝不能把学员刚说的话清掉"
+            "谁先开口谁说话算数：学员的话必须上屏，也不许被谁清掉"
         )
+    }
+
+    /// 学员已经开口之后再点「继续上次对话」：整段让位，一个字都不许动他的会话。
+    func testContinueLastConversationYieldsToTheLearner() async throws {
+        let state = try await makeDeadLLMState(withSeededHistory: true)
+        await state.start()
+        XCTAssertTrue(state.sendChat("Let's talk about ordering food."))
+        await state.continueLastConversation()
+        XCTAssertTrue(
+            state.chat.visibleMessages.contains { $0.role == .user && $0.content.contains("ordering food") },
+            "「继续上次对话」绝不能把学员刚说的话清掉"
+        )
+    }
+
+    // MARK: - ⑤ 开屏引导卡（2026-10-14 改造）
+
+    /// 开屏**不再自动开场**：恢复的历史按住不显示，也没有老师的话自己滑进来 ——
+    /// 引导卡从此常驻，不再被老师的开场白一瞬间顶掉（用户实测的报障）。
+    func testLaunchShowsTheGuideInsteadOfAutoOpening() async throws {
+        let state = try await makeDeadLLMState(withSeededHistory: true)
+        await state.start()
+        XCTAssertTrue(state.launchContinuationAvailable, "有恢复历史，引导卡上就该亮「继续上次对话」")
+        XCTAssertTrue(state.chat.visibleMessages.isEmpty, "恢复的历史先按住（等「继续上次」决策）")
+        // 等再久也不该有老师的话自己出现 —— 自动开场已移除。
+        try await Task.sleep(for: .seconds(1.5))
+        XCTAssertTrue(state.chat.visibleMessages.isEmpty, "开屏不许自动开口：引导卡要被看见，不是被顶掉")
+        XCTAssertFalse(state.teacherOpenerPending, "没有老师开口，左栏就不该亮提示点")
+    }
+
+    /// 第一次打开（库里什么都没有）：引导卡上不亮「继续上次对话」——
+    /// 点下去只会收到一句泛泛招呼，凑一颗那种按钮比没有更糟。
+    func testFreshLaunchOffersNoContinuation() async throws {
+        let state = try await makeDeadLLMState(withSeededHistory: false)
+        await state.start()
+        XCTAssertFalse(state.launchContinuationAvailable, "什么都没有时不亮「继续上次对话」")
+    }
+
+    /// 点「继续上次对话」必须真把流程跑起来：复盘 → 换段 →（死模型下）开场白失败，
+    /// 但等待态要复位、旧历史要换成新段 —— 卡在「正在总结」不下来的话，
+    /// 引导卡再也回不来，用户点一次就再也打不了字。
+    func testContinueLastConversationRunsTheFullFlow() async throws {
+        let state = try await makeDeadLLMState(withSeededHistory: true)
+        await state.start()
+        await state.continueLastConversation()
+        XCTAssertFalse(state.isPreparingOpening, "流程跑完（失败也算完）后等待态必须复位")
+        XCTAssertTrue(state.chat.messages.isEmpty, "死模型下复盘失败也走完了换段：旧历史清掉，新段空着开口")
     }
 
     // MARK: - ④ 已完成的任务不许回退（#328）
@@ -183,5 +228,61 @@ final class LaunchTodayPanelTests: XCTestCase {
         let restored = try XCTUnwrap(conversation(relaunched.dailyPlan))
         XCTAssertTrue(restored.isDone, "重开应用也不许回退（高水位是落盘的）")
         XCTAssertEqual(restored.progress, before.progress)
+    }
+
+    // MARK: - ⑥ 源码哨兵（删一行也不会编译报错的那几处）
+
+    /// 「继续上次对话」必须**排在第一位**：问候之下、话题卡之上。
+    ///
+    /// ⚠️ 用**源码位置先后**而不是「出现几次」（渲染那边已经证明「第一位」对像素
+    /// 度量不敏感）：把 `continueLastButton` 挪到 `KickoffRow(` 后面 →
+    /// 三个 `lowerBound` 的顺序反转 → 这条红。钉调用形态整串的老规矩在这里换成
+    /// 钉位置，是因为这里的判据本来就是「谁先谁后」。
+    func testGuideCardListsContinuationFirst() throws {
+        let chat = try Self.code("Sources/AppUI/Views/ChatView.swift")
+        let hint = try XCTUnwrap(chat.range(of: "emptyHint")?.lowerBound, "空态问候要在引导卡里")
+        let button = try XCTUnwrap(chat.range(of: "continueLastButton")?.lowerBound, "要有那颗按钮")
+        let kickoff = try XCTUnwrap(chat.range(of: "KickoffRow(")?.lowerBound, "要有话题卡那一排")
+        XCTAssertLessThan(hint, button, "「继续上次对话」要排在问候之后")
+        XCTAssertLessThan(button, kickoff, "「继续上次对话」要排在话题卡之前 —— 它是主操作")
+    }
+
+    /// `start()` 必须是**只读地算可用性**（`prepareLaunchGuide`），不是起开场任务。
+    /// 换成 `Task` 起任务 → 引导卡又会被顶掉 —— 那正是这次要修的报障。
+    func testStartComputesTheGuideWithoutKickingOffATask() throws {
+        let state = try Self.code("Sources/AppUI/AppState.swift")
+        XCTAssertTrue(
+            state.contains("await prepareLaunchGuide()"),
+            "start() 要走只读的 prepareLaunchGuide"
+        )
+        // 开场任务只能由用户点击那条路径起（`continueLastConversationFromGuide`）。
+        let openingAssignment = state.components(separatedBy: "openingTask = Task {").count - 1
+        XCTAssertEqual(openingAssignment, 1, "起开场任务的地方只能有一处：用户点了「继续上次对话」")
+    }
+
+    /// 引导卡上的按钮要真的接在状态机上：光有图没接线，点了屏幕纹丝不动。
+    func testMainViewWiresTheContinuationButton() throws {
+        let main = try Self.code("Sources/AppUI/Views/MainView.swift")
+        XCTAssertTrue(
+            main.contains("canContinueLast: state.launchContinuationAvailable"),
+            "可用性要来自启动时算好的 launchContinuationAvailable"
+        )
+        XCTAssertTrue(
+            main.contains("onContinueLast: { state.continueLastConversationFromGuide() }"),
+            "点击要落到 continueLastConversationFromGuide 上"
+        )
+        XCTAssertTrue(
+            main.contains("isPreparingOpening: state.isPreparingOpening"),
+            "等待态要传进去 —— 复盘那段 ChatView 得知道换成等待卡"
+        )
+    }
+
+    /// 读源码并剥掉注释行 —— 注释里为说明反例写的旧写法不该把判据自己骗过去。
+    private static func code(_ path: String) throws -> String {
+        let raw = try String(contentsOfFile: path, encoding: .utf8)
+        return raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
     }
 }

@@ -35,21 +35,25 @@ final class ThirdBatchTokensTests: XCTestCase {
 
     // MARK: - TeacherWaitStage（真实阶段，不是编的时间档）
 
-    /// 只有两个**真实存在**的阶段：装配 → 生成开场白。多编一个就是编造进度
+    /// 只有两个**真实存在**的阶段：总结上次 → 生成开场白。多编一个就是编造进度
     /// （违反 `TeacherWaitCopy` 第 1 条铁律）。
+    ///
+    /// ⚠️ 原来的「装配」档已删（2026-10-14 报障）：开屏不再自动开场，装配那几秒老师
+    /// 根本没被叫来 —— 挂「老师正在准备…」等于无中生有一条老师发言（那张卡与老师的
+    /// 消息气泡同形），用户看到的就是「一打开老师先发起对话、过一会儿又被引导卡顶掉」。
     func testTeacherWaitStageHasExactlyTheTwoRealStages() {
-        XCTAssertEqual(TeacherWaitStage.allCases, [.booting, .greeting])
+        XCTAssertEqual(TeacherWaitStage.allCases, [.reviewing, .greeting])
         for stage in TeacherWaitStage.allCases {
             XCTAssertFalse(stage.displayName.isEmpty)
         }
     }
 
-    /// 阶段条「走到哪步哪个亮」的判据靠 Comparable：booting < greeting，
+    /// 阶段条「走到哪步哪个亮」的判据靠 Comparable：reviewing < greeting，
     /// 且已走过的阶段（`step <= stage`）与当前阶段都能被正确判定。
     func testTeacherWaitStageOrdering() {
-        XCTAssertLessThan(TeacherWaitStage.booting, TeacherWaitStage.greeting)
-        XCTAssertTrue(TeacherWaitStage.booting <= TeacherWaitStage.booting)
-        XCTAssertTrue(TeacherWaitStage.greeting >= TeacherWaitStage.booting)
-        XCTAssertFalse(TeacherWaitStage.booting >= TeacherWaitStage.greeting)
+        XCTAssertLessThan(TeacherWaitStage.reviewing, TeacherWaitStage.greeting)
+        XCTAssertTrue(TeacherWaitStage.reviewing <= TeacherWaitStage.reviewing)
+        XCTAssertTrue(TeacherWaitStage.greeting >= TeacherWaitStage.reviewing)
+        XCTAssertFalse(TeacherWaitStage.reviewing >= TeacherWaitStage.greeting)
     }
 }

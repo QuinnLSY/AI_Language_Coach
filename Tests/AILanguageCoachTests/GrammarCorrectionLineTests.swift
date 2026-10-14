@@ -140,6 +140,133 @@ final class GrammarCorrectionLineTests: XCTestCase {
         XCTAssertEqual(result.corrections.first?.corrected, "I love apples")
     }
 
+    // MARK: - 陈旧纠错（原句不是本轮说过的话）
+
+    /// 用户 2026-10-14 报障的形状：学员说 "I am eating watermelon."，
+    /// 老师却把两轮前的 "I has no idea about what to chat." 又纠了一遍，
+    /// 卡片挂在与最新一句毫无关系的回复下（错题本 / 学习记忆一并被污染）。
+    func testStaleCorrectionFromAnEarlierTurnIsDropped() {
+        XCTAssertTrue(
+            GrammarCorrectionSanity.isUnrelatedToLatestMessage(
+                original: "I has no idea about what to chat.",
+                learnerText: "I am eating watermelon."
+            ),
+            "原句与本轮消息用词几乎不重合 → 陈旧"
+        )
+        // 走解析层：不产卡片、不进错题本；正文剥干净，[[FIX]] 不许漏给用户。
+        let result = ChatService.extractCorrections(
+            "Watermelon is a perfect summer treat! It is sweet and juicy.\n"
+                + "[[FIX]] I has no idea about what to chat. => I have no idea what to chat about. => has 改为 have",
+            learnerText: "I am eating watermelon."
+        )
+        XCTAssertTrue(result.corrections.isEmpty, "陈旧纠错不该变成卡片")
+        XCTAssertEqual(result.cleanText, "Watermelon is a perfect summer treat! It is sweet and juicy.")
+        XCTAssertFalse(result.didConclude, "陈旧行不算交代过 —— 这一轮仍欠一次收尾，追问照常")
+    }
+
+    /// 换个说法、但仍是另一句的陈旧纠错（内容词重合 1/2 < 0.6）。
+    func testStaleCorrectionWithSimilarWordingIsStillDropped() {
+        XCTAssertTrue(
+            GrammarCorrectionSanity.isUnrelatedToLatestMessage(
+                original: "I has no idea what to chat about.",
+                learnerText: "I have no time to chat."
+            )
+        )
+    }
+
+    /// 真纠错的原句是**逐字引用**本轮原话 → 必须留下。
+    func testGenuineCorrectionsQuotingThisTurnAreKept() {
+        // 整句引用。
+        XCTAssertFalse(
+            GrammarCorrectionSanity.isUnrelatedToLatestMessage(
+                original: "I eat fruit at my dinner today.",
+                learnerText: "I eat fruit at my dinner today."
+            )
+        )
+        // 多句消息里只纠其中一句（引片段）。
+        XCTAssertFalse(
+            GrammarCorrectionSanity.isUnrelatedToLatestMessage(
+                original: "I eat fruit at my dinner today.",
+                learnerText: "I think fruit is healthy. I eat fruit at my dinner today."
+            )
+        )
+        // 只标句子里出错的那个词（片段级原句）。
+        XCTAssertFalse(
+            GrammarCorrectionSanity.isUnrelatedToLatestMessage(
+                original: "has",
+                learnerText: "I has no idea about what to chat."
+            )
+        )
+        // 「再练一次」：学员把旧错句原样重说一遍 → 这是本轮的话，必须留。
+        XCTAssertFalse(
+            GrammarCorrectionSanity.isUnrelatedToLatestMessage(
+                original: "I has no idea about what to chat.",
+                learnerText: "I has no idea about what to chat."
+            )
+        )
+        // 大小写 / 标点差异不算换句。
+        XCTAssertFalse(
+            GrammarCorrectionSanity.isUnrelatedToLatestMessage(
+                original: "i eat fruit at my dinner today",
+                learnerText: "I eat fruit at my dinner today."
+            )
+        )
+        // 中文逐字引用（CJK 按字切，整句当一个词就没法比了）。
+        XCTAssertFalse(
+            GrammarCorrectionSanity.isUnrelatedToLatestMessage(
+                original: "我昨天去了商店。",
+                learnerText: "我昨天去了商店，买了苹果。"
+            )
+        )
+        // 中文换了一句 → 陈旧。
+        XCTAssertTrue(
+            GrammarCorrectionSanity.isUnrelatedToLatestMessage(
+                original: "我喜欢吃苹果。",
+                learnerText: "我想喝咖啡。"
+            )
+        )
+        // 单个内容词对不上（搭了一个偶然撞上的单词）→ 陈旧。
+        XCTAssertTrue(
+            GrammarCorrectionSanity.isUnrelatedToLatestMessage(
+                original: "has",
+                learnerText: "I am eating watermelon."
+            )
+        )
+    }
+
+    /// 判不了就放行：原句全是功能词 / 学员消息是空的。
+    func testStalenessFilterPassesWhenItCannotJudge() {
+        XCTAssertFalse(
+            GrammarCorrectionSanity.isUnrelatedToLatestMessage(original: "I am.", learnerText: "I am eating watermelon."),
+            "原句剥完一个内容词都不剩 → 不判"
+        )
+        XCTAssertFalse(
+            GrammarCorrectionSanity.isUnrelatedToLatestMessage(original: "I has no idea.", learnerText: "   "),
+            "没有学员消息可比对 → 不判"
+        )
+    }
+
+    /// 没有比对基准（老师开场那类轮次）时不做这个判断 —— 向后兼容旧调用。
+    func testNoLearnerTextMeansNoStalenessFilter() {
+        let result = ChatService.extractCorrections(
+            "[[FIX]] I has no idea about what to chat. => I have no idea what to chat about. => has 改为 have"
+        )
+        XCTAssertEqual(result.corrections.count, 1, "没有 learnerText 就不做陈旧判断")
+    }
+
+    /// 同一轮里既有真纠错又有陈旧纠错：只留真的，且算交代过（不触发追问）。
+    func testMixedRealAndStaleLinesKeepOnlyTheRealOne() {
+        let result = ChatService.extractCorrections(
+            "Good try!\n"
+                + "[[FIX]] I eat fruit at my dinner today. => I ate fruit for dinner today. => 过去发生用 ate；for dinner\n"
+                + "[[FIX]] I has no idea about what to chat. => I have no idea what to chat about. => has 改为 have",
+            learnerText: "I eat fruit at my dinner today."
+        )
+        XCTAssertEqual(result.corrections.count, 1)
+        XCTAssertEqual(result.corrections.first?.original, "I eat fruit at my dinner today.", "本轮这条要留下")
+        XCTAssertTrue(result.didConclude, "有真纠错 = 交代过了")
+    }
+
     // MARK: - 朗读侧同一份判据
 
     func testSpeechCleaningUsesTheSamePredicate() {

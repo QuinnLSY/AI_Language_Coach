@@ -196,12 +196,18 @@ public final class AppState {
     public internal(set) var health: ProviderHealth = .configurationInvalid(reason: "尚未初始化")
     /// 服务装配中（**只覆盖本地装配**：配置 / 语音 / 健康探测）。
     ///
-    /// ⚠️ 它**不再**覆盖老师的开场白：开场白是一次真实模型调用（本机冷加载实测 30～60s），
-    /// 以前 `isBooting` 一直盖到它结束，于是开屏半分钟里界面既不能看也不能用。
-    /// 现在开场白挪到后台（见 `openInBackground()`），首屏由本地数据秒开。
+    /// ⚠️ 它**不再**覆盖老师的开场白：开屏不再自动开场（引导卡常驻，
+    /// 点「继续上次对话」才走总结 + 开场白，见 `prepareLaunchGuide` /
+    /// `continueLastConversation`），首屏由本地数据秒开。
     public internal(set) var isBooting = true
     /// 开场白 / 续做仍在**后台**生成（首屏已经能练，只是老师还没开口）。
     public internal(set) var isPreparingOpening = false
+    /// 引导卡上「继续上次对话」亮不亮（启动时只读算好，见 `prepareLaunchGuide`）。
+    ///
+    /// 判据是「有没有上次」：内存里有恢复历史、或库里有会话行。
+    /// 第一次打开（什么都没有）时不亮 —— 点下去只会收到一句泛泛招呼，
+    /// 凑一颗那种按钮比没有更糟。
+    public internal(set) var launchContinuationAvailable = false
     /// 老师已经开口，但人不在对话页 —— 左栏「练习」给个提示点，回到对话页即清。
     public internal(set) var teacherOpenerPending = false
     public internal(set) var bootMessage: String?
@@ -792,6 +798,19 @@ public final class AppState {
 
     static let dockIconHiddenKey = "MenuBarAssistant.dockIconHidden"
 
+    /// 状态栏（菜单栏）那枚叶子是否已收起（设置页「显示」卡里的开关）。
+    ///
+    /// ⚠️ 同 `dockIconHidden`：声明处直接读 UserDefaults，**不给常量默认值** ——
+    /// 默认 false 会把用户上次「收起」的选择无声吞掉，每次开屏图标又冒出来。
+    public var statusBarIconHidden: Bool = UserDefaults.standard.bool(forKey: AppState.statusBarIconHiddenKey) {
+        didSet {
+            UserDefaults.standard.set(statusBarIconHidden, forKey: AppState.statusBarIconHiddenKey)
+            MenuBarController.shared.setStatusItemVisible(!statusBarIconHidden)
+        }
+    }
+
+    static let statusBarIconHiddenKey = "MenuBarAssistant.statusBarIconHidden"
+
     /// 翻译失败提示（对话区展示，可关闭）。
     public var translationNotice: String? { chat.translationError }
 
@@ -1322,12 +1341,13 @@ public final class AppState {
     }
     /// 汇总节流：一轮对话就全量汇总一次没必要（本地聚合也有代价）。
     var lastTodayPanelRefreshAt: Date = .distantPast
-    /// 后台开场任务（学员一开口就让它让位，见 `learnerEngagedThisLaunch`）。
+    /// 「继续上次对话」那一轮的任务（学员一开口就让它让位，见 `learnerEngagedThisLaunch`）。
     var openingTask: Task<Void, Never>?
     /// 开屏时**后台预生成今天的短文阅读**（#330）。排在开场白之后跑，
     /// 只落库不上屏；`openReading` 进页面时会**先等它**，免得生成出今天第二篇。
     var readingPrefetchTask: Task<Void, Never>?
-    /// 学员在本轮启动里已经开口 —— 后台开场**不许再动会话**（不能把人家刚说的话清掉）。
+    /// 学员在本轮启动里已经开口 —— 「继续上次对话」那一轮**不许再动会话**
+    /// （不能把人家刚说的话清掉）。
     var learnerEngagedThisLaunch = false
     /// 本轮启动里黑板已经自动展开过（收起后不许再自己弹开）。
     var didAutoExpandBoardThisLaunch = false
@@ -1620,6 +1640,21 @@ public final class AppState {
         }
         // 恢复上次会话的聊天内容（无历史则保持空白）
         await chat.restoreLastSessionIfNeeded()
+        // 开屏引导（2026-10-14 改造）：**不再自动开场**。
+        //
+        // 以前的顺序是「一打开就总结上次 → 老师开口」，而便捷性功能补上的引导卡
+        // （不知道练什么 / 快速开始）会被老师的开场白一瞬间顶掉 ——
+        // 用户实测「引导卡只闪一下，没有任何作用」。
+        // 现在开屏只读地算「有没有上次可继续」：引导卡常驻，「继续上次对话」
+        // 排在第一位，点了才走 `resumeOrOpenPractice()`（总结上次 → 发起聊天）。
+        //
+        // ⚠️ 这里一次模型调用都不发：引导卡要的是「有没有得续」，不是「续上了没有」。
+        // 复盘 / 开场白那些真实工作全部挪到点击之后（见 `continueLastConversation`）。
+        //
+        // ⚠️ 必须赶在 `isBooting = false` **之前**算完：装配期界面已经在显示引导卡，
+        // 这时按钮还没算出来的话，用户会看到它「晚一拍」才冒出来（下面 30s 轮询、
+        // 加载情景之类的都不该排在它前面）。
+        await prepareLaunchGuide()
         await bootstrapVoice()
         // 应用启动即拉起本机语音：Edge-TTS 代理（免费微软音色）+ **当前选中的本机语音识别**。
         // 两者都不阻断开屏；结果转成用户可见的提示（#546）—— 未授权 / 失败从前只有日志，
@@ -1678,18 +1713,11 @@ public final class AppState {
         // 定时练习提醒（#226）：启动静默同步（已授权才排通知；未授权不弹框 ——
         // 弹框只在用户主动打开开关时发生）。
         await syncPracticeReminder(requestIfNeeded: false)
-        // 老师先开口（需求 6：上次是情景就续做、是随口练就接着聊、第一次才给一般招呼）。
-        //
-        // ⚠️ 挪到**后台**跑：它是一次真实模型调用（本机冷加载实测 30～60s）。
-        // 以前 `start()` 一直 `await` 到这里才返回，于是
-        //   ① 主界面 `.task` 里排在后面的启动钩子（--theme / --open-* / --send）全被堵住；
-        //   ② 这半分钟里对话区只有一张等待卡 —— 每天开一次就劝退一次。
-        // 现在首屏由本地数据秒开，开场白生成完自己滑进对话区。
-        openingTask?.cancel()
-        openingTask = Task { [weak self] in await self?.openInBackground() }
-        // 开屏后台预生成今天的短文阅读（#330）：与开场白**并行发出、串行执行** ——
-        // 它自己在里面等开场白跑完（见 `prefetchTodaysReading`），
-        // 所以这里不必再排一次序，也不会把首屏拖住。
+        // 开屏引导的可用性在装配段就算好了（见上面紧跟着 `restoreLastSessionIfNeeded`
+        // 的 `prepareLaunchGuide()`）。
+        // 开屏后台预生成今天的短文阅读（#330）。与「继续上次对话」**串行** ——
+        // 它自己在里面等那一轮跑完（见 `prefetchTodaysReading` 的 `openingTask`）；
+        // 学员没点的话 `openingTask` 是 nil，预生成直接走，不挡首屏。
         readingPrefetchTask?.cancel()
         readingPrefetchTask = Task { [weak self] in await self?.prefetchTodaysReading() }
         // 跨天监察（2026-09-24 报障）：应用开着跨过零点，每日任务 / 打卡也要自动换天，
@@ -1729,14 +1757,35 @@ public final class AppState {
         }
     }
 
-    /// 后台开场：老师先开口 / 续做上一段（需求 6）。
+    /// 开屏引导（2026-10-14 改造）：只读地算「有没有上次可继续」。
+    ///
+    /// 两个来源任有一即可：内存里有恢复出来的历史（`restoreLastSessionIfNeeded`
+    /// 已经跑过），或库里有会话行（流水已清、但上一段练过）。
+    /// ⚠️ 一次模型调用都不发 —— 这是引导卡亮不亮「继续上次对话」的唯一依据，
+    /// 发请求的话开屏就要为一张卡等上半分钟。
+    func prepareLaunchGuide() async {
+        // ⚠️ 不能写成 `!chat.messages.isEmpty || await ...`：`||` 的右操作数是
+        // autoclosure，`await` 进不去（编译直接拦）。有恢复历史时不必再查库。
+        if !chat.messages.isEmpty {
+            launchContinuationAvailable = true
+        } else {
+            launchContinuationAvailable = await services.latestChatSession() != nil
+        }
+    }
+
+    /// 「继续上次对话」（引导卡第一颗按钮）：老师先开口 / 续做上一段（需求 6）。
     ///
     /// ⚠️ 三条让位规则（学员一旦开口，这段会话就归他）：
     /// 1. 开场还没跑完学员就开口 → 整段放弃，绝不撤他的会话
     ///    （背景里那次「复盘上一段」会把人家刚说的话一起清掉）；
     /// 2. `resumeOrOpenPractice` 的破坏性分支（隐藏历史 → 复盘 → 清空）会**再查一次**；
     /// 3. 人在别的板块 → 只在左栏标一个提示点，不抢画面。
-    func openInBackground() async {
+    ///
+    /// ⚠️ 重入守卫：复盘是一次真实模型调用（几秒到几十秒），这期间按钮所在的空态
+    /// 已换成等待卡，但守卫仍要在这里兜底 —— 直接调本方法的入口（测试 / 将来的
+    /// 别的入口）不少。`guard` 与赋值之间没有 `await`，@MainActor 上原子。
+    func continueLastConversation() async {
+        guard !isPreparingOpening else { return }
         isPreparingOpening = true
         defer { isPreparingOpening = false }
         guard !learnerEngagedThisLaunch else { return }
@@ -1746,6 +1795,13 @@ public final class AppState {
         if !chat.visibleMessages.isEmpty, activeSection != .practice {
             teacherOpenerPending = true
         }
+    }
+
+    /// 引导卡上点「继续上次对话」（View 入口）：起后台任务并留下句柄 ——
+    /// `prefetchTodaysReading` 等它跑完再出今天的短文（本机模型一次只伺候一个请求）。
+    public func continueLastConversationFromGuide() {
+        guard !isPreparingOpening else { return }
+        openingTask = Task { [weak self] in await self?.continueLastConversation() }
     }
 
     // MARK: - API Key 输入框（唯一真相）

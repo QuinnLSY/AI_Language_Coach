@@ -50,14 +50,32 @@ final class ThirdBatchWiringTests: XCTestCase {
     }
 
     /// 等待卡必须有阶段参数，且 ChatView 传的是**真实信号**——
-    /// 传成常量的话两阶段永远是同一帧，阶段条就是摆设。
+    /// 传成常量的话两个阶段永远是同一帧，阶段条就是摆设。
+    ///
+    /// ⚠️ 2026-10-14 两次改造的落点：先是从「两段三元」改成 `waitStage` 计算属性
+    /// （总结上次那次模型调用不走 `chat.isGreeting`，三元表达不了），随后又把
+    /// 「装配」档整个删掉 —— 开屏不再自动开场，装配期老师没被叫来，不该挂等待卡。
+    /// 这里把两件事一起钉住：判据只认两个真实信号，且 `isBooting` 不许回到判据里。
     func testTeacherPreparingStageWiring() throws {
         let card = try source("AppUI/Components/TeacherPreparingCard.swift")
         XCTAssertTrue(card.contains("var stage: TeacherWaitStage"), "等待卡要收 stage 参数")
         let chat = try source("AppUI/Views/ChatView.swift")
         XCTAssertTrue(
-            chat.contains(".booting : .greeting"),
-            "ChatView 要把 isBooting 翻译成阶段"
+            chat.contains("private var isTeacherPreparing: Bool { chat.isGreeting || isPreparingOpening }"),
+            "「老师在准备」只认两个真实信号（写开场白 / 总结上次），**不认** isBooting"
+        )
+        XCTAssertTrue(
+            chat.contains("if chat.isGreeting { return .greeting }")
+                && chat.contains("return .reviewing"),
+            "ChatView 要把两个真实信号分别翻译成阶段（写开场白 / 总结上次）"
+        )
+        XCTAssertFalse(
+            chat.contains(".booting"),
+            "装配档已删：开屏装配期直接显示引导卡，程序里不该还留着这个阶段"
+        )
+        XCTAssertTrue(
+            chat.contains("stage: waitStage"),
+            "等待卡要收 waitStage，不是某个写死的阶段"
         )
     }
 

@@ -163,17 +163,17 @@ final class ThirdBatchRenderTests: XCTestCase {
                 size: canvas
             )
         }
-        let booting = try render(stage: .booting)
+        let reviewing = try render(stage: .reviewing)
         let greeting = try render(stage: .greeting)
 
         // 阶段条带区（标题行 30pt 之下、解释行位置之上；两帧都只等 0 秒，无解释行）。
-        let inBand = differencePoints(booting, greeting, rows: 30..<52)
+        let inBand = differencePoints(reviewing, greeting, rows: 30..<52)
         XCTAssertGreaterThan(inBand, 30, "阶段条没有跟着阶段变（带区 \(inBand) 点差异）——stage 参数被无视了？")
 
         // 标题行（头像/文案/点都冻结）与更下方：阶段切换不许引起任何布局位移。
-        let titleBand = differencePoints(booting, greeting, rows: 0..<30)
+        let titleBand = differencePoints(reviewing, greeting, rows: 0..<30)
         XCTAssertLessThan(titleBand, 12, "阶段切换不该动到标题行（\(titleBand) 点差异）")
-        let belowBand = differencePoints(booting, greeting, rows: 52..<140)
+        let belowBand = differencePoints(reviewing, greeting, rows: 52..<140)
         XCTAssertLessThan(belowBand, 12, "阶段切换不该引起卡片布局跳动（\(belowBand) 点差异）")
     }
 }

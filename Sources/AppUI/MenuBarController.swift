@@ -22,9 +22,40 @@ public final class MenuBarController: NSObject, NSPopoverDelegate {
     private override init() { super.init() }
 
     /// 装上状态栏图标。重复调用无害（第二次直接返回）。
+    ///
+    /// ⚠️ 用户上次把图标收起了（`statusBarIconHidden`）：只记下状态源、**不装** ——
+    /// 设置页里再打开时走 `setStatusItemVisible(true)`。启动那一刻就装回去，
+    /// 等于把用户的选择无声吞掉（同 `dockIconHidden` 那条铁律）。
     public func install(state: AppState) {
         guard AppKitHost.isPackedApp, statusItem == nil else { return }
         self.state = state
+        guard !state.statusBarIconHidden else { return }
+        createStatusItem()
+    }
+
+    /// 设置页那颗开关：显示 / 收起状态栏图标。
+    ///
+    /// 收起是**真卸下**（`removeStatusItem`）而不是藏：系统状态栏里留一个
+    /// 点不动的空项，比没有更瘆人。再打开时重建（`install` 已记下状态源）。
+    public func setStatusItemVisible(_ visible: Bool) {
+        guard AppKitHost.isPackedApp else { return }
+        if visible {
+            // 没有状态源就别建：建出来是会点出一个空面板的死图标
+            // （`togglePopover` 第一个 guard 就是 `state`）。
+            guard statusItem == nil, state != nil else { return }
+            createStatusItem()
+        } else {
+            guard let item = statusItem else { return }
+            NSStatusBar.system.removeStatusItem(item)
+            statusItem = nil
+            // 图标没了，还开着的小面板挂在空气上：先收掉（popoverDidClose 会清零）。
+            popover?.close()
+            popover = nil
+        }
+    }
+
+    /// 建状态项并配上那枚叶子。调用方负责 `statusItem == nil` 与可见性判据。
+    private func createStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
             button.image = NSImage(systemSymbolName: "leaf.fill", accessibilityDescription: "语林")
