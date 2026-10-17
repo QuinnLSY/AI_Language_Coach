@@ -91,19 +91,22 @@ struct ForestFloraBed: View {
     let theme: ForestTheme
     /// 学员开口的次数（= 草坪上长了几株）。
     let rounds: Int
-    /// 草坪表面线（**宿主坐标系**：与地面带的草坡 / 灌木 / 小花同一根线，
-    /// 植株的土丘就压在这条线上 —— 各算各的迟早出现「花浮在半空」）。
-    let groundLine: CGFloat
+    /// 草坪表面（**宿主坐标系**）：`x → 该处的坡面高度`。与地面带的草坡 / 灌木 /
+    /// 小花同一条坡面（`ForestSceneGeometry.hillSurfaceY`）—— 各算各的迟早出现
+    /// 「花浮在半空」，所以这里收成一个函数：坡是鼓包，问坡自己要高度。
+    let groundLine: ForestGroundSurface
 
     var body: some View {
         GeometryReader { proxy in
             let plants = GladeGrowth.plants(rounds: rounds)
             ZStack(alignment: .bottomLeading) {
                 ForEach(plants) { plant in
+                    let x = 16 + plant.x * max(0, proxy.size.width - 32)
                     sprout(plant)
                         .position(
-                            x: 16 + plant.x * max(0, proxy.size.width - 32),
-                            y: groundLine - 2
+                            x: x,
+                            // 站在坡面上（坡是鼓包）：问坡要这个 x 处的高度
+                            y: groundLine(x) - 2
                         )
                 }
             }
@@ -134,7 +137,11 @@ struct ForestFloraBed: View {
         }
         // 底部锚点落在草坪线上：.position 给的是视图中心，先把土丘一半的高度抬回来。
         .offset(y: -(4.5 * plant.scale + 1.5) / 2)
-        .shadow(color: theme.shadow, radius: 2.4, x: 0, y: 1.6)
+        // 落地阴影的方向走全局光源（`ForestLighting`：太阳钉在右上，影子朝左下）——
+        // 植株 / 小动物 / 单词卡的影子从此同一个朝向，不再各演各的光。
+        .shadow(color: theme.shadow, radius: 2.4,
+                x: ForestLighting.shadowOffset(forDepth: ForestSceneGeometry.nearHillDepth).width,
+                y: ForestLighting.shadowOffset(forDepth: ForestSceneGeometry.nearHillDepth).height)
     }
 
     /// 植株本体（种类画法与原 GladeFloor 一致，整体放大一档：

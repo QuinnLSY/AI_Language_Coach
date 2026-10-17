@@ -358,35 +358,54 @@ private struct Fireflies: View {
 
 // MARK: - 地面
 
+/// 天际线上的三层山丘（画在天空层底部，被半透明的三栏透出来）。
+///
+/// 从前这里是「另一套山」：自创的双段二次曲线、各自的高度与凸包，和林间地面带的
+/// 草坡（`HillCap`）各长各的 —— 同一片屏幕底部出现两条互不相认的山脊线，正是
+/// 用户说的「一块一块」。现在三件事统一：
+/// 1. **同一条曲线家族**：单段对称二次曲线，与 `ForestSceneGeometry.hillSurfaceY`
+///    （草坡的解析孪生）同一族；最近那层的高度直接取 `hillCapHeight`——
+///    它的脊线与地面带草坡的脊线**落在同一水平线上**，树栏与聊天栏从此共用一个地平线；
+/// 2. **同一根景深轴**：远 / 中 / 近三层按 `farHillDepth` / `midHillDepth` /
+///    `nearHillDepth` 过大气透视，最远那层融进天际的霾色，不再是一块饱和绿贴在天上；
+/// 3. **同一套常量**：高度差（150 / 120 / 96）只是同一族曲线的三次缩放。
 private struct Hills: View {
     let theme: ForestTheme
     var body: some View {
         ZStack(alignment: .bottom) {
-            HillShape(bump: 0.55).fill(theme.hillFar).frame(height: 150)
-            HillShape(bump: 0.42).fill(theme.hillMid).frame(height: 112)
-            HillShape(bump: 0.30).fill(theme.hillNear).frame(height: 78)
+            HillShape().fill(
+                ForestAerialPerspective.adjust(theme.hillFar,
+                                               depth: ForestSceneGeometry.farHillDepth,
+                                               haze: theme.aerialHaze)
+            ).frame(height: 150)
+            HillShape().fill(
+                ForestAerialPerspective.adjust(theme.hillMid,
+                                               depth: ForestSceneGeometry.midHillDepth,
+                                               haze: theme.aerialHaze)
+            ).frame(height: 120)
+            // 最近那层与林间地面带的草坡**同高同族**：脊线对齐，两栏一个地平线。
+            HillShape().fill(
+                ForestAerialPerspective.adjust(theme.hillNear,
+                                               depth: ForestSceneGeometry.nearHillDepth,
+                                               haze: theme.aerialHaze)
+            ).frame(height: ForestSceneGeometry.hillCapHeight)
         }
         .frame(height: 150)
         .frame(maxWidth: .infinity)
     }
 }
 
+/// 山丘轮廓：单段对称二次曲线（与 `HillCap` / `hillSurfaceY` 同一族）。
+/// 鼓包量取控制点超出顶沿的比例（0.125 = `hillCapBulge / hillCapHeight`）——
+/// 于是「远处的山与近处的坡是同一种地貌」，只是缩放不同。
 private struct HillShape: Shape {
-    let bump: CGFloat
-
     func path(in rect: CGRect) -> Path {
         var path = Path()
-        let midX = rect.midX
         path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
         path.addQuadCurve(
-            to: CGPoint(x: midX, y: rect.maxY - rect.height * bump),
-            control: CGPoint(x: midX * 0.45, y: rect.maxY - rect.height * bump * 1.25)
+            to: CGPoint(x: rect.maxX, y: rect.maxY),
+            control: CGPoint(x: rect.midX, y: rect.minY - rect.height * 0.125)
         )
-        path.addQuadCurve(
-            to: CGPoint(x: rect.maxX, y: rect.maxY - rect.height * bump * 0.45),
-            control: CGPoint(x: midX * 1.55, y: rect.maxY - rect.height * bump * 1.05)
-        )
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
         path.closeSubpath()
         return path
     }

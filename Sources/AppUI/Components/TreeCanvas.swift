@@ -80,7 +80,10 @@ public struct TreeCanvas: View {
     /// 「树冠在树顶」和「树冠不压着关卡」两件事都要，就只能让树冠**溢出到节数无关的位置**。
     public nonisolated static let courseHeadroom: CGFloat = 228
     /// 画布底部「林间地面」的高度（树干扎根的那一段）。
-    public nonisolated static let groundHeight: CGFloat = 120
+    ///
+    /// 值取自 `ForestSceneGeometry.trunkGroundHeight`（P0-C 起同源）：全森林只有一处
+    /// 定义「树干扎在多高的带上」，树 / 年轮徽记 / 滚动锚点不会再各拍一个数。
+    public nonisolated static let groundHeight: CGFloat = ForestSceneGeometry.trunkGroundHeight
 
     /// 课程关卡的**名次**（关卡 id → 0 起的名次；按高度排序）。
     ///
@@ -237,10 +240,12 @@ public struct TreeCanvas: View {
                 // 文案与 FruitLayer 的星数承载），对 VoiceOver 整体隐藏，别让它念「一棵树」。
                 Group {
                     // 树干（尖压进树冠里，别从叶子上方戳出来）
+                    // ⚠️ 渐变方向跟全局光源走（`ForestLighting`：太阳钉在右上，
+                    // 影子朝左下）—— 从前左亮右暗，与天上那颗太阳对不上。
                     TrunkShape(tipY: Self.trunkTipY(for: progress))
                         .fill(
                             LinearGradient(
-                                colors: [theme.trunk, theme.trunkShade],
+                                colors: [theme.trunkShade, theme.trunk],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
@@ -479,10 +484,11 @@ public enum TreeRings {
     ///
     /// 为什么不是「画布底往上一点」（2026-10-01 修）：那 150pt 的 `ForestGroundBand`
     /// 是钉在**视口**底部的固定层（草坡不透明），画布能滚到的最后一屏里，底部 150pt
-    /// 永远被它压住。徽记原先画在 `canvasHeight - 34`，正好在压住区里 ——
+    /// 永远被它压住。徽记原先画在坡面直线上，正好在压住区里 ——
     /// 而第一圈年轮要练满 30 天才出现，那必然爬得够高、视口停在半空，
     /// 结果就是「练了一整年，树根什么都没有」。
-    /// 这里用与 `learnerTargetY` 同一套常量（林带高 + 一个呼吸位）定位。
+    /// 这里用与 `learnerTargetY` 同一套常量（林带高 + 一个呼吸位）定位；
+    /// 林带高本身读 `ForestSceneGeometry.groundBandHeight`（P0-C 起同源）。
     public static func emblemY(canvasHeight: CGFloat) -> CGFloat {
         canvasHeight - TreeViewport.groundBandHeight - TreeViewport.clearance
     }
@@ -551,7 +557,10 @@ private struct TreeRingEmblem: View {
 public enum TreeViewport {
 
     /// 底部「林间地面带」的高度（`ForestGroundBand` 的现实高度，两处必须同源）。
-    public static let groundBandHeight: CGFloat = 150
+    ///
+    /// 值取自 `ForestSceneGeometry.groundBandHeight`（P0-C 起同源）：地面带的现实高度
+    /// 与草坡几何（`slopeLine` / `hillSurfaceY`）共用一套常量，树与带的缝合处不会再错位。
+    public static let groundBandHeight: CGFloat = ForestSceneGeometry.groundBandHeight
     /// 学员停在林带上面多少：留出一只小动物的身位，别贴着草坡。
     public static let clearance: CGFloat = 60
     /// 视口上边至少留这么高（视口特别矮时别把学员顶出屏幕外）。
@@ -617,7 +626,7 @@ private struct TrunkShape: Shape {
 
 private struct Canopy: View {
     let theme: ForestTheme
-    /// 树冠茂密度 0…1（已得星 / 需求星）：只做视觉变换（大小 / 深叶层显隐），不动布局。
+    /// 树冠茂密度 0…1（已得星 / 需求星）：只做视觉变换（整体放大），不动布局。
     var density: Double = 0
     /// 枝头果实数量（= 已得星，封顶到 `FruitLayer.placements`）。
     var fruitCount: Int = 0
@@ -630,15 +639,59 @@ private struct Canopy: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(theme.foliageDeep).frame(width: 250, height: 210).offset(x: -70, y: 40)
-            Circle().fill(theme.foliageDeep).frame(width: 230, height: 190).offset(x: 78, y: 56)
-            Circle().fill(theme.foliage).frame(width: 210, height: 180).offset(x: -20, y: 8)
-            Circle().fill(theme.foliage).frame(width: 170, height: 150).offset(x: 66, y: -6)
-            Circle().fill(theme.foliage.opacity(0.9)).frame(width: 150, height: 130).offset(x: -84, y: -14)
-            // 茂密层第六团圆叶：星星攒过一半才露头——「树冠越学越蓬」看得见
-            Circle().fill(theme.foliage.opacity(0.95)).frame(width: 120, height: 104)
-                .offset(x: 8, y: -34)
-                .opacity(density > 0.55 ? 1 : 0)
+            // ① 林冠体质：四颗团块的四条轮廓并成**一道**路径（`CanopyMass`，非零缠绕
+            // 规则 → 重叠处只填一次），整幅树冠只有一个外沿、只填一次色。
+            //
+            // 为什么不再是「四团各填各的颜色」：不同色的团块重重叠叠，交界处必出一圈
+            // 弧线 —— 那就是用户说的「一块一块、不是一个整体」。并成一道路径后，
+            // 交界处根本没有边界；明暗全靠罩在整幅外沿上的渐变与两片柔光柔影。
+            // 渐变方向跟全局光源走（`ForestLighting`：太阳右上 → 底左背光），
+            // 两端都过一遍大气透视（树站在 `treeDepth`，与草坡顶沿 `HillCap` 同档）。
+            CanopyMass()
+                .fill(LinearGradient(
+                    colors: [
+                        ForestAerialPerspective.adjust(
+                            theme.foliage,
+                            depth: ForestSceneGeometry.treeDepth,
+                            haze: theme.aerialHaze),
+                        ForestAerialPerspective.adjust(
+                            theme.foliageDeep,
+                            depth: ForestSceneGeometry.treeDepth,
+                            haze: theme.aerialHaze),
+                    ],
+                    startPoint: .topTrailing,
+                    endPoint: .bottomLeading
+                ))
+
+            // ② 柔光：右上那团是向阳面（太阳那侧的叶子），覆一团径向提亮 ——
+            // 半径上衰减到 0，所以是「光」不是「贴片」，没有硬边。
+            // 同样遮罩在林冠形里，衰减不到的残余也不蹭到天上。
+            Ellipse()
+                .fill(RadialGradient(
+                    colors: [Color.white.opacity(0.18), Color.white.opacity(0)],
+                    center: .center,
+                    startRadius: 0,
+                    endRadius: 92
+                ))
+                .frame(width: 240, height: 180)
+                .offset(x: 42, y: -14)
+                .mask(CanopyMass().fill(.black))
+                .allowsHitTesting(false)
+
+            // ③ 柔影：树冠底沿总是最沉的（叶背光），一条自上而下衰减的深色带 ——
+            // 顺带把 16 个果位里最低那几颗接进深色叶底里。
+            // ⚠️ 必须通宽（比树冠外沿还宽）：椭圆/窄矩形的左右边会落在树冠**内部**，
+            // 衰减带尽头就是一道新的弧线 —— 又「一块一块」了。边全部交给遮罩去裁。
+            Rectangle()
+                .fill(LinearGradient(
+                    colors: [theme.foliageDeep.opacity(0), theme.foliageDeep.opacity(0.55)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ))
+                .frame(width: 480, height: 156)
+                .offset(x: 0, y: 84)
+                .mask(CanopyMass().fill(.black))
+                .allowsHitTesting(false)
 
             FruitLayer(theme: theme, count: fruitCount)
         }
@@ -667,7 +720,84 @@ private struct Canopy: View {
     }
 }
 
+// MARK: - 林冠体质
+
+/// 林冠体质：四颗 `CanopyBlob` 的轮廓并成**一道路径**。
+///
+/// 为什么并成一道：四颗团块各填各的颜色时，交界处必出一圈弧线（用户说的
+/// 「一块一块、不是一个整体」）。并成一道路径后只填一次 —— 交界处没有边界，
+/// 明暗全靠罩在整幅外沿上的渐变与两片柔光柔影，看起来才是一整棵树。
+/// 非零缠绕规则：四条子路径同向，重叠区缠绕数 2 仍只填一次。
+private struct CanopyMass: Shape {
+
+    /// 四颗团块（中心偏移 / 半径 / 噪声种子）。
+    /// ⚠️ 改任何一颗都要复验果位表：`FruitLayer.placements` 按第三颗（前层主体，
+    /// 中心 (0,26)、半径 172×116、种子 7）的轮廓留了余量，轮廓一动果位可能悬空。
+    private static let blobs: [(offset: CGSize, radii: CGSize, seed: UInt64)] = [
+        (CGSize(width: -46, height: -2), CGSize(width: 140, height: 98), 13),
+        (CGSize(width: 42, height: -14), CGSize(width: 130, height: 94), 29),
+        (CGSize(width: 0, height: 26), CGSize(width: 172, height: 116), 7),
+        (CGSize(width: 0, height: 82), CGSize(width: 144, height: 66), 31),
+    ]
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        for blob in Self.blobs {
+            path.addPath(
+                CanopyBlob(offset: blob.offset, radii: blob.radii, seed: blob.seed)
+                    .path(in: rect)
+            )
+        }
+        return path
+    }
+}
+
 // MARK: - 枝头果实（星星成果实挂上枝头）
+
+/// 树冠的有机轮廓：椭圆基形 + fBm 半径噪声（`ForestNoise`，确定性 —— 同输入同轮廓）。
+///
+/// 为什么在**单位圆上**采 2D 噪声：`(cos θ, sin θ)` 是周期的，轮廓闭合处天然连续，
+/// 不会在路径首尾接缝处留一道折痕。`ForestNoise.fbm` 值域 [0,1] → 半径只向外鼓
+/// （基形 0.92 + 噪声 0…0.24），不向内塌 —— 果实挂在沿上，塌一处就悬空一颗。
+private struct CanopyBlob: Shape {
+
+    /// 团块中心相对画框中心的偏移（画框 = 树冠那 300pt 高的帧）。
+    var offset: CGSize
+    /// 椭圆基形的半径（噪声在此之前乘上去）。
+    var radii: CGSize
+    /// 噪声种子：背层与前层各一颗，轮廓才不会重合出一层厚边。
+    var seed: UInt64
+
+    /// 采样点数：周长约 950pt，144 段 ≈ 每段 6.6pt，抗锯齿后看不出折角。
+    private static let samples = 144
+    /// 噪声空间频率：1.2 → 绕轮廓一圈约 12 个叶瓣（每个 60—80pt，正是「一簇叶」
+    /// 的尺度；再小就碎成噪声，再大就退回一只土豆）。
+    private static let frequency: Double = 1.2
+    /// 半径基形（0.92）：轮廓的主体大小。
+    private static let baseRadius: CGFloat = 0.92
+    /// 噪声幅度（+0.24）：叶瓣的起伏量。
+    private static let noiseAmount: CGFloat = 0.24
+
+    func path(in rect: CGRect) -> Path {
+        let center = CGPoint(x: rect.midX + offset.width, y: rect.midY + offset.height)
+        var path = Path()
+        for index in 0..<Self.samples {
+            let theta = 2 * Double.pi * Double(index) / Double(Self.samples)
+            let n = ForestNoise.fbm(
+                cos(theta) * Self.frequency, sin(theta) * Self.frequency,
+                octaves: 3, seed: seed
+            )
+            let m = Self.baseRadius + Self.noiseAmount * CGFloat(n)
+            let point = CGPoint(
+                x: center.x + radii.width * m * CGFloat(cos(theta)),
+                y: center.y + radii.height * m * CGFloat(sin(theta))
+            )
+            if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+        }
+        path.closeSubpath()
+        return path
+    }
+}
 
 /// 星星物化成果实：总进度看得见、摸得着（数量 = 已得星，封顶到果位表）。
 /// 新果实从同一侧长出来——数量变化即弹入，`appAnimation` 自己尊重动效档。
@@ -676,12 +806,17 @@ struct FruitLayer: View {
     let theme: ForestTheme
     let count: Int
 
-    /// 果位表（树冠局部坐标：挂在五团圆叶的下缘；加果时按序取用）。
+    /// 果位表（树冠局部坐标：挂在前层团块的下缘；加果时按序取用）。
     /// ⚠️ 稳定位置：同 index 永远同位，重绘不跳动。
+    /// ⚠️ 每个果位都必须在 `CanopyBlob`（前层，中心 (0,26)、半径 172×116、种子 7）
+    /// 轮廓**内侧**留 ≥8pt —— 挂到沿外就悬空一颗。改动轮廓或这张表之后，
+    /// 用 `ForestSceneWiringTests` 的判据 + 离屏渲染复核（`ForestEventTests` 钉住
+    /// 数量 / 边界 / 两两距离）。
     nonisolated static let placements: [(Double, Double)] = [
-        (-160, 110), (-95, 135), (-30, 120), (30, 140), (90, 135), (150, 100),
-        (-140, 60), (-60, 80), (10, 85), (75, 70), (135, 45), (-115, 15),
-        (-40, 30), (40, 0), (105, -10), (-90, -30),
+        // 外档：绕下缘一圈（从左下到右中）
+        (162, 54), (135, 92), (89, 121), (31, 137), (-31, 137), (-89, 121), (-135, 92), (-162, 54),
+        // 内档：错半步收进来一档（果实有前有后，不成一个正圆）
+        (109, 61), (82, 85), (44, 101), (0, 107), (-44, 101), (-82, 85), (-109, 61), (-120, 31),
     ]
 
     var body: some View {
@@ -1303,8 +1438,15 @@ struct ForestGroundBand: View {
         GeometryReader { proxy in
             let width = proxy.size.width
             let height = proxy.size.height
-            // 草坡表面（相对本视图坐标）；动物站在坡面上，前后两排错落。
-            let groundLine: CGFloat = height - 34
+            // 草坡表面（相对本视图坐标）：坡是鼓包不是直线 —— 谁站在坡上就问坡自己要高度。
+            // （从前这里是一条直线：草叶 / 灌木 / 小花 / 小动物 / 对话植物全站在上面，
+            // 而坡面中心高出 20pt、两角低下 34pt，于是「中心埋进坡里、两边浮在半空」——
+            // 用户看到的「一块一块」正源于此。）
+            // ⚠️ 名字仍叫 `groundLine`（它回答的就是「这根线在 x 处的高度」），类型从
+            //  CGFloat 变成坡面函数；下游 30 处调用点因此原样不动，只是各自问一次 x。
+            let groundLine: ForestGroundSurface = { x in
+                ForestSceneGeometry.hillSurfaceY(x: x, bandWidth: width, bandHeight: height)
+            }
             let inset: CGFloat = 74
             let span = max(1, width - inset * 2)
             // 量化宽度：一切「离散决策」（数量、个体大小）只在 28pt 档位上变化，
@@ -1323,10 +1465,26 @@ struct ForestGroundBand: View {
                 // 批次七 · G：下面这一段（草坡 / 草叶 / 灌木 / 小花 / 点出来的花 / 栖木桠）
                 // 全是纯装饰 —— 包成一个 Group 对 VoiceOver 整体隐藏，居民（动物）保留读屏。
                 Group {
-                    // 草坡
+                    // 草坡：顶沿到坡底一道「空气」渐变（大气透视按景深推，顶沿远一点）
+                    // —— 从前是一条硬邦邦的剪纸边，绿的坡冷不丁切进背后的天空里。
                     HillCap()
-                        .fill(theme.hillNear)
-                        .frame(height: 96)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    ForestAerialPerspective.adjust(
+                                        theme.hillNear,
+                                        depth: ForestSceneGeometry.treeDepth,
+                                        haze: theme.aerialHaze),
+                                    ForestAerialPerspective.adjust(
+                                        theme.hillNear,
+                                        depth: ForestSceneGeometry.nearHillDepth,
+                                        haze: theme.aerialHaze)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .frame(height: ForestSceneGeometry.hillCapHeight)
 
                     // 远处草丛（固定数量，按宽度均布；倾角只跟 index 走，不随宽度乱跳）
                     ForEach(0..<grassCount, id: \.self) { i in
@@ -1576,7 +1734,7 @@ struct ForestGroundBand: View {
 
     // MARK: 活动编排（唯一的心跳：游走 / 跳 / 摇 / 飞枝）
 
-    private func orchestrateLife(count: Int, span: CGFloat, inset: CGFloat, groundLine: CGFloat,
+    private func orchestrateLife(count: Int, span: CGFloat, inset: CGFloat, groundLine: ForestGroundSurface,
                                  quantizedWidth: CGFloat, width: CGFloat,
                                  order: [AnimalKind]) async {
         // 个体错峰启动，避免整排动物同时动作
@@ -1660,7 +1818,7 @@ struct ForestGroundBand: View {
 
     /// 地面游走：在草地范围内累计位移（走到哪停在哪），跳动前进，不会走出草坡。
     private func wander(_ index: Int, count: Int, span: CGFloat, inset: CGFloat,
-                        groundLine: CGFloat, quantizedWidth: CGFloat) {
+                        groundLine: ForestGroundSurface, quantizedWidth: CGFloat) {
         let home = homePosition(index: index, count: count, span: span, inset: inset,
                                 groundLine: groundLine, quantizedWidth: quantizedWidth)
         let current = offsets[index]
@@ -1697,7 +1855,7 @@ struct ForestGroundBand: View {
 
     /// 鸟类飞上枝桠。
     private func flyToPerch(_ index: Int, count: Int, span: CGFloat, inset: CGFloat,
-                            groundLine: CGFloat, quantizedWidth: CGFloat, width: CGFloat) async {
+                            groundLine: ForestGroundSurface, quantizedWidth: CGFloat, width: CGFloat) async {
         let home = homePosition(index: index, count: count, span: span, inset: inset,
                                 groundLine: groundLine, quantizedWidth: quantizedWidth)
         let perch = perchPoint(Int.random(in: 0..<2), width: width)
@@ -1832,7 +1990,7 @@ struct ForestGroundBand: View {
     /// 双人社交：挑 x 距离最近的一对邻居，要么结对摇摆（跳舞），要么一问一答。
     /// 只剩一只时就给它一段独舞，不让社交意图落空。
     private func socialise(count: Int, span: CGFloat, inset: CGFloat,
-                           groundLine: CGFloat, quantizedWidth: CGFloat) async {
+                           groundLine: ForestGroundSurface, quantizedWidth: CGFloat) async {
         let present = (0..<count).filter { !away[$0] }
         let xs = present.reduce(into: [Int: CGFloat]()) { result, index in
             let home = homePosition(index: index, count: count, span: span, inset: inset,
@@ -2043,7 +2201,7 @@ struct ForestGroundBand: View {
     /// 「事事有回应」的具象版——收词不只是飘一片叶子，而是森林里真的有谁
     /// 为这件事跑了一趟。上一场没演完时新事件只留树上的叶子回应（不排队、不叠加）。
     private func fetchWord(count: Int, span: CGFloat, inset: CGFloat,
-                           groundLine: CGFloat, quantizedWidth: CGFloat) async {
+                           groundLine: ForestGroundSurface, quantizedWidth: CGFloat) async {
         guard activityAllowed, !theme.isNight, !isFetchingWord, let word = wordPayload else { return }
         // 只派**在场且站在草地上**的居民（枝上的鸟不接这活）
         let present = (0..<count).filter { !away[$0] && !perched[$0] }
@@ -2109,15 +2267,15 @@ struct ForestGroundBand: View {
         }
     }
 
-    private func grassBlade(x: CGFloat, h: CGFloat, w: CGFloat, seed: Int, groundLine: CGFloat) -> some View {
+    private func grassBlade(x: CGFloat, h: CGFloat, w: CGFloat, seed: Int, groundLine: ForestGroundSurface) -> some View {
         Capsule()
             .fill(theme.foliage.opacity(0.7))
             .frame(width: w, height: h)
             .rotationEffect(.degrees(Double((pr(seed, 6) - 0.5) * 24)))
-            .position(x: x, y: groundLine - h / 2 + 3)
+            .position(x: x, y: groundLine(x) - h / 2 + 3)
     }
 
-    private func flower(x: CGFloat, groundLine: CGFloat, palette: Int) -> some View {
+    private func flower(x: CGFloat, groundLine: ForestGroundSurface, palette: Int) -> some View {
         let color: Color = palette == 0 ? Color(hex: 0xFF9BB5)
             : palette == 1 ? Color(hex: 0xFFF0B8)
             : Color(hex: 0xFFFFFF)
@@ -2133,13 +2291,13 @@ struct ForestGroundBand: View {
                 .fill(Color(hex: 0xF7B32B))
                 .frame(width: 4, height: 4)
         }
-        .position(x: x, y: groundLine - 8)
+        .position(x: x, y: groundLine(x) - 8)
         .opacity(0.95)
     }
 
     // MARK: 灌木
 
-    private func bush(x: CGFloat, groundLine: CGFloat, seed: Int) -> some View {
+    private func bush(x: CGFloat, groundLine: ForestGroundSurface, seed: Int) -> some View {
         let s: CGFloat = 26 + pr(seed, 13) * 14
         return ZStack {
             Circle().fill(theme.foliage.opacity(0.9)).frame(width: s, height: s * 0.82)
@@ -2150,7 +2308,7 @@ struct ForestGroundBand: View {
                 .frame(width: s * 0.6, height: s * 0.5)
                 .offset(x: -s * 0.45, y: s * 0.1)
         }
-        .position(x: x, y: groundLine - s * 0.32)
+        .position(x: x, y: groundLine(x) - s * 0.32)
         .opacity(0.95)
     }
 
@@ -2158,7 +2316,7 @@ struct ForestGroundBand: View {
 
     /// 家位置（与 resident() 完全同一套伪随机，编排与绘制共用）。
     private func homePosition(index: Int, count: Int, span: CGFloat, inset: CGFloat,
-                              groundLine: CGFloat, quantizedWidth: CGFloat)
+                              groundLine: ForestGroundSurface, quantizedWidth: CGFloat)
         -> (x: CGFloat, y: CGFloat, size: CGFloat) {
         let depth = pr(index, 14)
         let base = min(54, 28 + quantizedWidth * 0.045) * (0.72 + depth * 0.42)
@@ -2166,12 +2324,12 @@ struct ForestGroundBand: View {
         let pitch = span / CGFloat(max(1, count))
         let jitter = (pr(index, 4) - 0.5) * min(24, pitch * 0.34)
         let x = inset + (CGFloat(index) + 0.5) * pitch + jitter
-        let y = groundLine - size * 0.5 - depth * 10 + pr(index, 9) * 6
+        let y = groundLine(x) - size * 0.5 - depth * 10 + pr(index, 9) * 6
         return (x, y, size)
     }
 
     private func resident(kind: AnimalKind, index: Int, visibleCount: Int,
-                          span: CGFloat, inset: CGFloat, groundLine: CGFloat,
+                          span: CGFloat, inset: CGFloat, groundLine: ForestGroundSurface,
                           quantizedWidth: CGFloat) -> some View {
         let visible = index < visibleCount && !away[index]
         let home = homePosition(index: index, count: visibleCount, span: span, inset: inset,
@@ -2181,11 +2339,14 @@ struct ForestGroundBand: View {
 
         return ZStack {
             // 脚底阴影（落到脚部而不是身体中心；鸟在枝上时收起）
+            // ⚠️ 方向走全局光源（`ForestLighting`：太阳右上 → 影子左下）——
+            // 从前所有影子笔直朝下，等于默认太阳正在头顶，和天边那颗对不上。
             if !perched[index] {
+                let shadow = ForestLighting.shadowOffset(forDepth: ForestSceneGeometry.nearHillDepth)
                 Ellipse()
                     .fill(theme.shadow)
                     .frame(width: home.size * 0.92, height: home.size * 0.15)
-                    .offset(y: home.size * 0.42)
+                    .offset(x: shadow.width, y: home.size * 0.42 + shadow.height)
             }
 
             LivelyAnimal(
@@ -2243,7 +2404,7 @@ struct ForestGroundBand: View {
     ///    期间画面上真的少一两只（数量动态变化）；
     /// ③ 下一批告别前安静 0.5–1.5 个周期，一成概率来一段长歇（留白）。
     private func orchestrateRotation(count: Int, span: CGFloat, inset: CGFloat,
-                                     groundLine: CGFloat, quantizedWidth: CGFloat,
+                                     groundLine: ForestGroundSurface, quantizedWidth: CGFloat,
                                      order: [AnimalKind]) async {
         // ⚠️ 本循环**被取消时**（拖分割线 → `.task(id:)` 重启，或入夜）把还没回来的
         // 居民接回场上：它们此刻 `away = true`，而新的循环只从「在场」的槽位里挑人，
@@ -2327,7 +2488,7 @@ struct ForestGroundBand: View {
 
     /// 沿地面走出画面（朝离自家近的一侧边缘小跳离场）。
     private func hopOutOfStage(_ index: Int, count: Int, span: CGFloat, inset: CGFloat,
-                               groundLine: CGFloat, quantizedWidth: CGFloat) async {
+                               groundLine: ForestGroundSurface, quantizedWidth: CGFloat) async {
         let home = homePosition(index: index, count: count, span: span, inset: inset,
                                 groundLine: groundLine, quantizedWidth: quantizedWidth)
         let current = offsets[index]
@@ -2341,7 +2502,7 @@ struct ForestGroundBand: View {
 
     /// 一位「新邻居」从离场那一侧的边缘走进来（换物种 → 走回家位 → 打招呼）。
     private func arriveFromEdge(index: Int, count: Int, span: CGFloat, inset: CGFloat,
-                                groundLine: CGFloat, quantizedWidth: CGFloat,
+                                groundLine: ForestGroundSurface, quantizedWidth: CGFloat,
                                 order: [AnimalKind]) async {
         // 换物种：谁回来是缘分（只保证不是走掉的那位）
         let pool = AnimalKind.allCases.filter { $0 != kindAt(index: index, fallback: order.first ?? .fox) }
@@ -2463,13 +2624,17 @@ struct ForestGroundBand: View {
         return activityAllowed ? "小动物们正在自由活动（点击让它们排排站好）" : "小动物们已安静（点击放它们出来玩）"
     }
 
+    /// 草坡（林间地面带中央那只鼓包）。
+    ///
+    /// 曲线与 `ForestSceneGeometry.hillSurfaceY` 是**同一条的两种写法**（解析式 ↔
+    /// 二次曲线）：鼓包量与坡高都读统一常量，改动不会只落在一侧。
     private struct HillCap: Shape {
         func path(in rect: CGRect) -> Path {
             var path = Path()
             path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
             path.addQuadCurve(
                 to: CGPoint(x: rect.maxX, y: rect.maxY),
-                control: CGPoint(x: rect.midX, y: rect.minY - 12)
+                control: CGPoint(x: rect.midX, y: rect.minY - ForestSceneGeometry.hillCapBulge)
             )
             path.closeSubpath()
             return path
