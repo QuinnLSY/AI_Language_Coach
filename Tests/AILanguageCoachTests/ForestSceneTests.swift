@@ -367,45 +367,4 @@ final class ForestSceneTests: XCTestCase {
         let db = Double(a.blueComponent) - Double(b.blueComponent)
         return (dr * dr + dg * dg + db * db).squareRoot()
     }
-
-    // MARK: - 明暗档（ForestTone.deepen）
-
-    /// 压暗必须真的更暗、且朝着墨的方向走（不是乱混）。
-    func testDeepenMovesTowardTheInk() {
-        let theme = ForestTheme(palette: .day)
-        let base = theme.foliage
-        let deepened = ForestTone.deepen(base, amount: 0.5, ink: theme.shadow)
-        XCTAssertLessThan(distance(deepened, to: theme.shadow),
-                          distance(base, to: theme.shadow),
-                          "压暗后必须离墨更近")
-        let channel = { (color: Color) -> Double in
-            NSColor(color).usingColorSpace(.sRGB).map { Double($0.redComponent) } ?? 0
-        }
-        XCTAssertLessThan(channel(deepened), channel(base), "压暗后红通道必须下降")
-    }
-
-    /// amount = 0 与上限都要守住：0 不动，超过 1 夹住（不会翻过去）。
-    func testDeepenClampsTheAmount() {
-        let theme = ForestTheme(palette: .day)
-        XCTAssertEqual(ForestTone.deepen(theme.foliage, amount: 0, ink: theme.shadow),
-                       theme.foliage)
-        let clamped = ForestTone.deepen(theme.foliage, amount: 4, ink: theme.shadow)
-        let full = ForestTone.deepen(theme.foliage, amount: 1, ink: theme.shadow)
-        XCTAssertEqual(clamped, full, "amount 超过 1 必须夹住（不许翻过去）")
-    }
-
-    /// 夜档的墨是近黑：同一 amount 下夜档压得更暗（墨自身浓度乘了进来）。
-    func testDeepenRespectsTheInkOpacity() {
-        let day = ForestTheme(palette: .day)
-        let night = ForestTheme(palette: .night)
-        let dayInk = ForestTone.deepen(day.foliage, amount: 1, ink: day.shadow)
-        let nightInk = ForestTone.deepen(night.foliage, amount: 1, ink: night.shadow)
-        let luminance = { (color: Color) -> Double in
-            guard let c = NSColor(color).usingColorSpace(.sRGB) else { return 1 }
-            return 0.2126 * Double(c.redComponent) + 0.7152 * Double(c.greenComponent)
-                + 0.0722 * Double(c.blueComponent)
-        }
-        XCTAssertLessThan(luminance(nightInk), luminance(dayInk),
-                          "夜档墨更浓（shadow 不透明度更高），压出来必须更暗")
-    }
 }

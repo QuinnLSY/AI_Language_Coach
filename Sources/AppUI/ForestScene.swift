@@ -280,38 +280,6 @@ public extension ForestTheme {
     }
 }
 
-// MARK: - 明暗档（插画层的「墨」）
-
-/// 往主题的 `shadow` 令牌里压暗一档 —— 背光叶簇、叶底暗部、树皮皱纹用它。
-///
-/// 为什么不写死 `Color.black`：插画层的一切颜色都必须过主题（日夜 / 季节），
-/// 硬编码的黑在夜档会脏成一团；`theme.shadow` 本身就是「当时的空气色」
-/// （白天深绿 `0x2E4A32`、夜里近黑），拿它当墨，压出来的一档自然跟着主题走。
-/// 与 `ForestAerialPerspective.adjust`（往亮里融）是一对：一个提亮、一个压暗。
-public enum ForestTone {
-
-    /// 把 `color` 往 `ink` 里混 `amount`（0…1；`ink` 自身的不透明度会先乘上来）。
-    public static func deepen(_ color: Color, amount: Double, ink: Color) -> Color {
-        let a = min(max(amount, 0), 1)
-        guard a > 0,
-              let base = NSColor(color).usingColorSpace(.sRGB),
-              let inkNS = NSColor(ink).usingColorSpace(.sRGB) else {
-            return color
-        }
-        let mix = a * Double(inkNS.alphaComponent)
-        func channel(_ index: Int) -> Double {
-            let b = [base.redComponent, base.greenComponent, base.blueComponent][index]
-            let i = [inkNS.redComponent, inkNS.greenComponent, inkNS.blueComponent][index]
-            return min(max(b * (1 - mix) + i * mix, 0), 1)
-        }
-        return Color(
-            .sRGB,
-            red: channel(0), green: channel(1), blue: channel(2),
-            opacity: Double(base.alphaComponent)
-        )
-    }
-}
-
 // MARK: - 全局光照
 
 /// 全局唯一的光源：太阳钉在**右上**（`ForestSky` 的天体就在 `.topTrailing`）。
