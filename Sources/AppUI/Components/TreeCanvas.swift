@@ -2268,28 +2268,34 @@ struct ForestGroundBand: View {
     }
 
     private func grassBlade(x: CGFloat, h: CGFloat, w: CGFloat, seed: Int, groundLine: ForestGroundSurface) -> some View {
-        Capsule()
-            .fill(theme.foliage.opacity(0.7))
-            .frame(width: w, height: h)
-            .rotationEffect(.degrees(Double((pr(seed, 6) - 0.5) * 24)))
-            .position(x: x, y: groundLine(x) - h / 2 + 3)
+        // 风摆包在 `.position` **之内**：元素自身的坐标系里绕底边转（= 根部扎根在晃）。
+        // 包到 position 外面就变成绕整块画布的底边转 —— 那不是草在动，是地在动。
+        WindSway(x: x, height: h, gain: 0.9, rotationGain: 1.1) {
+            Capsule()
+                .fill(theme.foliage.opacity(0.7))
+                .frame(width: w, height: h)
+                .rotationEffect(.degrees(Double((pr(seed, 6) - 0.5) * 24)))
+        }
+        .position(x: x, y: groundLine(x) - h / 2 + 3)
     }
 
     private func flower(x: CGFloat, groundLine: ForestGroundSurface, palette: Int) -> some View {
         let color: Color = palette == 0 ? Color(hex: 0xFF9BB5)
             : palette == 1 ? Color(hex: 0xFFF0B8)
             : Color(hex: 0xFFFFFF)
-        return ZStack {
-            ForEach(0..<5, id: \.self) { petal in
-                Ellipse()
-                    .fill(color)
-                    .frame(width: 4.4, height: 3.0)
-                    .offset(y: -3.2)
-                    .rotationEffect(.degrees(Double(petal) * 72))
+        return WindSway(x: x, height: 14, gain: 1.0, rotationGain: 1.3) {
+            ZStack {
+                ForEach(0..<5, id: \.self) { petal in
+                    Ellipse()
+                        .fill(color)
+                        .frame(width: 4.4, height: 3.0)
+                        .offset(y: -3.2)
+                        .rotationEffect(.degrees(Double(petal) * 72))
+                }
+                Circle()
+                    .fill(Color(hex: 0xF7B32B))
+                    .frame(width: 4, height: 4)
             }
-            Circle()
-                .fill(Color(hex: 0xF7B32B))
-                .frame(width: 4, height: 4)
         }
         .position(x: x, y: groundLine(x) - 8)
         .opacity(0.95)
@@ -2299,14 +2305,18 @@ struct ForestGroundBand: View {
 
     private func bush(x: CGFloat, groundLine: ForestGroundSurface, seed: Int) -> some View {
         let s: CGFloat = 26 + pr(seed, 13) * 14
-        return ZStack {
-            Circle().fill(theme.foliage.opacity(0.9)).frame(width: s, height: s * 0.82)
-            Circle().fill(theme.foliageDeep.opacity(0.85))
-                .frame(width: s * 0.72, height: s * 0.6)
-                .offset(x: s * 0.42, y: s * 0.08)
-            Circle().fill(theme.foliage.opacity(0.8))
-                .frame(width: s * 0.6, height: s * 0.5)
-                .offset(x: -s * 0.45, y: s * 0.1)
+        // 灌木最重一档（gain 0.45）：一丛叶子兜住风，风来是整丛微微欠身，
+        // 不是每片叶子各晃各的 —— 与草叶（0.9）拉开「质量感」的差距。
+        return WindSway(x: x, height: s, gain: 0.45, rotationGain: 0.35) {
+            ZStack {
+                Circle().fill(theme.foliage.opacity(0.9)).frame(width: s, height: s * 0.82)
+                Circle().fill(theme.foliageDeep.opacity(0.85))
+                    .frame(width: s * 0.72, height: s * 0.6)
+                    .offset(x: s * 0.42, y: s * 0.08)
+                Circle().fill(theme.foliage.opacity(0.8))
+                    .frame(width: s * 0.6, height: s * 0.5)
+                    .offset(x: -s * 0.45, y: s * 0.1)
+            }
         }
         .position(x: x, y: groundLine(x) - s * 0.32)
         .opacity(0.95)

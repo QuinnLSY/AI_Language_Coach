@@ -410,17 +410,5 @@ private struct HillShape: Shape {
         return path
     }
 }
-
-// MARK: - 确定性随机（保证星图稳定不闪烁重排）
-
-private struct SeededRandom {
-    private var state: UInt64
-
-    init(seed: UInt64) { state = seed }
-
-    mutating func next() -> Double {
-        state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
-        let value = (state >> 11) & UInt64(1 << 24 - 1)
-        return Double(value) / Double(1 << 24)
-    }
-}
+// 确定性随机改用地基那份 `SeededRandom`（`ForestScene.swift`）：星图 / 雨 /
+// 萤火虫 / 花粉共用同一套伪随机，各写一份迟早出现「同一片林子两种随机器」的割裂。

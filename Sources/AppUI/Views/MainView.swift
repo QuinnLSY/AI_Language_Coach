@@ -17,6 +17,11 @@ public struct MainView: View {
     @State private var treePanelWidth: CGFloat = 380
     @State private var treeDragStart: CGFloat?
 
+    /// 全局风钟（P1）：全场景唯一相位源，由 `ForestWindDriver` 每帧推进，
+    /// 草 / 花 / 灌木 / 对话植物经环境读它 —— 层与层看到同一阵风。
+    /// 每个 MainView 实例一颗（随窗口重建自然换新的，无跨窗口共享问题）。
+    private let windClock = ForestWindClock()
+
     private let sideDividerWidth: CGFloat = 1
     private let resizeHandleWidth: CGFloat = 14
 
@@ -36,11 +41,22 @@ public struct MainView: View {
             let chatW = max(AppLayoutMetrics.chatMinWidth, total - fixedW - treeW)
 
             ZStack {
+                // 全局风钟驱动器（P1）：唯一一颗 TimelineView 推进风相位。
+                // 零尺寸、纯透明，只负责让风钟与墙钟同步；受风层散在各处
+                // （地面带 / 对话植物 / 以后的粒子层）都读同一颗钟。
+                ForestWindDriver(clock: windClock, still: state.forest.ambientHidden)
+
                 // 天空不再自己画天体：右上角的太阳/月亮由 CelestialToggle 画在内容层之上，
                 // 这样它才是「看得见、点得到」的日夜切换控件（点击即切换）。
                 // ambientStill：连点天空 5 次收起云和萤火虫（批次六 · E 可玩彩蛋）。
                 ForestSky(theme: state.theme, showsCelestial: false,
                           ambientStill: state.forest.ambientHidden)
+                // 氛围微粒（P1-②）：夜里萤火虫 / 白天花粉，飘在天空之上、面板之下
+                // （zIndex 0.5：透过半透明的侧栏与树面板材质仍看得见，中间不透明的
+                // 聊天卡片会挡住一部分 —— 那正是「飘在林子深处」该有的遮挡关系）。
+                // 横向漂移读的是全局风钟，与地面上的草是同一阵风。
+                ForestMotes(theme: state.theme, still: state.forest.ambientHidden)
+                    .zIndex(0.5)
 
                 HStack(spacing: 0) {
                     AppSidebar(state: state, widthAllowsExpansion: sidebarExpanded)
@@ -135,6 +151,14 @@ public struct MainView: View {
             // anchor 的坐标是**相对浮层所在层级**实时解算的（`geo[anchor.bounds]`），
             // 换层只需要平移一次原点，摆位算式（`WordLookupLayerPlacement`）不用动。
             .wordLookupBubbleOverlay()
+            // 把风钟灌进环境：受风层（地面带的草 / 花 / 灌木、对话植物、微粒层）
+            // 都从环境里读它 —— 一处注入、处处同风，且不用改那些层的构造参数。
+            //
+            // ⚠️ 挂在**划词浮层之后**而不是紧贴 ZStack 闭合括号：那个位置有源码哨兵
+            // 钉着（`WordLookupOverlayMountTests` —— 保护 2026-09-29「任何地方都触发
+            // 不了划词」的修复），插进去会让哨兵红。环境注入是「整棵子树可见」，
+            // 与挂在 ZStack 上等价，浮层之后注入照样传得进去。
+            .environment(\.forestWind, windClock)
             // 全局搜索（#414）：挂在**划词浮层之后**。浮层置顶纪律里「越晚挂越在上」，
             // 挂进 ZStack 里会被划词气泡盖掉一截（气泡也在最外层）。
             .overlay {

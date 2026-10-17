@@ -372,6 +372,45 @@ public enum WindField {
     public static func offset(x: CGFloat, phase: Double, height: CGFloat = 0) -> CGFloat {
         baseAmplitude * heightFactor(height) * gust(phase) * wave(x: x, phase: phase)
     }
+
+    /// 此刻吹不吹（风场的**总闸**）：氛围隐藏或减弱动态效果 → 静止。
+    ///
+    /// 放在 `WindField` 里而不是驱动器身上：它是「风场在什么条件下存在」这件
+    /// 事本身，且**必须可被单测**——两个开关四个组合全部钉住，漏一个就是
+    /// 「用户关了减弱动态效果、草还在摇」那种只在真机上才看得见的错。
+    public static func isBlowing(ambientHidden: Bool, reduceMotion: Bool) -> Bool {
+        !ambientHidden && !reduceMotion
+    }
+}
+
+// MARK: - 确定性随机
+
+/// 确定性伪随机（同种子永远同一串数）：星图、雨丝、萤火虫、花粉的**布局**来源。
+///
+/// 为什么不能用 `Int.random`：布局要是随机的，每次重绘就换一张星图 / 换一场雨 ——
+/// 用户看到的是「星星在闪烁重排」而不是「星星在眨眼」。布局必须钉死，
+/// 会动的只有位置与亮度本身。
+///
+/// 全场景**只此一份**（2026-10-17 从 `ForestSky` 提到地基）：星图与雨原先各写
+/// 一份，微粒层再加一份，就是三套互不相干的「随机」——哪天要调星图密度，
+/// 得改三个地方还不敢确定改全了。
+public struct SeededRandom {
+
+    private var state: UInt64
+
+    public init(seed: UInt64) { state = seed }
+
+    /// [0, 1) 的下一个数。
+    public mutating func next() -> Double {
+        state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+        let value = (state >> 11) & UInt64(1 << 24 - 1)
+        return Double(value) / Double(1 << 24)
+    }
+
+    /// `[range]` 内的下一个数（布局常用：直接给区间，省得调用方各处手写乘加）。
+    public mutating func next(in range: ClosedRange<Double>) -> Double {
+        range.lowerBound + next() * (range.upperBound - range.lowerBound)
+    }
 }
 
 // MARK: - fBm 噪声

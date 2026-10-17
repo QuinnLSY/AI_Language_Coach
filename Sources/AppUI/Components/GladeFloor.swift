@@ -74,6 +74,36 @@ public enum GladeGrowth {
             return Plant(index: i, kind: kind, x: x, scale: scale)
         }
     }
+
+    // MARK: - 受风参数（P1 全局风场）
+
+    /// 植株顶端离地高度（pt）：风场按它放大振幅（高的摆得开）。
+    ///
+    /// 纯函数、与绘制分离 —— 改画法时不必动风，也才能被单测量化钉住。
+    /// 数值按 `floraBody` 里各画法的实际茎高给（已含 ×1.7 的整体放大）。
+    public static func windHeight(for plant: Plant) -> CGFloat {
+        let scale = plant.scale * 1.7
+        switch plant.kind {
+        case .flowerWarm, .flowerPale: return 16 * scale
+        case .fern: return 18 * scale
+        case .clover: return 9 * scale
+        // 蘑菇贴地长、还顶着个伞盖：最矮的一档。
+        case .mushroom: return 8 * scale
+        }
+    }
+
+    /// 受风增益（0…1）：越「重」摆得越小。
+    ///
+    /// 蘑菇几乎不动是有意的：伞盖压在短粗的柄上，风来了也就是晃一下帽檐 ——
+    /// 让全草坪的花草用同一个振幅摇，看着像一排节拍器而不是一阵风。
+    public static func windGain(for plant: Plant) -> CGFloat {
+        switch plant.kind {
+        case .flowerWarm, .flowerPale: return 1.0
+        case .fern: return 0.8
+        case .clover: return 0.65
+        case .mushroom: return 0.25
+        }
+    }
 }
 
 /// 林间地面带上「对话种下的植物」：大树下草坪上的一株株小花小草。
@@ -102,7 +132,7 @@ struct ForestFloraBed: View {
             ZStack(alignment: .bottomLeading) {
                 ForEach(plants) { plant in
                     let x = 16 + plant.x * max(0, proxy.size.width - 32)
-                    sprout(plant)
+                    sprout(plant, x: x)
                         .position(
                             x: x,
                             // 站在坡面上（坡是鼓包）：问坡要这个 x 处的高度
@@ -118,12 +148,18 @@ struct ForestFloraBed: View {
         .accessibilityHidden(true)
     }
 
+    /// - Parameter x: 植株在宿主坐标系里的横向位置 —— 风场的空间自变量
+    ///   （同一 x 的草木处在同一波位上，风因此是从一侧推向另一侧的）。
     @ViewBuilder
-    private func sprout(_ plant: GladeGrowth.Plant) -> some View {
+    private func sprout(_ plant: GladeGrowth.Plant, x: CGFloat) -> some View {
         let body = floraBody(plant)
         VStack(spacing: 0) {
-            body
-                .rotationEffect(.degrees(plant.tiltDegrees), anchor: .bottom)
+            // 风只吹**茎叶**：土丘是土，不跟着晃（连土一起晃 = 整棵在漂移）。
+            WindSway(x: x, height: GladeGrowth.windHeight(for: plant),
+                     gain: GladeGrowth.windGain(for: plant)) {
+                body
+            }
+            .rotationEffect(.degrees(plant.tiltDegrees), anchor: .bottom)
             // 土丘：比草坪深一档的椭圆压在茎底 —— 「这里是种下去的」。
             Ellipse()
                 .fill(theme.hillNear.opacity(0.55))
