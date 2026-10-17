@@ -239,9 +239,17 @@ public struct TreeCanvas: View {
                 // 批次七 · G：树干 / 树冠 / 藤蔓是纯装饰（进度信息已由 LevelNode 的读屏
                 // 文案与 FruitLayer 的星数承载），对 VoiceOver 整体隐藏，别让它念「一棵树」。
                 Group {
+                    // 根座土丘（画在树干背后）：板根之下再垫一圈深色根颈，
+                    // 只从树干两侧探出来 —— 树才不像一根杆子插进草里。
+                    RootMound()
+                        .fill(ForestTone.deepen(theme.hillNear, amount: 0.5, ink: theme.shadow))
+                        .frame(width: width, height: canvasHeight)
+
                     // 树干（尖压进树冠里，别从叶子上方戳出来）
                     // ⚠️ 渐变方向跟全局光源走（`ForestLighting`：太阳钉在右上，
                     // 影子朝左下）—— 从前左亮右暗，与天上那颗太阳对不上。
+                    // ⚠️ 剖面是四个语义锚点（树尖 / 中点 / 树根线 / 坡面线 / 画布底）：
+                    // 树根线以下外翻成板根，根部这才「扎」进土里（见 `TrunkProfile`）。
                     TrunkShape(tipY: Self.trunkTipY(for: progress))
                         .fill(
                             LinearGradient(
@@ -251,6 +259,31 @@ public struct TreeCanvas: View {
                             )
                         )
                         .frame(width: width, height: canvasHeight)
+
+                    // 树皮：竖纹（根线以上）+ 根段横褶，整幅遮罩在树干形里
+                    TrunkBark(tipY: Self.trunkTipY(for: progress))
+                        .stroke(theme.trunkShade.opacity(0.38), style: StrokeStyle(lineWidth: 2.2, lineCap: .round))
+                        .mask(TrunkShape(tipY: Self.trunkTipY(for: progress)).fill(.black))
+                        .frame(width: width, height: canvasHeight)
+
+                    // 树脚草丛：盖住树干与草坡的接缝（与地面带 26 根草同一支画法，
+                    // 同一条坡面曲线 —— 草一路长到树脚下）
+                    TreeBaseTufts(theme: theme, width: width, canvasHeight: canvasHeight)
+                        .frame(width: width, height: canvasHeight)
+
+                    // 树枝：六根主次枝，基座长在树干上、梢头没进树冠
+                    // （读树冠中心换算，与树冠同源移位；不跟树冠一起摇摆 ——
+                    //  枝是树干的一部分，摇的是叶子）
+                    TreeBranches(center: CGPoint(
+                        x: midX,
+                        y: Self.canopyOffsetY(for: progress) + Self.canopyHeight / 2
+                    ))
+                    .fill(LinearGradient(
+                        colors: [theme.trunk, theme.trunkShade],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ))
+                    .frame(width: width, height: canvasHeight)
 
                     // 树冠（茂密度随总进度；通关时抖三抖）
                     Canopy(theme: theme, density: density,
@@ -599,32 +632,136 @@ public enum TreeViewport {
 
 // MARK: - 树干 / 树冠
 
+/// 树干剖面：**四个语义锚点**定宽，中间余弦插值（无折角）。
+///
+/// 为什么按锚点而不是一根直线锥：老剖面是「树尖 0.10 → 画布底 0.24」的一根锥，
+/// 树底线（`canvasHeight − 120`）以下没有任何外扩 —— 树干直挺挺插进草坡，
+/// 读作「一根杆子插在地上」，正是用户说的「根部离地」。新剖面在树根线以下
+/// 继续外翻成**板根**（0.24 → 0.34 → 0.46），坡面线（草坡表面）处已经宽过
+/// 树根线四成，根座这才「扎」进土里。
+///
+/// ⚠️ 树根线（`maxY − trunkGroundHeight`）处的宽度必须保持 0.24 —— 正文段
+/// 关卡节点 / 学员锚点都按这棵树的几何排的（`TreeScrollViewTests` 钉死锚点算式，
+/// 树干轮廓虽不在其列，也不该无谓地动布局）。
+enum TrunkProfile {
+
+    /// 剖面控制点（画布坐标 y → 全宽占面板宽的比例）。
+    /// - 树尖：压进树冠里，看不看得见都一样；
+    /// - 中点：老剖面约 0.156，取 0.17 给树干一点腰身（不再是一根杆）；
+    /// - 树根线：**0.24 不动**（正文几何）；
+    /// - 草坡表面线：板根外扩的第一级（滚到底时正好落在坡面上）；
+    /// - 画布底：埋进土里的一截（滚到底时被草坡挡住，滚上去时读作根展）。
+    static func halfWidthFraction(canvasY: CGFloat, tipY: CGFloat, canvasHeight: CGFloat) -> CGFloat {
+        let rootY = canvasHeight - ForestSceneGeometry.trunkGroundHeight
+        let surfaceY = canvasHeight - ForestSceneGeometry.slopeInset
+        let midY = (tipY + rootY) / 2
+        let controls: [(y: CGFloat, width: CGFloat)] = [
+            (tipY, 0.10), (midY, 0.17), (rootY, 0.24), (surfaceY, 0.34), (canvasHeight, 0.46),
+        ]
+        if canvasY <= controls[0].y { return controls[0].width / 2 }
+        if canvasY >= controls[controls.count - 1].y { return controls[controls.count - 1].width / 2 }
+        for index in 0..<(controls.count - 1) {
+            let lo = controls[index], hi = controls[index + 1]
+            guard canvasY >= lo.y && canvasY <= hi.y else { continue }
+            let t = (canvasY - lo.y) / max(hi.y - lo.y, 0.001)
+            // 余弦插值：两端切线水平，段与段之间不会折出一圈棱
+            let s = (1 - cos(Double.pi * t)) / 2
+            return CGFloat(lo.width + (hi.width - lo.width) * s) / 2
+        }
+        return controls[controls.count - 1].width / 2
+    }
+}
+
 private struct TrunkShape: Shape {
     /// 树干尖离画布顶多远（默认 130 = 从前那套；有课程关卡时要压进树冠里，
     /// 否则树冠回到树顶之后，树干尖会从叶子上方戳出来一截）。
     var tipY: CGFloat = 130
 
     func path(in rect: CGRect) -> Path {
-        let bottomWidth = rect.width * 0.24
-        let topWidth = rect.width * 0.10
-        let tip = rect.minY + tipY
+        let top = rect.minY + tipY
+        let bottom = rect.maxY
+        let midX = rect.midX
+        // 沿剖面密集采样（6pt 一步）：左右两条边各走一遍，抗锯齿后没有折角。
+        let step: CGFloat = 6
+        var left: [CGPoint] = []
+        var right: [CGPoint] = []
+        var y = top
+        while y <= bottom {
+            let half = TrunkProfile.halfWidthFraction(
+                canvasY: y, tipY: top, canvasHeight: bottom) * rect.width
+            left.append(CGPoint(x: midX - half, y: y))
+            right.append(CGPoint(x: midX + half, y: y))
+            y += step
+        }
+        // 收尾：底边两点（板根最宽处）
+        let halfBottom = TrunkProfile.halfWidthFraction(
+            canvasY: bottom, tipY: top, canvasHeight: bottom) * rect.width
+        left.append(CGPoint(x: midX - halfBottom, y: bottom))
+        right.append(CGPoint(x: midX + halfBottom, y: bottom))
+
         var path = Path()
-        path.move(to: CGPoint(x: rect.midX - bottomWidth / 2, y: rect.maxY))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.midX - topWidth / 2, y: tip),
-            control: CGPoint(x: rect.midX - bottomWidth * 0.44, y: rect.midY)
-        )
-        path.addLine(to: CGPoint(x: rect.midX + topWidth / 2, y: tip))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.midX + bottomWidth / 2, y: rect.maxY),
-            control: CGPoint(x: rect.midX + bottomWidth * 0.44, y: rect.midY)
-        )
+        path.move(to: left[0])
+        for point in left.dropFirst() { path.addLine(to: point) }
+        path.addLine(to: right[right.count - 1])
+        for point in right.dropLast().reversed() { path.addLine(to: point) }
         path.closeSubpath()
         return path
     }
 }
 
-private struct Canopy: View {
+/// 树皮：竖纹走树干上方（根线以上），根段换横褶（板根上是皱纹不是竖纹）。
+///
+/// 竖纹的 x 跟着 `TrunkProfile` 的半宽走（纹路贴在圆柱上，随外扩微微分开），
+/// 不是几条等距直线 —— 等距直线在锥形树干上会「漏出」边缘。整幅遮罩在
+/// 树干形里，纹脚不会画出木头。
+private struct TrunkBark: Shape {
+    var tipY: CGFloat = 130
+
+    func path(in rect: CGRect) -> Path {
+        let top = rect.minY + tipY
+        let bottom = rect.maxY
+        let midX = rect.midX
+        let rootY = bottom - ForestSceneGeometry.trunkGroundHeight
+        let surfaceY = bottom - ForestSceneGeometry.slopeInset
+        var path = Path()
+
+        // ① 竖纹：三条（左暗 / 中 / 右亮那侧的对比靠填充渐变，纹只加质地）
+        for frac in [-0.46, 0.08, 0.52] {
+            var points: [CGPoint] = []
+            var y = top + 30
+            while y <= rootY - 14 {
+                let half = TrunkProfile.halfWidthFraction(
+                    canvasY: y, tipY: top, canvasHeight: bottom) * rect.width
+                points.append(CGPoint(x: midX + frac * half, y: y))
+                y += 10
+            }
+            guard let first = points.first, let last = points.last else { continue }
+            path.move(to: first)
+            // 轻微蛇行（真树皮没有一根是直的）：用相邻点的中点做二次曲线控制
+            for index in 1..<points.count {
+                let previous = points[index - 1], current = points[index]
+                let mid = CGPoint(x: (previous.x + current.x) / 2, y: (previous.y + current.y) / 2)
+                path.addQuadCurve(to: mid, control: previous)
+            }
+            path.addLine(to: last)
+        }
+
+        // ② 根段横褶：两条贴着板根外翻的弧线（根颈的皱纹）
+        for (fracY, bulge) in [(rootY + 18, 7.0), (surfaceY - 12, 5.0)] {
+            let y = fracY
+            let half = TrunkProfile.halfWidthFraction(
+                canvasY: y, tipY: top, canvasHeight: bottom) * rect.width
+            path.move(to: CGPoint(x: midX - half * 0.94, y: y))
+            path.addQuadCurve(
+                to: CGPoint(x: midX + half * 0.94, y: y),
+                control: CGPoint(x: midX, y: y + bulge)
+            )
+        }
+        return path
+    }
+}
+
+struct Canopy: View {
     let theme: ForestTheme
     /// 树冠茂密度 0…1（已得星 / 需求星）：只做视觉变换（整体放大），不动布局。
     var density: Double = 0
@@ -637,59 +774,174 @@ private struct Canopy: View {
     @State private var shakeAngle: Double = 0
     @Environment(\.appMotion) private var motion
 
+    /// 叶簇表（树冠局部坐标：中心为原点，y 向下；三档明暗跟着全局光源：
+    /// 右上受光最亮 / 中间本色 / 左下背光最沉）。
+    ///
+    /// v5（2026-10-17 二轮重构）：v4 的 15 簇**明暗没拉开**（mid 与 deep 同为 `foliage`），
+    /// 缝隙只有 8–25pt 细缝 → 离屏看仍是一团平滑绿（用户报障「更丑了」）。v5 三招：
+    /// ① deep 档改 `deepen(foliage, 0.20)`，三档色差在面板尺度上可辨；
+    /// ② 25 簇重排、半径收缩 → 簇间留 **12–40pt 真缝**（Python 实测平均 17.7pt / 58 处），
+    ///    缝里透出①层的深色托底，树冠读作「一簇一簇的叶子」；
+    /// ③ 叶缘噪声频率翻倍（1.2–1.4 → 1.95–2.20）+ 幅度 0.24 → 0.28，轮廓从圆团块变碎叶边。
+    /// 下林冠每颗果有专属簇承托（最窄余量 7.3pt）。
+    ///
+    /// ⚠️ **改这张表之前必须复跑数值预验证**（Python 移植 `ForestNoise.fbm` + 团块轮廓，
+    /// 校验四件事）：① 16 个果位每个都落在某颗叶簇内 ≥6pt（挂到簇外就悬空一颗）；
+    /// ② 叶簇探出内部剪影 ≤10pt（冠沿叶瓣，探太多会戳破冠形/戳出面板）；
+    /// ③ 剪影内叶簇覆盖率 0.62–0.80 + 有效缝隙 ≥12 处（没有缝隙就还是一团绿）；
+    /// ④ 覆盖率与最窄果位余量同时记录在提交说明里。
+    /// v5 终验：16 果全覆盖最窄 7.3pt / 外戳全部 ≤10pt / 覆盖率 0.77 / 58 处缝平均 17.7pt。
+    nonisolated static let clusters: [(offset: CGSize, radii: CGSize, seed: UInt64, frequency: Double, noiseAmount: CGFloat, tone: CanopyTone)] = [
+        // 顶林冠（无果位；右上受光）
+        (CGSize(width: 58, height: -72), CGSize(width: 36, height: 26), 61, 2.10, 0.28, .bright),   // T1
+        (CGSize(width: -34, height: -76), CGSize(width: 36, height: 26), 62, 2.00, 0.28, .mid),     // T2
+        (CGSize(width: -104, height: -58), CGSize(width: 36, height: 26), 63, 2.10, 0.28, .mid),    // T3
+        (CGSize(width: 122, height: -34), CGSize(width: 31, height: 23), 64, 2.20, 0.28, .bright),  // T4
+        (CGSize(width: 4, height: -34), CGSize(width: 36, height: 26), 65, 2.00, 0.28, .mid),       // T5
+        (CGSize(width: -158, height: -25), CGSize(width: 34, height: 25), 85, 2.05, 0.28, .mid),    // E1 左沿（补左上外沿暗带）
+        // 中段（右亮左沉）
+        (CGSize(width: 140, height: -6), CGSize(width: 32, height: 24), 66, 2.10, 0.28, .mid),      // M1
+        (CGSize(width: 86, height: -24), CGSize(width: 38, height: 28), 67, 2.00, 0.28, .mid),      // M2
+        (CGSize(width: -66, height: -28), CGSize(width: 38, height: 28), 68, 2.05, 0.28, .mid),     // M3
+        (CGSize(width: -136, height: -8), CGSize(width: 31, height: 23), 69, 2.10, 0.28, .deep),    // M4
+        (CGSize(width: 20, height: 16), CGSize(width: 41, height: 30), 70, 1.95, 0.28, .mid),       // M5
+        // 下林冠（背光沉色；每颗果有专属簇承托）
+        (CGSize(width: 150, height: 40), CGSize(width: 35, height: 26), 71, 2.10, 0.28, .deep),     // C1 → 果(162,54)
+        (CGSize(width: -150, height: 42), CGSize(width: 36, height: 27), 72, 2.10, 0.28, .deep),    // C2 → 果(-162,54)
+        (CGSize(width: 120, height: 84), CGSize(width: 39, height: 30), 73, 2.00, 0.28, .deep),     // C3 → 果(135,92)
+        (CGSize(width: -120, height: 84), CGSize(width: 39, height: 30), 74, 2.00, 0.28, .deep),    // C4 → 果(-135,92)
+        (CGSize(width: 105, height: 58), CGSize(width: 41, height: 31), 75, 2.05, 0.28, .deep),     // C5 → 果(109,61)
+        (CGSize(width: -105, height: 58), CGSize(width: 41, height: 31), 76, 2.05, 0.28, .deep),    // C6 → 果(-109,61)
+        (CGSize(width: 92, height: 112), CGSize(width: 35, height: 27), 77, 2.15, 0.28, .deep),     // C7 → 果(89,121)
+        (CGSize(width: -92, height: 112), CGSize(width: 35, height: 27), 78, 2.15, 0.28, .deep),    // C8 → 果(-89,121)
+        (CGSize(width: 56, height: 98), CGSize(width: 38, height: 28), 79, 2.05, 0.28, .deep),      // C9 → 果(82,85)/(44,101)
+        (CGSize(width: -56, height: 98), CGSize(width: 38, height: 28), 80, 2.05, 0.28, .deep),     // C10 → 果(-82,85)/(-44,101)
+        (CGSize(width: 24, height: 120), CGSize(width: 39, height: 29), 81, 2.00, 0.28, .deep),     // C11 → 果(31,137)
+        (CGSize(width: -24, height: 120), CGSize(width: 39, height: 29), 82, 2.00, 0.28, .deep),    // C12 → 果(-31,137)
+        (CGSize(width: 0, height: 100), CGSize(width: 40, height: 30), 83, 2.00, 0.28, .deep),      // C13 → 果(0,107)
+        (CGSize(width: -118, height: 18), CGSize(width: 35, height: 26), 84, 2.10, 0.28, .deep),    // C14 → 果(-120,31)
+    ]
+
+    /// 受光斑（右上叶尖的暖白亮点；`radii` 是半长轴，画框取两倍）。
+    nonisolated static let sunDabs: [(offset: CGSize, radii: CGSize)] = [
+        (CGSize(width: 72, height: -78), CGSize(width: 40, height: 30)),
+        (CGSize(width: 112, height: -48), CGSize(width: 28, height: 22)),
+        (CGSize(width: 34, height: -96), CGSize(width: 26, height: 20)),
+        (CGSize(width: 98, height: -88), CGSize(width: 20, height: 16)),
+    ]
+
+    /// 暗缝斑（叶簇之间缝隙里的深色径向，压出纵深）。
+    /// v5 起位置按 Python 缝隙扫描重摆（最宽的几条缝：左沿 (-158,-40)、
+    /// 中缝 (-38,2)、顶缝 (13,-94)、底缝 (±24,68)）—— 有真缝隙之后它们只负责
+    /// 「纵深」不再承担「制造分隔」，opacity 因此从 0.42 降到 0.38。
+    nonisolated static let shadeDabs: [(offset: CGSize, radii: CGSize)] = [
+        (CGSize(width: -158, height: -40), CGSize(width: 20, height: 16)),
+        (CGSize(width: -38, height: 2), CGSize(width: 22, height: 18)),
+        (CGSize(width: 13, height: -94), CGSize(width: 20, height: 16)),
+        (CGSize(width: 23, height: 68), CGSize(width: 20, height: 16)),
+        (CGSize(width: -24, height: 68), CGSize(width: 20, height: 16)),
+    ]
+
     var body: some View {
         ZStack {
-            // ① 林冠体质：四颗团块的四条轮廓并成**一道**路径（`CanopyMass`，非零缠绕
-            // 规则 → 重叠处只填一次），整幅树冠只有一个外沿、只填一次色。
-            //
-            // 为什么不再是「四团各填各的颜色」：不同色的团块重重叠叠，交界处必出一圈
-            // 弧线 —— 那就是用户说的「一块一块、不是一个整体」。并成一道路径后，
-            // 交界处根本没有边界；明暗全靠罩在整幅外沿上的渐变与两片柔光柔影。
-            // 渐变方向跟全局光源走（`ForestLighting`：太阳右上 → 底左背光），
-            // 两端都过一遍大气透视（树站在 `treeDepth`，与草坡顶沿 `HillCap` 同档）。
+            // ① 内部剪影（深色托底）：四颗团块的四条轮廓并成**一道**路径（`CanopyMass`，
+            // 非零缠绕规则 → 重叠处只填一次）。它不再直接见人 —— 叶簇之间的缝隙、
+            // 冠沿的内沿透出它，读作叶底的暗部；果实果位表也是按它的轮廓验的余量。
             CanopyMass()
-                .fill(LinearGradient(
-                    colors: [
-                        ForestAerialPerspective.adjust(
-                            theme.foliage,
-                            depth: ForestSceneGeometry.treeDepth,
-                            haze: theme.aerialHaze),
-                        ForestAerialPerspective.adjust(
-                            theme.foliageDeep,
-                            depth: ForestSceneGeometry.treeDepth,
-                            haze: theme.aerialHaze),
-                    ],
-                    startPoint: .topTrailing,
-                    endPoint: .bottomLeading
-                ))
+                .fill(ForestAerialPerspective.adjust(
+                    theme.foliageDeep,
+                    depth: ForestSceneGeometry.treeDepth,
+                    haze: theme.aerialHaze))
 
-            // ② 柔光：右上那团是向阳面（太阳那侧的叶子），覆一团径向提亮 ——
-            // 半径上衰减到 0，所以是「光」不是「贴片」，没有硬边。
-            // 同样遮罩在林冠形里，衰减不到的残余也不蹭到天上。
-            Ellipse()
-                .fill(RadialGradient(
-                    colors: [Color.white.opacity(0.18), Color.white.opacity(0)],
-                    center: .center,
-                    startRadius: 0,
-                    endRadius: 92
-                ))
-                .frame(width: 240, height: 180)
-                .offset(x: 42, y: -14)
-                .mask(CanopyMass().fill(.black))
-                .allowsHitTesting(false)
+            // ② 叶簇层：25 颗同族团块（`CanopyBlob` 参数化），按全局光源分三档明暗
+            //    （右上受光最亮 / 中间本色 / 左下背光最沉，v5 起 deep 档压暗 0.20 与 mid
+            //    拉开色差），**故意留出 12–40pt 的缝隙**（Python 实测平均 17.7pt / 58 处）——
+            //    缝隙里透出①的深色托底，树冠这才读出「一簇一簇的叶子」而不是一只绿气球。
+            //    每颗簇自身的渐变也跟全局光源同向（topTrailing→bottomLeading）：
+            //    单颗受光才有叶簇的立体感，整幅罩一支渐变只会把对比抹平。
+            //    ⚠️ 与 P0-D 那次失败的区别：那时是四颗**不同色的团块直接叠**（交界必出弧线）；
+            //    现在是「深色托底在上、叶簇在前」的景深关系，团块交界是**特性**不是瑕疵。
+            //    ⚠️ 果位表按这层验过覆盖：每颗果实落在某颗叶簇内 ≥6pt（数值预验证，
+            //    见 Docs/CODE_REVIEW 与本批提交说明）；改 `clusters` 必须复跑同一验证。
+            ForEach(0..<Self.clusters.count, id: \.self) { index in
+                let cluster = Self.clusters[index]
+                CanopyBlob(offset: cluster.offset, radii: cluster.radii, seed: cluster.seed,
+                           frequency: cluster.frequency, noiseAmount: cluster.noiseAmount)
+                    .fill(LinearGradient(
+                        colors: [
+                            clusterColor(cluster.tone),
+                            ForestTone.deepen(clusterColor(cluster.tone), amount: 0.30, ink: theme.shadow),
+                        ],
+                        startPoint: .topTrailing,
+                        endPoint: .bottomLeading
+                    ))
+            }
 
-            // ③ 柔影：树冠底沿总是最沉的（叶背光），一条自上而下衰减的深色带 ——
+            // ③ 受光斑：右上是向阳面（太阳那侧的叶尖），几小团暖白径向提亮 ——
+            //    叶尖的光斑是「一团绿」变「有叶子」的关键细节。
+            //    ⚠️ v4 曾在这里加过一层 240×180 的白色大柔光（0.12）：它与「单颗簇
+            //    受光 + 亮档簇」三层叠加，把右上一整片糊成发白的绿，与其他叶簇脱节
+            //    （2026-10-17 用户报障「更丑了」后删除）—— 光照交给每颗簇自己的渐变，
+            //    这里只留小亮点。opacity 上限 0.20，再亮就同罪。
+            ForEach(0..<Self.sunDabs.count, id: \.self) { index in
+                let dab = Self.sunDabs[index]
+                Ellipse()
+                    .fill(RadialGradient(
+                        colors: [theme.star.opacity(0.20), theme.star.opacity(0)],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: max(dab.radii.width, dab.radii.height) * 0.62
+                    ))
+                    .frame(width: dab.radii.width * 2, height: dab.radii.height * 2)
+                    .offset(dab.offset)
+                    .mask(CanopyMass().fill(.black))
+                    .allowsHitTesting(false)
+            }
+
+            // ④ 暗缝斑：叶簇之间的缝隙再压深一档（左下背光侧的几条叶沟）——
+            //    缝隙因此有**纵深**，不是两条绿边中间一条底色。
+            ForEach(0..<Self.shadeDabs.count, id: \.self) { index in
+                let dab = Self.shadeDabs[index]
+                Ellipse()
+                    .fill(RadialGradient(
+                        colors: [
+                            ForestAerialPerspective.adjust(
+                                theme.foliageDeep,
+                                depth: ForestSceneGeometry.treeDepth,
+                                haze: theme.aerialHaze).opacity(0.38),
+                            Color.clear
+                        ],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: max(dab.radii.width, dab.radii.height) * 0.62
+                    ))
+                    .frame(width: dab.radii.width * 2, height: dab.radii.height * 2)
+                    .offset(dab.offset)
+                    .mask(CanopyMass().fill(.black))
+                    .allowsHitTesting(false)
+            }
+
+            // ⑤ 底沿柔影：树冠下缘总是最沉（叶背光），一条自上而下衰减的深色带 ——
             // 顺带把 16 个果位里最低那几颗接进深色叶底里。
             // ⚠️ 必须通宽（比树冠外沿还宽）：椭圆/窄矩形的左右边会落在树冠**内部**，
             // 衰减带尽头就是一道新的弧线 —— 又「一块一块」了。边全部交给遮罩去裁。
             Rectangle()
                 .fill(LinearGradient(
-                    colors: [theme.foliageDeep.opacity(0), theme.foliageDeep.opacity(0.55)],
+                    colors: [
+                        ForestAerialPerspective.adjust(
+                            theme.foliageDeep,
+                            depth: ForestSceneGeometry.treeDepth,
+                            haze: theme.aerialHaze).opacity(0),
+                        ForestAerialPerspective.adjust(
+                            theme.foliageDeep,
+                            depth: ForestSceneGeometry.treeDepth,
+                            haze: theme.aerialHaze).opacity(0.32),
+                    ],
                     startPoint: .top,
                     endPoint: .bottom
                 ))
-                .frame(width: 480, height: 156)
-                .offset(x: 0, y: 84)
+                .frame(width: 480, height: 120)
+                .offset(x: 0, y: 100)
                 .mask(CanopyMass().fill(.black))
                 .allowsHitTesting(false)
 
@@ -707,6 +959,25 @@ private struct Canopy: View {
         }
     }
 
+    /// 叶簇三档明暗（全局光源：太阳右上 → 右上亮、左下沉）。
+    /// - 亮档白天取 `hillMid`（比 `foliage` 亮一截的同族绿，季节联动），夜里退回
+    ///   `foliage`（夜档 `hillMid` 反而最深，用了会一团黑）；
+    /// - **deep 档必须与 mid 拉开色差**（v5 教训）：v4 时 mid/deep 同为 `foliage`，
+    ///   25 颗簇只有一个色 → 缝隙再大也读作「一片绿上的裂纹」而不是「一簇一簇」。
+    ///   deep = `foliage` 往主题 `shadow` 里混 0.20（白天深绿墨 / 夜里近黑墨，
+    ///   跟着主题走，不写死黑色）；托底层是更深的 `foliageDeep`，三档 + 托底四级台阶。
+    /// - 每档都过一遍大气透视（树站在 `treeDepth`，与草坡顶沿 `HillCap` 同档）。
+    private func clusterColor(_ tone: CanopyTone) -> Color {
+        let base: Color
+        switch tone {
+        case .bright: base = theme.isNight ? theme.foliage : theme.hillMid
+        case .mid: base = theme.foliage
+        case .deep: base = ForestTone.deepen(theme.foliage, amount: 0.20, ink: theme.shadow)
+        }
+        return ForestAerialPerspective.adjust(
+            base, depth: ForestSceneGeometry.treeDepth, haze: theme.aerialHaze)
+    }
+
     /// 通关仪式：树冠抖三抖（幅度远大于常驻摇摆的 ±1.6°，一眼区分）。
     private func runCeremonyShake() {
         let swings: [(Double, Double)] = [(2.6, 0.16), (-2.2, 0.16), (1.6, 0.15), (-1.0, 0.15), (0, 0.2)]
@@ -720,6 +991,13 @@ private struct Canopy: View {
     }
 }
 
+/// 叶簇的明暗档（跟着全局光源走：右上亮、左下沉）。
+enum CanopyTone {
+    case bright
+    case mid
+    case deep
+}
+
 // MARK: - 林冠体质
 
 /// 林冠体质：四颗 `CanopyBlob` 的轮廓并成**一道路径**。
@@ -728,7 +1006,7 @@ private struct Canopy: View {
 /// 「一块一块、不是一个整体」）。并成一道路径后只填一次 —— 交界处没有边界，
 /// 明暗全靠罩在整幅外沿上的渐变与两片柔光柔影，看起来才是一整棵树。
 /// 非零缠绕规则：四条子路径同向，重叠区缠绕数 2 仍只填一次。
-private struct CanopyMass: Shape {
+struct CanopyMass: Shape {
 
     /// 四颗团块（中心偏移 / 半径 / 噪声种子）。
     /// ⚠️ 改任何一颗都要复验果位表：`FruitLayer.placements` 按第三颗（前层主体，
@@ -759,7 +1037,10 @@ private struct CanopyMass: Shape {
 /// 为什么在**单位圆上**采 2D 噪声：`(cos θ, sin θ)` 是周期的，轮廓闭合处天然连续，
 /// 不会在路径首尾接缝处留一道折痕。`ForestNoise.fbm` 值域 [0,1] → 半径只向外鼓
 /// （基形 0.92 + 噪声 0…0.24），不向内塌 —— 果实挂在沿上，塌一处就悬空一颗。
-private struct CanopyBlob: Shape {
+///
+/// 频率 / 采样 / 基形 / 幅度都可带参（**默认值 = `CanopyMass` 四团的现行几何，
+/// 一根像素都不动**）：15 颗叶簇因此颗颗不同，重叠处也不会厚边。
+struct CanopyBlob: Shape {
 
     /// 团块中心相对画框中心的偏移（画框 = 树冠那 300pt 高的帧）。
     var offset: CGSize
@@ -767,27 +1048,38 @@ private struct CanopyBlob: Shape {
     var radii: CGSize
     /// 噪声种子：背层与前层各一颗，轮廓才不会重合出一层厚边。
     var seed: UInt64
-
-    /// 采样点数：周长约 950pt，144 段 ≈ 每段 6.6pt，抗锯齿后看不出折角。
-    private static let samples = 144
     /// 噪声空间频率：1.2 → 绕轮廓一圈约 12 个叶瓣（每个 60—80pt，正是「一簇叶」
     /// 的尺度；再小就碎成噪声，再大就退回一只土豆）。
-    private static let frequency: Double = 1.2
+    var frequency: Double = 1.2
+    /// 采样点数：周长约 950pt，144 段 ≈ 每段 6.6pt，抗锯齿后看不出折角。
+    var samples: Int = 144
     /// 半径基形（0.92）：轮廓的主体大小。
-    private static let baseRadius: CGFloat = 0.92
+    var baseRadius: CGFloat = 0.92
     /// 噪声幅度（+0.24）：叶瓣的起伏量。
-    private static let noiseAmount: CGFloat = 0.24
+    var noiseAmount: CGFloat = 0.24
+
+    init(offset: CGSize, radii: CGSize, seed: UInt64,
+         frequency: Double = 1.2, samples: Int = 144,
+         baseRadius: CGFloat = 0.92, noiseAmount: CGFloat = 0.24) {
+        self.offset = offset
+        self.radii = radii
+        self.seed = seed
+        self.frequency = frequency
+        self.samples = samples
+        self.baseRadius = baseRadius
+        self.noiseAmount = noiseAmount
+    }
 
     func path(in rect: CGRect) -> Path {
         let center = CGPoint(x: rect.midX + offset.width, y: rect.midY + offset.height)
         var path = Path()
-        for index in 0..<Self.samples {
-            let theta = 2 * Double.pi * Double(index) / Double(Self.samples)
+        for index in 0..<samples {
+            let theta = 2 * Double.pi * Double(index) / Double(samples)
             let n = ForestNoise.fbm(
-                cos(theta) * Self.frequency, sin(theta) * Self.frequency,
+                cos(theta) * frequency, sin(theta) * frequency,
                 octaves: 3, seed: seed
             )
-            let m = Self.baseRadius + Self.noiseAmount * CGFloat(n)
+            let m = baseRadius + noiseAmount * CGFloat(n)
             let point = CGPoint(
                 x: center.x + radii.width * m * CGFloat(cos(theta)),
                 y: center.y + radii.height * m * CGFloat(sin(theta))
@@ -796,6 +1088,205 @@ private struct CanopyBlob: Shape {
         }
         path.closeSubpath()
         return path
+    }
+}
+
+// MARK: - 树根（板根之下的根座与树脚草）
+
+/// 树根一带的公共几何：**草坡表面线换算进画布坐标**。
+///
+/// 滚到底时画布底边与地面带底边重合，地面带（钉在视口底部那 150pt）的坡面线
+/// 就落在画布的 `canvasHeight − groundBandHeight + hillSurfaceY(...)` 处 ——
+/// 根座土丘 / 树脚草丛与坡面上的草叶因此踩的是**同一条曲线**，不会各站各的。
+enum TreeBase {
+
+    /// 画布坐标里 `x` 处的草坡表面高度（与 `ForestGroundBand` 的 `groundLine` 同源）。
+    static func surfaceY(x: CGFloat, width: CGFloat, canvasHeight: CGFloat) -> CGFloat {
+        canvasHeight - ForestSceneGeometry.groundBandHeight
+            + ForestSceneGeometry.hillSurfaceY(
+                x: x, bandWidth: width, bandHeight: ForestSceneGeometry.groundBandHeight)
+    }
+}
+
+/// 根座土丘：树干基部那一圈深色「根颈」——板根外翻之下再垫一层，树才不像
+/// 一根杆子插进草里。丘顶跟着草坡表面曲线走（鼓包，不是一根直梁），
+/// 高度向两侧收零，边缘用 fBm 揉出不规则。
+///
+/// 画在树干**背后**：只从板根两侧探出来，正面仍读作树干自己的根座。
+private struct RootMound: Shape {
+
+    /// 丘体半宽（面板宽比例）。
+    private static let halfWidth: CGFloat = 100
+    /// 丘顶最高处（中心）比坡面高多少 pt。
+    private static let peak: CGFloat = 26
+
+    func path(in rect: CGRect) -> Path {
+        let midX = rect.midX
+        var path = Path()
+        var topPoints: [CGPoint] = []
+        var x = midX - Self.halfWidth
+        while x <= midX + Self.halfWidth {
+            let surface = TreeBase.surfaceY(x: x, width: rect.width, canvasHeight: rect.maxY)
+            let t = abs(x - midX) / Self.halfWidth
+            // 中心高、两侧收零；fBm 揉出不规则丘沿
+            let wobble = ForestNoise.fbm(x * 0.045, 7.3, octaves: 2, seed: 91)
+            let height = Self.peak * pow(1 - t * t, 0.8) + CGFloat(wobble - 0.5) * 7
+            topPoints.append(CGPoint(x: x, y: surface - height))
+            x += 8
+        }
+        guard let first = topPoints.first, let last = topPoints.last else { return path }
+        path.move(to: first)
+        for point in topPoints.dropFirst() { path.addLine(to: point) }
+        path.addLine(to: CGPoint(x: last.x, y: rect.maxY))
+        path.addLine(to: CGPoint(x: first.x, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// 树脚草丛：板根与草坡的接缝处立几撮草 —— 把「树干直插进坡里」那道硬接缝
+/// 盖住，坡面上的草因此一路长到了树脚下（与地面带 26 根草同一支画法）。
+private struct TreeBaseTufts: View {
+    let theme: ForestTheme
+    let width: CGFloat
+    let canvasHeight: CGFloat
+
+    /// 各撮草：（x 相对树干, 高度, 倾角）—— 手工错开，避免对称成左右两只耳朵。
+    private static let tufts: [(x: CGFloat, h: CGFloat, lean: CGFloat)] = [
+        (-84, 15, -14), (-61, 20, 8), (-38, 13, -6),
+        (44, 18, 12), (68, 14, -10), (88, 21, 5),
+    ]
+
+    var body: some View {
+        ForEach(0..<Self.tufts.count, id: \.self) { index in
+            tuft(at: Self.tufts[index])
+        }
+    }
+
+    /// 一撮草：三根胶囊（中间高两边低），站在坡面曲线上。
+    private func tuft(at item: (x: CGFloat, h: CGFloat, lean: CGFloat)) -> some View {
+        let x = width / 2 + item.x
+        let base = TreeBase.surfaceY(x: x, width: width, canvasHeight: canvasHeight)
+        return ZStack {
+            Capsule()
+                .fill(theme.foliage.opacity(0.72))
+                .frame(width: 2.4, height: item.h * 0.72)
+                .rotationEffect(.degrees(item.lean - 7))
+                .offset(x: -3.2, y: item.h * 0.12)
+            Capsule()
+                .fill(theme.foliage.opacity(0.72))
+                .frame(width: 2.6, height: item.h * 0.72)
+                .rotationEffect(.degrees(item.lean + 7))
+                .offset(x: 3.2, y: item.h * 0.12)
+            Capsule()
+                .fill(theme.foliage.opacity(0.8))
+                .frame(width: 2.8, height: item.h)
+                .rotationEffect(.degrees(item.lean))
+                .offset(y: -item.h * 0.1)
+        }
+        .position(x: x, y: base - item.h * 0.3)
+    }
+}
+
+// MARK: - 树枝（树冠之下的枝干结构）
+
+/// 一棵树的枝：**基座长在树干上、梢头藏进树冠宽部**，六根主次枝扇形展开。
+///
+/// 用户报障「树枝不够细节」—— 从前树上唯一的「枝」是关卡节点那几根水平短线
+/// （`BranchShape`），树本身没有枝干结构，树冠像直接安在杆子上。这六根补上结构：
+/// 基座在树冠下沿的树干两侧（承重的位置），斜向上外伸，梢头没进叶簇层
+/// （藏在内部剪影里 ≥14pt，不会从冠形上戳出来）。
+///
+/// ⚠️ 坐标是**树冠局部坐标**（中心为原点、y 向下），由 `TreeCanvas.body` 换算成
+/// 画布坐标（读 `canopyOffsetY`）—— 与树冠同源，有课程关卡时整棵树一起移位，
+/// 枝基仍然长在树干上。⚠️ 改坐标必须复跑数值预验证（梢头余量 / 可见比例）。
+struct TreeBranches: Shape {
+
+    /// 树冠中心（画布坐标）。枝的局部坐标都以它为原点。
+    var center: CGPoint
+
+    /// 六根枝：（控制折线 [基座, 中控, 梢头], 基座宽, 梢头宽）pt。
+    static let branches: [(points: [CGPoint], base: CGFloat, tip: CGFloat)] = [
+        ([CGPoint(x: -16, y: 258), CGPoint(x: -64, y: 226), CGPoint(x: -100, y: 36)], 9.5, 3.5),
+        ([CGPoint(x: 16, y: 262), CGPoint(x: 62, y: 232), CGPoint(x: 106, y: 40)], 9.5, 3.5),
+        ([CGPoint(x: -14, y: 232), CGPoint(x: -46, y: 196), CGPoint(x: -80, y: 70)], 7.5, 3.0),
+        ([CGPoint(x: 14, y: 240), CGPoint(x: 50, y: 204), CGPoint(x: 76, y: 70)], 7.5, 3.0),
+        ([CGPoint(x: -12, y: 288), CGPoint(x: -36, y: 240), CGPoint(x: -60, y: 120)], 6.5, 2.5),
+        ([CGPoint(x: 12, y: 292), CGPoint(x: 40, y: 246), CGPoint(x: 64, y: 124)], 6.5, 2.5),
+    ]
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        for branch in Self.branches {
+            let points = branch.points.map {
+                CGPoint(x: center.x + $0.x, y: center.y + $0.y)
+            }
+            path.addPath(tapered(quad: (points[0], points[1], points[2]),
+                                 base: branch.base, tip: branch.tip))
+        }
+        return path
+    }
+
+    /// 二次曲线枝干 → 锥形填充路径：沿线采样，逐点算法向偏移出左右两条边，
+    /// 宽从 `base` 线性收到 `tip`，两端用弧收口（没有硬切角）。
+    private func tapered(quad: (CGPoint, CGPoint, CGPoint), base: CGFloat, tip: CGFloat) -> Path {
+        let steps = 40
+        var spine: [CGPoint] = []
+        for index in 0...steps {
+            spine.append(point(on: quad, t: CGFloat(index) / CGFloat(steps)))
+        }
+        var left: [CGPoint] = []
+        var right: [CGPoint] = []
+        for (index, point) in spine.enumerated() {
+            let previous = spine[max(index - 1, 0)]
+            let next = spine[min(index + 1, spine.count - 1)]
+            var dx = next.x - previous.x
+            var dy = next.y - previous.y
+            let length = max(hypot(dx, dy), 0.001)
+            dx /= length
+            dy /= length
+            let half = (base + (tip - base) * CGFloat(index) / CGFloat(steps)) / 2
+            left.append(CGPoint(x: point.x - dy * half, y: point.y + dx * half))
+            right.append(CGPoint(x: point.x + dy * half, y: point.y - dx * half))
+        }
+        var path = Path()
+        path.move(to: left[0])
+        for point in left.dropFirst() { path.addLine(to: point) }
+        // 梢头收口（朝最后一段的方向拱过去，圆头）
+        let last = spine[spine.count - 1]
+        let before = spine[spine.count - 2]
+        var dx = last.x - before.x
+        var dy = last.y - before.y
+        let length = max(hypot(dx, dy), 0.001)
+        dx /= length
+        dy /= length
+        path.addQuadCurve(
+            to: right[right.count - 1],
+            control: CGPoint(x: last.x + dx * tip / 2, y: last.y + dy * tip / 2)
+        )
+        for point in right.dropLast().reversed() { path.addLine(to: point) }
+        // 基座收口（反向拱回，圆头埋进树干）
+        let first = spine[0]
+        let after = spine[1]
+        dx = after.x - first.x
+        dy = after.y - first.y
+        let length2 = max(hypot(dx, dy), 0.001)
+        path.addQuadCurve(
+            to: left[0],
+            control: CGPoint(x: first.x - dx / length2 * base / 2, y: first.y - dy / length2 * base / 2)
+        )
+        path.closeSubpath()
+        return path
+    }
+
+    /// 二次贝塞尔求点。
+    private func point(on quad: (CGPoint, CGPoint, CGPoint), t: CGFloat) -> CGPoint {
+        let u = 1 - t
+        let (p0, p1, p2) = quad
+        return CGPoint(
+            x: u * u * p0.x + 2 * u * t * p1.x + t * t * p2.x,
+            y: u * u * p0.y + 2 * u * t * p1.y + t * t * p2.y
+        )
     }
 }
 
