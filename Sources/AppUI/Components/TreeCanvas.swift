@@ -655,8 +655,12 @@ enum TrunkProfile {
         let rootY = canvasHeight - ForestSceneGeometry.trunkGroundHeight
         let surfaceY = canvasHeight - ForestSceneGeometry.slopeInset
         let midY = (tipY + rootY) / 2
+        // v6（参考图）：树尖与中点各加粗一档（0.10→0.11 / 0.17→0.20）—— 参考图的
+        // 主干几乎有树冠 1/4 宽，从前 0.17 在面板上是根细杆。**树根线 0.24 钉死不动**
+        // （正文几何：关卡/锚点都按这棵树排），板根外扩改从 0.20 起翻（0.20→0.34→0.46），
+        // 根部的「炸开」因此比从前更接近参考图。
         let controls: [(y: CGFloat, width: CGFloat)] = [
-            (tipY, 0.10), (midY, 0.17), (rootY, 0.24), (surfaceY, 0.34), (canvasHeight, 0.46),
+            (tipY, 0.11), (midY, 0.20), (rootY, 0.24), (surfaceY, 0.34), (canvasHeight, 0.46),
         ]
         if canvasY <= controls[0].y { return controls[0].width / 2 }
         if canvasY >= controls[controls.count - 1].y { return controls[controls.count - 1].width / 2 }
@@ -770,56 +774,75 @@ struct Canopy: View {
     /// 通关仪式脉冲：变化时抖三抖（独立于常驻摇摆的第二层旋转）。
     var shakeTick: Int = 0
 
-    @State private var sway = false
     @State private var shakeAngle: Double = 0
     @Environment(\.appMotion) private var motion
 
     /// 叶簇表（树冠局部坐标：中心为原点，y 向下；三档明暗跟着全局光源：
     /// 右上受光最亮 / 中间本色 / 左下背光最沉）。
     ///
-    /// v5（2026-10-17 二轮重构）：v4 的 15 簇**明暗没拉开**（mid 与 deep 同为 `foliage`），
-    /// 缝隙只有 8–25pt 细缝 → 离屏看仍是一团平滑绿（用户报障「更丑了」）。v5 三招：
-    /// ① deep 档改 `deepen(foliage, 0.20)`，三档色差在面板尺度上可辨；
-    /// ② 25 簇重排、半径收缩 → 簇间留 **12–40pt 真缝**（Python 实测平均 17.7pt / 58 处），
-    ///    缝里透出①层的深色托底，树冠读作「一簇一簇的叶子」；
-    /// ③ 叶缘噪声频率翻倍（1.2–1.4 → 1.95–2.20）+ 幅度 0.24 → 0.28，轮廓从圆团块变碎叶边。
-    /// 下林冠每颗果有专属簇承托（最窄余量 7.3pt）。
+    /// v6（2026-10-17 三轮重构，按用户参考图「卡通大树」重画）：v5 的 25 颗**碎叶边小簇**
+    /// （freq ~2.0 / amount 0.28）在面板尺度上是「一团绿上的裂纹」，离参考图的
+    /// 「一朵朵云」差得远。v6 改**云团化**：
+    /// ① 形态：baseRadius 0.92→0.96、noiseAmount 0.28→0.13、frequency 2.0→1.15–1.30 ——
+    ///    轮廓从锯齿叶瓣变圆润大团（绕一圈 4–5 个鼓包，参考图的云朵瓣）；
+    /// ② 26 颗重排（顶 5 / 中 7 / 下 14），下环每颗果有专属簇承托（最窄 9.2pt）；
+    /// ③ 每颗簇加深色轮廓描边（参考图每朵云都有深绿勾边）——「一朵一朵」的最强信号；
+    /// ④ 风：**每颗簇各自飘**（`swayOffset` 派生相位/频率/振幅：顶部大幅慢摆、底部小幅
+    ///    快颤），不再整冠齐摇（`rotationEffect` 整冠摇摆已删，见 body）。
     ///
     /// ⚠️ **改这张表之前必须复跑数值预验证**（Python 移植 `ForestNoise.fbm` + 团块轮廓，
     /// 校验四件事）：① 16 个果位每个都落在某颗叶簇内 ≥6pt（挂到簇外就悬空一颗）；
     /// ② 叶簇探出内部剪影 ≤10pt（冠沿叶瓣，探太多会戳破冠形/戳出面板）；
     /// ③ 剪影内叶簇覆盖率 0.62–0.80 + 有效缝隙 ≥12 处（没有缝隙就还是一团绿）；
     /// ④ 覆盖率与最窄果位余量同时记录在提交说明里。
-    /// v5 终验：16 果全覆盖最窄 7.3pt / 外戳全部 ≤10pt / 覆盖率 0.77 / 58 处缝平均 17.7pt。
+    /// v6 终验：16 果全覆盖最窄 9.2pt / 外戳全部 ≤10pt / 覆盖率 0.76 / 59 处缝平均 16.8pt。
     nonisolated static let clusters: [(offset: CGSize, radii: CGSize, seed: UInt64, frequency: Double, noiseAmount: CGFloat, tone: CanopyTone)] = [
         // 顶林冠（无果位；右上受光）
-        (CGSize(width: 58, height: -72), CGSize(width: 36, height: 26), 61, 2.10, 0.28, .bright),   // T1
-        (CGSize(width: -34, height: -76), CGSize(width: 36, height: 26), 62, 2.00, 0.28, .mid),     // T2
-        (CGSize(width: -104, height: -58), CGSize(width: 36, height: 26), 63, 2.10, 0.28, .mid),    // T3
-        (CGSize(width: 122, height: -34), CGSize(width: 31, height: 23), 64, 2.20, 0.28, .bright),  // T4
-        (CGSize(width: 4, height: -34), CGSize(width: 36, height: 26), 65, 2.00, 0.28, .mid),       // T5
-        (CGSize(width: -158, height: -25), CGSize(width: 34, height: 25), 85, 2.05, 0.28, .mid),    // E1 左沿（补左上外沿暗带）
+        (CGSize(width: 66, height: -76), CGSize(width: 37, height: 27), 101, 1.20, 0.13, .bright),   // T1
+        (CGSize(width: 12, height: -88), CGSize(width: 35, height: 26), 102, 1.25, 0.13, .mid),     // T2
+        (CGSize(width: -48, height: -82), CGSize(width: 35, height: 26), 103, 1.20, 0.13, .mid),    // T3
+        (CGSize(width: -110, height: -60), CGSize(width: 36, height: 26), 104, 1.25, 0.13, .mid),   // T4
+        (CGSize(width: 126, height: -42), CGSize(width: 34, height: 25), 105, 1.30, 0.13, .bright), // T5
         // 中段（右亮左沉）
-        (CGSize(width: 140, height: -6), CGSize(width: 32, height: 24), 66, 2.10, 0.28, .mid),      // M1
-        (CGSize(width: 86, height: -24), CGSize(width: 38, height: 28), 67, 2.00, 0.28, .mid),      // M2
-        (CGSize(width: -66, height: -28), CGSize(width: 38, height: 28), 68, 2.05, 0.28, .mid),     // M3
-        (CGSize(width: -136, height: -8), CGSize(width: 31, height: 23), 69, 2.10, 0.28, .deep),    // M4
-        (CGSize(width: 20, height: 16), CGSize(width: 41, height: 30), 70, 1.95, 0.28, .mid),       // M5
+        (CGSize(width: 152, height: -8), CGSize(width: 32, height: 24), 106, 1.25, 0.13, .mid),     // M6
+        (CGSize(width: 94, height: -30), CGSize(width: 38, height: 28), 107, 1.20, 0.13, .mid),     // M7
+        (CGSize(width: 34, height: -22), CGSize(width: 36, height: 27), 108, 1.15, 0.13, .mid),     // M8
+        (CGSize(width: -30, height: -28), CGSize(width: 36, height: 27), 109, 1.20, 0.13, .mid),    // M9
+        (CGSize(width: -94, height: -30), CGSize(width: 38, height: 28), 110, 1.20, 0.13, .mid),    // M10
+        (CGSize(width: -148, height: -6), CGSize(width: 32, height: 24), 111, 1.25, 0.13, .deep),   // M11
+        (CGSize(width: 10, height: 20), CGSize(width: 38, height: 28), 112, 1.15, 0.13, .mid),      // M12
         // 下林冠（背光沉色；每颗果有专属簇承托）
-        (CGSize(width: 150, height: 40), CGSize(width: 35, height: 26), 71, 2.10, 0.28, .deep),     // C1 → 果(162,54)
-        (CGSize(width: -150, height: 42), CGSize(width: 36, height: 27), 72, 2.10, 0.28, .deep),    // C2 → 果(-162,54)
-        (CGSize(width: 120, height: 84), CGSize(width: 39, height: 30), 73, 2.00, 0.28, .deep),     // C3 → 果(135,92)
-        (CGSize(width: -120, height: 84), CGSize(width: 39, height: 30), 74, 2.00, 0.28, .deep),    // C4 → 果(-135,92)
-        (CGSize(width: 105, height: 58), CGSize(width: 41, height: 31), 75, 2.05, 0.28, .deep),     // C5 → 果(109,61)
-        (CGSize(width: -105, height: 58), CGSize(width: 41, height: 31), 76, 2.05, 0.28, .deep),    // C6 → 果(-109,61)
-        (CGSize(width: 92, height: 112), CGSize(width: 35, height: 27), 77, 2.15, 0.28, .deep),     // C7 → 果(89,121)
-        (CGSize(width: -92, height: 112), CGSize(width: 35, height: 27), 78, 2.15, 0.28, .deep),    // C8 → 果(-89,121)
-        (CGSize(width: 56, height: 98), CGSize(width: 38, height: 28), 79, 2.05, 0.28, .deep),      // C9 → 果(82,85)/(44,101)
-        (CGSize(width: -56, height: 98), CGSize(width: 38, height: 28), 80, 2.05, 0.28, .deep),     // C10 → 果(-82,85)/(-44,101)
-        (CGSize(width: 24, height: 120), CGSize(width: 39, height: 29), 81, 2.00, 0.28, .deep),     // C11 → 果(31,137)
-        (CGSize(width: -24, height: 120), CGSize(width: 39, height: 29), 82, 2.00, 0.28, .deep),    // C12 → 果(-31,137)
-        (CGSize(width: 0, height: 100), CGSize(width: 40, height: 30), 83, 2.00, 0.28, .deep),      // C13 → 果(0,107)
-        (CGSize(width: -118, height: 18), CGSize(width: 35, height: 26), 84, 2.10, 0.28, .deep),    // C14 → 果(-120,31)
+        (CGSize(width: 152, height: 50), CGSize(width: 32, height: 24), 113, 1.20, 0.13, .deep),    // C13 → 果(162,54)
+        (CGSize(width: -152, height: 52), CGSize(width: 32, height: 24), 114, 1.25, 0.13, .deep),   // C14 → 果(-162,54)
+        (CGSize(width: 118, height: 86), CGSize(width: 37, height: 28), 115, 1.20, 0.13, .deep),    // C15 → 果(135,92)
+        (CGSize(width: -118, height: 88), CGSize(width: 37, height: 28), 116, 1.20, 0.13, .deep),   // C16 → 果(-135,92)
+        (CGSize(width: 102, height: 60), CGSize(width: 38, height: 29), 117, 1.20, 0.13, .deep),    // C17 → 果(109,61)
+        (CGSize(width: -102, height: 62), CGSize(width: 38, height: 29), 118, 1.20, 0.13, .deep),   // C18 → 果(-109,61)
+        (CGSize(width: 90, height: 116), CGSize(width: 34, height: 26), 119, 1.25, 0.13, .deep),    // C19 → 果(89,121)
+        (CGSize(width: -90, height: 118), CGSize(width: 34, height: 26), 120, 1.25, 0.13, .deep),   // C20 → 果(-89,121)
+        (CGSize(width: 60, height: 94), CGSize(width: 36, height: 27), 121, 1.20, 0.13, .deep),     // C21 → 果(82,85)/(44,101)
+        (CGSize(width: -60, height: 96), CGSize(width: 36, height: 27), 122, 1.20, 0.13, .deep),    // C22 → 果(-82,85)/(-44,101)
+        (CGSize(width: 22, height: 122), CGSize(width: 36, height: 27), 123, 1.20, 0.13, .deep),    // C23 → 果(31,137)
+        (CGSize(width: -22, height: 124), CGSize(width: 36, height: 27), 124, 1.20, 0.13, .deep),   // C24 → 果(-31,137)
+        (CGSize(width: 0, height: 100), CGSize(width: 38, height: 29), 125, 1.15, 0.13, .deep),     // C25 → 果(0,107)
+        (CGSize(width: -116, height: 22), CGSize(width: 34, height: 26), 126, 1.25, 0.13, .deep),   // C26 → 果(-120,31)
+    ]
+
+    /// 叶点表（树冠局部坐标）：簇缘探出的小叶子，**快颤**（频率约为大团的 2 倍）。
+    /// 与 `clusters` 同源；**不 mask** —— 探出冠沿 3–5pt 正是参考图「边缘小叶」的样子，
+    /// mask 会把贴沿的叶点切半个（2026-10-17 目视：白月牙挂在那儿）。
+    /// ⚠️ 改位置必须确认每颗都在 `CanopyMass` 剪影内（否则整颗被 mask 切没）。
+    nonisolated static let leaflets: [(offset: CGSize, radii: CGSize, seed: UInt64)] = [
+        (CGSize(width: 96, height: -88), CGSize(width: 9, height: 7), 201),     // T1 右上沿
+        (CGSize(width: 150, height: -58), CGSize(width: 8, height: 6), 202),    // T5 右沿
+        (CGSize(width: 122, height: -18), CGSize(width: 8, height: 6), 203),    // M6 右下
+        (CGSize(width: 126, height: 34), CGSize(width: 9, height: 7), 204),     // C13 下沿
+        (CGSize(width: 100, height: 100), CGSize(width: 8, height: 6), 205),    // C19 下沿
+        (CGSize(width: 30, height: 128), CGSize(width: 9, height: 7), 206),     // C23 右下
+        (CGSize(width: -30, height: 130), CGSize(width: 8, height: 6), 207),    // C24 左下
+        (CGSize(width: -100, height: 102), CGSize(width: 9, height: 7), 208),   // C20 下沿
+        (CGSize(width: -122, height: -20), CGSize(width: 8, height: 6), 209),   // M10 左沿
+        (CGSize(width: -16, height: -104), CGSize(width: 8, height: 6), 210),   // T2 上沿
     ]
 
     /// 受光斑（右上叶尖的暖白亮点；`radii` 是半长轴，画框取两倍）。
@@ -827,7 +850,7 @@ struct Canopy: View {
         (CGSize(width: 72, height: -78), CGSize(width: 40, height: 30)),
         (CGSize(width: 112, height: -48), CGSize(width: 28, height: 22)),
         (CGSize(width: 34, height: -96), CGSize(width: 26, height: 20)),
-        (CGSize(width: 98, height: -88), CGSize(width: 20, height: 16)),
+        (CGSize(width: 94, height: -76), CGSize(width: 20, height: 16)),
     ]
 
     /// 暗缝斑（叶簇之间缝隙里的深色径向，压出纵深）。
@@ -853,28 +876,63 @@ struct Canopy: View {
                     depth: ForestSceneGeometry.treeDepth,
                     haze: theme.aerialHaze))
 
-            // ② 叶簇层：25 颗同族团块（`CanopyBlob` 参数化），按全局光源分三档明暗
-            //    （右上受光最亮 / 中间本色 / 左下背光最沉，v5 起 deep 档压暗 0.20 与 mid
-            //    拉开色差），**故意留出 12–40pt 的缝隙**（Python 实测平均 17.7pt / 58 处）——
-            //    缝隙里透出①的深色托底，树冠这才读出「一簇一簇的叶子」而不是一只绿气球。
-            //    每颗簇自身的渐变也跟全局光源同向（topTrailing→bottomLeading）：
-            //    单颗受光才有叶簇的立体感，整幅罩一支渐变只会把对比抹平。
-            //    ⚠️ 与 P0-D 那次失败的区别：那时是四颗**不同色的团块直接叠**（交界必出弧线）；
-            //    现在是「深色托底在上、叶簇在前」的景深关系，团块交界是**特性**不是瑕疵。
-            //    ⚠️ 果位表按这层验过覆盖：每颗果实落在某颗叶簇内 ≥6pt（数值预验证，
-            //    见 Docs/CODE_REVIEW 与本批提交说明）；改 `clusters` 必须复跑同一验证。
-            ForEach(0..<Self.clusters.count, id: \.self) { index in
-                let cluster = Self.clusters[index]
-                CanopyBlob(offset: cluster.offset, radii: cluster.radii, seed: cluster.seed,
-                           frequency: cluster.frequency, noiseAmount: cluster.noiseAmount)
-                    .fill(LinearGradient(
-                        colors: [
-                            clusterColor(cluster.tone),
-                            ForestTone.deepen(clusterColor(cluster.tone), amount: 0.30, ink: theme.shadow),
-                        ],
-                        startPoint: .topTrailing,
-                        endPoint: .bottomLeading
-                    ))
+            // ② 叶簇层：26 颗云团（`CanopyBlob` 参数化），三档明暗 + 深色勾边。
+            //    **风在这一层**：一颗 `TimelineView`（30fps）驱动全部 26 颗簇与 10 颗
+            //    叶点各自飘动 —— 相位/频率从各自种子派生（互不同步），振幅按高度派生
+            //    （顶部大幅慢摆 ±5pt / 底部小幅 ±1.2pt）。用户 2026-10-17 明确要求：
+            //    「树冠随风飘是上面的叶子个个飘，而不是整个树冠一起左右摇晃」——
+            //    从前的整冠 `rotationEffect` 摇摆已删（通关仪式的整冠抖动保留，见尾部）。
+            //    ⚠️ 深色勾边是参考图「一朵朵云」的关键信号：v5 及以前只靠色差 + 缝隙，
+            //       面板尺度上仍读作一片绿；勾边把每颗团的边界钉死。
+            //    ⚠️ 果位表按这层验过覆盖（每颗果实落在某颗叶簇内 ≥6pt，数值预验证见
+            //       `clusters` 注释）；`clusters` / `leaflets` 任何改动必须复跑同一验证。
+            //    ⚠️ reduceMotion 下振幅归零（`swayOffset` 内判），静止即安静。
+            TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { context in
+                let time = context.date.timeIntervalSinceReferenceDate
+                ZStack {
+                    ForEach(0..<Self.clusters.count, id: \.self) { index in
+                        let cluster = Self.clusters[index]
+                        let sway = Self.swayOffset(
+                            for: cluster, time: time, reduceMotion: motion.reduceMotion)
+                        CanopyBlob(offset: cluster.offset, radii: cluster.radii, seed: cluster.seed,
+                                   frequency: cluster.frequency, noiseAmount: cluster.noiseAmount)
+                            .fill(LinearGradient(
+                                colors: [
+                                    clusterColor(cluster.tone),
+                                    ForestTone.deepen(clusterColor(cluster.tone), amount: 0.30, ink: theme.shadow),
+                                ],
+                                startPoint: .topTrailing,
+                                endPoint: .bottomLeading
+                            ))
+                            .overlay(
+                                CanopyBlob(offset: cluster.offset, radii: cluster.radii, seed: cluster.seed,
+                                           frequency: cluster.frequency, noiseAmount: cluster.noiseAmount)
+                                    .stroke(clusterEdge.opacity(0.55), lineWidth: 1.4)
+                            )
+                            .offset(sway.offset)
+                            .rotationEffect(.degrees(sway.rotation))
+                    }
+
+                    // ②b 叶点：簇缘探出的小叶子（快颤：频率约为大团的 2 倍、幅度 ±2–3pt）。
+                    //      **不 mask**：探出冠沿几 pt 是参考图边缘小叶的样子；mask 会把
+                    //      贴沿的叶点切半个月亮（第一版目视抓到，已删）。
+                    ForEach(0..<Self.leaflets.count, id: \.self) { index in
+                        let leaf = Self.leaflets[index]
+                        let sway = Self.leafletSway(
+                            for: leaf, time: time, reduceMotion: motion.reduceMotion)
+                        Ellipse()
+                            .fill(RadialGradient(
+                                colors: [clusterColor(.mid), clusterColor(.mid).opacity(0.80)],
+                                center: .center,
+                                startRadius: 0,
+                                endRadius: max(leaf.radii.width, leaf.radii.height)
+                            ))
+                            .frame(width: leaf.radii.width * 2, height: leaf.radii.height * 2)
+                            .offset(x: leaf.offset.width + sway.x, y: leaf.offset.height + sway.y)
+                            .rotationEffect(.degrees(sway.rotation))
+                            .allowsHitTesting(false)
+                    }
+                }
             }
 
             // ③ 受光斑：右上是向阳面（太阳那侧的叶尖），几小团暖白径向提亮 ——
@@ -948,15 +1006,89 @@ struct Canopy: View {
             FruitLayer(theme: theme, count: fruitCount)
         }
         .scaleEffect(0.97 + density * 0.06, anchor: .bottom)
-        .rotationEffect(.degrees(sway ? 1.6 : -1.6), anchor: .bottom)
-        .loopAnimation(.easeInOut(duration: 5.5).repeatForever(autoreverses: true), value: sway)
-        .onAppear { sway = true }
-        // 仪式抖动：常驻摇摆之外的第二层旋转，放完归零（两套 modifier 叠加互不打架）
+        // ⚠️ v6 起常驻的「整冠左右摇」已删：用户 2026-10-17 明确要求「上面的叶子个个飘，
+        // 而不是整个树冠一起左右摇晃」—— 常驻风移进每颗叶簇自己身上（`swayOffset`，
+        // 相位互不相同）。剩下的整冠旋转只有通关仪式那一抖（幅度 ±2.6°，一眼区分）。
         .rotationEffect(.degrees(shakeAngle), anchor: .bottom)
         .onChange(of: shakeTick) { _, tick in
             guard tick > 0, !motion.reduceMotion else { return }
             runCeremonyShake()
         }
+    }
+
+    /// 叶簇勾边色（参考图每朵云都有深绿轮廓线）：`foliage` 往主题 `shadow` 混 0.38。
+    /// 与 deep 档（0.20）再差一档，边界因此比叶面更深，但不写死黑色（AGENTS.md §10A）。
+    private var clusterEdge: Color {
+        ForestTone.deepen(theme.foliage, amount: 0.38, ink: theme.shadow)
+    }
+
+    /// 一颗叶簇 / 一片叶点的飘动状态（树冠局部 pt + 度）。
+    struct CanopySway {
+        var x: Double
+        var y: Double
+        var rotation: Double
+        var offset: CGSize { CGSize(width: x, height: y) }
+        static let still = CanopySway(x: 0, y: 0, rotation: 0)
+    }
+
+    /// 连续种子 → 打散后的相位（splitmix64 尾部混合）。
+    /// ⚠️ 不能直接拿 `seed % 1000` 当相位：簇表种子是连续整数（101–126），
+    /// 相位会挤在 0.2rad 宽的一条带里 → 26 颗簇近乎同步 —— 又变成「整冠齐摇」
+    /// （2026-10-17 回归测试当场抓到：56/325 对偏移重合）。
+    private nonisolated static func mixedSeed(_ seed: UInt64) -> UInt64 {
+        var h = seed &* 0x9E3779B97F4A7C15
+        h ^= h >> 29
+        h = h &* 0xBF58476D1CE4E5B9
+        h ^= h >> 32
+        return h
+    }
+
+    /// 一颗叶簇的飘动 ——「上面的叶子个个飘」（用户 2026-10-17 原话）。
+    ///
+    /// 派生规则（不建第二张表，改 `clusters` 不必同步）：
+    /// - **相位** = `mixedSeed(seed) % 1000 / 1000 × 2π`：26 颗簇互不同步，同屏读作
+    ///   「各自在动」（相位必须先散列再取模 —— 种子是连续整数，直接取模会挤成一条带）；
+    /// - **频率** 0.55–0.90 rad/s（顶慢底快）、**振幅** ±1.2（底）→ ±5.2pt（顶）：
+    ///   与真实树的风振一致 —— 离地越高振幅越大、周期越长；
+    /// - y 向小量（0.30×）与二次谐波（1.6×）：避免纯正弦的机械感；
+    /// - `reduceMotion` → 全零（静止即安静，与 `loopAnimation` 的约定一致）；
+    /// - `nonisolated`：**别删**。纯函数被 `TimelineView` 闭包（非隔离）与
+    ///   `TreeGeometryTests` 直接调用；删了就被 View 的 `@MainActor` 连坐出警告（铁律①）。
+    nonisolated static func swayOffset(
+        for cluster: (offset: CGSize, radii: CGSize, seed: UInt64, frequency: Double, noiseAmount: CGFloat, tone: CanopyTone),
+        time: Double,
+        reduceMotion: Bool
+    ) -> CanopySway {
+        guard !reduceMotion else { return .still }
+        // offset.height −88（树冠顶）→ 1；+122（树冠底）→ 0（y 向下，顶部是负数）
+        let heightNorm = min(max((140 - cluster.offset.height) / 260, 0), 1)
+        let phase = Double(mixedSeed(cluster.seed) % 1000) / 1000 * .pi * 2
+        let omega = 0.90 - 0.35 * heightNorm
+        let amplitude = 1.2 + 4.0 * heightNorm
+        return CanopySway(
+            x: amplitude * sin(time * omega + phase),
+            y: amplitude * 0.30 * sin(time * omega * 1.6 + phase * 1.4),
+            rotation: 1.4 * heightNorm * cos(time * omega + phase * 0.6)
+        )
+    }
+
+    /// 一片叶点的飘动：**小幅快颤**（频率 1.6–2.1 rad/s、振幅 ±2.2–2.9pt、
+    /// 旋转 ±3°）—— 大团慢摆之下的一层碎动，「叶子个个飘」的细节层。
+    nonisolated static func leafletSway(
+        for leaf: (offset: CGSize, radii: CGSize, seed: UInt64),
+        time: Double,
+        reduceMotion: Bool
+    ) -> CanopySway {
+        guard !reduceMotion else { return .still }
+        let mixed = mixedSeed(leaf.seed)
+        let phase = Double(mixed % 1000) / 1000 * .pi * 2
+        let omega = 1.6 + Double(mixed % 3) * 0.25
+        let amplitude = 2.2 + Double(mixed % 4) * 0.25
+        return CanopySway(
+            x: amplitude * sin(time * omega + phase),
+            y: amplitude * 0.45 * sin(time * omega * 1.9 + phase * 1.7),
+            rotation: 3.0 * cos(time * omega + phase * 0.8)
+        )
     }
 
     /// 叶簇三档明暗（全局光源：太阳右上 → 右上亮、左下沉）。
@@ -1190,7 +1322,7 @@ private struct TreeBaseTufts: View {
 
 // MARK: - 树枝（树冠之下的枝干结构）
 
-/// 一棵树的枝：**基座长在树干上、梢头藏进树冠宽部**，六根主次枝扇形展开。
+/// 一棵树的枝：**基座长在树干上、梢头藏进树冠宽部**，八根主次枝低分叉扇形展开。
 ///
 /// 用户报障「树枝不够细节」—— 从前树上唯一的「枝」是关卡节点那几根水平短线
 /// （`BranchShape`），树本身没有枝干结构，树冠像直接安在杆子上。这六根补上结构：
@@ -1205,14 +1337,23 @@ struct TreeBranches: Shape {
     /// 树冠中心（画布坐标）。枝的局部坐标都以它为原点。
     var center: CGPoint
 
-    /// 六根枝：（控制折线 [基座, 中控, 梢头], 基座宽, 梢头宽）pt。
+    /// 八根枝：（控制折线 [基座, 中控, 梢头], 基座宽, 梢头宽）pt。
+    /// v6 终值（按用户参考图重画，Python 四判据全过）：**低分叉、长可见段** ——
+    /// 从前（v5）基座全在树冠下沿（局部 y 210–260）→ 枝几乎整根长在树冠里，
+    /// 被叶簇盖住只露一截（用户截图实拍：只见关卡横枝不见树自己的枝）。
+    /// 现在基座下沉到画布 360–554：左右主枝（基座宽 13）从树干中下段斜向上外伸，
+    /// 中干续出两根中枝，主枝中段再分次枝（Y 形），两根低枝从树冠下沿两侧托住冠沿。
+    /// 可见比例 45–97%（Python 沿枝采样：树冠帧外 + 剪影缝隙内的点数占比）。
+    /// 基座全部落在树干半宽内，梢头没进树冠宽部 ≥9.7pt。
     static let branches: [(points: [CGPoint], base: CGFloat, tip: CGFloat)] = [
-        ([CGPoint(x: -16, y: 258), CGPoint(x: -64, y: 226), CGPoint(x: -100, y: 36)], 9.5, 3.5),
-        ([CGPoint(x: 16, y: 262), CGPoint(x: 62, y: 232), CGPoint(x: 106, y: 40)], 9.5, 3.5),
-        ([CGPoint(x: -14, y: 232), CGPoint(x: -46, y: 196), CGPoint(x: -80, y: 70)], 7.5, 3.0),
-        ([CGPoint(x: 14, y: 240), CGPoint(x: 50, y: 204), CGPoint(x: 76, y: 70)], 7.5, 3.0),
-        ([CGPoint(x: -12, y: 288), CGPoint(x: -36, y: 240), CGPoint(x: -60, y: 120)], 6.5, 2.5),
-        ([CGPoint(x: 12, y: 292), CGPoint(x: 40, y: 246), CGPoint(x: 64, y: 124)], 6.5, 2.5),
+        ([CGPoint(x: -12, y: 320), CGPoint(x: -78, y: 220), CGPoint(x: -118, y: 60)], 13, 5),  // 左主枝
+        ([CGPoint(x: 12, y: 324), CGPoint(x: 80, y: 224), CGPoint(x: 122, y: 64)], 13, 5),     // 右主枝
+        ([CGPoint(x: -9, y: 250), CGPoint(x: -34, y: 170), CGPoint(x: -52, y: 84)], 8, 3),     // 中左枝
+        ([CGPoint(x: 9, y: 252), CGPoint(x: 36, y: 172), CGPoint(x: 58, y: 92)], 8, 3),        // 中右枝
+        ([CGPoint(x: -11, y: 190), CGPoint(x: -42, y: 120), CGPoint(x: -58, y: 34)], 7, 3),    // 左次枝
+        ([CGPoint(x: 11, y: 192), CGPoint(x: 44, y: 122), CGPoint(x: 60, y: 38)], 7, 3),       // 右次枝
+        ([CGPoint(x: -12, y: 380), CGPoint(x: -44, y: 300), CGPoint(x: -70, y: 130)], 6.5, 2.5), // 左下低枝
+        ([CGPoint(x: 12, y: 384), CGPoint(x: 46, y: 304), CGPoint(x: 74, y: 132)], 6.5, 2.5),  // 右下低枝
     ]
 
     func path(in rect: CGRect) -> Path {
