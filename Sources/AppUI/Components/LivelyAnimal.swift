@@ -48,6 +48,9 @@ public struct LivelyAnimal: View {
     public var onTap: (() -> Void)? = nil
     /// 自发动作时请求冒泡（父级决定是否显示，50% 概率由父级抽签也行，这里跳/摇各 50%）。
     public var onSpontaneousBubble: (() -> Void)? = nil
+    /// 眨眼初相种子：透传给 `CuteAnimalView`。编排层给同一屏的每只动物传不同的值，
+    /// 否则它们会整排一起眨。默认 0 = 不偏移（单只用法行为不变）。
+    public var blinkPhaseSeed: Int = 0
 
     @State private var hopLift: CGFloat = 0
     @State private var shakeAngle: Double = 0
@@ -57,7 +60,8 @@ public struct LivelyAnimal: View {
 
     public init(kind: AnimalKind, isSleeping: Bool = false, size: CGFloat = 48,
                 facing: CGFloat = 1, actionTick: Int = 0, actionKind: LivelyAnimalAction = .hop,
-                onTap: (() -> Void)? = nil, onSpontaneousBubble: (() -> Void)? = nil) {
+                onTap: (() -> Void)? = nil, onSpontaneousBubble: (() -> Void)? = nil,
+                blinkPhaseSeed: Int = 0) {
         self.kind = kind
         self.isSleeping = isSleeping
         self.size = size
@@ -66,10 +70,12 @@ public struct LivelyAnimal: View {
         self.actionKind = actionKind
         self.onTap = onTap
         self.onSpontaneousBubble = onSpontaneousBubble
+        self.blinkPhaseSeed = blinkPhaseSeed
     }
 
     public var body: some View {
-        CuteAnimalView(kind: kind, isSleeping: isSleeping, size: size, bobbing: false)
+        CuteAnimalView(kind: kind, isSleeping: isSleeping, size: size, bobbing: false,
+                       blinkPhaseSeed: blinkPhaseSeed)
             .scaleEffect(x: facing, y: 1, anchor: .center)
             .scaleEffect(x: bodyScaleX, y: bodyScaleY, anchor: .bottom)
             .rotationEffect(.degrees(shakeAngle))

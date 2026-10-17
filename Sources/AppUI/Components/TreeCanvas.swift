@@ -2370,7 +2370,10 @@ struct ForestGroundBand: View {
                     requestBubble(index)
                     onResidentTap?(currentKind)
                 },
-                onSpontaneousBubble: { requestBubble(index) }
+                onSpontaneousBubble: { requestBubble(index) },
+                // 槽位号即初相种子：8 个槽位的初相互不重叠（见 `blinkLead` 的说明），
+                // 于是「整排一起眨」变成「一只接一只地眨」。
+                blinkPhaseSeed: index
             )
         }
         .position(x: home.x + offsets[index].width, y: home.y + offsets[index].height)

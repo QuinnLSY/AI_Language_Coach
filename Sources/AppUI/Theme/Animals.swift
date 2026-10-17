@@ -240,6 +240,12 @@ public struct CuteAnimalView: View {
     /// 今日任务全完成那天由 `TeacherCorner` 传一次庆祝 tick 才跳。
     /// 森林里的动物不传这个参数，行为一个字节都不变。
     public var hopTick: Int = 0
+    /// 眨眼初相种子：同一屏上的多只动物**必须各传不同的值**，否则它们会整排一起眨
+    /// （和「整冠一起摇」是同一类毛病，肉眼一秒就出戏）。
+    ///
+    /// 默认 `0` = 不偏移 —— 单只动物的既有调用点（老师角 / 气泡 / 各页角落）
+    /// 行为一个字节都不变。只有「一屏多只」的编排层（林间地面带）需要传。
+    public var blinkPhaseSeed: Int = 0
 
     /// **离屏渲染夹具专用总闸**：置 `false` 时动物不启动任何定时动画（眨眼 / 跳动）。
     ///
@@ -260,11 +266,11 @@ public struct CuteAnimalView: View {
 
     @Environment(\.appMotion) private var motion
 
-    private let blinkTimer = Timer.publish(every: 3.2, on: .main, in: .common).autoconnect()
+    private let blinkTimer = Timer.publish(every: Self.blinkPeriod, on: .main, in: .common).autoconnect()
 
     public init(kind: AnimalKind, isSleeping: Bool = false, size: CGFloat = 64,
                 accessory: AnimalAccessory = .none, bobbing: Bool = true,
-                knockTick: Int = 0, hopTick: Int = 0) {
+                knockTick: Int = 0, hopTick: Int = 0, blinkPhaseSeed: Int = 0) {
         self.kind = kind
         self.isSleeping = isSleeping
         self.size = size
@@ -272,6 +278,40 @@ public struct CuteAnimalView: View {
         self.bobbing = bobbing
         self.knockTick = knockTick
         self.hopTick = hopTick
+        self.blinkPhaseSeed = blinkPhaseSeed
+    }
+
+    // MARK: - 眨眼错峰
+
+    /// 眨眼周期（秒）。**周期统一、初相各异** —— 只错开初相就够，改周期反而会让
+    /// 快的那只越来越快地追上慢的（相位不固定 = 时而同步时而不）。
+    public static let blinkPeriod: Double = 3.2
+    /// 闭眼时长（秒）。
+    public static let blinkDuration: Double = 0.14
+
+    /// 第 `seed` 号个体的眨眼初相（秒，`[0, blinkPeriod)`）。
+    ///
+    /// 为什么用黄金比例小数部 `frac(seed × φ)` 而不是哈希随机：哈希随机在个体
+    /// 少的时候会撞（两只差 0.05s 看起来还是一起眨），而黄金比例是**低差异
+    /// 序列**——任意连续 N 个整数的小数部都尽可能均匀地铺满 `[0,1)`，数学上
+    /// 保证「前 N 只两两都不挤在一起」。实测 8 只（地面带满员）最小间隔
+    /// 0.288s，远大于闭眼的 0.14s，绝不会连成一片。
+    ///
+    /// 另：它是纯函数且不依赖任何运行时状态 → 离屏渲染与真机拿到同一个值。
+    public static func blinkLead(seed: Int) -> Double {
+        let phi = 0.618_033_988_749_895
+        let scaled = Double(seed) * phi
+        // 手动取小数部（不用 `truncatingRemainder`，它会跟着被除数带负号）。
+        let frac = scaled - scaled.rounded(.down)
+        return blinkPeriod * frac
+    }
+
+    /// 眨一下（闭眼 → 睁眼）。延迟派发后**再判一次**闸门：延迟期间可能已经
+    /// 切到夜晚（睡着了）或被渲染夹具关掉了动画。
+    private func blink() {
+        guard !isSleeping, Self.animationsEnabled else { return }
+        isBlinking = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.blinkDuration) { isBlinking = false }
     }
 
     public var body: some View {
@@ -318,8 +358,14 @@ public struct CuteAnimalView: View {
         }
         .onReceive(blinkTimer) { _ in
             guard !isSleeping, Self.animationsEnabled else { return }
-            isBlinking = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) { isBlinking = false }
+            let lead = Self.blinkLead(seed: blinkPhaseSeed)
+            if lead < 0.001 {
+                blink()
+            } else {
+                // 每拍都延后同一个 lead —— 等价于把整条眨眼序列整体平移，
+                // 相位永久错开（不会因为跑久了又飘回同步）。
+                DispatchQueue.main.asyncAfter(deadline: .now() + lead) { blink() }
+            }
         }
     }
 
