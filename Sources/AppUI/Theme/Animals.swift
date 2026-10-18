@@ -285,9 +285,9 @@ public struct CuteAnimalView: View {
 
     /// 眨眼周期（秒）。**周期统一、初相各异** —— 只错开初相就够，改周期反而会让
     /// 快的那只越来越快地追上慢的（相位不固定 = 时而同步时而不）。
-    public static let blinkPeriod: Double = 3.2
+    public nonisolated static let blinkPeriod: Double = 3.2
     /// 闭眼时长（秒）。
-    public static let blinkDuration: Double = 0.14
+    public nonisolated static let blinkDuration: Double = 0.14
 
     /// 第 `seed` 号个体的眨眼初相（秒，`[0, blinkPeriod)`）。
     ///
@@ -298,7 +298,7 @@ public struct CuteAnimalView: View {
     /// 0.288s，远大于闭眼的 0.14s，绝不会连成一片。
     ///
     /// 另：它是纯函数且不依赖任何运行时状态 → 离屏渲染与真机拿到同一个值。
-    public static func blinkLead(seed: Int) -> Double {
+    public nonisolated static func blinkLead(seed: Int) -> Double {
         let phi = 0.618_033_988_749_895
         let scaled = Double(seed) * phi
         // 手动取小数部（不用 `truncatingRemainder`，它会跟着被除数带负号）。

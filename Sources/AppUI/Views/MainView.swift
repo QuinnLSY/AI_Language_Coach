@@ -679,6 +679,8 @@ public struct MainView: View {
                     // #418-C：连续剧情出幕（判定与记账在 ForestStage，草坪只管挑角演）
                     storyActTick: state.forest.storyActTick,
                     lastStoryAct: state.forest.lastStoryAct,
+                    // C：动物与学习过程联动 —— 学员每往上一层，最近的一只小跳招呼一声
+                    climbFraction: state.progress.climbFraction,
                     // ⑦-C③：林子里现有几位（按累计练习时长解锁，只增不减）
                     unlockedCompanions: state.forestUnlockedCompanions
                 )

@@ -252,6 +252,16 @@ public struct TreeCanvas: View {
                         )
                         .frame(width: width, height: canvasHeight)
 
+                    // A：树冠漏下来的光柱（丁达尔）。
+                    //
+                    // ⚠️ 必须夹在**树干之后、树冠之前**：光柱被树冠挡住，只从叶团的
+                    // 缝里透出来 —— 那才是「树冠漏下的光柱」。画在树冠之后就成了
+                    // 压在叶子上的几道半透明塑料片。
+                    // 画框比树冠高一截：光柱要一直落到树干上半段。
+                    SunShafts(theme: theme)
+                        .frame(width: width, height: 560)
+                        .offset(y: Self.canopyOffsetY(for: progress) + 40)
+
                     // 树冠（茂密度随总进度；通关时抖三抖）
                     Canopy(theme: theme, density: density,
                            fruitCount: min(earnedStars, FruitLayer.placements.count),
@@ -263,6 +273,13 @@ public struct TreeCanvas: View {
 
                     // 藤蔓叶子点缀
                     Leaves(theme: theme)
+                        .frame(width: width, height: canvasHeight)
+
+                    // B：树冠下**常驻**的落叶。
+                    // 与 `LeafFallLayer`（学习事件的一次性回应）分工不同：
+                    // 那一层平时一片都不画，这一层一直在飘，安静时林子也是活的。
+                    // 画在树之上、关卡节点之下：叶子从面前落过，但不挡关卡点击。
+                    DriftingLeaves(theme: theme)
                         .frame(width: width, height: canvasHeight)
                 }
                 .accessibilityHidden(true)
@@ -639,59 +656,13 @@ private struct Canopy: View {
 
     var body: some View {
         ZStack {
-            // ① 林冠体质：四颗团块的四条轮廓并成**一道**路径（`CanopyMass`，非零缠绕
-            // 规则 → 重叠处只填一次），整幅树冠只有一个外沿、只填一次色。
+            // 树冠本体：三层叶团 + 枝干骨架 + 统一光。
             //
-            // 为什么不再是「四团各填各的颜色」：不同色的团块重重叠叠，交界处必出一圈
-            // 弧线 —— 那就是用户说的「一块一块、不是一个整体」。并成一道路径后，
-            // 交界处根本没有边界；明暗全靠罩在整幅外沿上的渐变与两片柔光柔影。
-            // 渐变方向跟全局光源走（`ForestLighting`：太阳右上 → 底左背光），
-            // 两端都过一遍大气透视（树站在 `treeDepth`，与草坡顶沿 `HillCap` 同档）。
-            CanopyMass()
-                .fill(LinearGradient(
-                    colors: [
-                        ForestAerialPerspective.adjust(
-                            theme.foliage,
-                            depth: ForestSceneGeometry.treeDepth,
-                            haze: theme.aerialHaze),
-                        ForestAerialPerspective.adjust(
-                            theme.foliageDeep,
-                            depth: ForestSceneGeometry.treeDepth,
-                            haze: theme.aerialHaze),
-                    ],
-                    startPoint: .topTrailing,
-                    endPoint: .bottomLeading
-                ))
-
-            // ② 柔光：右上那团是向阳面（太阳那侧的叶子），覆一团径向提亮 ——
-            // 半径上衰减到 0，所以是「光」不是「贴片」，没有硬边。
-            // 同样遮罩在林冠形里，衰减不到的残余也不蹭到天上。
-            Ellipse()
-                .fill(RadialGradient(
-                    colors: [Color.white.opacity(0.18), Color.white.opacity(0)],
-                    center: .center,
-                    startRadius: 0,
-                    endRadius: 92
-                ))
-                .frame(width: 240, height: 180)
-                .offset(x: 42, y: -14)
-                .mask(CanopyMass().fill(.black))
-                .allowsHitTesting(false)
-
-            // ③ 柔影：树冠底沿总是最沉的（叶背光），一条自上而下衰减的深色带 ——
-            // 顺带把 16 个果位里最低那几颗接进深色叶底里。
-            // ⚠️ 必须通宽（比树冠外沿还宽）：椭圆/窄矩形的左右边会落在树冠**内部**，
-            // 衰减带尽头就是一道新的弧线 —— 又「一块一块」了。边全部交给遮罩去裁。
-            Rectangle()
-                .fill(LinearGradient(
-                    colors: [theme.foliageDeep.opacity(0), theme.foliageDeep.opacity(0.55)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ))
-                .frame(width: 480, height: 156)
-                .offset(x: 0, y: 84)
-                .mask(CanopyMass().fill(.black))
-                .allowsHitTesting(false)
+            // ⚠️ 这里曾经是「四颗团块并成一道路径、只填一次色」（`CanopyMass`）——
+            // 那套修法消灭了交界弧线（「一块一块」），代价是把**层次**一起消灭了：
+            // 整幅树冠只剩一层渐变，于是用户看到的就是「一团绿」。
+            // 现在的结构与配色全在 `TreeCrownArt.swift`，本结构只负责摇摆与仪式抖动。
+            TreeCrown(theme: theme)
 
             FruitLayer(theme: theme, count: fruitCount)
         }
@@ -720,85 +691,6 @@ private struct Canopy: View {
     }
 }
 
-// MARK: - 林冠体质
-
-/// 林冠体质：四颗 `CanopyBlob` 的轮廓并成**一道路径**。
-///
-/// 为什么并成一道：四颗团块各填各的颜色时，交界处必出一圈弧线（用户说的
-/// 「一块一块、不是一个整体」）。并成一道路径后只填一次 —— 交界处没有边界，
-/// 明暗全靠罩在整幅外沿上的渐变与两片柔光柔影，看起来才是一整棵树。
-/// 非零缠绕规则：四条子路径同向，重叠区缠绕数 2 仍只填一次。
-private struct CanopyMass: Shape {
-
-    /// 四颗团块（中心偏移 / 半径 / 噪声种子）。
-    /// ⚠️ 改任何一颗都要复验果位表：`FruitLayer.placements` 按第三颗（前层主体，
-    /// 中心 (0,26)、半径 172×116、种子 7）的轮廓留了余量，轮廓一动果位可能悬空。
-    private static let blobs: [(offset: CGSize, radii: CGSize, seed: UInt64)] = [
-        (CGSize(width: -46, height: -2), CGSize(width: 140, height: 98), 13),
-        (CGSize(width: 42, height: -14), CGSize(width: 130, height: 94), 29),
-        (CGSize(width: 0, height: 26), CGSize(width: 172, height: 116), 7),
-        (CGSize(width: 0, height: 82), CGSize(width: 144, height: 66), 31),
-    ]
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        for blob in Self.blobs {
-            path.addPath(
-                CanopyBlob(offset: blob.offset, radii: blob.radii, seed: blob.seed)
-                    .path(in: rect)
-            )
-        }
-        return path
-    }
-}
-
-// MARK: - 枝头果实（星星成果实挂上枝头）
-
-/// 树冠的有机轮廓：椭圆基形 + fBm 半径噪声（`ForestNoise`，确定性 —— 同输入同轮廓）。
-///
-/// 为什么在**单位圆上**采 2D 噪声：`(cos θ, sin θ)` 是周期的，轮廓闭合处天然连续，
-/// 不会在路径首尾接缝处留一道折痕。`ForestNoise.fbm` 值域 [0,1] → 半径只向外鼓
-/// （基形 0.92 + 噪声 0…0.24），不向内塌 —— 果实挂在沿上，塌一处就悬空一颗。
-private struct CanopyBlob: Shape {
-
-    /// 团块中心相对画框中心的偏移（画框 = 树冠那 300pt 高的帧）。
-    var offset: CGSize
-    /// 椭圆基形的半径（噪声在此之前乘上去）。
-    var radii: CGSize
-    /// 噪声种子：背层与前层各一颗，轮廓才不会重合出一层厚边。
-    var seed: UInt64
-
-    /// 采样点数：周长约 950pt，144 段 ≈ 每段 6.6pt，抗锯齿后看不出折角。
-    private static let samples = 144
-    /// 噪声空间频率：1.2 → 绕轮廓一圈约 12 个叶瓣（每个 60—80pt，正是「一簇叶」
-    /// 的尺度；再小就碎成噪声，再大就退回一只土豆）。
-    private static let frequency: Double = 1.2
-    /// 半径基形（0.92）：轮廓的主体大小。
-    private static let baseRadius: CGFloat = 0.92
-    /// 噪声幅度（+0.24）：叶瓣的起伏量。
-    private static let noiseAmount: CGFloat = 0.24
-
-    func path(in rect: CGRect) -> Path {
-        let center = CGPoint(x: rect.midX + offset.width, y: rect.midY + offset.height)
-        var path = Path()
-        for index in 0..<Self.samples {
-            let theta = 2 * Double.pi * Double(index) / Double(Self.samples)
-            let n = ForestNoise.fbm(
-                cos(theta) * Self.frequency, sin(theta) * Self.frequency,
-                octaves: 3, seed: seed
-            )
-            let m = Self.baseRadius + Self.noiseAmount * CGFloat(n)
-            let point = CGPoint(
-                x: center.x + radii.width * m * CGFloat(cos(theta)),
-                y: center.y + radii.height * m * CGFloat(sin(theta))
-            )
-            if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
-        }
-        path.closeSubpath()
-        return path
-    }
-}
-
 /// 星星物化成果实：总进度看得见、摸得着（数量 = 已得星，封顶到果位表）。
 /// 新果实从同一侧长出来——数量变化即弹入，`appAnimation` 自己尊重动效档。
 /// （internal：果位表与稳定性约束被 `ForestEventTests` 直接钉住。）
@@ -806,12 +698,12 @@ struct FruitLayer: View {
     let theme: ForestTheme
     let count: Int
 
-    /// 果位表（树冠局部坐标：挂在前层团块的下缘；加果时按序取用）。
+    /// 果位表（树冠局部坐标，相对画框中心：挂在**中层 + 前层**叶团的下缘；加果时按序取用）。
     /// ⚠️ 稳定位置：同 index 永远同位，重绘不跳动。
-    /// ⚠️ 每个果位都必须在 `CanopyBlob`（前层，中心 (0,26)、半径 172×116、种子 7）
-    /// 轮廓**内侧**留 ≥8pt —— 挂到沿外就悬空一颗。改动轮廓或这张表之后，
-    /// 用 `ForestSceneWiringTests` 的判据 + 离屏渲染复核（`ForestEventTests` 钉住
-    /// 数量 / 边界 / 两两距离）。
+    /// ⚠️ 每个果位都要落在某个叶团轮廓的**内侧**留 ≥8pt —— 挂到沿外就悬空一颗。
+    /// 轮廓表在 `CanopyLayout`（`TreeCrownArt.swift`）：改那张表之后，用
+    /// `CanopyLayout.silhouetteBounds` 复核冠幅、再出离屏图肉眼确认；
+    /// （`ForestEventTests` 钉住数量 / 边界 / 两两距离）。
     nonisolated static let placements: [(Double, Double)] = [
         // 外档：绕下缘一圈（从左下到右中）
         (162, 54), (135, 92), (89, 121), (31, 137), (-31, 137), (-89, 121), (-135, 92), (-162, 54),
@@ -1256,6 +1148,14 @@ struct ForestGroundBand: View {
     /// （它有事件历史），这里只管挑角演 —— 判定在舞台、演在草坪，两边各管各的。
     var storyActTick: Int = 0
     var lastStoryAct: ForestStoryArc.Act? = nil
+    /// 学员在树上的攀爬位置（0…1，`LearnerProgress.climbFraction`）。
+    ///
+    /// **C：动物与学习过程联动**的落点。学习事件面已经很宽（收词 / 纠错 /
+    /// 模块完成 / 通关 / 簇拥安慰 / 举牌 / 剧情……），唯独「进度条自己往前走了」
+    /// 没有任何回应 —— 而那恰恰就是「学习过程」本身。这里只做一件事：
+    /// 涨了就派最近的一只小跳一下、喊一句，**不庆祝、不放烟花**。
+    var climbFraction: Double = 0
+
     /// 已解锁的伙伴数（⑦-C③，`ForestUnlock.companions`）：面板摆得下几只由宽度定，
     /// 林子里**现有几位**由它定，取小者（见 `ForestGroundPlan.plan(width:unlocked:)`）。
     var unlockedCompanions: Int = ForestUnlock.maxCompanions
@@ -1323,6 +1223,18 @@ struct ForestGroundBand: View {
         "我也常念错呀，再来一遍就好～",
         "错误是单词的小脚印，说明你在往前走！",
         "抱抱你，这次我们慢慢读。",
+    ]
+
+    /// 学员又往上爬了一层时的招呼（C：动物与学习过程联动）。
+    ///
+    /// ⚠️ 语气纪律：**不庆祝**（里程碑有 `ceremonyTick` / `celebrationTick` 两档，
+    /// 那两档会跳会放烟花），这里只表示「我看见你往上爬了」——一句话，一个小跳。
+    nonisolated static let ascentPhrases = [
+        "又上一层啦！",
+        "我看见你往上爬了～",
+        "这一格也站稳了，继续！",
+        "越爬越高，我抬头看你呢。",
+        "再往上，风就更好听了！",
     ]
 
     /// 簇拥安慰的话（错得多时用的，比单人安慰更用力一点）。
@@ -1681,6 +1593,13 @@ struct ForestGroundBand: View {
                 performStoryAct(act)
             }
             // 错误举牌（批次八 · H）：老师联系不上，最近的小动物举一块牌子。
+            // 学员又爬上一层（C）：最近的一只小跳一下 + 喊一句。
+            .onChange(of: climbFraction) { old, new in
+                // 只认**真的向上位移**：进度从库里读回来时也会变（0 → 当前值），
+                // 那一次不该演「又上一层」。判据抽成了纯函数，见下。
+                guard Self.isRealAscent(old: old, new: new) else { return }
+                cheerAscent()
+            }
             // 学习上又有动静了 → 解除「已经打过盹」的标记（下次安静还能再演）
             .onChange(of: lastActivityAt) { _, _ in hasDozed = false }
         }
@@ -2035,6 +1954,43 @@ struct ForestGroundBand: View {
         guard let index = present.randomElement() else { return }
         trigger(index, action: .tilt)
         requestRawBubble(index, pool: Self.comfortPhrases)
+    }
+
+    /// 这一次 `climbFraction` 的变化算不算「真的往上爬了一层」。
+    ///
+    /// 三条否定，每条都是一次真实会发生的事：
+    /// - **没动**（`new == old`）：同一帧被 SwiftUI 重算，不是学习事件；
+    /// - **往下走**：进度回退（如重置闯关）时，小动物不该跳起来叫好；
+    /// - **从 0 起步**（`old == 0`）：进度刚从库里读回来填上初始值，
+    ///   那一次变化是「加载」不是「攀爬」——不演，否则每次开屏都要演一遍。
+    ///
+    /// 剩下一个极小阈值 0.0004：把浮点噪声和「几乎没动」一起挡掉。
+    /// 抽成纯函数是为了能单测（`onChange` 闭包没法直接测）。
+    nonisolated static func isRealAscent(old: Double, new: Double) -> Bool {
+        guard old > 0 else { return false }
+        return new > old + 0.0004
+    }
+
+    /// 学员往上爬了一层：最近的一只小跳两下 + 一句招呼。
+    ///
+    /// 为什么挑「最近的一只」而不是随便一只：学员在树干上，离树干最近的那只
+    /// 就是「就在他脚下」的那只，抬头就能看见他 —— 远处那几只抬头是看不到的。
+    /// 这里没有几何可算（调用点在 `body` 之外），退一步取栈顶第一只：
+    /// 地面带的排布本来就是从树干向两侧铺开的。
+    private func cheerAscent() {
+        guard activityAllowed, !theme.isNight else { return }
+        let present = presentResidents
+        guard let index = present.first else { return }
+        trigger(index, action: .hop)
+        Task { @MainActor in
+            // 两下才像"高兴"，一下更像绊了一下
+            try? await Task.sleep(for: .seconds(0.3))
+            guard !Task.isCancelled else { return }
+            trigger(index, action: .hop)
+        }
+        if bubblesAllowed {
+            requestRawBubble(index, pool: Self.ascentPhrases)
+        }
     }
 
     // MARK: 边界状态（批次八 · H）
