@@ -188,6 +188,35 @@ final class ForestEventTests: XCTestCase {
         }
     }
 
+    /// 每个果位都必须**压在叶团上**：至少深进某个叶团椭球 4pt ——
+    /// 挂在冠外就是「悬空一颗果」，而那是果位表与冠形脱钩的唯一死法。
+    ///
+    /// 2026-10-18 树冠第 7 版（冠心上移 48pt + 两层裙摆）后旧表 16 个里
+    /// 5 个垂到冠外 5–25pt，这条判据就是重校准的验收。
+    ///
+    /// 反证：把果位表整体下移 60pt → 外档全部掉到冠底之外 → 红。
+    func testFruitPlacementsSitOnTheFoliage() {
+        let frame = CGSize(width: 380, height: 300)
+        let clusters = CanopyLayout.clusters(in: frame)
+        let (_, _, crownCenter) = CanopyLayout.crownFrame(in: frame)
+        // 果位表相对**帧心**；冠心在帧心上方（crownCenterY 0.34 → 48pt）
+        let dy = frame.height * 0.5 - crownCenter.y
+        for (index, placement) in FruitLayer.placements.enumerated() {
+            let px = placement.0
+            let py = placement.1 + dy
+            let onFoliage = clusters.contains { cluster in
+                let rx = cluster.radii.width - 4
+                let ry = cluster.radii.height - 4
+                guard rx > 0, ry > 0 else { return false }
+                let nx = (px - (cluster.center.x - crownCenter.x)) / rx
+                let ny = (py - (cluster.center.y - crownCenter.y)) / ry
+                return nx * nx + ny * ny <= 1
+            }
+            XCTAssertTrue(onFoliage,
+                          "果位 \(index) (\(placement)) 不在任何叶团上 → 悬空一颗果")
+        }
+    }
+
     // MARK: - ⑤ 小剧场节奏（批次二）
 
     /// 双人配对找的是 x 距离**最近**的邻居——隔着整条草坡对话很奇怪。

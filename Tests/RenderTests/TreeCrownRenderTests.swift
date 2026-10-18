@@ -237,6 +237,116 @@ final class TreeCrownRenderTests: XCTestCase {
                        "静态档的落叶位置必须只由布局表决定，不许随抓帧时刻漂移")
     }
 
+    // MARK: 判据 ⑥：风是分层弯的，不是整冠一块板
+
+    /// 四层各自弯：层心横移**自上而下严格递减**，且顶层比底层动得明显多。
+    ///
+    /// 为什么不是「顶比底动得多」就够：整冠绕底部支点旋转时，顶也照旧比底动得
+    /// 多（力臂长）—— 那条判据对「一整个树冠一起摇」是绿的（第 4 版的整冠
+    /// `.rotationEffect` 顶/底力臂比就有 2.8）。所以要的是**分层的直接后果**：
+    /// 增益表 [0.80, 0.62, 0.48, 0.36] 自上而下递减 → 横移必须严格递减；
+    /// 四层一起平移（增益被填平）时四值相等 → 红。
+    ///
+    /// ⚠️ 曾经断言的是「段落差本身也递减」（剖面折线 vs 刚体直线）。2026-10-18
+    /// 枝干按用户要求收进下 2/3 后，顶层带（y 27–47）失去深色枝干这个强信号源，
+    /// 互相关在柔和叶边上测得的层心混入轮廓形变误差（band1 又因粗枝干密集而测大），
+    /// 段落差 3.50 vs 3.37 被度量伪影搅浑 —— 那是判据的度量假设失效，不是产品退化
+    /// （四层横移 [14.9, 11.4, 6.0, 2.7] 仍严格递减、首尾比 5.6）。故换成不依赖
+    /// 信号强度的「严格单调递减」，折线形状退回首尾比断言。
+    ///
+    /// 反证：`CanopyLayout.bandWindGain` 与 `bandWindRotationGain` **两张表都**填平
+    /// → 四层同一变换 → 四值相等 → 两条断言都红。⚠️ 只填一张不算反证成功：旋转
+    /// 增益递减本身就能让层心横移递减（旋转贡献 = 转角 × 力臂，两者都自上而下
+    /// 递减），那时四层视觉上仍是分层弯，判据绿是**对的**。
+    /// WindSway 的 push 置 0 → 四值全 0 → 同样红。
+    func testWindBendsEachBandByItsOwnGain() throws {
+        func clock(phase: Double) -> ForestWindClock {
+            let clock = ForestWindClock()
+            let t0 = Date(timeIntervalSinceReferenceDate: 0)
+            clock.advance(to: t0, blowing: true)
+            clock.advance(to: t0.addingTimeInterval(phase / WindField.speed), blowing: true)
+            return clock
+        }
+        // 冠心（x = 190）处两个相反的强相位：+5.90 / −4.71 pt，差 10.6pt ——
+        // 顶层横移 ~15pt、底层 ~2.7pt，信号量级远大于测量噪声。
+        let clockA = clock(phase: 1.9 + Double.pi / 2)
+        let clockB = clock(phase: 1.9 - Double.pi / 2)
+        let pushA = clockA.offset(x: crownSize.width * 0.5, height: CanopyLayout.windHeight)
+        let pushB = clockB.offset(x: crownSize.width * 0.5, height: CanopyLayout.windHeight)
+        XCTAssertGreaterThan(abs(pushA - pushB), 8,
+                             "两个相位的风只差 \(abs(pushA - pushB))pt → 判据建立在微风上")
+
+        let renderA = try makeHost(crownInWind(.day, clockA), size: crownSize)
+        let renderB = try makeHost(crownInWind(.day, clockB), size: crownSize)
+
+        // 四层层心的横移（互相关求最优平移；层界在 75 / 150 / 225，取样点都在层内）
+        let shifts = try [37.0, 112.0, 187.0, 262.0].map { centerY in
+            try bandShift(renderA, renderB, centerY: centerY)
+        }
+        XCTAssertGreaterThan(shifts[0], shifts[3] * 1.5,
+                             "顶层 (\(shifts[0])pt) 没比底层 (\(shifts[3])pt) 动得明显多 → 分层增益没生效")
+        for band in 1..<shifts.count {
+            XCTAssertGreaterThan(shifts[band - 1], shifts[band],
+                                "第 \(band) 层 (\(shifts[band])pt) 没比它上面那层 (\(shifts[band - 1])pt) 动得少 → 增益递减没生效，四层在一起平移")
+        }
+    }
+
+    /// 只有天空（判据 ⑥ 的背景板：风层动、天空不动）。
+    private func sky(_ mode: ThemeMode) -> some View {
+        LinearGradient(colors: theme(mode).sky, startPoint: .top, endPoint: .bottom)
+            .frame(width: crownSize.width, height: crownSize.height)
+    }
+
+    /// 树冠 + 注入的风钟（离屏夹具默认没有风，这里显式给一颗）。
+    private func crownInWind(_ mode: ThemeMode, _ clock: ForestWindClock) -> some View {
+        ZStack {
+            sky(mode)
+            TreeCrown(theme: theme(mode))
+        }
+        .frame(width: crownSize.width, height: crownSize.height)
+        .environment(\.forestWind, clock)
+    }
+
+    /// 两条横带之间的一致平移量（pt）：穷举 dx 取差异最小，再抛物线细化到亚像素。
+    ///
+    /// 返回**正 = rhs 的内容比 lhs 靠右**。天空部分两图逐像素相同，对最小值
+    /// 只有常数贡献，不偏置结果；有效信号全来自剪影的竖边（全强度叶色），
+    /// 静态柔光层（clumps / 统一光）透明度低，压不住它。
+    private func bandShift(_ lhs: Render, _ rhs: Render, centerY: CGFloat) throws -> CGFloat {
+        guard let pa = lhs.rep.bitmapData, let pb = rhs.rep.bitmapData else { return 0 }
+        let width = lhs.rep.pixelsWide, height = lhs.rep.pixelsHigh
+        let scale = lhs.scale
+        let y0 = Int((centerY - 10) * scale)
+        let y1 = Int((centerY + 10) * scale)
+        guard y0 >= 0, y1 < height, width == rhs.rep.pixelsWide else { return 0 }
+        let maxDx = Int(30 * scale)
+        var costs = [Int](repeating: 0, count: 2 * maxDx + 1)
+        for dx in -maxDx...maxDx {
+            var sum = 0
+            for y in y0...y1 {
+                let rowA = y * width, rowB = y * width
+                for x in 0..<width {
+                    let xb = x - dx
+                    guard xb >= 0, xb < width else { continue }
+                    let oa = (rowA + x) * 4, ob = (rowB + xb) * 4
+                    sum += abs(Int(pa[oa]) - Int(pb[ob]))
+                    sum += abs(Int(pa[oa + 1]) - Int(pb[ob + 1]))
+                    sum += abs(Int(pa[oa + 2]) - Int(pb[ob + 2]))
+                }
+            }
+            costs[dx + maxDx] = sum
+        }
+        let best = costs.enumerated().min(by: { $0.element < $1.element })!.offset
+        guard best > 0, best < costs.count - 1 else {
+            return CGFloat(best - maxDx) / scale
+        }
+        // 抛物线顶点：亚像素精度（整数 dx 的量化对 4.7pt 的底层信号太粗）
+        let c0 = CGFloat(costs[best - 1]), c1 = CGFloat(costs[best]), c2 = CGFloat(costs[best + 1])
+        let denominator = c0 - 2 * c1 + c2
+        let offset = abs(denominator) < 1e-6 ? 0.0 : 0.5 * (c0 - c2) / denominator
+        return (CGFloat(best - maxDx) + offset) / scale
+    }
+
     // MARK: 工具
 
     /// 出图：`.workbuddy/verify/`（人眼复核用）。

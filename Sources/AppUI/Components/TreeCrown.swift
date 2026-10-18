@@ -4,19 +4,27 @@ import SwiftUI
 
 /// 成长之树的树冠。
 ///
-/// **只填一次剪影，层次全靠四样东西**——这是第 4 版最后收敛到的结构，
+/// **剪影只填一次，层次全靠四样东西**——这是第 4 版最后收敛到的结构，
 /// 前面几稿的失败让这条结论很硬：
 ///
-/// 1. **扇贝边**：30 个同尺度叶团的并集（`CanopyLayout.clusters`），
+/// 1. **扇贝边**：40 个同尺度叶团的并集（`CanopyLayout.clusters`），
 ///    轮廓因此有几十个 20—40pt 的起伏 —— 人眼判「这是树」就是靠这一条；
 /// 2. **一道对角渐变**：右上受光、左下背光，是**一整块**渐变，中间没有分界；
 /// 3. **枝干**（`CrownBranches`）：递归长出来的骨架，从冠内穿过，
 ///    上半幅清晰、下半幅用渐变**消隐**进叶里；
 /// 4. **碎叶**（`CrownLeafSpeckles`）：叶缘上一圈参差的小叶，把硬边磨掉。
 ///
+/// **第 5 版（2026-10-18）只加了一件事：风分层。** 用户原话：「不要一整个
+/// 树冠一起摇动，要把树冠分层，有层次的飘动」。所以 1 / 3 / 4 三层各自
+/// 包一层 `WindSway`（四层 = `CanopyLayout.bandCount`），共用同一个支点
+/// （画框底边中心 = 树冠根部）与同一个 x（画布中心 = 同一波位），
+/// 增益与转角自上而下递减 —— 合起来是一道连续的弯，不是一块板在转。
+/// 2（柔光）/ 5（统一光）两层**不随风**：光来自太阳，不来自叶子；
+/// 且它们的遮罩是整冠的，跟着抖只会把接缝处的光切出硬边。
+///
 /// ⚠️ **试过且否掉的做法**（都画得出，但都难看，别再回去）：
 /// - 每团各自填渐变 → 每团都是一个完整圆盘 = **一堆汤圆**；
-/// - 每团各自压一道下沿暗面 → 30 道同心弧 = **一片泡沫**；
+/// - 每团各自压一道下沿暗面 → 40 道同心弧 = **一片泡沫**；
 /// - 「前层叶」整块另填一色（无论更亮还是更暗）→ 一条巨大的扇贝分界线
 ///   = **另一棵树贴在前面**。分层填充这件事本身就会留下边界，
 ///   所以现在把「冠底更暗」交给那一整块渐变，不再另起一层。
@@ -34,32 +42,74 @@ struct TreeCrown: View {
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
-            let clusters = CanopyLayout.clusters(in: size)
+            let bands = CanopyLayout.bands(in: size)
+            let allClusters = CanopyLayout.clusters(in: size)
+            let gradient = bodyGradient(isNight: theme.isNight)
 
             ZStack(alignment: .topLeading) {
-                // ① 剪影：整块填一次（对角渐变 = 唯一的一道明暗过渡）
-                CrownUnionShape(clusters: clusters)
-                    .fill(bodyGradient(isNight: theme.isNight))
-
-                // ② 受光的那几块：大而柔的亮面，遮在剪影里
-                CrownClumps(theme: theme, clusters: clusters, size: size)
-
-                // ③ 枝干：上半幅清晰，下半幅消隐进叶里
-                if drawsBranches {
-                    CrownBranches(
-                        theme: theme,
-                        limbs: CanopyLayout.limbs(in: size),
-                        clip: clusters
-                    )
+                // ① 各层剪影：四层各自弯（渐变取**全冠**方向 —— 每层只填自己
+                // 那一块，若各自按自己的包围盒映射渐变，接缝处会一道亮一道暗，
+                // 整块冠读成四层饼）。所以这里是「满画框的渐变矩形 + 本层遮罩」。
+                ForEach(0..<CanopyLayout.bandCount, id: \.self) { band in
+                    swaying(band: band, size: size) {
+                        Rectangle()
+                            .fill(gradient)
+                            .frame(width: size.width, height: size.height)
+                            .mask(CrownUnionShape(clusters: bands.clusters[band]).fill(.black))
+                    }
                 }
 
-                // ④ 碎叶
-                CrownLeafSpeckles(theme: theme, marks: CanopyLayout.leafMarks(in: size))
+                // ② 受光的那几块：大而柔的亮面，遮在剪影里（静态：光是太阳的）
+                CrownClumps(theme: theme, clusters: allClusters, size: size)
 
-                // ⑤ 统一光
-                CrownUnifyingLight(theme: theme, clusters: clusters, size: size)
+                // ③ 各层枝干：上半幅清晰，下半幅消隐进叶里。
+                // 裁边仍传**全冠**：枝是刚性的，整根归一层（按中点归层），
+                // 若只按本层叶团裁，跨层那半根会被齐刷刷切掉。
+                if drawsBranches {
+                    ForEach(0..<CanopyLayout.bandCount, id: \.self) { band in
+                        swaying(band: band, size: size) {
+                            CrownBranches(
+                                theme: theme,
+                                limbs: bands.limbs[band],
+                                clip: allClusters
+                            )
+                            .frame(width: size.width, height: size.height)
+                        }
+                    }
+                }
+
+                // ④ 各层碎叶
+                ForEach(0..<CanopyLayout.bandCount, id: \.self) { band in
+                    swaying(band: band, size: size) {
+                        CrownLeafSpeckles(theme: theme, marks: bands.marks[band])
+                            .frame(width: size.width, height: size.height)
+                    }
+                }
+
+                // ⑤ 统一光（静态：同②，且它罩着接缝，跟着抖会切出硬边）
+                CrownUnifyingLight(theme: theme, clusters: allClusters, size: size)
             }
         }
+    }
+
+    /// 把某一层的枝叶包进风里。
+    ///
+    /// 三层切片都带**满画框的 frame**：`WindSway` 的旋转支点是内容的
+    /// `.bottom`，不同切片若各按自己的包围盒算，支点会错开、层内三片
+    /// 互相拧。给满帧之后四层共用一个支点（画框底边中心 = 树冠根部），
+    /// 转角递减才拼成一道连续的弯。
+    private func swaying<Content: View>(
+        band: Int, size: CGSize, @ViewBuilder content: () -> Content
+    ) -> some View {
+        WindSway(
+            // 画布中心：`TreeCanvas` 给树冠的 offset 只有 y，所以画框中心
+            // 就是画布横向中心 —— 与站在同一 x 的青草看到同一阵风。
+            x: size.width * 0.5,
+            height: CanopyLayout.windHeight,
+            gain: CanopyLayout.bandWindGain(band),
+            rotationGain: CanopyLayout.bandWindRotationGain(band),
+            content: content
+        )
     }
 
     /// 剪影底色：右上（太阳那侧）亮、左下（背光那侧）深。
@@ -171,10 +221,17 @@ private struct CrownBranches: View {
         .mask(CrownUnionShape(clusters: clip).fill(.black))
         // 再往冠底**消隐**：越往下枝干越淡，最后化进叶里。
         // 硬裁一刀会在冠底留下一排齐刷刷的断口，加这一层就自然了。
+        //
+        // ⚠️ 位置是**画框相对**的（本视图由 `TreeCrown` 给了满画框的 frame）。
+        // 第四轮（2026-10-18「上下延展两倍」）：枝根 origin 从 0.40 半高
+        // 降到 0.75（y≈214），渐隐带跟着从 0.34/0.61 挪到 0.55/0.88 ——
+        // 不挪的话 origin 落在旧遮罩的完全透明区，下半截枝干整段消失，
+        // 「两倍延展」只剩上面一半。0.88（y≈264）仍高于冠底剪影（~289），
+        // 消隐末端不会露出画框外的断口。
         .mask(LinearGradient(
             stops: [
                 .init(color: .black, location: 0.0),
-                .init(color: .black, location: 0.46),
+                .init(color: .black, location: 0.55),
                 .init(color: .clear, location: 0.88),
             ],
             startPoint: .top,

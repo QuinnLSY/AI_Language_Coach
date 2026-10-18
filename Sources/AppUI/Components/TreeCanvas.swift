@@ -650,31 +650,47 @@ private struct Canopy: View {
     /// 通关仪式脉冲：变化时抖三抖（独立于常驻摇摆的第二层旋转）。
     var shakeTick: Int = 0
 
-    @State private var sway = false
     @State private var shakeAngle: Double = 0
     @Environment(\.appMotion) private var motion
 
     var body: some View {
-        ZStack {
-            // 树冠本体：三层叶团 + 枝干骨架 + 统一光。
-            //
-            // ⚠️ 这里曾经是「四颗团块并成一道路径、只填一次色」（`CanopyMass`）——
-            // 那套修法消灭了交界弧线（「一块一块」），代价是把**层次**一起消灭了：
-            // 整幅树冠只剩一层渐变，于是用户看到的就是「一团绿」。
-            // 现在的结构与配色全在 `TreeCrownArt.swift`，本结构只负责摇摆与仪式抖动。
-            TreeCrown(theme: theme)
+        // 画框宽度：果实环的风 x 要取画布中心（与树冠各层同一个波位）。
+        GeometryReader { proxy in
+            let size = proxy.size
+            ZStack {
+                // 树冠本体：四层枝叶 + 枝干骨架 + 统一光。
+                //
+                // ⚠️ 这里曾经是「四颗团块并成一道路径、只填一次色」（`CanopyMass`）——
+                // 那套修法消灭了交界弧线（「一块一块」），代价是把**层次**一起消灭了：
+                // 整幅树冠只剩一层渐变，于是用户看到的就是「一团绿」。
+                // 现在的结构与配色全在 `TreeCrownArt.swift`，本结构只负责仪式抖动。
+                //
+                // ⚠️ 常驻摇摆**不在这里**：第 5 版起风按层吹（`TreeCrown` 里四层
+                // 各自的 `WindSway`，用户 2026-10-18：「不要一整个树冠一起摇动」）。
+                // 从前那颗整冠 `.rotationEffect` + `loopAnimation` 已删 —— 留着
+                // 就是「分层上面再叠一个整冠旋转」，两层运动互相打架。
+                TreeCrown(theme: theme)
 
-            FruitLayer(theme: theme, count: fruitCount)
-        }
-        .scaleEffect(0.97 + density * 0.06, anchor: .bottom)
-        .rotationEffect(.degrees(sway ? 1.6 : -1.6), anchor: .bottom)
-        .loopAnimation(.easeInOut(duration: 5.5).repeatForever(autoreverses: true), value: sway)
-        .onAppear { sway = true }
-        // 仪式抖动：常驻摇摆之外的第二层旋转，放完归零（两套 modifier 叠加互不打架）
-        .rotationEffect(.degrees(shakeAngle), anchor: .bottom)
-        .onChange(of: shakeTick) { _, tick in
-            guard tick > 0, !motion.reduceMotion else { return }
-            runCeremonyShake()
+                // 果实：挂着的一整圈，比单层叶重、比整冠轻 —— 增益取四层
+                // 中间一档，跟着轻轻欠身，不脱离它挂在下面的那层叶。
+                WindSway(
+                    x: size.width * 0.5,
+                    height: CanopyLayout.windHeight,
+                    gain: 0.5,
+                    rotationGain: 0.18
+                ) {
+                    FruitLayer(theme: theme, count: fruitCount)
+                }
+            }
+            .scaleEffect(0.97 + density * 0.06, anchor: .bottom)
+            // 仪式抖动：通关时抖三抖（幅度远大于常驻摇摆，一眼区分）。
+            // 两套 modifier 叠加互不打架：仪式是整冠的一次性旋转，常驻摇摆在
+            // 各层内部，早已各自的 transform 里算完。
+            .rotationEffect(.degrees(shakeAngle), anchor: .bottom)
+            .onChange(of: shakeTick) { _, tick in
+                guard tick > 0, !motion.reduceMotion else { return }
+                runCeremonyShake()
+            }
         }
     }
 
@@ -698,17 +714,22 @@ struct FruitLayer: View {
     let theme: ForestTheme
     let count: Int
 
-    /// 果位表（树冠局部坐标，相对画框中心：挂在**中层 + 前层**叶团的下缘；加果时按序取用）。
+    /// 果位表（相对画框中心；挂在**中层 + 前层**叶团的下缘；加果时按序取用）。
     /// ⚠️ 稳定位置：同 index 永远同位，重绘不跳动。
     /// ⚠️ 每个果位都要落在某个叶团轮廓的**内侧**留 ≥8pt —— 挂到沿外就悬空一颗。
     /// 轮廓表在 `CanopyLayout`（`TreeCrownArt.swift`）：改那张表之后，用
     /// `CanopyLayout.silhouetteBounds` 复核冠幅、再出离屏图肉眼确认；
     /// （`ForestEventTests` 钉住数量 / 边界 / 两两距离）。
+    ///
+    /// 2026-10-18 随树冠第 7 版重校准：冠心从帧心（150）上移到 102（+裙摆两圈），
+    /// 旧表 16 个位置有 5 个垂到冠外 5–25pt。新表按「冠幅 0.94（外档）/ 0.72
+    /// （内档）」沿各方向重算 —— 注意偏移是相对**帧心**不是冠心，两者相差 48pt，
+    /// 换算差一个符号（新冠心上移 → 同一顶果位的帧系 y 要 **减** 48）。
     nonisolated static let placements: [(Double, Double)] = [
-        // 外档：绕下缘一圈（从左下到右中）
-        (162, 54), (135, 92), (89, 121), (31, 137), (-31, 137), (-89, 121), (-135, 92), (-162, 54),
+        // 外档：绕下缘一圈（从右肩起，顺时针扫到左肩）
+        (155, 9), (132, 63), (87, 102), (30, 121), (-30, 121), (-87, 102), (-132, 63), (-155, 9),
         // 内档：错半步收进来一档（果实有前有后，不成一个正圆）
-        (109, 61), (82, 85), (44, 101), (0, 107), (-44, 101), (-82, 85), (-109, 61), (-120, 31),
+        (112, 17), (85, 54), (45, 76), (0, 84), (-45, 76), (-85, 54), (-112, 17), (-120, -27),
     ]
 
     var body: some View {
