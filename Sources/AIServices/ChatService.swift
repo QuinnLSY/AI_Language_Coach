@@ -473,6 +473,28 @@ public final class ChatService {
             .map(\.content)
     }
 
+    /// 本局教学重点的**实时**达成情况（#598：学员每说一句就变）。
+    ///
+    /// 与结算判定走**同一条纯函数链**（`CurriculumScorer.coverage` → `.focus`）——
+    /// 「练习中看到的覆盖」与「结算时算的覆盖」不允许是两把尺子，否则学员会看到
+    /// 「练习里绿了一大片，结算却说没达标」这种自相矛盾的场面。
+    ///
+    /// ⚠️ 进入时的 `briefing.focusItems` 是 `turnsUsed: 0` 算出来的**占位**
+    /// （注释写着「只作提示」），拿来当实时显示就是挂羊头：练习页的常驻进度
+    /// 必须读这里，不是读那份快照。
+    ///
+    /// 空情景（没有目标句也没有目标词）返回 `.empty`，界面据此不渲染进度元素 ——
+    /// 极简素材不配拥有一个空进度条。
+    public var liveFocus: TeachingFocus {
+        guard let scenario = scenarioProgress?.scenario else { return .empty }
+        return CurriculumScorer.focus(
+            scenario: scenario,
+            coverage: CurriculumScorer.coverage(
+                scenario: scenario, utterances: scenarioLearnerUtterances
+            )
+        )
+    }
+
     /// 把情景进度同步给对话引擎（决策要知道「还剩几轮 / 目标词是什么」）。
     private func syncEngineScenario() {
         engine.syncScenario(

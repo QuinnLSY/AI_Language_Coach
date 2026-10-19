@@ -772,6 +772,12 @@ public struct ChatView: View {
 
     private func scenarioStrip(_ progress: ScenarioProgress) -> some View {
         let scenario = progress.scenario
+        // #598 常驻进度的两个实时真源：主线进度是 `briefing.quest`（每轮发言重算，
+        // 与落库、Prompt 注入同一份），教学重点是 `chat.liveFocus`（与结算同一条
+        // 纯函数链）。⚠️ 不读 `briefing.focusItems` —— 那是进入时 turnsUsed:0
+        // 算的占位，练习中永远是「全未达成」。
+        let quest = briefing?.quest
+        let focus = chat.liveFocus
         return HStack(alignment: .top, spacing: 10) {
             Image(systemName: "target")
                 .appFont(11)
@@ -792,15 +798,15 @@ public struct ChatView: View {
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                // 「这关还差什么」扫一眼就有（#598）。两者皆空时不渲染：
+                // 极简素材（无主线也无重点）不配拥有一个空进度条。
+                if (quest?.total ?? 0) > 0 || !focus.isEmpty {
+                    liveProgressRow(quest: quest, focus: focus)
+                }
                 if !scenario.targetVocabulary.isEmpty {
                     HStack(spacing: 5) {
                         ForEach(scenario.targetVocabulary.prefix(6), id: \.self) { word in
-                            Text(word)
-                                .appFont(9, design: .rounded)
-                                .foregroundStyle(theme.secondaryText)
-                                .padding(.horizontal, 6)
-                                .appPadding(.vertical, 2)
-                                .background(Capsule().fill(theme.surfaceAlt))
+                            targetWordChip(word, focus: focus)
                         }
                     }
                 }
@@ -811,6 +817,69 @@ public struct ChatView: View {
         .appPadding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.selection.opacity(0.35))
+    }
+
+    /// #598 常驻进度行：主线几步 / 教学重点覆盖 / 还差哪一步。
+    ///
+    /// 形态取「一行扫完」：左边汇总 pill（未达标 = 冷色，达标 = 主题色），
+    /// 右边是当前节点。轮次不在这里重复 —— 右上胶囊已经有「第 3/12 轮」。
+    private func liveProgressRow(quest: QuestProgress?, focus: TeachingFocus) -> some View {
+        HStack(spacing: 6) {
+            if let quest, quest.total > 0 {
+                progressPill("主线 \(quest.doneCount)/\(quest.total)", done: quest.isComplete)
+                if quest.isComplete {
+                    Text("主线已全部完成")
+                        .appFont(10, design: .rounded)
+                        .foregroundStyle(theme.secondaryText)
+                        .lineLimit(1)
+                } else if let current = quest.currentStep {
+                    // 当前节点可能很长（锚点就是目标句本身）：截断而不是换行，
+                    // 这一行的高度是常驻成本，多一行全聊天区都得让位。
+                    Text("还差：\(current.text)")
+                        .appFont(10, design: .rounded)
+                        .foregroundStyle(theme.primaryText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            if !focus.isEmpty {
+                if focus.requiredSentences > 0 {
+                    progressPill(
+                        "目标句 \(focus.matchedSentences)/\(focus.requiredSentences)",
+                        done: focus.matchedSentences >= focus.requiredSentences
+                    )
+                }
+                if focus.requiredWords > 0 {
+                    progressPill(
+                        "目标词 \(focus.matchedWords)/\(focus.requiredWords)",
+                        done: focus.matchedWords >= focus.requiredWords
+                    )
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// 进度行里的小胶囊（未达标 = 冷色，达标 = 主题色）。
+    private func progressPill(_ text: String, done: Bool) -> some View {
+        Text(text)
+            .appFont(9, weight: .semibold, design: .rounded)
+            .foregroundStyle(done ? theme.accent : theme.accentCool)
+            .padding(.horizontal, 6)
+            .appPadding(.vertical, 2)
+            .background(Capsule().fill(theme.hover))
+    }
+
+    /// 目标词 chip：#598 起按「说到没说到」着色 —— 命中 = 主题色，没命中 = 原样灰。
+    /// 这是「这关还差什么」最直观的那一半：一眼扫出哪个词还没出口。
+    private func targetWordChip(_ word: String, focus: TeachingFocus) -> some View {
+        let hit = focus.wordItems.contains { $0.text == word && $0.isHit }
+        return Text(word)
+            .appFont(9, design: .rounded)
+            .foregroundStyle(hit ? theme.accent : theme.secondaryText)
+            .padding(.horizontal, 6)
+            .appPadding(.vertical, 2)
+            .background(Capsule().fill(hit ? theme.hover : theme.surfaceAlt))
     }
 
     /// 右上角胶囊：模型名 · 推理强度（如「qwen3:8b · 高」）。
