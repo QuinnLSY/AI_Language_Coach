@@ -37,9 +37,14 @@ public enum RemoteCallPolicy {
         /// 与对话生成是不同计费项，混在一起用户对不上账；且操作 ↔ 能力必须一一对应
         /// （嵌入只能由「记忆索引」能力发起，结构上杜绝串线）。
         case embeddings
+        /// 天气预报（#604）：IP 定位 + Open-Meteo，两个免密钥公共服务。
+        ///
+        /// 单独列一档而不是并进 `models`：它**不是模型调用**（没有 Provider /
+        /// 模型、不计费），留痕里要能一眼看出「这次外发是天气，不是某个云端能力」。
+        case weather
 
         /// 该操作会不会产生费用（决定是否受频率与总量护栏约束）。
-        public var isBillable: Bool { self != .models }
+        public var isBillable: Bool { self != .models && self != .weather }
 
         public var displayName: String {
             switch self {
@@ -49,6 +54,7 @@ public enum RemoteCallPolicy {
             case .transcriptions: "语音识别"
             case .pronunciation: "发音评测"
             case .embeddings: "记忆索引嵌入"
+            case .weather: "天气预报"
             }
         }
 
@@ -63,25 +69,84 @@ public enum RemoteCallPolicy {
             case .transcriptions: "/v1/audio/transcriptions"
             case .pronunciation: "/speech/pronunciation"
             case .embeddings: "/v1/embeddings"
+            case .weather: "/v1/forecast"
             }
         }
     }
 
+    // MARK: - 调用对象
+
+    /// 这次对外请求打给了谁。
+    ///
+    /// 为什么要有这层抽象（#604 天气预报）：**并不是所有对外请求都是模型调用**。
+    /// 天气预报要连两个免密钥的公共服务（IP 定位 + Open-Meteo）——没有供应商、
+    /// 没有模型、也不花钱。硬把它们捏成 `kind = .llm, providerID = "", model = ""`
+    /// 只会在留痕与披露里多一份假态：一条既没有供应商也没有模型的「语言模型调用」，
+    /// 还会让「每个能力都要有 Provider」这类不变量为它处处破例。
+    ///
+    /// 于是「云端能力」与「公共服务」平级，护栏 / 留痕 / 披露看的是同一个值。
+    public enum Subject: Sendable, Equatable {
+
+        /// 云端**能力**：某家供应商的某个模型（会产生 token / 时长计费）。
+        case provider(AIProviderKind, providerID: String, model: String)
+
+        /// **公共服务**：免密钥第三方 API，按次请求、不计费。
+        case service(PublicService)
+
+        public var kind: AIProviderKind? {
+            if case .provider(let kind, _, _) = self { return kind }
+            return nil
+        }
+
+        public var providerID: String? {
+            if case .provider(_, let providerID, _) = self { return providerID }
+            return nil
+        }
+
+        public var model: String? {
+            if case .provider(_, _, let model) = self { return model }
+            return nil
+        }
+
+        public var service: PublicService? {
+            if case .service(let service) = self { return service }
+            return nil
+        }
+
+        /// 展示用的对象名（公共服务用服务名，云端能力用能力名）。
+        public var displayName: String { service?.displayName ?? kind?.displayName ?? "未知能力" }
+    }
+
     /// 发请求前的描述（不含任何用户文本、提示词内容）。
     public struct Intent: Sendable, Equatable {
-        public var kind: AIProviderKind
-        public var providerID: String
-        public var model: String
+
+        /// 这次调用打给谁（云端能力 / 公共服务）。
+        public var subject: Subject
         /// 端点主机名（审计展示用；不含路径与密钥）。
         public var host: String
         public var operation: Operation
         /// 实际请求路径（如 `/v1/audio/speech`）。
         public var endpoint: String
-        /// 这次调用**会不会花钱**。免密钥的公共服务（自建 Edge TTS 代理等）
+        /// 这次调用**会不会花钱**。免密钥的公共服务（自建 Edge TTS 代理、天气预报等）
         /// 在配置里声明 `billable = false` 后，调用照常放行、留痕，但**不计入计费统计**——
         /// 用户对账卡片上的「计费 N 次」就始终是真正花过钱的次数。
         public var billable: Bool
 
+        public init(
+            subject: Subject,
+            host: String,
+            operation: Operation,
+            endpoint: String = "",
+            billable: Bool = true
+        ) {
+            self.subject = subject
+            self.host = host
+            self.operation = operation
+            self.endpoint = endpoint.isEmpty ? operation.endpointPath : endpoint
+            self.billable = billable
+        }
+
+        /// 云端能力调用（六个模型能力走的都是这条）。
         public init(
             kind: AIProviderKind,
             providerID: String,
@@ -91,14 +156,30 @@ public enum RemoteCallPolicy {
             endpoint: String = "",
             billable: Bool = true
         ) {
-            self.kind = kind
-            self.providerID = providerID
-            self.model = model
-            self.host = host
-            self.operation = operation
-            self.endpoint = endpoint.isEmpty ? operation.endpointPath : endpoint
-            self.billable = billable
+            self.init(
+                subject: .provider(kind, providerID: providerID, model: model),
+                host: host, operation: operation, endpoint: endpoint, billable: billable
+            )
         }
+
+        /// 公共服务调用（#604 天气）。
+        ///
+        /// 主机与路径由服务自己给出（**只在这一个地方写**，别在调用点再抄一遍字面量），
+        /// 且恒定 `billable = false` —— 公共服务不产生模型账单。
+        public init(service: PublicService, operation: Operation) {
+            self.init(
+                subject: .service(service),
+                host: service.host,
+                operation: operation,
+                endpoint: service.endpointPath,
+                billable: false
+            )
+        }
+
+        public var kind: AIProviderKind? { subject.kind }
+        public var providerID: String? { subject.providerID }
+        public var model: String? { subject.model }
+        public var service: PublicService? { subject.service }
     }
 
     // MARK: - 唯一允许调用的模型
@@ -188,6 +269,10 @@ public enum RemoteCallPolicy {
         case .pronunciation: kind == .pronunciation
         case .embeddings: kind == .embedding
         case .models: true
+        // 天气**不由任何模型能力发起**（它走 `Intent(service:...)` 的公共服务分支，
+        // 不经过这里）。恒 false 是为了让「万一有人拿某个能力去发天气请求」在编译后
+        // 立刻失败，而不是悄悄记一笔看不懂的账。
+        case .weather: false
         }
     }
 
@@ -230,7 +315,10 @@ public enum RemoteCallPolicy {
             // 记忆索引嵌入：每次对话按需取回相关历史，频率远低于对话；
             // 给 200 与模型列表探测同档，只防失控循环，不误伤正常使用。
             Operation.embeddings: 200,
-            Operation.models: 200
+            Operation.models: 200,
+            // 天气：一次刷新 = 两次请求（IP 定位 + 预报），跨天才重取一次。
+            // 给 10 是从容的三倍冗余，同时保证失控循环（每秒刷）立刻被掐断。
+            Operation.weather: 10
         ]
 
         public init(
@@ -267,7 +355,7 @@ public enum RemoteCallPolicy {
         // 「必须选定模型」只约束**计费**调用：模型列表探测本来就没有模型参数，
         // 若也要求它带模型，健康检查会平白无故失败。
         if intent.operation.isBillable {
-            let model = intent.model.trimmingCharacters(in: .whitespacesAndNewlines)
+            let model = (intent.model ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !model.isEmpty else {
                 return .denied(reason: "未选择模型，已阻止这次云端调用（应用不会自动改用候选列表里的其它模型）。请到设置里选定模型后重试。")
             }
@@ -345,9 +433,8 @@ public struct RemoteCallRecord: Sendable, Equatable, Identifiable {
 
     public let id: UUID
     public let at: Date
-    public let kind: AIProviderKind
-    public let providerID: String
-    public let model: String
+    /// 这次调用打给了谁（云端能力 / 公共服务）。
+    public let subject: RemoteCallPolicy.Subject
     public let host: String
     /// 实际请求路径（如 `/v1/audio/speech`）——用户可据此与服务商账单的计费项对齐。
     public let endpoint: String
@@ -355,9 +442,32 @@ public struct RemoteCallRecord: Sendable, Equatable, Identifiable {
     public let outcome: Outcome
     /// 极简补充说明（HTTP 状态码等），不含响应正文。
     public let detail: String?
-    /// 免费调用（Provider 配置 `billable = false`）：照常留痕，不计入计费统计。
+    /// 免费调用（Provider 配置 `billable = false`、或公共服务）：照常留痕，不计入计费统计。
     public let isFreeCall: Bool
 
+    public init(
+        id: UUID = UUID(),
+        at: Date,
+        subject: RemoteCallPolicy.Subject,
+        host: String,
+        endpoint: String = "",
+        operation: RemoteCallPolicy.Operation,
+        outcome: Outcome,
+        detail: String? = nil,
+        isFreeCall: Bool = false
+    ) {
+        self.id = id
+        self.at = at
+        self.subject = subject
+        self.host = host
+        self.endpoint = endpoint.isEmpty ? operation.endpointPath : endpoint
+        self.operation = operation
+        self.outcome = outcome
+        self.detail = detail
+        self.isFreeCall = isFreeCall
+    }
+
+    /// 云端能力调用的便捷构造（保留既有调用点形态）。
     public init(
         id: UUID = UUID(),
         at: Date,
@@ -371,17 +481,27 @@ public struct RemoteCallRecord: Sendable, Equatable, Identifiable {
         detail: String? = nil,
         isFreeCall: Bool = false
     ) {
-        self.id = id
-        self.at = at
-        self.kind = kind
-        self.providerID = providerID
-        self.model = model
-        self.host = host
-        self.endpoint = endpoint.isEmpty ? operation.endpointPath : endpoint
-        self.operation = operation
-        self.outcome = outcome
-        self.detail = detail
-        self.isFreeCall = isFreeCall
+        self.init(
+            id: id, at: at,
+            subject: .provider(kind, providerID: providerID, model: model),
+            host: host, endpoint: endpoint, operation: operation,
+            outcome: outcome, detail: detail, isFreeCall: isFreeCall
+        )
+    }
+
+    public var kind: AIProviderKind? { subject.kind }
+    public var providerID: String? { subject.providerID }
+    public var model: String? { subject.model }
+    public var service: PublicService? { subject.service }
+
+    /// 列表里「打给谁」那一列：公共服务显示服务名，云端能力显示模型名。
+    ///
+    /// 不用 `model` 是因为公共服务没有模型 —— 显示一串「—」等于让用户猜
+    /// 这条到底是什么请求。
+    public var targetName: String {
+        if let service = subject.service { return service.displayName }
+        let model = subject.model ?? ""
+        return model.isEmpty ? "—" : model
     }
 
     /// 是否是一次真正花过钱的请求。被拦截的记录没发出去，免费调用没花钱——都不算。
@@ -394,6 +514,11 @@ public struct RemoteCallSummary: Sendable, Equatable {
     public var billableTotal: Int
     /// 只读探测（模型列表）次数，不计费。
     public var discoveryTotal: Int
+    /// **公共服务**（#604 天气预报：IP 定位 + Open-Meteo）次数，免密钥、不计费。
+    ///
+    /// 单独计数而不是并进 `discoveryTotal`：「探测」说的是模型列表这类**云端能力**的
+    /// 只读请求，天气跟它不是一个东西 —— 混在一起会让这张对账卡片自己说不清。
+    public var publicServiceTotal: Int
     /// 被护栏拦截的次数（>0 说明有异常调用被打断）。
     public var blockedTotal: Int
     /// 本次运行涉及过的**不同计费模型**（正常永远只有用户选定的那些）。
@@ -406,6 +531,7 @@ public struct RemoteCallSummary: Sendable, Equatable {
     public init(
         billableTotal: Int = 0,
         discoveryTotal: Int = 0,
+        publicServiceTotal: Int = 0,
         blockedTotal: Int = 0,
         models: [String] = [],
         countsByOperation: [String: Int] = [:],
@@ -413,6 +539,7 @@ public struct RemoteCallSummary: Sendable, Equatable {
     ) {
         self.billableTotal = billableTotal
         self.discoveryTotal = discoveryTotal
+        self.publicServiceTotal = publicServiceTotal
         self.blockedTotal = blockedTotal
         self.models = models
         self.countsByOperation = countsByOperation
@@ -421,7 +548,11 @@ public struct RemoteCallSummary: Sendable, Equatable {
 
     /// 一句话结论（设置页直接展示）。
     public var headline: String {
-        "本次运行对外请求：计费 \(billableTotal) 次 · 探测 \(discoveryTotal) 次 · 拦截 \(blockedTotal) 次 · 涉及模型 \(models.count) 个"
+        let base = "本次运行对外请求：计费 \(billableTotal) 次 · 探测 \(discoveryTotal) 次 · 拦截 \(blockedTotal) 次 · 涉及模型 \(models.count) 个"
+        // 公共服务单独缀在后面：没用过就不出现（一张大多数时候用不到天气却天天念叨它的卡片，
+        // 只会让人看不清前四个数）。一旦用过就必须说出来 —— 那是真的出过网的请求。
+        guard publicServiceTotal > 0 else { return base }
+        return base + " · 公共服务 \(publicServiceTotal) 次"
     }
 
     public func count(for operation: RemoteCallPolicy.Operation) -> Int {

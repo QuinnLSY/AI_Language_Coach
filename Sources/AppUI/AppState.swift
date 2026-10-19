@@ -1482,13 +1482,55 @@ public final class AppState {
     /// 森林天气是否随真实日期（#418-A，默认关）。
     public var forestFollowsWeather: Bool { product.forestFollowsWeather }
 
+    /// 森林氛围是否跟随学习节奏（#600，默认关）。与其它三个跟随开关同构：
+    /// 开着 = 由学业数据派生（`forestMomentum`）；关着 = 森林不读学习数据。
+    public var forestFollowsMomentum: Bool { product.forestFollowsMomentum }
+
+    /// 当前学习节奏（#600；nil = 不跟随，森林读都不读学业数据）。
+    ///
+    /// 与三个跟随开关的派生语义一致：开关关着一律 nil（老样子逐字不变），
+    /// 开着才按 `ProgressSnapshot` 派生 —— 数据源只有这一个（`TodayPanel.streakBadge`
+    /// 与侧栏火苗徽章同源的那份快照），不自己再统计一遍。
+    public var forestMomentum: ForestMomentum? {
+        guard product.forestFollowsMomentum else { return nil }
+        return ForestAtmosphere.momentum(
+            streakDays: progressSnapshot.streakDays,
+            goalReached: progressSnapshot.goalReached,
+            hasPracticeToday: progressSnapshot.today.hasPractice
+        )
+    }
+
+    /// 森林季节的**手动**选择（nil = 没选过）。认不出的取值按「没选过」算 ——
+    /// 这是偏好不是真源，读不出就退回自动侧的行为，不会写回、也不会崩。
+    public var forestSeasonOverride: ForestSeason? {
+        guard let raw = product.forestSeasonOverride else { return nil }
+        return ForestSeason(rawValue: raw)
+    }
+
+    /// 森林天气的**手动**选择（nil = 没选过）。语义同 `forestSeasonOverride`。
+    public var forestWeatherOverride: ForestWeather? {
+        guard let raw = product.forestWeatherOverride else { return nil }
+        return ForestWeather(rawValue: raw)
+    }
+
+    /// 今日**真实天气预报**的结论（#604）。nil = 这一轮没取到（断网 / 服务没回应）。
+    ///
+    /// ⚠️ 这是**缓存**不是配置：跨启动不恢复，启动时一次、跨天又一次（见
+    /// `startDayRolloverWatch`）。绝不写回磁盘 —— 一份昨天拿到的天气存到今天，
+    /// 界面上就是「明明没下雨，林子却在淋雨」。
+    public internal(set) var weatherForecast: ForestWeather?
+
     public var theme: ForestTheme {
         ForestThemeResolver.resolve(mode: themeMode, systemIsDark: systemIsDark,
                                     hour: Int(clockHour.rounded(.down)), month: clockMonth,
                                     followsClock: product.forestFollowsClock,
                                     followsSeason: product.forestFollowsSeason,
                                     followsWeather: product.forestFollowsWeather,
-                                    dayOfYear: clockDayOfYear)
+                                    dayOfYear: clockDayOfYear,
+                                    seasonOverride: forestSeasonOverride,
+                                    weatherOverride: forestWeatherOverride,
+                                    weatherForecast: weatherForecast,
+                                    momentum: forestMomentum)
     }
 
     // 供设置页读取的产品字段
@@ -1629,6 +1671,9 @@ public final class AppState {
         await refreshPersistenceHealth()
         // 自动备份（#415）：开了才查一次，且只在「距上次备份超过间隔」时补一份。
         // 后台跑 —— 备份要读整个学习库，绝不能挡在开屏路径上。
+        // 今日天气预报（#604 真天气）：只给森林换一层雨/雪，绝不挡首屏 ——
+        // 用户在万分之一的等待里什么也得不到。失败就退回本地日期模拟，界面自有天气。
+        Task { [weak self] in await self?.refreshTodayWeather() }
         Task { [weak self] in await self?.ensureAutoBackupIfNeeded() }
 
         isBooting = true
@@ -1747,6 +1792,8 @@ public final class AppState {
                 await self.refreshTodayPanel(force: true)
                 self.refreshTodayTokens()
                 await self.refreshQuestRecords()
+                // 新的一天的天气（#604）：昨天的预报今天就是错的，换天必须重取。
+                await self.refreshTodayWeather()
                 // 换天时顺带料理两件「按天算」的事（2026-10-01 补）：
                 // ① 自动备份：macOS 应用常年不退出，「每 N 天补一份」不能只在
                 //    启动那一刻兑现一次（设置页那句文案就是假的）；
@@ -2104,10 +2151,84 @@ public final class AppState {
         await persistProduct()
     }
 
-    /// 切换「跟随天气」（#418-A：晴 / 多云 / 雨，只改插画层）。
+    /// 切换「跟随天气」（#418-A：晴 / 下雨 / 下雪，只改插画层）。
+    ///
+    /// ⚠️ 打开时会**立刻去取一次真实预报**（#604）：用户按下这个开关就是
+    /// 「看真实天气」的意思，等到下一次启动才生效等于开关没反应。取不到也没关系——
+    /// 森林自动退回本地日期模拟，开关照样生效。
     public func setForestFollowsWeather(_ on: Bool) async {
         product.forestFollowsWeather = on
         await persistProduct()
+        await refreshTodayWeather()
+    }
+
+    /// 切换「跟随学习节奏」（#600：连胜一周且今日达标 → 林子进丰季，只改插画层）。
+    ///
+    /// ⚠️ 与「跟随天气」不同，这个开关**不触发任何网络请求** —— 节奏全部由本机
+    /// 学习记录派生，打开后下一帧的 `theme` 计算就带上了 `momentum`。
+    public func setForestFollowsMomentum(_ on: Bool) async {
+        product.forestFollowsMomentum = on
+        await persistProduct()
+    }
+
+    /// 手动选一季（跟随季节关着时生效；开着时这个值只是存着，不参与判据）。
+    /// 传 nil = 清除手动选择，回到「不跟随也不手动」的老样子。
+    public func setForestSeasonOverride(_ season: ForestSeason?) async {
+        product.forestSeasonOverride = season?.rawValue
+        await persistProduct()
+    }
+
+    /// 手动选一种降水天气（下雨 / 下雪；跟随天气关着时生效）。传 nil = 清除手动选择。
+    ///
+    /// ⚠️ 只接受两个降水档：万一将来枚举加了新 case，这里会当场 assert 而不是
+    /// 把一个渲染层根本不认识的天气存进配置（「晴」不是手动档 —— 它是「跟随天气
+    /// 开着且今天无降水」或「天气整条关掉」时的样子）。
+    public func setForestWeatherOverride(_ weather: ForestWeather?) async {
+        switch weather {
+        case .rain, .snow, nil: break
+        default:
+            assertionFailure("手动天气只接受下雨 / 下雪")
+            return
+        }
+        product.forestWeatherOverride = weather?.rawValue
+        await persistProduct()
+    }
+
+    /// 应用层那句「今天有没有降水」→ 画面档位（纯函数，便于单测）。
+    ///
+    /// ⚠️ **入参特意不做可选**：一层上的 answer 里自己也有一档叫 `none`，
+    /// 写成 `Precipitation?` 之后 `forestWeather(for: .none)` 会被 Swift 理解成
+    /// 「传了 nil」而不是「传了晴」 —— 一次字的歧义就是一条整层错的天气。
+    /// 「没取到预报」由调用方在两侧处理（见 `refreshTodayWeather`）：那句话
+    /// 单独存在，结构上没法被忽略。
+    nonisolated public static func forestWeather(
+        for precipitation: WeatherForecast.Precipitation
+    ) -> ForestWeather {
+        switch precipitation {
+        case .none: .clear
+        case .rain: .rain
+        case .snow: .snow
+        }
+    }
+
+    /// 取一次今日真实天气预报（写进 `weatherForecast` 缓存）。
+    ///
+    /// 失败一律静默（一次网络请求不值得打扰用户）：`weatherForecast` 保持 nil，
+    /// `theme` 因此退回本地日期模拟 —— 森林永远有天气，只是可能不是真准。
+    ///
+    /// ⚠️ **开关关着就不出门**：那时 `theme` 根本用不到这份缓存，
+    /// 还去联系第三方等于把用户「我关了」当成没听见（也是唯一真实的隐私边界）。
+    public func refreshTodayWeather() async {
+        guard product.forestFollowsWeather else {
+            weatherForecast = nil
+            return
+        }
+        // 「取不到」与「预报说晴」是两件事，分别处理：前者要退回本地模拟，后者就画晴。
+        guard let precipitation = await services.todayPrecipitation() else {
+            weatherForecast = nil
+            return
+        }
+        weatherForecast = Self.forestWeather(for: precipitation)
     }
 
     // MARK: 轻音效（批次六 · F）

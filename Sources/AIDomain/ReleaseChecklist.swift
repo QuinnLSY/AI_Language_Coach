@@ -101,21 +101,21 @@ public enum ReleaseChecklist {
             id: "ai.modelLoading",
             title: "模型加载 / 卸载可用",
             category: .ai,
-            guidance: "本地模型点「启动」后对话能出内容；点「停止」后 Ollama 侧显存应释放（ollama ps 看不到该模型）。",
+            guidance: "本地模型点「启动」后对话能出内容；点「停止」后 Ollama 侧显存应释放（ollama ps 看不到该模型）。逻辑层已有单测（ReplyReliabilityTests：启动后能回复、重启后恢复对话、停止后有带模型名的提示；ResourceLifecycleTests：启停幂等），人工只需真机确认 ollama ps 里的显存释放。",
             automated: false
         ),
         Item(
             id: "ai.modelUnloading",
             title: "空闲与内存压力下的自动挂起可用",
             category: .ai,
-            guidance: "第 27 步：配置 resource_policy 的空闲阈值，长时间不用后该能力被挂起；再次使用应自动恢复且不影响回复。",
+            guidance: "第 27 步：配置 resource_policy 的空闲阈值，长时间不用后该能力被挂起；再次使用应自动恢复且不影响回复。逻辑层已有单测（ResourceLifecycleTests：空闲 tick 只挂起符合条件的冷模型、不碰用户显式停止的模型、挂起后发消息自动恢复、ASR 同样可恢复），人工只需真机按阈值等一轮确认 ollama ps。",
             automated: false
         ),
         Item(
             id: "ai.fallback",
             title: "兜底链路可用（老师必回）",
             category: .ai,
-            guidance: "拔掉本地 runtime 的网络或 kill 掉进程后发消息，应当得到明确提示而非转圈到底。",
+            guidance: "拔掉本地 runtime 的网络或 kill 掉进程后发消息，应当得到明确提示而非转圈到底。逻辑层已有场景级单测（ManualScenarioTests：流式全死而非流式活着时老师仍能回复；全死时给出带模型名的可读错误且不卡在生成中），人工只需真机拔线验一次。",
             automated: false
         ),
         Item(
@@ -131,7 +131,7 @@ public enum ReleaseChecklist {
             id: "audio.permission",
             title: "麦克风权限流程正常",
             category: .audio,
-            guidance: "首次点语音输入的授权弹窗 → 拒绝后给出「去系统设置开启」的引导；授权后能录音。",
+            guidance: "首次点语音输入的授权弹窗 → 拒绝后给出「去系统设置开启」的引导；授权后能录音。逻辑层已有场景级单测（ManualScenarioTests：权限被拒时错误提示逐字等于引导文案、且不会进入录音态），人工只需真机点一次弹窗、确认授权后能录。",
             automated: false
         ),
         Item(
@@ -152,7 +152,7 @@ public enum ReleaseChecklist {
             id: "audio.noDeadlock",
             title: "流式链路不死锁",
             category: .audio,
-            guidance: "边说边识别 + 边合成边播同时进行 3 分钟，界面不卡死、能随时中断。",
+            guidance: "边说边识别 + 边合成边播同时进行 3 分钟，界面不卡死、能随时中断。逻辑层已有单测（ConcurrencyAndResourceTests：录音闸门只放行一个 starting、同句合成合流只发一次请求、串行队列保序、Process 等待不占协作线程、取消立即终止；VoiceTranscriptMergeTests：流式与最终文本的合流规则），人工只需真机同时进行 3 分钟。",
             automated: false
         ),
 
@@ -198,7 +198,7 @@ public enum ReleaseChecklist {
             id: "perf.longSession",
             title: "长会话测试已通过",
             category: .performance,
-            guidance: "连续对话 30 分钟以上：内存不持续增长、滚动不卡顿、回声课堂教学仍然可用。",
+            guidance: "连续对话 30 分钟以上：内存不持续增长、滚动不卡顿、回声课堂教学仍然可用。有界性已有单测（ManualScenarioTests：60 轮后决策上下文仍是 12 轮窗口、图片内联只带最近 1 轮），人工只需真机连续对话 30 分钟看内存与滚动。",
             automated: false
         ),
 

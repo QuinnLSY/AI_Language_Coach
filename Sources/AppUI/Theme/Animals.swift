@@ -163,6 +163,148 @@ public enum AnimalKind: String, CaseIterable, Sendable, Identifiable {
             ]
         }
     }
+
+    /// 季节专属气泡文案（#606）：每季两句，中英混合、带当季意象，性格与 `phrases` 一致。
+    ///
+    /// 与通用池的关系见 `bubblePhrases(season:weather:)`：**增量**，不是替换 ——
+    /// 老用户听惯的鼓励一句不少，只是当季多听到两句应景的。
+    public func seasonalPhrases(season: ForestSeason) -> [String] {
+        switch self {
+        case .fox:
+            switch season {
+            case .spring: return ["春天的单词像花儿一样一朵朵开！", "春风一吹，新句子就发芽啦。"]
+            case .summer: return ["大太阳也晒不化我的学习劲头！", "夏天就要大声朗读，像蝉鸣一样响！"]
+            case .autumn: return ["秋天的果实里，全是攒下来的单词！", "落叶堆里藏着一整个夏天的努力哦。"]
+            case .winter: return ["冬天也要练口语，嘴里冒着热气呢！", "雪再大，也盖不住你读书的声音。"]
+            }
+        case .panda:
+            switch season {
+            case .spring: return ["春天来了，竹子绿了，你也长大了一点。", "春日午后，最适合慢慢读一句英语。"]
+            case .summer: return ["天热没关系，心静自然凉，慢慢读。", "夏天的你，比竹叶上的露珠还精神。"]
+            case .autumn: return ["秋天把收获存进肚子，像存单词一样。", "天凉了，多喝热水，也多读几句。"]
+            case .winter: return ["冬天抱成团，也不忘背单词哦。", "冷冷的天气，读书最暖和了。"]
+            }
+        case .tiger:
+            switch season {
+            case .spring: return ["春回大地，本大王也要吼一嗓子英语！", "春天是新开始，跟我一起冲！"]
+            case .summer: return ["烈日当头，勇气也要当头！", "夏天的嗓门最大，大声念出来！"]
+            case .autumn: return ["秋天的果实，是给努力者的奖赏！", "收获季到了，把单词都收进口袋！"]
+            case .winter: return ["寒冬算什么，我的声音能发热！", "再冷的天气，也冻不住开口的勇气。"]
+            }
+        case .owl:
+            switch season {
+            case .spring: return ["春天的夜晚，书页声和虫鸣一样好听。", "春夜读书，脑子记得特别牢。"]
+            case .summer: return ["夏夜漫长，正好多想几个单词。", "夏天的萤火虫，像我脑海里的灵感。"]
+            case .autumn: return ["秋夜清爽，复习的效率最高哦。", "秋天的书本，翻起来沙沙响。"]
+            case .winter: return ["冬夜最适合窝着想一想语法。", "安静的雪夜，单词排队跳进脑子里。"]
+            }
+        case .rabbit:
+            switch season {
+            case .spring: return ["春天的小花…和你一样可爱呀。", "春风轻轻地，说话也轻轻地。"]
+            case .summer: return ["夏天要…吃西瓜，也要读英语哦。", "热热的夏天，声音可以小一点点的。"]
+            case .autumn: return ["秋天的落叶，软软的像我的胆子…", "丰收的季节，兔子也攒了很多词呢。"]
+            case .winter: return ["冬天…可以把话先说暖和再出口。", "雪再冷，你的声音还是暖的呀。"]
+            }
+        case .bear:
+            switch season {
+            case .spring: return ["春天到了，蜂蜜和新单词一起来！", "春日里打滚，滚着滚着就学会一句。"]
+            case .summer: return ["夏天再热，学习也不能放假！", "大太阳天，适合到树荫下读书。"]
+            case .autumn: return ["秋天的蜂蜜甜，秋天的单词也甜！", "丰收啦！把好句子都搬回树洞。"]
+            case .winter: return ["冬天冬眠前…也要先背几个单词！", "冷冷的冬天，读书的小熊最暖和。"]
+            }
+        case .squirrel:
+            switch season {
+            case .spring: return ["春天开始囤单词，一年不荒废！", "春日里蹦蹦跳跳，顺便记住三个词！"]
+            case .summer: return ["夏天也要勤劳，汗都是努力的！", "太阳越大，我捡词捡得越欢！"]
+            case .autumn: return ["秋天是大囤货季！单词装满树洞！", "丰收的秋天，每个松果里都有知识。"]
+            case .winter: return ["冬天翻出囤的单词，个个管饱！", "雪再大，树洞里的存货也够吃一冬。"]
+            }
+        case .hedgehog:
+            switch season {
+            case .spring: return ["春天慢慢长，单词慢慢记。", "春日里的每一片新叶，都值得慢慢看。"]
+            case .summer: return ["夏天热了，说话可以更慢更轻哦。", "炎热的午后，适合轻轻念一个词。"]
+            case .autumn: return ["秋天的果实，是一天一天攒出来的。", "天凉好个秋，适合温习学过的句子。"]
+            case .winter: return ["冬天缩成球，也不舍得忘掉单词。", "冷天里想起一个学过的词，心里会暖。"]
+            }
+        }
+    }
+
+    /// 天气专属气泡文案（#606）：下雨 / 下雪各一句。
+    ///
+    /// ⚠️ 晴（`.clear`）**没有专属句** —— 「晴」不配台词：天好着没什么可说的，
+    /// 判据同 `AnimalWeatherBehavior.forWeather`（晴连道具都不配）。
+    public func weatherPhrases(weather: ForestWeather) -> [String] {
+        switch self {
+        case .fox:
+            switch weather {
+            case .rain: return ["下雨天最适合背单词，雨点替我数拍子！"]
+            case .snow: return ["下雪啦！张嘴说话，嘴里会冒出白色的哈气～"]
+            case .clear: return []
+            }
+        case .panda:
+            switch weather {
+            case .rain: return ["下雨了，撑把伞慢慢走，英语慢慢读。"]
+            case .snow: return ["下雪天说一句话，嘴里会开出一朵白雾花。"]
+            case .clear: return []
+            }
+        case .tiger:
+            switch weather {
+            case .rain: return ["下雨天照练！雨点砸不垮我的声音！"]
+            case .snow: return ["雪地里吼一声，回声都带着英文字母！"]
+            case .clear: return []
+            }
+        case .owl:
+            switch weather {
+            case .rain: return ["雨夜读书，别有一番滋味。"]
+            case .snow: return ["雪夜安静得，能听见单词落地的声音。"]
+            case .clear: return []
+            }
+        case .rabbit:
+            switch weather {
+            case .rain: return ["淅沥沥的雨天…适合小声练习，说错也没人听见哦。"]
+            case .snow: return ["下雪啦！呵出的白气…像不像一个单词？"]
+            case .clear: return []
+            }
+        case .bear:
+            switch weather {
+            case .rain: return ["下雨啦！雨点敲树叶，像在敲黑板。"]
+            case .snow: return ["下雪天说话，会有一朵小白云跟在嘴边～"]
+            case .clear: return []
+            }
+        case .squirrel:
+            switch weather {
+            case .rain: return ["下雨就收工？不，我在树洞里背单词！"]
+            case .snow: return ["雪地里也能寻宝！脚印旁边就是新单词。"]
+            case .clear: return []
+            }
+        case .hedgehog:
+            switch weather {
+            case .rain: return ["雨声陪着，读错了也不着急。"]
+            case .snow: return ["下雪了，一片一片数雪花，像在数单词。"]
+            case .clear: return []
+            }
+        }
+    }
+
+    /// 气泡合成池（#606）：**既有池为主，季节天气句为增量**。
+    ///
+    /// 权重是追加次数决定的：主干 10 条原样打底，季节两句 ×3、天气一句 ×1 ——
+    /// 同一次抽签里季节句约占三成、天气句约占一成。既让林子「说当季的话」，
+    /// 又不把老用户听惯的鼓励挤掉（用户 2026-10 拍板「给动物增加季节和天气
+    /// 专属的气泡语言」，没说要换掉原来的）。
+    ///
+    /// 无季节无天气时**逐字等于** `phrases`（老行为，单测钉住）。
+    public func bubblePhrases(season: ForestSeason?, weather: ForestWeather?) -> [String] {
+        var pool = phrases
+        if let season {
+            let lines = seasonalPhrases(season: season)
+            pool += lines + lines + lines
+        }
+        if let weather {
+            pool += weatherPhrases(weather: weather)
+        }
+        return pool
+    }
 }
 
 // MARK: - 配色（仅本文件使用；View 层禁止写字面量颜色）
@@ -199,6 +341,18 @@ private enum Fur {
 
     static let hedgehogSpike = Color(hex: 0x7E6045)
     static let hedgehogFace = Color(hex: 0xE8CBA6)
+
+    // MARK: 季节装扮（#605）
+
+    static let flowerPetal = Color(hex: 0xFF9EB8)
+    static let flowerHeart = Color(hex: 0xF2C14E)
+    static let lens = Color(hex: 0x2E3A4A)
+    static let scarfRed = Color(hex: 0xD2553F)
+    static let scarfDeep = Color(hex: 0xA63E2C)
+    static let woolHat = Color(hex: 0xE86A92)
+    static let woolHatDeep = Color(hex: 0xC24E77)
+    static let umbrellaTop = Color(hex: 0xE8703A)
+    static let umbrellaDeep = Color(hex: 0xC85A28)
 }
 
 // MARK: - 角色配件
@@ -216,6 +370,48 @@ public enum AnimalAccessory: Equatable, Sendable {
     case studentTelescope
     /// 毕业帽（学成档，森林里的最高荣誉）。
     case studentGraduation
+}
+
+/// 季节装扮（#605）：四季各一件小配饰，与身份配件（`AnimalAccessory`）**叠加** ——
+/// 学员夏天戴墨镜的同时照样背小背包，两条线互不替代。
+///
+/// 判据是纯函数（`forSeason`）：单测与渲染共用同一份映射，换映射要测试先红。
+public enum AnimalSeasonOutfit: Equatable, Sendable {
+    /// 春：胸前一朵小花。
+    case flower
+    /// 夏：一副小墨镜。
+    case sunglasses
+    /// 秋：一条小围巾。
+    case scarf
+    /// 冬：一顶绒帽。
+    case woolHat
+
+    public static func forSeason(_ season: ForestSeason) -> AnimalSeasonOutfit {
+        switch season {
+        case .spring: return .flower
+        case .summer: return .sunglasses
+        case .autumn: return .scarf
+        case .winter: return .woolHat
+        }
+    }
+}
+
+/// 降水行为（#605）：**下雨打伞、下雪哆嗦** —— 动物不消失，只是换个姿势在场
+/// （用户 2026-10 拍板）。
+///
+/// 判据同为纯函数（`forWeather`）：`clear`（晴）与 nil（不跟随天气）都返回 nil ——
+/// 「晴」不配道具，天好着打把伞才是怪的。
+public enum AnimalWeatherBehavior: Equatable, Sendable {
+    case umbrella
+    case shiver
+
+    public static func forWeather(_ weather: ForestWeather?) -> AnimalWeatherBehavior? {
+        switch weather {
+        case .rain: return .umbrella
+        case .snow: return .shiver
+        case .clear, nil: return nil
+        }
+    }
 }
 
 // MARK: - 主体
@@ -246,6 +442,12 @@ public struct CuteAnimalView: View {
     /// 默认 `0` = 不偏移 —— 单只动物的既有调用点（老师角 / 气泡 / 各页角落）
     /// 行为一个字节都不变。只有「一屏多只」的编排层（林间地面带）需要传。
     public var blinkPhaseSeed: Int = 0
+    /// 当前季节（nil = 不随季节换装扮）。**只由林间地面带传** —— 页面角落的
+    /// 功能性头像（老师角 / 气泡 / 各页学员像）不随森林场景换季，行为一个字节不变。
+    public var season: ForestSeason? = nil
+    /// 当前天气（nil = 无降水行为）。下雨打伞、下雪哆嗦；同样只由地面带传。
+    /// 晴（`.clear`）不配道具，判据见 `AnimalWeatherBehavior.forWeather`。
+    public var weather: ForestWeather? = nil
 
     /// **离屏渲染夹具专用总闸**：置 `false` 时动物不启动任何定时动画（眨眼 / 跳动）。
     ///
@@ -263,6 +465,8 @@ public struct CuteAnimalView: View {
     @State private var isHopping = false
     /// 庆祝跳一下的抬起量（一次性）。与 `isHopping` 的常驻浮动各走各的 offset，互不打断。
     @State private var hopLift: CGFloat = 0
+    /// 下雪哆嗦的高频小抖（`AnimalWeatherBehavior.shiver`）。左右 ±2% 尺寸、0.11s 一程。
+    @State private var shivering = false
 
     @Environment(\.appMotion) private var motion
 
@@ -270,7 +474,8 @@ public struct CuteAnimalView: View {
 
     public init(kind: AnimalKind, isSleeping: Bool = false, size: CGFloat = 64,
                 accessory: AnimalAccessory = .none, bobbing: Bool = true,
-                knockTick: Int = 0, hopTick: Int = 0, blinkPhaseSeed: Int = 0) {
+                knockTick: Int = 0, hopTick: Int = 0, blinkPhaseSeed: Int = 0,
+                season: ForestSeason? = nil, weather: ForestWeather? = nil) {
         self.kind = kind
         self.isSleeping = isSleeping
         self.size = size
@@ -279,6 +484,8 @@ public struct CuteAnimalView: View {
         self.knockTick = knockTick
         self.hopTick = hopTick
         self.blinkPhaseSeed = blinkPhaseSeed
+        self.season = season
+        self.weather = weather
     }
 
     // MARK: - 眨眼错峰
@@ -315,6 +522,11 @@ public struct CuteAnimalView: View {
     }
 
     public var body: some View {
+        // 降水行为判据（纯函数）：睡着的动物不冷不躲——Zzz 会脱离打伞的身体，
+        // 哆嗦更是只属于醒着的反应。晴 / 无天气 = 没行为。
+        let behavior: AnimalWeatherBehavior? =
+            isSleeping ? nil : AnimalWeatherBehavior.forWeather(weather)
+
         ZStack {
             animal
                 .frame(width: size, height: size)
@@ -332,12 +544,31 @@ public struct CuteAnimalView: View {
             case .studentTelescope: LittleTelescope(size: size)
             case .studentGraduation: GraduationCap(size: size)
             }
+
+            // 季节装扮（#605）：与身份配件叠加——夏天戴墨镜的小熊照样背小背包。
+            if let season {
+                SeasonOutfit(season: season, size: size, isSleeping: isSleeping)
+            }
+
+            // 下雨打伞（#605）：伞撑在身侧偏上，不遮动物的脸。
+            if behavior == .umbrella {
+                LittleUmbrella(size: size)
+            }
         }
         .frame(width: size, height: size)
         .offset(y: isSleeping ? size * 0.02 : (isHopping ? -size * 0.045 : 0))
         .loopAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: isHopping)
         // 庆祝跳一下（一次性）：与上面的常驻浮动分开两条 offset，谁都不打断谁。
         .offset(y: hopLift)
+        // 下雪哆嗦（#605）：高频小抖一条独立 offset。reduceMotion 下 loopAnimation
+        // 不插值（静态缩着），离屏夹具（animationsEnabled=false）同样停 ——
+        // 「同一份输入连出两次必须逐像素相同」的确定性守卫不能被它破。
+        // ⚠️ 判据不在哆嗦档时位移恒 0（否则「没有天气」也会凭空左移一点）。
+        .offset(x: shiverOffset)
+        .loopAnimation(
+            .linear(duration: 0.11).repeatForever(autoreverses: true),
+            value: shivering
+        )
         .onChange(of: hopTick) { _, tick in
             // 睡着了不跳（Zzz 会脱离身体）；渲染夹具关着动画也不跳。
             guard tick > 0, !isSleeping, Self.animationsEnabled else { return }
@@ -350,11 +581,19 @@ public struct CuteAnimalView: View {
             }
         }
         .onAppear {
-            guard bobbing, !isSleeping, Self.animationsEnabled else { isHopping = false; return }
-            isHopping = true
+            if bobbing, !isSleeping, Self.animationsEnabled {
+                isHopping = true
+            } else {
+                isHopping = false
+            }
+            updateShivering(behavior: behavior)
         }
         .onChange(of: isSleeping) { _, sleeping in
             isHopping = (bobbing && !sleeping && Self.animationsEnabled) ? true : false
+            updateShivering(behavior: sleeping ? nil : AnimalWeatherBehavior.forWeather(weather))
+        }
+        .onChange(of: weather) { _, newValue in
+            updateShivering(behavior: isSleeping ? nil : AnimalWeatherBehavior.forWeather(newValue))
         }
         .onReceive(blinkTimer) { _ in
             guard !isSleeping, Self.animationsEnabled else { return }
@@ -367,6 +606,18 @@ public struct CuteAnimalView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + lead) { blink() }
             }
         }
+    }
+
+    /// 哆嗦状态跟随天气 / 睡意 / 夹具闸门（放在一处，免得三处 onChange 各写一遍判据）。
+    private func updateShivering(behavior: AnimalWeatherBehavior?) {
+        shivering = behavior == .shiver && Self.animationsEnabled
+    }
+
+    /// 哆嗦位移（#605）：**判据不在哆嗦档时恒 0** —— 没有天气的动物一点不挪，
+    /// 否则「关掉天气」与「下雪天」的基准画面会差出一个身位，判据全漂。
+    private var shiverOffset: CGFloat {
+        guard !isSleeping, AnimalWeatherBehavior.forWeather(weather) == .shiver else { return 0 }
+        return shivering ? size * 0.02 : -size * 0.02
     }
 
     @ViewBuilder
@@ -1176,6 +1427,130 @@ private struct GraduationCap: View {
                 .fill(AccessoryPalette.tassel)
                 .frame(width: size * 0.07, height: size * 0.07)
                 .offset(x: size * 0.19, y: size * 0.00)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+// MARK: - 季节装扮（#605）
+
+/// 四季小装扮：春小花 / 夏墨镜 / 秋围巾 / 冬绒帽。与身份配件（`AnimalAccessory`）叠加 ——
+/// 学员戴墨镜的同时照样背小背包（用户 2026-10 拍板「四季小装扮」）。
+///
+/// 每件都画在**不遮脸的位置**（胸前 / 眼睛那一条线 / 脖圈 / 头顶），
+/// 睡觉时除墨镜外全部收起（睡着了还戴花围巾就违和了）。
+private struct SeasonOutfit: View {
+    let season: ForestSeason
+    let size: CGFloat
+    var isSleeping: Bool = false
+
+    var body: some View {
+        ZStack {
+            switch AnimalSeasonOutfit.forSeason(season) {
+            case .flower:
+                // 春：胸前一朵五瓣小花（一侧耳饰位，不挡五官）
+                ZStack {
+                    ForEach(0..<5, id: \.self) { index in
+                        Circle()
+                            .fill(Fur.flowerPetal)
+                            .frame(width: size * 0.055, height: size * 0.055)
+                            .offset(x: size * 0.055 * cos(Double(index) * 2 * .pi / 5),
+                                    y: size * 0.055 * sin(Double(index) * 2 * .pi / 5))
+                    }
+                    Circle()
+                        .fill(Fur.flowerHeart)
+                        .frame(width: size * 0.04, height: size * 0.04)
+                }
+                .offset(x: size * 0.24, y: size * 0.10)
+
+            case .sunglasses:
+                // 夏：一副小墨镜横在眼睛那一条线（眨眼也不摘——墨镜在眼睛外面）。
+                // 睡觉时摘掉：闭眼线就在这一条高度，不摘会像「戴墨镜打盹」。
+                if !isSleeping {
+                    ZStack {
+                        Capsule()
+                            .fill(Fur.lens)
+                            .frame(width: size * 0.20, height: max(1.6, size * 0.026))
+                            .offset(x: size * 0.10, y: -size * 0.165)
+                        ForEach([CGFloat(-1), CGFloat(1)], id: \.self) { side in
+                            Circle()
+                                .fill(Fur.lens)
+                                .frame(width: size * 0.11, height: size * 0.11)
+                                .offset(x: side * size * 0.115, y: -size * 0.165)
+                            // 镜片高光：一点白，读出「这是玻璃不是黑洞」
+                            Circle()
+                                .fill(.white.opacity(0.45))
+                                .frame(width: size * 0.030, height: size * 0.030)
+                                .offset(x: side * size * 0.115 - size * 0.02, y: -size * 0.185)
+                        }
+                    }
+                }
+
+            case .scarf:
+                // 秋：绕脖一圈 + 垂下一角（睡觉时收起来）
+                if !isSleeping {
+                    ZStack {
+                        Capsule()
+                            .fill(Fur.scarfRed)
+                            .frame(width: size * 0.34, height: size * 0.09)
+                            .offset(y: size * 0.10)
+                        Capsule()
+                            .fill(Fur.scarfDeep)
+                            .frame(width: size * 0.08, height: size * 0.16)
+                            .rotationEffect(.degrees(8))
+                            .offset(x: size * 0.10, y: size * 0.20)
+                    }
+                }
+
+            case .woolHat:
+                // 冬：一顶莓红绒帽（帽檐 + 帽顶 + 绒球），睡觉也戴着——冷了更要暖
+                ZStack {
+                    Circle()
+                        .fill(Fur.woolHat)
+                        .frame(width: size * 0.30, height: size * 0.30)
+                        .offset(y: size * -0.40)
+                    Capsule()
+                        .fill(Fur.woolHatDeep)
+                        .frame(width: size * 0.36, height: size * 0.075)
+                        .offset(y: size * -0.28)
+                    Circle()
+                        .fill(Fur.cream)
+                        .frame(width: size * 0.075, height: size * 0.075)
+                        .offset(y: size * -0.53)
+                }
+            }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+// MARK: - 降水道具（#605）
+
+/// 小雨伞：橘色伞面 + 伞柄，撑在动物身侧偏上（不遮脸）。
+/// 下雨动物**不消失**，只是打个伞继续在场（用户 2026-10 拍板）。
+private struct LittleUmbrella: View {
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            // 伞柄
+            Capsule()
+                .fill(Fur.umbrellaDeep)
+                .frame(width: max(1.4, size * 0.022), height: size * 0.26)
+                .offset(x: size * 0.30, y: size * 0.16)
+            // 伞面：四瓣圆拼成一条伞沿（相切无缝、两色交替 = 波浪边）
+            ForEach(0..<4, id: \.self) { index in
+                Circle()
+                    .fill(index % 2 == 0 ? Fur.umbrellaTop : Fur.umbrellaDeep)
+                    .frame(width: size * 0.13, height: size * 0.13)
+                    .offset(x: size * (0.30 - 0.195 + Double(index) * 0.13),
+                            y: size * -0.18)
+            }
+            // 伞顶小尖
+            Circle()
+                .fill(Fur.umbrellaDeep)
+                .frame(width: size * 0.035, height: size * 0.035)
+                .offset(x: size * 0.30, y: size * -0.235)
         }
         .frame(width: size, height: size)
     }

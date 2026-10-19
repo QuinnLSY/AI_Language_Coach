@@ -128,7 +128,7 @@ public final class RemoteTTSAdapter: TTSProvider, VoiceCatalogProvider, RuntimeI
                 contentType: "application/json"
             )
             let body = SpeechRequest(
-                model: intent.model,
+                model: intent.model ?? "",
                 input: text,
                 voice: voice,
                 responseFormat: "wav"

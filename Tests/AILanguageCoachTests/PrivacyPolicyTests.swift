@@ -133,6 +133,56 @@ final class PrivacyPolicyTests: XCTestCase {
         XCTAssertTrue(PrivacyPolicy.outboundCategories(for: .pronunciation).contains(.audio))
     }
 
+    // MARK: - 公共服务（#604 天气预报）
+
+    /// 天气预报要联系两个第三方服务，且其中一个收的是**出口 IP** ——
+    /// 漏披露这一条，用户就不知道「我没配任何云端服务，为什么还会出网」。
+    func testWeatherForecastIsDisclosedAsAPublicService() throws {
+        var configuration = try DefaultConfiguration.load()
+        XCTAssertTrue(PrivacyPolicy.disclosure(for: configuration).isLocalOnly, "前提是默认关着")
+
+        configuration.product.forestFollowsWeather = true
+        let disclosure = PrivacyPolicy.disclosure(for: configuration)
+        XCTAssertFalse(disclosure.isLocalOnly)
+        XCTAssertTrue(disclosure.requiresDisclosure)
+
+        let services = Set(disclosure.publicServiceFlows.map(\.service))
+        XCTAssertEqual(services, [.ipGeolocation, .weatherForecast])
+        // 「联系了谁」要能连主机一起回答出来，不能只给个名字。
+        XCTAssertTrue(disclosure.hosts.contains("ipwho.is"))
+        XCTAssertTrue(disclosure.hosts.contains("api.open-meteo.com"))
+        // 出网这件事要写进小结 —— 那是这整张卡唯一一句话的机会。
+        XCTAssertTrue(disclosure.summary.contains("公共服务"), disclosure.summary)
+        // 送出去什么必须逐项说清（IP / 近似坐标），含混一句位置信息等于没披露。
+        for flow in disclosure.publicServiceFlows {
+            XCTAssertFalse(flow.outboundNote.isEmpty, "\(flow.service.rawValue) 得说明送出的是什么")
+        }
+    }
+
+    /// 反证：关掉开关必须让披露**一字不留**。
+    ///
+    /// 少了这条，「开关没真的止损、只是不刷新了」照样绿灯 ——
+    /// 那正是会让用户吃亏的那种回归。
+    func testTurningWeatherOffRemovesTheDisclosure() throws {
+        var configuration = try DefaultConfiguration.load()
+        configuration.product.forestFollowsWeather = true
+        XCTAssertFalse(PrivacyPolicy.disclosure(for: configuration).isLocalOnly)
+
+        configuration.product.forestFollowsWeather = false
+        let disclosure = PrivacyPolicy.disclosure(for: configuration)
+        XCTAssertTrue(disclosure.isLocalOnly, "关掉就该回到纯本地 —— 那时确实一次请求都不发")
+        XCTAssertTrue(disclosure.publicServiceFlows.isEmpty)
+        XCTAssertTrue(disclosure.hosts.isEmpty)
+    }
+
+    /// 设置页必须把公共服务**单列一组**展示（混在云端能力里，用户就看不懂谁在收数据）。
+    func testSettingsViewShowsPublicServiceFlowsSeparately() throws {
+        let settings = try String(contentsOfFile: "Sources/AppUI/Views/SettingsView.swift", encoding: .utf8)
+        XCTAssertTrue(settings.contains("disclosure.publicServiceFlows"), "隐私卡要展示公共服务那组")
+        XCTAssertTrue(settings.contains("flow.service.displayName"), "展示服务名而不是拼容器自造的词")
+        XCTAssertTrue(settings.contains("flow.outboundNote"), "要把送出去了什么一并写出来")
+    }
+
     // MARK: - 脱敏
 
     func testRedactorNeverRevealsContent() {

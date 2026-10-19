@@ -696,6 +696,37 @@ extension AppState {
         }
     }
 
+    /// 忘记一处反复犯的错（单条删除）：删掉它在库里的全部记录，然后重算记忆与记录页。
+    ///
+    /// 只走 `loadRecords()` 一次：它内部已经会 `refreshLearningMemory()`，
+    /// 同时把「错题本」列表也刷掉 —— 删掉的东西不能在任何一页还看得见。
+    public func forgetRecurringError(_ error: RecurringError) async {
+        do {
+            let count = try await services.forgetRecurringError(error)
+            await loadRecords()
+            learningMemoryNotice = count <= 1
+                ? "已忘记这一条，老师以后不会再提它。"
+                : "已忘记这一处（共 \(count) 条记录），老师以后不会再提它。"
+        } catch {
+            // 底层是「学习库尚未就绪」/「SQL 执行失败：…」，动作名抛出点已经写过了；
+            // 再补「删除失败：」就是三冒号。
+            learningMemoryNotice = error.localizedDescription
+        }
+    }
+
+    /// 修改一处反复犯的错（改正 / 说明；原句是学员真实说出的，不可改）。
+    public func editRecurringError(_ error: RecurringError, corrected: String, explanation: String) async {
+        do {
+            let count = try await services.editRecurringError(error, corrected: corrected, explanation: explanation)
+            await loadRecords()
+            learningMemoryNotice = count <= 1
+                ? "已更新这一条。"
+                : "已更新这一处（共 \(count) 条记录）。"
+        } catch {
+            learningMemoryNotice = error.localizedDescription
+        }
+    }
+
     public func loadReviews() async {
         reviews = await services.recentReviews(limit: 10)
         if let first = reviews.first {

@@ -83,8 +83,33 @@ final class LearningMemoryCardRenderTests: XCTestCase {
         return Render(rep: rep, size: size)
     }
 
-    private func diff(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> (mean: Double, count: Int) {
-        let width = min(a.pixelsWide, b.pixelsWide)
+    /// 竖直扫出「最大的一团红色调像素」：按 12pt 高的带子数（错开半个身位滑动），
+    /// 返回 `below` 以下的最大值。带子滑动是为了不让按钮正好骑在边界上漏检。
+    private func maxReddishBand(_ rep: NSBitmapImageRep, below: CGFloat) -> Int {
+        let scale = CGFloat(rep.pixelsWide) / cardWidth
+        let bandHeight = Int(12 * scale)
+        let step = max(1, bandHeight / 2)
+        var best = 0
+        var y = Int(below * scale)
+        while y + bandHeight <= rep.pixelsHigh {
+            var count = 0
+            for row in y..<(y + bandHeight) {
+                for x in 0..<rep.pixelsWide {
+                    guard let color = rep.colorAt(x: x, y: row) else { continue }
+                    // danger 胶囊：红占优且蓝低于绿；卡面的绿灰调 g 最大，天然被排除。
+                    if color.redComponent > color.greenComponent,
+                       color.blueComponent < color.greenComponent {
+                        count += 1
+                    }
+                }
+            }
+            best = max(best, count)
+            y += step
+        }
+        return best
+    }
+
+    private func diff(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> (mean: Double, count: Int) {        let width = min(a.pixelsWide, b.pixelsWide)
         let height = min(a.pixelsHigh, b.pixelsHigh)
         var sum = 0.0
         var count = 0
@@ -100,6 +125,34 @@ final class LearningMemoryCardRenderTests: XCTestCase {
             }
         }
         return (count == 0 ? 0 : sum / Double(count), count)
+    }
+
+    /// 行内的「改 / 忘」动作必须真的画出来。
+    ///
+    /// 离屏渲染**不能合成点击**（仓库口径：合成点击归人眼复核），能钉的只有
+    /// 「默认展示态就把动作画在屏幕上」这件事。
+    ///
+    /// 判据走**红色调像素带**：删除键是 danger 色胶囊，而这张卡其余部分是绿灰调
+    /// （day 的 surfaceAlt 是 244,247,240，g 分量最大），`r > g && b < g` 把它抓出来。
+    /// 但**橘色 accent 也过这条**（话题 chip、标题图标都是橘的）—— 所以夹具刻意只用
+    /// 一条反复犯的错、不带任何别的板块：那时头部清除键以下唯一的红色调物体
+    /// 就是行内这颗删除键。反证：摘掉 `actionButtons` → 带子塌到 ~50 → 红。
+    func testRowActionButtonsAreDrawn() throws {
+        let memory = LearningMemory(
+            recurringErrors: [
+                RecurringError(
+                    original: "I go to school yesterday",
+                    corrected: "I went to school yesterday",
+                    explanation: "过去的事情要用过去式",
+                    count: 1,
+                    lastSeen: now
+                )
+            ]
+        )
+        let card = try render(memory)
+        let band = maxReddishBand(card.rep, below: 70)
+        XCTAssertGreaterThanOrEqual(band, 250,
+            "行内必须画出 danger 删除键，实测最大红色调带 \(band) 像素")
     }
 
     private func dump(_ rep: NSBitmapImageRep, name: String) {

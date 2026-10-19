@@ -4,10 +4,10 @@ import AIDomain
 import SwiftUI
 import XCTest
 
-/// 森林天气（#418-A）与年轮徽记（#418-B）的离屏渲染回归。
+/// 森林天气（#418-A 建立，2026-10 收窄为晴 / 下雨 / 下雪）与年轮徽记（#418-B）的离屏渲染回归。
 ///
 /// 判据走**墨迹差**，不比色值（离屏过色彩空间换算，见技能 macos-ui-verify）：
-/// - 雨天 / 多云的天必须与晴天画面不同（雨层 / 云量真的画上去了）；
+/// - 雨天 / 雪天的天必须与晴天画面不同（雨丝 / 雪片 / 更密的云真的画上去了）；
 /// - 同一档渲染两遍必须逐像素一致（种子随机不许引入抖动）；
 /// - 年轮徽记只在有练习记录时出现（树根的墨迹变化只在徽记区）。
 @MainActor
@@ -145,28 +145,38 @@ final class ForestWeatherRenderTests: XCTestCase {
         XCTAssertGreaterThan(maxContrast(clear, rain), 1.8, "夜雨与夜空太接近，看不见在下雨")
     }
 
-    /// 多云：云量加倍后画面必须可见地不同。
-    func testCloudyDiffersFromClearSky() throws {
+    /// 多云档已收窄为「有降水的天云更密」：雪天（更密的云 + 雪片层）与晴天画面必须可见地不同。
+    ///
+    /// ⚠️ 白天只钉**墨差**，不钉 maxContrast：雪片必须在白天天空上是**白的**才像雪，
+    /// 而白天空本身就亮 —— 单像素对比注定到不了 1.8（那是「颜色够深」的尺）。
+    /// 「看得见下雪」靠的是 22 片离散圆点 + 白芯的**形状**，墨差判据正好量这个。
+    /// 夜雪反之：亮雪片压夜空，对比度轻松越线，两条一起钉。
+    /// 反证：把 ForestSky 里 `if theme.weather == .snow` 的 `SnowLayer(color:)`
+    /// 换成 `Color.clear`（雪层不装配）→ 红。
+    func testDaySnowDiffersFromClearSky() throws {
         let clear = try sky(resolved(isNight: false, weather: .clear))
-        let cloudy = try sky(resolved(isNight: false, weather: .cloudy))
-        XCTAssertGreaterThan(differencePoints(cloudy, clear), 40,
-                             "多云的三朵加映云没有画上去")
+        let snow = try sky(resolved(isNight: false, weather: .snow))
+        XCTAssertGreaterThan(differencePoints(clear, snow), 40,
+                             "雪天（更密的云 + 雪片层）没有画上去（雪天与晴天画面无差异）")
     }
 
-    /// 夜里也必须看得出多云：云此前只画在白天分支里 ——
-    /// 设置页写着「今天是多云」，夜里回主界面一朵都没多。
-    func testNightCloudyDiffersFromClearSky() throws {
+    /// 夜里下雪：换亮一档的雪片压夜空，墨差与对比度都要够。
+    func testNightSnowDiffersFromClearSky() throws {
         let clear = try sky(resolved(isNight: true, weather: .clear))
-        let cloudy = try sky(resolved(isNight: true, weather: .cloudy))
-        XCTAssertGreaterThan(differencePoints(cloudy, clear), 40,
-                             "夜间的云量没有画上去")
+        let snow = try sky(resolved(isNight: true, weather: .snow))
+        XCTAssertGreaterThan(differencePoints(clear, snow), 40,
+                             "夜雪层没有画上去")
+        XCTAssertGreaterThan(maxContrast(clear, snow), 1.8, "夜雪与夜空太接近，看不见在下雪")
     }
 
-    /// 同一种天气渲染两遍必须零差异：雨丝用种子随机，不许每次布局换一场新雨。
-    func testRainRendersDeterministically() throws {
-        let first = try sky(resolved(isNight: false, weather: .rain))
-        let second = try sky(resolved(isNight: false, weather: .rain))
-        XCTAssertEqual(differencePoints(first, second), 0, "雨天渲染不许有任何抖动")
+    /// 同一种天气渲染两遍必须零差异：雨丝 / 雪片都用种子随机，不许每次布局换一场新雨雪。
+    func testPrecipitationRendersDeterministically() throws {
+        let rainFirst = try sky(resolved(isNight: false, weather: .rain))
+        let rainSecond = try sky(resolved(isNight: false, weather: .rain))
+        XCTAssertEqual(differencePoints(rainFirst, rainSecond), 0, "雨天渲染不许有任何抖动")
+        let snowFirst = try sky(resolved(isNight: false, weather: .snow))
+        let snowSecond = try sky(resolved(isNight: false, weather: .snow))
+        XCTAssertEqual(differencePoints(snowFirst, snowSecond), 0, "雪天渲染不许有任何抖动")
     }
 
     // MARK: - 年轮徽记

@@ -335,6 +335,9 @@ final class ConfigurationTests: XCTestCase {
             forestFollowsClock: true,
             forestFollowsSeason: true,
             forestFollowsWeather: true,
+            forestFollowsMomentum: true,
+            forestSeasonOverride: "autumn",
+            forestWeatherOverride: "snow",
             soundEffects: true,
             forestWelcomed: true,
             activeProviders: ["tts": "local.tts"],
@@ -368,7 +371,8 @@ final class ConfigurationTests: XCTestCase {
             "learningLanguage", "nativeLanguage", "teacherVoice", "practiceMode", "themeMode",
             "motionMode",
             "selectedModels", "teacherAnimal", "teacherPersona", "studentAnimal", "studentCompanion",
-            "forestFollowsClock", "forestFollowsSeason", "forestFollowsWeather",
+            "forestFollowsClock", "forestFollowsSeason", "forestFollowsWeather", "forestFollowsMomentum",
+            "forestSeasonOverride", "forestWeatherOverride",
             "soundEffects", "forestWelcomed", "activeProviders",
             "teacherBubbles", "animalBubbles", "animalActivity", "animalActivityFrequency",
             "voicePreview", "autoSpeak", "speechRate", "dailyGoalMinutes", "dailyGoalMode",
@@ -402,6 +406,28 @@ final class ConfigurationTests: XCTestCase {
         let explicitDecoded = try JSONDecoder().decode(ProductConfig.self, from: explicit)
         XCTAssertFalse(explicitDecoded.forestFollowsClock)
         XCTAssertTrue(explicitDecoded.forestFollowsSeason)
+    }
+
+    /// 季节 / 天气**手动档**是 2026-10 新增的：老配置没有这两个键 → nil（没选过）。
+    /// 升级不替用户挑一季 / 挑一种天气 —— 偏好只能用户自己给。
+    ///
+    /// 反证：把 `init(from:)` 里的兜底改成非 nil 默认值（如恒 `"spring"`）→ 红。
+    func testLegacyConfigHasNoManualSeasonOrWeatherOverride() throws {
+        let legacy = Data(#"{"forestFollowsClock":true,"forestFollowsSeason":false,"forestFollowsWeather":false}"#.utf8)
+        let decoded = try JSONDecoder().decode(ProductConfig.self, from: legacy)
+        XCTAssertNil(decoded.forestSeasonOverride, "老配置没有手动季节 → 没选过，不是某一季")
+        XCTAssertNil(decoded.forestWeatherOverride, "老配置没有手动天气 → 没选过，不是某种降水")
+    }
+
+    /// 「跟随学习节奏」是 #600（2026-10-19）新增的开关：老配置没有这个键 → false（关）。
+    /// 升级后森林不读学习数据，样子逐字不变 —— 与其它三个跟随开关的升级口径一致。
+    ///
+    /// 反证：把兜底改成 `?? true` → 红（老用户一升级林子就被学业数据推着变）。
+    func testLegacyConfigHasNoMomentumFollow() throws {
+        let legacy = Data(#"{"forestFollowsClock":true,"forestFollowsSeason":true,"forestFollowsWeather":true}"#.utf8)
+        let decoded = try JSONDecoder().decode(ProductConfig.self, from: legacy)
+        XCTAssertFalse(decoded.forestFollowsMomentum,
+                       "老配置没有这个开关 → 关着，森林不读学习数据")
     }
 
     /// 朗读调门与语速同一个自愈口径：手改到档位之外的值要落回最近档，

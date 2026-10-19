@@ -240,6 +240,17 @@ public final class MicrophoneRecorder: @unchecked Sendable {
     }
 }
 
+/// 麦克风权限探针（#596-A）。
+///
+/// `VoiceService` 只依赖「问一次权限」这一个动作，于是「权限被拒 → 引导文案」这条链路
+/// 可以在测试里注入 stub 验证 —— CI 上 `AVCaptureDevice.authorizationStatus`
+/// 无法可靠置为 `.denied`（TCC 限制），真机现象单测验不了。
+public protocol MicrophonePermissionChecking: Sendable {
+    func requestPermission() async -> Bool
+}
+
+extension MicrophoneRecorder: MicrophonePermissionChecking {}
+
 /// 录音生命周期的并发闸门（#S3-10）。
 ///
 /// 为什么不能只用「`isRecording` 布尔 + 两段加锁」：`start()` 里**检查与置位之间**

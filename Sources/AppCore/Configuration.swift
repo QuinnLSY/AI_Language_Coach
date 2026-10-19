@@ -671,11 +671,28 @@ public struct ProductConfig: Sendable, Equatable {
     /// 老版本里「跟随时间」与「跟随季节」绑在同一个开关上（`forestFollowsClock`）；
     /// 拆开后各管各的 —— 天黑切夜景是时间的事，换叶色是季节的事。
     public var forestFollowsSeason: Bool
-    /// 森林天气随真实日期（#418-A：晴 / 多云 / 雨，按年内日序确定性判定，默认关）。
+    /// 森林天气随真实日期（#418-A：晴 / 下雨 / 下雪，按年内日序确定性判定，默认关）。
     ///
-    /// 与时间 / 季节开关一样**只改插画层**（天上多不多云、下不下雨），
+    /// 与时间 / 季节开关一样**只改插画层**（下不下雨雪、云量），
     /// 语义色一行不碰。判据在 `ForestAtmosphere.weather(dayOfYear:)`（AppUI 侧）。
     public var forestFollowsWeather: Bool
+    /// 森林氛围跟随**学习节奏**（#600：连胜一周且今日达标 → 林子进丰季，默认关）。
+    ///
+    /// 与时间 / 季节 / 天气三个跟随开关同构：开着 = 由学业数据派生（`ForestMomentum`），
+    /// 关着 = 森林不读学习数据（老样子逐字不变）。只改插画层（丰季叶色更盛、
+    /// 本地兜底天气偏晴），语义色一行不碰。判据在 `ForestAtmosphere`（AppUI 侧）。
+    public var forestFollowsMomentum: Bool
+    /// 森林季节的**手动**选择（`ForestSeason.rawValue`，春夏秋冬四选一；nil = 没选过）。
+    ///
+    /// 与 `forestFollowsSeason` 的分工：跟随开着 = 按真实月份自动派生（**忽略**这个值）；
+    /// 跟随关着 = 用手动值；两者都没有 = 不分季节（`nil`）。存字符串而不是枚举：
+    /// AppCore 是最底层，不认识 AppUI 的类型（同 `teacherAnimal`），换算在 AppUI 侧。
+    public var forestSeasonOverride: String?
+    /// 森林天气的**手动**选择（`ForestWeather.rawValue`，下雨 / 下雪二选一；nil = 没选过）。
+    ///
+    /// 语义同 `forestSeasonOverride`。手动只有两个选项（用户明说「天气只有下雨、下雪」）；
+    /// 「晴」不是手动档 —— 它是「跟随天气开着且今天无降水」或「天气整条关掉」时的样子。
+    public var forestWeatherOverride: String?
     /// 轻音效（批次六 · F：收词「叮」/ 通关小旋律 / 点小动物一声叫）。
     /// **默认关** —— 声音比动画更容易打扰，必须让用户主动选择要热闹。
     public var soundEffects: Bool
@@ -755,6 +772,9 @@ public struct ProductConfig: Sendable, Equatable {
         forestFollowsClock: Bool = false,
         forestFollowsSeason: Bool = false,
         forestFollowsWeather: Bool = false,
+        forestFollowsMomentum: Bool = false,
+        forestSeasonOverride: String? = nil,
+        forestWeatherOverride: String? = nil,
         soundEffects: Bool = false,
         forestWelcomed: Bool = false,
         activeProviders: [String: String] = [:],
@@ -793,6 +813,9 @@ public struct ProductConfig: Sendable, Equatable {
         self.forestFollowsClock = forestFollowsClock
         self.forestFollowsSeason = forestFollowsSeason
         self.forestFollowsWeather = forestFollowsWeather
+        self.forestFollowsMomentum = forestFollowsMomentum
+        self.forestSeasonOverride = forestSeasonOverride
+        self.forestWeatherOverride = forestWeatherOverride
         self.soundEffects = soundEffects
         self.forestWelcomed = forestWelcomed
         self.activeProviders = activeProviders
@@ -835,7 +858,8 @@ extension ProductConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case learningLanguage, nativeLanguage, teacherVoice, practiceMode, themeMode, motionMode
         case selectedModels, teacherAnimal, teacherPersona, studentAnimal, studentCompanion
-        case forestFollowsClock, forestFollowsSeason, forestFollowsWeather
+        case forestFollowsClock, forestFollowsSeason, forestFollowsWeather, forestFollowsMomentum
+        case forestSeasonOverride, forestWeatherOverride
         case soundEffects, forestWelcomed, activeProviders
         case teacherBubbles, animalBubbles, animalActivity
         case animalActivityFrequency, voicePreview, autoSpeak, speechRate
@@ -884,6 +908,13 @@ extension ProductConfig: Codable {
         forestFollowsSeason = try container.decodeIfPresent(Bool.self, forKey: .forestFollowsSeason)
             ?? forestFollowsClock
         forestFollowsWeather = try value(.forestFollowsWeather, fallback.forestFollowsWeather)
+        // 老配置没有这个字段 → false（关）。#600 才有的开关，默认关与其它三个跟随开关一致：
+        // 老用户升级后森林不读学习数据，样子逐字不变。
+        forestFollowsMomentum = try value(.forestFollowsMomentum, fallback.forestFollowsMomentum)
+        // 手动覆盖值：老配置没有这两个键 → nil（没选过）。与跟随开关正交：
+        // 升级不替用户挑一季 / 挑一种天气，也不把「没选」误读成某一档。
+        forestSeasonOverride = try container.decodeIfPresent(String.self, forKey: .forestSeasonOverride)
+        forestWeatherOverride = try container.decodeIfPresent(String.self, forKey: .forestWeatherOverride)
         soundEffects = try value(.soundEffects, fallback.soundEffects)
         forestWelcomed = try value(.forestWelcomed, fallback.forestWelcomed)
         activeProviders = try value(.activeProviders, fallback.activeProviders)
@@ -928,6 +959,11 @@ extension ProductConfig: Codable {
         try container.encode(forestFollowsClock, forKey: .forestFollowsClock)
         try container.encode(forestFollowsSeason, forKey: .forestFollowsSeason)
         try container.encode(forestFollowsWeather, forKey: .forestFollowsWeather)
+        try container.encode(forestFollowsMomentum, forKey: .forestFollowsMomentum)
+        // 手动覆盖值同样 encodeIfPresent：没选过就不写这个键（写个 null 反而让
+        // 「显式设成空」与「没设过」在 JSON 里纠缠不清）。
+        try container.encodeIfPresent(forestSeasonOverride, forKey: .forestSeasonOverride)
+        try container.encodeIfPresent(forestWeatherOverride, forKey: .forestWeatherOverride)
         try container.encode(soundEffects, forKey: .soundEffects)
         try container.encode(forestWelcomed, forKey: .forestWelcomed)
         try container.encode(activeProviders, forKey: .activeProviders)

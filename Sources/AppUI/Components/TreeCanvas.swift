@@ -134,6 +134,21 @@ public struct TreeCanvas: View {
         return topmostCourseY(for: progress) - canopyGap - canopyHeight
     }
 
+    /// 树冠整体上抬多少（#601 修，用户 2026-10-19 报障「树冠顶部的树干都突出来了」）。
+    ///
+    /// 只有**没挂课程关卡**时才抬：那时树干尖钉在 130，而幼苗态树冠缩到 0.64 之后
+    /// 冠顶落在尖之下 —— 尖从叶子上方戳出来一截（实测幼苗中列绿边到 y≈144 才开始、
+    /// 尖在 y≈128）。挂了课程关卡时**不抬**：树干尖本身就跟着树冠下移
+    /// （`trunkTipY` = 树冠顶 + 130），尖早在叶子里面，再抬反而啃掉树冠与最高一格
+    /// 课程关卡之间的 `canopyGap`。
+    ///
+    /// 抬量随成熟度淡出、满星为 0 —— 成年态尖本来就埋在叶里（实测中列从 y≈80 起全是叶），
+    /// 抬一下只会破坏「满星与从前逐像素相同」。
+    public nonisolated static func crownLift(density: Double, hasCourseBand: Bool) -> CGFloat {
+        guard !hasCourseBand else { return 0 }
+        return TreeGrowth.crownLift(growth: density)
+    }
+
     /// 正文关卡与课程关卡之间那层云（分界）。
     ///
     /// 只在**有课程关卡**时出现：它说的是「往上走进入了更高的闯关」，
@@ -242,7 +257,8 @@ public struct TreeCanvas: View {
                     // 树干（尖压进树冠里，别从叶子上方戳出来）
                     // ⚠️ 渐变方向跟全局光源走（`ForestLighting`：太阳钉在右上，
                     // 影子朝左下）—— 从前左亮右暗，与天上那颗太阳对不上。
-                    TrunkShape(tipY: Self.trunkTipY(for: progress))
+                    // ⚠️ `growth` 只改**粗细**（#601）：树跟着总进度长，满星与从前逐像素相同。
+                    TrunkShape(tipY: Self.trunkTipY(for: progress), growth: density)
                         .fill(
                             LinearGradient(
                                 colors: [theme.trunkShade, theme.trunk],
@@ -252,15 +268,30 @@ public struct TreeCanvas: View {
                         )
                         .frame(width: width, height: canvasHeight)
 
+                    // 根畔嫩苗（#601）：只有全新学员看得见 —— 树还小，
+                    // 根旁边先立一株两叶苗，「从幼苗开始」是第一眼就看得见的那半。
+                    // 画在树干之后（同层装饰）：苗从树根旁钻出来，不抢关卡节点的点击。
+                    if TreeGrowth.showsSprout(growth: density) {
+                        TreeSprout(theme: theme, opacity: TreeGrowth.sproutOpacity(growth: density))
+                            .frame(width: TreeGrowth.sproutWidth, height: TreeGrowth.sproutHeight)
+                            .position(
+                                x: midX + TreeGrowth.sproutOffsetX,
+                                y: TreeGrowth.sproutRootY - TreeGrowth.sproutHeight / 2
+                            )
+                    }
+
                     // A：树冠漏下来的光柱（丁达尔）。
                     //
                     // ⚠️ 必须夹在**树干之后、树冠之前**：光柱被树冠挡住，只从叶团的
                     // 缝里透出来 —— 那才是「树冠漏下的光柱」。画在树冠之后就成了
                     // 压在叶子上的几道半透明塑料片。
                     // 画框比树冠高一截：光柱要一直落到树干上半段。
+                    // ⚠️ 跟着树冠一起抬（同一个 `crownLift`）：光柱是「树冠漏下来的光」，
+                    // 树冠抬了它不抬，就会从叶缝外面平白射进来。
                     SunShafts(theme: theme)
                         .frame(width: width, height: 560)
-                        .offset(y: Self.canopyOffsetY(for: progress) + 40)
+                        .offset(y: Self.canopyOffsetY(for: progress) + 40
+                            - Self.crownLift(density: density, hasCourseBand: Self.showsCourseBand(for: progress)))
 
                     // 树冠（茂密度随总进度；通关时抖三抖）
                     Canopy(theme: theme, density: density,
@@ -269,7 +300,12 @@ public struct TreeCanvas: View {
                         .frame(width: width, height: Self.canopyHeight)
                         // ⚠️ 树冠要**回到树顶**（用户 2026-10-10 报障）：有课程关卡时挂在最高
                         // 一格之上，没挂课程关卡时与从前逐像素相同。算式在 `canopyOffsetY(for:)`。
-                        .offset(y: Self.canopyOffsetY(for: progress))
+                        //
+                        // 再减去 `crownLift`（#601 修，用户 2026-10-19 报障「树冠顶部的树干
+                        // 都突出来了」）：幼苗态树冠缩小后接不住树干尖，尖从叶子上方戳出来一截
+                        // —— 把树冠整体往上抬，抬量随成熟度淡出、满星为 0（逐像素回到从前）。
+                        .offset(y: Self.canopyOffsetY(for: progress)
+                            - Self.crownLift(density: density, hasCourseBand: Self.showsCourseBand(for: progress)))
 
                     // 藤蔓叶子点缀
                     Leaves(theme: theme)
@@ -620,10 +656,13 @@ private struct TrunkShape: Shape {
     /// 树干尖离画布顶多远（默认 130 = 从前那套；有课程关卡时要压进树冠里，
     /// 否则树冠回到树顶之后，树干尖会从叶子上方戳出来一截）。
     var tipY: CGFloat = 130
+    /// 成熟度 0…1（#601：树干跟着总进度变粗细）。1 = 改动前的宽度。
+    var growth: Double = 1
 
     func path(in rect: CGRect) -> Path {
-        let bottomWidth = rect.width * 0.24
-        let topWidth = rect.width * 0.10
+        let widths = TreeGrowth.trunkWidths(growth: growth)
+        let bottomWidth = rect.width * widths.bottom
+        let topWidth = rect.width * widths.top
         let tip = rect.minY + tipY
         var path = Path()
         path.move(to: CGPoint(x: rect.midX - bottomWidth / 2, y: rect.maxY))
@@ -682,7 +721,7 @@ private struct Canopy: View {
                     FruitLayer(theme: theme, count: fruitCount)
                 }
             }
-            .scaleEffect(0.97 + density * 0.06, anchor: .bottom)
+            .scaleEffect(TreeGrowth.crownScale(growth: density), anchor: .bottom)
             // 仪式抖动：通关时抖三抖（幅度远大于常驻摇摆，一眼区分）。
             // 两套 modifier 叠加互不打架：仪式是整冠的一次性旋转，常驻摇摆在
             // 各层内部，早已各自的 transform 里算完。
@@ -2350,7 +2389,11 @@ struct ForestGroundBand: View {
                 onSpontaneousBubble: { requestBubble(index) },
                 // 槽位号即初相种子：8 个槽位的初相互不重叠（见 `blinkLead` 的说明），
                 // 于是「整排一起眨」变成「一只接一只地眨」。
-                blinkPhaseSeed: index
+                blinkPhaseSeed: index,
+                // 季节装扮与降水行为（#605）：主题的 season / weather 只改插画层，
+                // 顺着环境一路带到每只居民身上。nil（不跟随）= 老样子。
+                season: theme.season,
+                weather: theme.weather
             )
         }
         .position(x: home.x + offsets[index].width, y: home.y + offsets[index].height)
@@ -2573,10 +2616,13 @@ struct ForestGroundBand: View {
     }
 
     /// 请求冒泡（点击或自发动作统一入口）：顶层展示，3 秒后自动收起。
+    ///
+    /// 文案池走 `bubblePhrases(season:weather:)`（#606）：通用句打底、
+    /// 当季与当天的句子做增量 —— 无季节无天气时逐字等于物种原池。
     private func requestBubble(_ index: Int) {
         guard bubblesAllowed else { return }
         let kind = kindAt(index: index, fallback: AnimalKind.allCases[index % AnimalKind.allCases.count])
-        requestRawBubble(index, pool: kind.phrases)
+        requestRawBubble(index, pool: kind.bubblePhrases(season: theme.season, weather: theme.weather))
     }
 
     // MARK: 右下角活动开关（与设置联动）

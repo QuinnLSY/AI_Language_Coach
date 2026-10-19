@@ -780,6 +780,108 @@ public actor LearningDatabase {
         }.compactMap { $0 }
     }
 
+    /// 按指纹找出「同一处反复犯的错」在库里的全部记录 id（新 → 旧）。
+    ///
+    /// 指纹口径与 `MemoryRetriever.recurringErrors` 的分桶**逐字相同** ——
+    /// 界面上把哪几条显示成「同一处」，这里就找哪几条。归一化各写一套，
+    /// 必然出现「显示的是一条、删的时候变成两条」。
+    ///
+    /// 全表扫描后在 Swift 侧过滤：SQLite 没有现成的 Unicode 标点剔除，
+    /// 在 SQL 里用 `replace()` 仿一套必然漂移。纠错表是学习记忆表（千行量级），
+    /// 只读 `id / original / corrected` 三列，代价可以忽略。
+    public func correctionIDs(matchingOriginal original: String, corrected: String) throws -> [UUID] {
+        try Self.matchingIDs(db: db, original: original, corrected: corrected)
+    }
+
+    /// 按指纹删掉「同一处反复犯的错」的**全部**记录，返回实际删掉的条数。
+    ///
+    /// 找与删在**同一个事务**里：分两步走会出现「界面上删掉了、库里一条没动」的
+    /// 半截状态（两次调用之间任何一次写入都能改掉指纹命中集）。
+    @discardableResult
+    public func deleteCorrections(matchingOriginal original: String, corrected: String) throws -> Int {
+        try db.runInTransaction { () -> Int in
+            let ids = try Self.matchingIDs(db: self.db, original: original, corrected: corrected)
+            guard !ids.isEmpty else { return 0 }
+            for batch in ids.batched(SQLiteDatabase.maxBoundVariables) {
+                let placeholders = batch.enumerated().map { "?\($0.offset + 1)" }.joined(separator: ", ")
+                try self.db.run(
+                    "DELETE FROM corrections WHERE id IN (\(placeholders))",
+                    batch.map { .text($0.uuidString) }
+                )
+            }
+            return ids.count
+        }
+    }
+
+    /// 按指纹更新「同一处反复犯的错」的改正与说明，返回实际改掉的条数。
+    ///
+    /// **原句与创建时间一律不动**：原句是学员当时真实说出的话，改它等于伪造历史；
+    /// `created_at` 是「什么时候犯的」，也不是能编辑的字段。会话归属同样不动。
+    ///
+    /// 更新后指纹会变（改正换了文本）—— 同一条错的所有记录拿到**同一份**新文本，
+    /// 因此刷新后仍并成一条，次数不丢。
+    @discardableResult
+    public func updateCorrections(
+        matchingOriginal original: String,
+        corrected: String,
+        newCorrected: String,
+        explanation: String
+    ) throws -> Int {
+        let newText = newCorrected.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newText.isEmpty else {
+            // 改正为空等于把这条错改成「没错」，分桶时它会被整条丢弃 —— 那是删，不是改。
+            throw AppError.database("改正后的句子不能为空。")
+        }
+        let newExplanation = explanation.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try db.runInTransaction { () -> Int in
+            let ids = try Self.matchingIDs(db: self.db, original: original, corrected: corrected)
+            guard !ids.isEmpty else { return 0 }
+            for batch in ids.batched(SQLiteDatabase.maxBoundVariables) {
+                // 前两个占位符给新文本，id 从 ?3 起编号。
+                let placeholders = batch.enumerated().map { "?\($0.offset + 3)" }.joined(separator: ", ")
+                try self.db.run(
+                    """
+                    UPDATE corrections
+                    SET corrected = ?1, explanation = ?2
+                    WHERE id IN (\(placeholders))
+                    """,
+                    [.text(newText), .text(newExplanation)] + batch.map { .text($0.uuidString) }
+                )
+            }
+            return ids.count
+        }
+    }
+
+    /// 指纹扫描。**static 纯函数**：删除 / 更新要在事务闭包里同步调它，
+    /// actor 隔离的实例方法进不了那个闭包（`#ActorIsolatedCall`）。
+    private nonisolated static func matchingIDs(
+        db: SQLiteDatabase,
+        original: String,
+        corrected: String
+    ) throws -> [UUID] {
+        guard let target = fingerprint(original: original, corrected: corrected) else { return [] }
+        return try db.query(
+            // rowid 兜底同秒排序：`created_at` 是秒级 REAL，同一处错常在一秒内连记两条。
+            "SELECT id, original, corrected FROM corrections ORDER BY created_at DESC, rowid DESC",
+            []
+        ) { row -> UUID? in
+            guard let idText = row.string(0), let id = UUID(uuidString: idText),
+                  let originalText = row.string(1), let correctedText = row.string(2),
+                  let rowFingerprint = fingerprint(original: originalText, corrected: correctedText)
+            else { return nil }
+            return rowFingerprint == target ? id : nil
+        }.compactMap { $0 }
+    }
+
+    /// 指纹：`matchKey(original) + "\u{1}" + matchKey(corrected)`。
+    /// 任一侧为空返回 nil —— 空原句 / 空改正没有教学信息，`recurringErrors` 分桶时同样丢弃。
+    private nonisolated static func fingerprint(original: String, corrected: String) -> String? {
+        let originalKey = MemoryRetriever.matchKey(original)
+        let correctedKey = MemoryRetriever.matchKey(corrected)
+        guard !originalKey.isEmpty, !correctedKey.isEmpty else { return nil }
+        return originalKey + "\u{1}" + correctedKey
+    }
+
     /// 窗口内的跟读记录（新 → 旧）。
     public func shadowingAttempts(since: Date, limit: Int = 500) throws -> [ShadowingAttempt] {        try db.query(
             """

@@ -52,13 +52,18 @@ public struct ForestTheme: Sendable, Equatable {
     /// 天气（nil = 不跟随天气）。同样只改插画层：多云多几朵云、雨天多一层雨丝，
     /// 天空渐变**本色不变**（ThemeContrastTests 钉的语义色与对比度更是一概不看它）。
     public let weather: ForestWeather?
+    /// 学习节奏（#600；nil = 不跟随学习节奏）。只改插画层：
+    /// `flourishing` 时叶色/山丘走「盛」档（`ForestAtmosphere.lush`），
+    /// 且本地兜底天气偏晴（见 `ForestThemeResolver`）。**非惩罚性**：停滞档无任何效果。
+    public let momentum: ForestMomentum?
 
     public init(palette: ForestPalette, moment: ForestMoment? = nil, season: ForestSeason? = nil,
-                weather: ForestWeather? = nil) {
+                weather: ForestWeather? = nil, momentum: ForestMomentum? = nil) {
         self.palette = palette
         self.moment = moment
         self.season = season
         self.weather = weather
+        self.momentum = momentum
     }
 
     public var isNight: Bool { palette == .night }
@@ -92,16 +97,23 @@ public struct ForestTheme: Sendable, Equatable {
 
     /// 插画层的季节取色：夜里一律用色板原色（夜里看不出叶色，改了只会把夜景改坏），
     /// 白天才按季节换 —— 春嫩 / 夏盛（= 原色）/ 秋黄 / 冬雪。
+    ///
+    /// 丰季（`momentum == .flourishing`，#600）在选好的颜色上再「养盛」一档：
+    /// 同色相、更饱和、更深（`ForestAtmosphere.lush`）。判据是 `flourishing` 一档 ——
+    /// 成长 / 休憩不掺和，非惩罚性（休憩不会让叶色变衰）。
     private func seasonal(day: UInt32, night: UInt32,
                           spring: UInt32, autumn: UInt32, winter: UInt32) -> Color {
         if isNight { return Color(hex: night) }
         guard let season else { return Color(hex: day) }
+        let chosen: UInt32
         switch season {
-        case .spring: return Color(hex: spring)
-        case .summer: return Color(hex: day)
-        case .autumn: return Color(hex: autumn)
-        case .winter: return Color(hex: winter)
+        case .spring: chosen = spring
+        case .summer: chosen = day
+        case .autumn: chosen = autumn
+        case .winter: chosen = winter
         }
+        if momentum == .flourishing { return Color(hex: ForestAtmosphere.lush(chosen)) }
+        return Color(hex: chosen)
     }
 
     // 远景山丘 / 林冠
@@ -150,6 +162,16 @@ public struct ForestTheme: Sendable, Equatable {
     /// 白天压深、夜里提亮（夜空本身很暗，暗雨丝同样看不见）。
     public var rainColor: Color {
         isNight ? Color(hex: 0xBFD6EC) : Color(hex: 0x3E6A8F)
+    }
+
+    /// 雪片的颜色（2026-10 收窄天气档位时新增）。
+    ///
+    /// ⚠️ 与 `rainColor` 同一把尺（「与当时天空的对比度」，2026-10-01 那次修的教训）：
+    /// 雪在天上必须**是白的**才像雪，而白天的天空本身就亮 —— 直接拿纯白画上去等于
+    /// 看不见（对亮空约 1.1:1）。所以白天压成一朵「带蓝影的雪」（淡蓝灰白，
+    /// 粒芯另叠一点纯白，见 `SnowLayer`），夜里换回亮白（夜空本身够暗，亮雪才显眼）。
+    public var snowColor: Color {
+        isNight ? Color(hex: 0xE8F4FA) : Color(hex: 0xC9DAE8)
     }
 
     // 强调
@@ -384,37 +406,67 @@ public enum ForestThemeResolver {
         }
     }
 
-    /// 「跟随时间」「跟随季节」两个开关（2026-09-29 拆分，原来是绑在一起的）下的主题
-    /// （纯函数，便于单测）。
+    /// 「跟随时间」「跟随季节」「跟随天气」三个开关（2026-09-29 拆分，原来是绑在一起的；
+    /// 2026-10 每个开关各配一个**手动**档位）下的主题（纯函数，便于单测）。
     ///
     /// - 跟随时间：**时刻说了算** —— 天黑了就切夜景、白天按小时挑天空色；
     /// - 跟随季节：按月份换叶色/落花，日夜档位仍由用户自己决定；
-    /// - 跟随天气（#418-A）：按年内日序定晴 / 多云 / 雨，日夜档位不受它影响；
-    /// - 都关：与老行为逐字相同（`moment` / `season` / `weather` 都是 nil）。
+    /// - 跟随天气（#418-A）：按年内日序定晴 / 下雨 / 下雪，日夜档位不受它影响；
+    /// - 跟随学习节奏（#600）：`momentum` 为 `flourishing` 时叶色走盛档、本地兜底天气偏晴；
+    /// - 手动档（`seasonOverride` / `weatherOverride`）：对应开关**关着**时用它顶替
+    ///   （开关开着 = 自动派生说了算，手动值只是存着，不参与）；两者都无 = nil；
+    /// - 都关：与老行为逐字相同（`moment` / `season` / `weather` / `momentum` 都是 nil）。
     ///
     /// ⚠️ 手动点太阳/月亮走的是「收回到手动」那条路（见 `AppState.toggleDayNight`），
     /// 不是在这里跟自动打架 —— 否则开了自动之后那个按钮点了没反应。
+    ///
+    /// - Parameter weatherForecast: 真实天气预报的结论（#604，可以为 nil）。
+    ///   跟着天气开着时**优先用它**；nil 表示这一步没取到（断网 / 服务没回应），
+    ///   于是退回按日序的本地模拟 —— 「外层变好看」绝不能依赖一次网络请求成功。
+    /// - Parameter momentum: 学习节奏（#600，可以为 nil；nil = 不跟随学习节奏）。
+    ///   只影响两处、都**不覆盖真实天气**：① 叶色/山丘在丰季走盛档（仅白天）；
+    ///   ② 取不到预报时的本地兜底模拟偏晴。真实预报拿到了就以它为准 ——
+    ///   学业节奏是给森林的氛围奖励，不是给用户播报假天气的许可。
     public static func resolve(mode: ThemeMode, systemIsDark: Bool,
                                hour: Int, month: Int,
                                followsClock: Bool, followsSeason: Bool,
-                               followsWeather: Bool = false, dayOfYear: Int = 1) -> ForestTheme {
+                               followsWeather: Bool = false, dayOfYear: Int = 1,
+                               seasonOverride: ForestSeason? = nil,
+                               weatherOverride: ForestWeather? = nil,
+                               weatherForecast: ForestWeather? = nil,
+                               momentum: ForestMomentum? = nil) -> ForestTheme {
+        // 季节：自动开着 = 按月份派生（手动值存着不用）；关着 = 用手动值；都没有 = nil。
+        let season: ForestSeason? = followsSeason
+            ? ForestAtmosphere.season(month: month)
+            : seasonOverride
         let base: ForestTheme
         if followsClock {
             let palette: ForestPalette = ForestAtmosphere.isNightHour(hour) ? .night : .day
             base = ForestTheme(palette: palette,
                                moment: ForestAtmosphere.moment(hour: hour),
-                               season: followsSeason ? ForestAtmosphere.season(month: month) : nil)
-        } else if followsSeason {
-            // 只跟随季节：日夜仍由档位决定，叶色随月份走。
+                               season: season)
+        } else if season != nil {
+            // 不跟时间但有季节（自动或手动都一样）：日夜仍由档位决定，叶色随季节走。
             let manual = resolve(mode: mode, systemIsDark: systemIsDark)
             base = ForestTheme(palette: manual.palette, moment: manual.moment,
-                               season: ForestAtmosphere.season(month: month))
+                               season: season)
         } else {
             base = resolve(mode: mode, systemIsDark: systemIsDark)
         }
-        // 天气只在开关打开时落字段：关着时 theme 与旧版逐字相等（Equatable 钉得住）。
-        guard followsWeather else { return base }
-        return ForestTheme(palette: base.palette, moment: base.moment, season: base.season,
-                           weather: ForestAtmosphere.weather(dayOfYear: dayOfYear))
+        // 学习节奏（#600）：透传进主题（叶色盛档在 ForestTheme.seasonal 里判）。
+        let themed = ForestTheme(palette: base.palette, moment: base.moment,
+                                 season: base.season, momentum: momentum)
+        // 天气：自动开着 = 真实预报优先，取不到再按日序本地模拟（丰季偏晴）；
+        // 关着 = 用手动值；都无 = nil。关着又没手动时 theme 与旧版逐字相等（Equatable 钉得住）。
+        //
+        // ⚠️ `weatherForecast` 里可以有 `.clear`：预报说了「今天没降水」也是一条可信结论，
+        // 必须照用 —— 不能因为它是 nil 的同义样子就去退本地模拟（那样真晴天会下假雨）。
+        // 同理，`momentum` 只在这条兜底支路上偏晴，绝不覆盖上面那个真预报。
+        let weather: ForestWeather? = followsWeather
+            ? (weatherForecast ?? ForestAtmosphere.weather(dayOfYear: dayOfYear, momentum: momentum))
+            : weatherOverride
+        guard weather != nil else { return themed }
+        return ForestTheme(palette: themed.palette, moment: themed.moment, season: themed.season,
+                           weather: weather, momentum: momentum)
     }
 }

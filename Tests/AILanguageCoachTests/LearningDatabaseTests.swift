@@ -556,4 +556,159 @@ final class LearningDatabaseTests: XCTestCase {
         let summary = try await db.sessionSummary(id: scenario.id)
         XCTAssertNotNil(summary)
     }
+
+    // MARK: - 按指纹删 / 改纠错（#595 单条记忆可控）
+
+    /// 造一条会话 + 若干纠错，返回库。
+    private func dbWithCorrections(_ corrections: [(original: String, corrected: String, explanation: String)]) async throws -> LearningDatabase {
+        let db = try makeDB()
+        let session = ChatSession()
+        try await db.createSession(session)
+        for item in corrections {
+            try await db.appendCorrection(
+                GrammarCorrection(original: item.original, corrected: item.corrected, explanation: item.explanation),
+                sessionID: session.id
+            )
+        }
+        return db
+    }
+
+    /// 忘记一处错 = 删掉它在库里的**全部**记录（界面显示的「×N」就是 N 条）。
+    func testDeleteCorrectionsRemovesEveryOccurrence() async throws {
+        let db = try await dbWithCorrections([
+            ("He go to school", "He goes to school", "三单"),
+            ("he go to school", "He goes to school", ""),
+            ("a apple", "an apple", "冠词"),
+        ])
+
+        let deleted = try await db.deleteCorrections(matchingOriginal: "He go to school", corrected: "He goes to school")
+        XCTAssertEqual(deleted, 2, "同一处错的两条记录必须一起删")
+
+        let remaining = try await db.correctionRecords(since: .distantPast)
+        XCTAssertEqual(remaining.count, 1, "删完只剩那一处不同的错")
+        XCTAssertEqual(remaining.first?.correction.original, "a apple", "不同指纹的记录一条都不许被带走")
+    }
+
+    /// 指纹口径与 `MemoryRetriever.matchKey` 一致：大小写 / 连续空白 / 标点都不算差异。
+    /// 界面把这三条显示成「同一处 ×3」，删除就必须命中三条。
+    func testDeleteCorrectionsFingerprintIgnoresCaseWhitespaceAndPunctuation() async throws {
+        let db = try await dbWithCorrections([
+            ("He go home.", "He goes home.", ""),
+            ("he  go home", "He goes home", ""),
+            ("HE GO HOME", "he goes home", ""),
+            ("She go home", "She goes home", "另一处"),
+        ])
+
+        let deleted = try await db.deleteCorrections(matchingOriginal: "he go home", corrected: "he goes home")
+        XCTAssertEqual(deleted, 3, "归一后同指纹的三条必须全中")
+
+        let remaining = try await db.correctionRecords(since: .distantPast)
+        XCTAssertEqual(remaining.count, 1)
+        XCTAssertEqual(remaining.first?.correction.original, "She go home")
+    }
+
+    /// 改正不同 = 不同的错：只删指定那一处，改正略不一样的记录必须留下。
+    func testDeleteCorrectionsDoesNotTouchDifferentCorrection() async throws {
+        let db = try await dbWithCorrections([
+            ("I have went there", "I went there", ""),
+            ("I have went there", "I have gone there", ""),
+        ])
+
+        let deleted = try await db.deleteCorrections(matchingOriginal: "I have went there", corrected: "I went there")
+        XCTAssertEqual(deleted, 1, "只有原句→改正都相同的才算同一处")
+
+        let remaining = try await db.correctionRecords(since: .distantPast)
+        XCTAssertEqual(remaining.count, 1)
+        XCTAssertEqual(remaining.first?.correction.corrected, "I have gone there")
+    }
+
+    /// 空原句 / 空改正没有教学信息：不许匹配任何东西，也不许误删。
+    func testDeleteCorrectionsReturnsZeroForEmptyInput() async throws {
+        let db = try await dbWithCorrections([("He go home", "He goes home", "")])
+
+        let emptyOriginal = try await db.deleteCorrections(matchingOriginal: "", corrected: "He goes home")
+        XCTAssertEqual(emptyOriginal, 0)
+        let emptyCorrected = try await db.deleteCorrections(matchingOriginal: "He go home", corrected: "  ")
+        XCTAssertEqual(emptyCorrected, 0)
+        let remainingCount = try await db.correctionRecords(since: .distantPast).count
+        XCTAssertEqual(remainingCount, 1, "空输入不许删掉任何东西")
+    }
+
+    /// 更新一处错：全部记录拿到同一份新文本，**原句与创建时间不动**。
+    func testUpdateCorrectionsRewritesEveryOccurrenceKeepingOriginalAndTimestamp() async throws {
+        let db = try await dbWithCorrections([
+            ("I have went to London", "I went to London", "past tense"),
+            ("i have went  to london", "I went to London", ""),
+            ("She go home", "She goes home", "三单"),
+        ])
+
+        let before = try await db.correctionRecords(since: .distantPast)
+        let targetBefore = before.filter { $0.correction.corrected == "I went to London" }
+        XCTAssertEqual(targetBefore.count, 2)
+        let timestampsBefore = targetBefore.map(\.createdAt).sorted()
+        let idsBefore = Set(targetBefore.map(\.correction.id))
+
+        let updated = try await db.updateCorrections(
+            matchingOriginal: "I have went to London",
+            corrected: "I went to London",
+            newCorrected: "I have been to London",
+            explanation: "去过某地要用 have been to"
+        )
+        XCTAssertEqual(updated, 2, "两条同指纹记录必须一起改")
+
+        let after = try await db.correctionRecords(since: .distantPast)
+        XCTAssertEqual(after.count, 3, "更新不是插入也不是删除，总数不变")
+        let targetAfter = after.filter { $0.correction.corrected == "I have been to London" }
+        XCTAssertEqual(targetAfter.count, 2)
+        // 原句是学员当时真实说出的话：一个字都不能改。
+        XCTAssertEqual(Set(targetAfter.map(\.correction.original)),
+                       ["I have went to London", "i have went  to london"],
+                       "原句必须原样保留（改了就是伪造历史）")
+        // 「什么时候犯的」也不是可编辑字段。
+        XCTAssertEqual(targetAfter.map(\.createdAt).sorted(), timestampsBefore, "created_at 不许被更新动")
+        // id 不变：错题本、复盘里指向这条记录的引用才不会断。
+        // ⚠️ 取 `correction.id`（库主键）而不是 `CorrectionRecord.id` ——
+        // 后者是读取时新生成的 UUID，两次读必然不同。
+        XCTAssertEqual(Set(targetAfter.map(\.correction.id)), idsBefore, "记录 id 必须保持稳定")
+        // 说明按新文本写入（含空说明的那条也被覆盖）。
+        XCTAssertTrue(targetAfter.allSatisfy { $0.correction.explanation == "去过某地要用 have been to" })
+        // 不同指纹的记录一条都不许被扫到。
+        XCTAssertEqual(after.filter { $0.correction.corrected == "She goes home" }.count, 1)
+    }
+
+    /// 没有匹配时更新返回 0，且库里什么都不能变。
+    func testUpdateCorrectionsReturnsZeroWhenNothingMatches() async throws {
+        let db = try await dbWithCorrections([("He go home", "He goes home", "三单")])
+
+        // 改正换成一个库里没有的指纹（原句相同、改正不同 = 另一处错）。
+        let updated = try await db.updateCorrections(
+            matchingOriginal: "He go home",
+            corrected: "He went home",
+            newCorrected: "He goes home",
+            explanation: ""
+        )
+        XCTAssertEqual(updated, 0, "指纹对不上就不改任何东西")
+
+        let remaining = try await db.correctionRecords(since: .distantPast)
+        XCTAssertEqual(remaining.first?.correction.corrected, "He goes home")
+    }
+
+    /// 改正为空 = 把这条错改成「没错」：那是删不是改，服务层必须挡住。
+    func testUpdateCorrectionsRejectsEmptyCorrected() async throws {
+        let db = try await dbWithCorrections([("He go home", "He goes home", "三单")])
+
+        do {
+            _ = try await db.updateCorrections(
+                matchingOriginal: "He go home",
+                corrected: "He goes home",
+                newCorrected: "   ",
+                explanation: ""
+            )
+            XCTFail("改正为空必须被挡住（那是删不是改）")
+        } catch {
+            XCTAssertEqual(error as? AppError, .database("改正后的句子不能为空。"))
+        }
+        let remaining = try await db.correctionRecords(since: .distantPast)
+        XCTAssertEqual(remaining.first?.correction.corrected, "He goes home", "被挡下的更新不许留下半截状态")
+    }
 }

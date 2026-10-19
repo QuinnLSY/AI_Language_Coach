@@ -308,4 +308,103 @@ final class MemoryRetrievalTests: XCTestCase {
         let sessions = await services.recentSessions(limit: 10)
         XCTAssertEqual(sessions.count, 1, "对话记录不在清除范围内")
     }
+
+    // MARK: - 单条记忆可控（#595：忘了一条 / 改了一条）
+
+    /// 造一个带两条「反复犯的错」的服务实例。
+    private func makeServicesWithErrors() async throws -> (CoachServices, LearningDatabase) {
+        let store = ConfigStore(
+            fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("memory-edit-\(UUID().uuidString).json")
+        )
+        let services = CoachServices(config: store, databasePath: ":memory:")
+        let opened = await services.learning
+        let database = try XCTUnwrap(opened)
+
+        let sessionID = UUID()
+        try await database.createSessionIfAbsent(ChatSession(id: sessionID, startedAt: Date()))
+        // 同一处错三条（归一后同指纹）+ 另一处错一条。
+        try await database.appendCorrection(
+            GrammarCorrection(original: "He go home.", corrected: "He goes home.", explanation: "三单"),
+            sessionID: sessionID
+        )
+        try await database.appendCorrection(
+            GrammarCorrection(original: "he go home", corrected: "He goes home", explanation: ""),
+            sessionID: sessionID
+        )
+        try await database.appendCorrection(
+            GrammarCorrection(original: "I have went there", corrected: "I went there", explanation: "过去式"),
+            sessionID: sessionID
+        )
+        return (services, database)
+    }
+
+    func testForgetRecurringErrorRemovesTheWholeBucket() async throws {
+        let (services, _) = try await makeServicesWithErrors()
+
+        let before = await services.learningMemory()
+        let target = try XCTUnwrap(before.recurringErrors.first { $0.count == 2 })
+
+        let deleted = try await services.forgetRecurringError(target)
+        XCTAssertEqual(deleted, 2, "三条同指纹记录必须一起忘掉")
+
+        let after = await services.learningMemory()
+        XCTAssertEqual(after.recurringErrors.count, 1, "只剩另一处不同的错")
+        XCTAssertEqual(after.recurringErrors.first?.corrected, "I went there")
+    }
+
+    func testEditRecurringErrorUpdatesTheWholeBucket() async throws {
+        let (services, database) = try await makeServicesWithErrors()
+
+        let before = await services.learningMemory()
+        let target = try XCTUnwrap(before.recurringErrors.first { $0.count == 2 })
+
+        let updated = try await services.editRecurringError(
+            target, corrected: "He went home", explanation: "昨天的事用过去式"
+        )
+        XCTAssertEqual(updated, 2)
+
+        let after = await services.learningMemory()
+        XCTAssertEqual(after.recurringErrors.count, 2, "改完仍是两处独立的错（原句不同）")
+        let edited = try XCTUnwrap(after.recurringErrors.first { $0.corrected == "He went home" })
+        XCTAssertEqual(edited.count, 2, "次数不丢：两条记录仍并成一处")
+        XCTAssertEqual(edited.explanation, "昨天的事用过去式")
+
+        // 原句在库里原样保留。
+        let originals = try await database.correctionRecords(since: .distantPast)
+            .filter { $0.correction.corrected == "He went home" }
+            .map(\.correction.original)
+        XCTAssertEqual(Set(originals), ["He go home.", "he go home"])
+    }
+
+    func testEditRecurringErrorRejectsEmptyCorrection() async throws {
+        let (services, _) = try await makeServicesWithErrors()
+        let before = await services.learningMemory()
+        let target = try XCTUnwrap(before.recurringErrors.first { $0.count == 2 })
+
+        do {
+            _ = try await services.editRecurringError(target, corrected: "  ", explanation: "")
+            XCTFail("改正为空必须被挡住（那是删不是改）")
+        } catch {
+            XCTAssertEqual(error as? AppError, .database("改正后的句子不能为空。"))
+        }
+        let after = await services.learningMemory()
+        XCTAssertEqual(after.recurringErrors.count, 2, "被挡下的编辑不许改变记忆")
+    }
+
+    func testForgetRecurringErrorOnNothingChangesNothing() async throws {
+        let (services, _) = try await makeServicesWithErrors()
+        let before = await services.learningMemory()
+        let target = try XCTUnwrap(before.recurringErrors.first { $0.count == 2 })
+
+        // 一条不在库里的「错」：0 条，且其余记忆原样。
+        let ghost = RecurringError(original: "She don't like it", corrected: "She doesn't like it",
+                                   explanation: "", count: 9, lastSeen: now)
+        let deleted = try await services.forgetRecurringError(ghost)
+        XCTAssertEqual(deleted, 0)
+
+        let after = await services.learningMemory()
+        XCTAssertEqual(after.recurringErrors.count, before.recurringErrors.count)
+        XCTAssertEqual(after.recurringErrors.first?.count, target.count)
+    }
 }

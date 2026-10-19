@@ -151,7 +151,9 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
         urlRequest.httpBody = try Self.makeEncoder().encode(
             Self.chatBody(
                 request: request, config: config, stream: false,
-                model: intent.model, inlineImages: declaredVision
+                // 这份 Intent 由 `RemoteCommon.beginBillableCall` 产出，恒定是云端能力
+                // 且模型非空（拿不到模型它就直接抛错了）；`?? ""` 只为抹掉可选性。
+                model: intent.model ?? "", inlineImages: declaredVision
             )
         )
         let data: Data
@@ -211,7 +213,7 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
                     urlRequest.httpBody = try Self.makeEncoder().encode(
                         Self.chatBody(
                             request: request, config: config, stream: true,
-                            model: started.model, inlineImages: self.declaredVision
+                            model: started.model ?? "", inlineImages: self.declaredVision
                         )
                     )
 

@@ -41,6 +41,9 @@ public actor VoiceService {
 
     private let recorder = MicrophoneRecorder()
     private let playback = AudioPlayback()
+    /// 权限探针（#596-A）：测试注入 stub 验证「被拒 → 引导文案」，
+    /// 真机上就是 `MicrophoneRecorder`（弹系统授权框的那个）。
+    private let permissions: MicrophonePermissionChecking
 
     public private(set) var isRecording = false
     public private(set) var isTranscribing = false
@@ -88,21 +91,33 @@ public actor VoiceService {
     /// （FIFO 的账目从此对不上，淘汰时会错杀）。所以同键只跑一趟，后来者合流。
     private var synthInflight: [String: Task<Data, Error>] = [:]
 
-    public init(asr: ASRManager = ASRManager(), tts: TTSManager = TTSManager()) {
+    public init(
+        asr: ASRManager = ASRManager(),
+        tts: TTSManager = TTSManager(),
+        permissions: MicrophonePermissionChecking = MicrophoneRecorder()
+    ) {
         self.asr = asr
         self.tts = tts
+        self.permissions = permissions
     }
 
     // MARK: - 识别（说）
 
+    /// 权限被拒时展示的引导文案（#596-A）。
+    ///
+    /// 提成常量是为了让测试**逐字**钉住它 —— 这条提示是用户被拒后唯一能看到的出路，
+    /// 改坏了（比如少了「隐私与安全性」）没有任何自动检查会发现。
+    public nonisolated static let permissionDeniedMessage =
+        "没有麦克风权限，请在「系统设置 → 隐私与安全性 → 麦克风」中开启"
+
     /// 麦克风权限（首次调用触发系统授权）。
     public func requestMicrophonePermission() async -> Bool {
-        await recorder.requestPermission()
+        await permissions.requestPermission()
     }
 
     public func startRecording() async {
         guard await requestMicrophonePermission() else {
-            lastError = "没有麦克风权限，请在「系统设置 → 隐私与安全性 → 麦克风」中开启"
+            lastError = Self.permissionDeniedMessage
             return
         }
         do {

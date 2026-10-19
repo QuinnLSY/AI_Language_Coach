@@ -758,6 +758,37 @@ public actor CoachServices {
         return try await learning.clearLearningMemory()
     }
 
+    /// 忘记「同一处反复犯的错」：按指纹删掉它在库里的**全部**记录，返回删掉的条数。
+    ///
+    /// 与整库清除不同，这里**不做整目录留底** —— 单条删除是学员对着具体某一条
+    /// 亲手点的，每删一次就打包一份完整备份只会把备份目录堆成垃圾；
+    /// 界面那边有二次确认兜底。出错原样上抛（**绝不 `try?`**），
+    /// 由 AppState 落成学员可见的提示。
+    @discardableResult
+    public func forgetRecurringError(_ error: RecurringError) async throws -> Int {
+        guard let learning else { throw AppError.database("学习库尚未就绪") }
+        return try await learning.deleteCorrections(matchingOriginal: error.original, corrected: error.corrected)
+    }
+
+    /// 修改「同一处反复犯的错」的改正与说明，返回改掉的条数。
+    ///
+    /// **原句不可改**（学员当时真实说出的话，改了就是伪造历史），可改的只有
+    /// 老师给的改正与解释 —— 「老师这次改错了」是学员修记忆的唯一入口。
+    @discardableResult
+    public func editRecurringError(
+        _ error: RecurringError,
+        corrected: String,
+        explanation: String
+    ) async throws -> Int {
+        guard let learning else { throw AppError.database("学习库尚未就绪") }
+        return try await learning.updateCorrections(
+            matchingOriginal: error.original,
+            corrected: error.corrected,
+            newCorrected: corrected,
+            explanation: explanation
+        )
+    }
+
     /// 把会话记录折成记忆检索要的事实：纠错条数取会话自带的纠错，话题取情景标题。
     ///
     /// **没绑情景的普通练习不编话题** —— 拿模式名或时间拼一个，等于让老师「以为」
@@ -3041,6 +3072,18 @@ public actor CoachServices {
 
     /// 本轮启动应用的备份恢复说明（nil = 没有）。
     public var restoreNote: String? { pendingRestoreNote }
+
+    // MARK: - 天气预报（#604）
+
+    /// 今日降水结论（真实天气预报：IP 定位 → Open-Meteo）。取不到 = nil。
+    ///
+    /// 这里返回的是 **应用层自己的答案**（今天有没有降水、是雨还是雪），
+    /// 不是 `ForestWeather` 那种「画面档位」—— 应用层不认识插画有几档，
+    /// 换算留给 AppUI（`AppState.applyWeatherForecast`）。跨界偷渡类型只会让
+    /// 「加一档天气」变成改两次 AIServices。
+    public func todayPrecipitation() async -> WeatherForecast.Precipitation? {
+        await ForestWeatherService().todayPrecipitation()
+    }
 
     // MARK: - 云端调用审计（费用护栏留痕）
 

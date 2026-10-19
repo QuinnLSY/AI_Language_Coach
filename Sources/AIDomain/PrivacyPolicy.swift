@@ -89,24 +89,77 @@ public enum PrivacyPolicy {
         }
     }
 
+    /// 一条**公共服务**的外发（#604 天气预报）。
+    ///
+    /// 为什么不塞进 `OutboundFlow`：那个结构的 `kind` 是 `AIProviderKind`，
+    /// 而公共服务既没有供应商也没有模型 —— 硬塞就得假造一个「 Provider」出来，
+    /// 披露列表里于是出现一行没有供应商、没有模型的「云端能力」。
+    /// 用户要看的是「谁在收走我的什么」，不是一个结构上的将就。
+    public struct PublicServiceFlow: Sendable, Equatable, Identifiable {
+        public let service: PublicService
+        /// 这一路会送出什么（给用户看的短句：说什么，不说多少字节）。
+        public let outboundNote: String
+
+        public var id: String { service.rawValue }
+        public var host: String { service.host }
+
+        public init(service: PublicService, outboundNote: String) {
+            self.service = service
+            self.outboundNote = outboundNote
+        }
+    }
+
+    /// 当前会联系哪些公共服务。
+    ///
+    /// 与云端能力同一把尺 —— **只在真的会发请求时才列出来**：
+    /// 「跟随天气」关着时一次请求都不发出去，披露里就不该出现 `ipwho.is`；
+    /// 否则用户看到「正在联系第三方」，而开关明明是关着的，那比不披露更糟。
+    public static func publicServiceFlows(for configuration: AppConfiguration) -> [PublicServiceFlow] {
+        guard configuration.product.forestFollowsWeather else { return [] }
+        return PublicService.allCases.map { service in
+            PublicServiceFlow(service: service, outboundNote: outboundNote(for: service))
+        }
+    }
+
+    /// 这项服务会收到什么。
+    ///
+    /// ⚠️ 每个 case 都得写满 —— `PublicService.allCases` 会让未来新增的服务
+    /// 自动出现在披露里，这里漏一个就不是「没披露」，是**替这笔外发说谎**。
+    private static func outboundNote(for service: PublicService) -> String {
+        switch service {
+        case .ipGeolocation:
+            "你的公网出口 IP（用于推断城市级位置）"
+        case .weatherForecast:
+            "两位小数的近似坐标（约 1 公里精度，用于取当地天气）"
+        }
+    }
+
     public struct Disclosure: Sendable, Equatable {
         public let flows: [OutboundFlow]
+        /// 公共服务（天气预报）外发，与云端能力分开列——两者的对象完全不同。
+        public let publicServiceFlows: [PublicServiceFlow]
 
-        public init(flows: [OutboundFlow]) { self.flows = flows }
+        public init(flows: [OutboundFlow], publicServiceFlows: [PublicServiceFlow] = []) {
+            self.flows = flows
+            self.publicServiceFlows = publicServiceFlows
+        }
 
-        /// 没有任何外发 = 纯本地。
-        public var isLocalOnly: Bool { flows.isEmpty }
+        /// 没有任何外发 = 纯本地。**两类都要空**才算。
+        public var isLocalOnly: Bool { flows.isEmpty && publicServiceFlows.isEmpty }
 
         /// 有外发就必须让用户看见（§33：must be clearly disclosed）。
-        public var requiresDisclosure: Bool { !flows.isEmpty }
+        public var requiresDisclosure: Bool { !isLocalOnly }
 
         public var hosts: [String] {
-            Array(Set(flows.map(\.host))).sorted()
+            Array(Set(flows.map(\.host) + publicServiceFlows.map(\.host))).sorted()
         }
 
         public var summary: String {
-            if isLocalOnly { return "全部数据仅在本机处理" }
-            return "\(flows.count) 项能力正在使用云端服务"
+            guard !isLocalOnly else { return "全部数据仅在本机处理" }
+            var parts: [String] = []
+            if !flows.isEmpty { parts.append("\(flows.count) 项能力正在使用云端服务") }
+            if !publicServiceFlows.isEmpty { parts.append("\(publicServiceFlows.count) 项公共服务") }
+            return parts.joined(separator: " · ")
         }
     }
 
@@ -139,7 +192,7 @@ public enum PrivacyPolicy {
                 categories: outboundCategories(for: kind)
             ))
         }
-        return Disclosure(flows: flows)
+        return Disclosure(flows: flows, publicServiceFlows: publicServiceFlows(for: configuration))
     }
 }
 

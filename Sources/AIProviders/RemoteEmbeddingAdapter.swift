@@ -119,7 +119,7 @@ public final class RemoteEmbeddingAdapter: EmbeddingProvider, @unchecked Sendabl
         urlRequest.httpBody = try RemoteCommon.makeEncoder().encode(
             EmbedRequest(
                 input: texts,
-                model: intent.model,
+                model: intent.model ?? "",
                 dimensions: config.dimensions
             )
         )

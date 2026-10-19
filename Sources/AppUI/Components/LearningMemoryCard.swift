@@ -18,6 +18,10 @@ public struct LearningMemoryCard: View {
     private let onClear: () async -> Void
     /// 就这些错练一遍（nil = 不显示入口，比如正在练的时候）。
     private let onStartDrill: (() -> Void)?
+    /// 忘记一处反复犯的错（删掉它在库里的全部记录）。
+    private let onForget: (RecurringError) async -> Void
+    /// 修改一处反复犯的错（改正 / 说明；原句不可改）。
+    private let onEdit: (RecurringError, String, String) async -> Void
 
     /// 二次确认：第一次点只是把按钮变成「确认清除」。
     ///
@@ -28,11 +32,15 @@ public struct LearningMemoryCard: View {
         memory: LearningMemory,
         notice: String? = nil,
         onStartDrill: (() -> Void)? = nil,
+        onForget: @escaping (RecurringError) async -> Void = { _ in },
+        onEdit: @escaping (RecurringError, String, String) async -> Void = { _, _, _ in },
         onClear: @escaping () async -> Void
     ) {
         self.memory = memory
         self.notice = notice
         self.onStartDrill = onStartDrill
+        self.onForget = onForget
+        self.onEdit = onEdit
         self.onClear = onClear
     }
 
@@ -108,7 +116,11 @@ public struct LearningMemoryCard: View {
                 } content: {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(memory.recurringErrors) { error in
-                            recurringErrorRow(error)
+                            RecurringErrorRow(
+                                error: error,
+                                onForget: onForget,
+                                onEdit: onEdit
+                            )
                         }
                     }
                 }
@@ -155,51 +167,270 @@ public struct LearningMemoryCard: View {
         }
     }
 
-    /// 一条「反复犯的错」：**每条自成一个方框**。
+    /// 一条「反复犯的错」+ 它自己的两个动作（改 / 忘）。
     ///
-    /// 为什么要有框：错条本身是两行（原句 / 纠正 + 说明），几条挨在一起时
+    /// **每条自成一个方框**：错条本身是两行（原句 / 纠正 + 说明），几条挨在一起时
     /// 「哪句说明属于哪条错」要靠猜——用户实测反馈「全都挤在一起很难区分」。
     /// 框的下方沿用卡片自己的 `surfaceAlt`，只做一层浅浅的层次，不抢正文。
-    private func recurringErrorRow(_ error: RecurringError) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(error.original)
-                    .strikethrough()
-                    .foregroundStyle(theme.secondaryText)
-                Image(systemName: "arrow.right")
-                    .appFont(9)
-                    .foregroundStyle(theme.accent)
-                Text(error.corrected)
-                    .foregroundStyle(theme.primaryText)
-                if error.count > 1 {
-                    Text("×\(error.count)")
-                        .appFont(10, weight: .semibold, design: .rounded)
-                        .foregroundStyle(theme.accentAlt)
-                }
-                Spacer(minLength: 0)
-            }
-            .appFont(12, design: .rounded)
-            // 长句必须能折行：原来没有 `fixedSize` 时，长原句会被压成一行截断。
-            .fixedSize(horizontal: false, vertical: true)
+    ///
+    /// 为什么单条也能删 / 改：记忆对学员可见只是第一步，「老师老揪着这一条」
+    /// 的委屈得有个出口 —— 删掉（老师别再提）或改掉（老师改错了）。
+    /// 长期记忆从黑盒变成学员能自己修的资产。
+    ///
+    /// 三个内部状态（编辑中 / 待确认忘记 / 两份草稿）**必须住在这一层**：
+    /// 放父视图按 index 管，就会出现「展开 A 的编辑框时 B 的也跟着展开」。
+    private struct RecurringErrorRow: View {
+        @Environment(\.forestTheme) private var theme
 
-            if !error.explanation.isEmpty {
-                Text(error.explanation)
-                    .appFont(11, design: .rounded)
-                    .foregroundStyle(theme.secondaryText)
+        let error: RecurringError
+        let onForget: (RecurringError) async -> Void
+        let onEdit: (RecurringError, String, String) async -> Void
+
+        @State private var editing = false
+        @State private var confirmingForget = false
+        @State private var draftCorrected = ""
+        @State private var draftExplanation = ""
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 6) {
+                if editing {
+                    editForm
+                } else {
+                    displayLine
+                }
+                if confirmingForget {
+                    forgetConfirm
+                }
+            }
+            .appPadding(.horizontal, 10)
+            .appPadding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(theme.surfaceAlt)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(theme.divider, lineWidth: 1)
+            )
+        }
+
+        // MARK: - 展示态
+
+        private var displayLine: some View {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(error.original)
+                            .strikethrough()
+                            .foregroundStyle(theme.secondaryText)
+                        Image(systemName: "arrow.right")
+                            .appFont(9)
+                            .foregroundStyle(theme.accent)
+                        Text(error.corrected)
+                            .foregroundStyle(theme.primaryText)
+                        if error.count > 1 {
+                            Text("×\(error.count)")
+                                .appFont(10, weight: .semibold, design: .rounded)
+                                .foregroundStyle(theme.accentAlt)
+                        }
+                    }
+                    .appFont(12, design: .rounded)
+                    // 长句必须能折行：原来没有 `fixedSize` 时，长原句会被压成一行截断。
                     .fixedSize(horizontal: false, vertical: true)
+
+                    if !error.explanation.isEmpty {
+                        Text(error.explanation)
+                            .appFont(11, design: .rounded)
+                            .foregroundStyle(theme.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 4)
+                actionButtons
             }
         }
-        .padding(.horizontal, 10)
-        .appPadding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(theme.surfaceAlt)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .strokeBorder(theme.divider, lineWidth: 1)
-        )
+
+        /// 两个小按钮固定在行的右上角，不参与正文折行 ——
+        /// 混在文字流里的话，长句一换行按钮就被挤到不知哪儿去了。
+        private var actionButtons: some View {
+            HStack(spacing: 4) {
+                Button {
+                    // 每次展开都从当前文本重新取草稿：记忆可能在收起期间被刷新过。
+                    draftCorrected = error.corrected
+                    draftExplanation = error.explanation
+                    confirmingForget = false
+                    editing = true
+                } label: {
+                    Image(systemName: "pencil")
+                        .appFont(11)
+                        .foregroundStyle(theme.secondaryText)
+                        .frame(width: 26, height: 26)
+                        .background(Capsule().fill(theme.surface))
+                        .overlay(Capsule().strokeBorder(theme.divider, lineWidth: 1))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.appPressable)
+                .help("修改这一处的改正与说明（原句是当时真实说出的话，不能改）")
+
+                Button {
+                    confirmingForget = true
+                } label: {
+                    Image(systemName: confirmingForget ? "trash.fill" : "trash")
+                        .appFont(11)
+                        .foregroundStyle(confirmingForget ? .white : theme.danger)
+                        .frame(width: 26, height: 26)
+                        .background(Capsule().fill(confirmingForget ? theme.danger : theme.danger.opacity(0.12)))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.appPressable)
+                .help(confirmingForget ? "再点一次确认忘记" : "忘记这一处：删掉它的全部记录，老师以后不再提")
+            }
+        }
+
+        // MARK: - 编辑态
+
+        private var editForm: some View {
+            VStack(alignment: .leading, spacing: 8) {
+                // 原句只读：学员当时真实说出的话，改它等于伪造历史。想抹掉只能删。
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    fieldLabel("原句")
+                    Text(error.original)
+                        .strikethrough()
+                        .appFont(12, design: .rounded)
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+
+                labeledField("改正", placeholder: "改正后的句子", text: $draftCorrected)
+                labeledField("说明", placeholder: "为什么这样改（可留空）", text: $draftExplanation)
+
+                Text("这一处共 \(error.count) 条记录，会一起更新。")
+                    .appFont(10, design: .rounded)
+                    .foregroundStyle(theme.secondaryText)
+
+                HStack(spacing: 8) {
+                    Spacer(minLength: 0)
+                    Button {
+                        editing = false
+                    } label: {
+                        formButtonLabel("取消", systemImage: "xmark")
+                    }
+                    .buttonStyle(.appPressable)
+                    .help("不改了，退回原来的样子")
+
+                    Button {
+                        editing = false
+                        Task { await onEdit(error, draftCorrected, draftExplanation) }
+                    } label: {
+                        formButtonLabel("保存", systemImage: "checkmark", filled: true)
+                    }
+                    .buttonStyle(.appPressable)
+                    .disabled(draftCorrected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .opacity(draftCorrected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
+                    .help("把这一处全部记录都改成新文本")
+                }
+            }
+        }
+
+        // MARK: - 忘记前的确认
+
+        /// 二级确认 + **自带取消**（#178 的教训：只有确认没有退路时，
+        /// 人心虚只能硬着头皮点下去）。警示文案里带上是几条记录 ——
+        /// 「×3」意味着这一删是三份历史，不是一条。
+        private var forgetConfirm: some View {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .appFont(11)
+                    .foregroundStyle(theme.danger)
+                Text("忘记后老师不会再提这一处（\(error.count) 条记录），无法恢复。")
+                    .appFont(11, design: .rounded)
+                    .foregroundStyle(theme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Button {
+                    confirmingForget = false
+                } label: {
+                    formButtonLabel("取消", systemImage: "xmark")
+                }
+                .buttonStyle(.appPressable)
+                .help("什么都不删，退回原来的样子")
+                Button {
+                    confirmingForget = false
+                    Task { await onForget(error) }
+                } label: {
+                    formButtonLabel("确认忘记", systemImage: "trash.fill", filled: true, danger: true)
+                }
+                .buttonStyle(.appPressable)
+                .help("删掉这一处的全部记录")
+            }
+            .appPadding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(theme.danger.opacity(0.10))
+            )
+        }
+
+        // MARK: - 小件
+
+        private func fieldLabel(_ text: String) -> some View {
+            Text(text)
+                .appFont(10, weight: .semibold, design: .rounded)
+                .foregroundStyle(theme.secondaryText)
+                .frame(width: 28, alignment: .leading)
+        }
+
+        private func labeledField(_ label: String, placeholder: String, text: Binding<String>) -> some View {
+            HStack(alignment: .center, spacing: 6) {
+                fieldLabel(label)
+                TextField(placeholder, text: text)
+                    .textFieldStyle(.plain)
+                    .appFont(12, design: .rounded)
+                    .foregroundStyle(theme.primaryText)
+                    .padding(.horizontal, 8)
+                    .frame(height: 26)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(theme.surface)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .strokeBorder(theme.divider, lineWidth: 1)
+                    )
+                    .onSubmit {
+                        if !text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            editing = false
+                            Task { await onEdit(error, draftCorrected, draftExplanation) }
+                        }
+                    }
+            }
+        }
+
+        private func formButtonLabel(
+            _ title: String,
+            systemImage: String,
+            filled: Bool = false,
+            danger: Bool = false
+        ) -> some View {
+            let tint = danger ? theme.danger : theme.accent
+            return HStack(spacing: 4) {
+                Image(systemName: systemImage)
+                Text(title)
+            }
+            .appFont(11, weight: .semibold, design: .rounded)
+            .foregroundStyle(filled ? .white : theme.primaryText)
+            .padding(.horizontal, 10)
+            .frame(height: 24)
+            .background(
+                Capsule().fill(filled ? tint : theme.surface)
+            )
+            .overlay(
+                Capsule().strokeBorder(filled ? tint : theme.divider, lineWidth: 1)
+            )
+            .contentShape(Capsule())
+        }
     }
 
     private var emptyState: some View {

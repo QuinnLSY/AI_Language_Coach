@@ -119,7 +119,13 @@ public struct RecordsView: View {
                         LearningMemoryCard(
                             memory: state.learningMemory,
                             notice: state.learningMemoryNotice,
-                            onStartDrill: state.errorDrill == nil ? { Task { await state.startErrorDrill() } } : nil
+                            onStartDrill: state.errorDrill == nil ? { Task { await state.startErrorDrill() } } : nil,
+                            onForget: { error in
+                                await state.forgetRecurringError(error)
+                            },
+                            onEdit: { error, corrected, explanation in
+                                await state.editRecurringError(error, corrected: corrected, explanation: explanation)
+                            }
                         ) {
                             await state.clearLearningMemory()
                         }

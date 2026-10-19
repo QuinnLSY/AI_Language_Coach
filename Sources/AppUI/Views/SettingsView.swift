@@ -385,7 +385,26 @@ public struct SettingsView: View {
                 }
                 .toggleStyle(.switch)
 
-                // 跟随天气（#418-A）：按日期定晴 / 多云 / 雨（同一天不会变卦）。
+                // 手动选季（#602）：关掉跟随后在这里挑（开着 = 按月自动派生，挑了也不算）。
+                VStack(alignment: .leading, spacing: 6) {
+                    Picker("", selection: Binding(
+                        get: { state.forestSeasonOverride ?? .spring },
+                        set: { season in Task { await state.setForestSeasonOverride(season) } }
+                    )) {
+                        ForEach(ForestSeason.allCases) { season in
+                            Text(season.displayName).tag(season)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .disabled(state.forestFollowsSeason)
+
+                    Text(seasonOverrideHint)
+                        .appFont(11, design: .rounded)
+                        .foregroundStyle(theme.secondaryText)
+                }
+
+                // 跟随天气（#418-A）：按日期定晴 / 下雨 / 下雪（同一天不会变卦）。
                 Toggle(isOn: Binding(
                     get: { state.forestFollowsWeather },
                     set: { on in Task { await state.setForestFollowsWeather(on) } }
@@ -394,6 +413,43 @@ public struct SettingsView: View {
                         Text("跟随天气")
                             .appFont(13, design: .rounded)
                         Text(followWeatherHint)
+                            .appFont(11, design: .rounded)
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                }
+                .toggleStyle(.switch)
+
+                // 手动选天气（#602）：只有下雨 / 下雪两个选项 ——
+                // 「晴」不是手动档，它是「跟随天气开着且今天无降水」或整条关掉时的样子。
+                VStack(alignment: .leading, spacing: 6) {
+                    Picker("", selection: Binding(
+                        get: { state.forestWeatherOverride ?? .rain },
+                        set: { weather in Task { await state.setForestWeatherOverride(weather) } }
+                    )) {
+                        ForEach([ForestWeather.rain, .snow]) { weather in
+                            Text(weather.displayName).tag(weather)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .disabled(state.forestFollowsWeather)
+
+                    Text(weatherOverrideHint)
+                        .appFont(11, design: .rounded)
+                        .foregroundStyle(theme.secondaryText)
+                }
+
+                Divider().overlay(theme.divider)
+
+                // 跟随学习节奏（#600）：连胜一周且今日达标 → 林子进丰季（叶色更盛、兜底天气偏晴）。
+                Toggle(isOn: Binding(
+                    get: { state.forestFollowsMomentum },
+                    set: { on in Task { await state.setForestFollowsMomentum(on) } }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("跟随学习节奏")
+                            .appFont(13, design: .rounded)
+                        Text(followMomentumHint)
                             .appFont(11, design: .rounded)
                             .foregroundStyle(theme.secondaryText)
                     }
@@ -417,11 +473,69 @@ public struct SettingsView: View {
         return "林子正处在\(season)季，叶色与落花会跟着月份走。"
     }
 
-    /// 「跟随天气」的说明（#418-A）。
+    /// 「跟随天气」的说明（#418-A 按日期推算；#604 起优先真实预报）。
+    ///
+    /// ⚠️ 关着时也要交代「开着会怎样」：这个开关一合上应用就开始**联网**，
+    /// 而用户在 toggle 那一刻是看不见任何别的变化的 —— 不写出来，
+    /// 「连线问天气」就成了一项用户不知道自己同意了的事。
     private var followWeatherHint: String {
-        if !state.forestFollowsWeather { return "关着时，天上永远是老样子。" }
-        let weather = ForestAtmosphere.weather(dayOfYear: state.clockDayOfYear).displayName
-        return "今天是\(weather)，云量和雨丝会跟着日子走（一天之内不变卦）。"
+        guard state.forestFollowsWeather else {
+            return "关着时，天上永远是老样子；开着会联网取你所在城市的天气（只发城市级位置，不含对话内容）。"
+        }
+        // 真实预报拿到了 → 说明它来自真天气；没拿到（断网 / 服务没回应）→
+        // 老实交代在按日期推算。谎称「当地下雨」是最不该有的那类错。
+        if let forecast = state.weatherForecast {
+            switch forecast {
+            case .clear: return "当地今天晴（真实天气预报），天上没有降水。"
+            case .rain: return "当地今天下雨（真实天气预报），云更密、有雨丝。"
+            case .snow: return "当地今天下雪（真实天气预报），云更密、有雪片。"
+            }
+        }
+        switch ForestAtmosphere.weather(dayOfYear: state.clockDayOfYear) {
+        case .clear: return "今天晴天（没取到预报，按日期推算）。"
+        case .rain: return "今天下雨（没取到预报，按日期推算），云更密、有雨丝。"
+        case .snow: return "今天下雪（没取到预报，按日期推算），云更密、有雪片。"
+        }
+    }
+
+    /// 「手动选季」的说明（#602；抽成纯属性便于钉住措辞）。
+    private var seasonOverrideHint: String {
+        if state.forestFollowsSeason {
+            return "正在跟随真实月份，手动挑选已锁定。"
+        }
+        if let season = state.forestSeasonOverride {
+            return "已手动选定\(season.displayName)季，叶色与落花一直按这个季节走。"
+        }
+        return "关掉跟随后，可在这里手动挑一季。"
+    }
+
+    /// 「手动选天气」的说明（#602）。手动只有下雨 / 下雪两档。
+    private var weatherOverrideHint: String {
+        if state.forestFollowsWeather {
+            return "正在跟随真实天气，手动挑选已锁定。"
+        }
+        if let weather = state.forestWeatherOverride {
+            return "已手动选定\(weather == .rain ? "下雨" : "下雪")，云更密、天上一直有\(weather == .rain ? "雨丝" : "雪片")。"
+        }
+        return "关掉跟随后，可在这里手动挑下雨或下雪。"
+    }
+
+    /// 「跟随学习节奏」的说明（#600；抽成纯属性便于钉住措辞）。
+    ///
+    /// ⚠️ 关着时也要交代「开着会怎样」：这个开关一合上，森林就开始**读学习记录**。
+    /// 它不外发任何数据（节奏全部本机派生），但用户该知道自己同意了这件事。
+    private var followMomentumHint: String {
+        guard state.forestFollowsMomentum else {
+            return "关着时，森林不读你的学习数据，林子长什么样只由上面几项决定。"
+        }
+        switch state.forestMomentum {
+        case .flourishing:
+            return "连续学满一周且今日目标已达成，林子正进入丰季：叶色更盛，没取到天气预报时也更容易是晴天。"
+        case .growing:
+            return "今天有在学（或连胜还没断），林子跟着长。连胜满一周并达成今日目标，就会进入丰季。"
+        case .resting, nil:
+            return "今天还没练。练起来、连胜满一周并达成今日目标，林子就会进入丰季。"
+        }
     }
 
     // MARK: - 动画效果（应用内动效开关，三态）
@@ -1113,7 +1227,9 @@ public struct SettingsView: View {
                                 .appFont(10, design: .monospaced)
                                 .foregroundStyle(theme.secondaryText)
                                 .lineLimit(1)
-                            Text(record.model.isEmpty ? "—" : record.model)
+                            // 公共服务（天气预报）没有模型 → 显示服务名；
+                            // 显示一串「—」等于让用户猜这条到底是什么请求。
+                            Text(record.targetName)
                                 .appFont(10, design: .monospaced)
                                 .foregroundStyle(theme.primaryText)
                                 .lineLimit(1)
@@ -2089,8 +2205,34 @@ public struct SettingsView: View {
                     }
                 }
 
+                // 公共服务（#604 天气预报）与云端能力**分开一组**：它们没有供应商、
+                // 没有模型，混在上一段里会让「谁在收走我的数据」这条信息变模糊。
+                if !disclosure.publicServiceFlows.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(disclosure.publicServiceFlows) { flow in
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Text(flow.service.displayName)
+                                    .appFont(11, weight: .semibold, design: .rounded)
+                                    .foregroundStyle(theme.accent)
+                                Text(flow.host)
+                                    .appFont(11, design: .monospaced)
+                                    .foregroundStyle(theme.secondaryText)
+                                Spacer(minLength: 4)
+                                Text(flow.outboundNote)
+                                    .appFont(10, design: .rounded)
+                                    .foregroundStyle(theme.secondaryText)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        Text("在设置里关掉「跟随天气」，这两项就不再被联系。")
+                            .appFont(10, design: .rounded)
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                }
+
                 Divider().overlay(theme.divider)
 
+                // 数据存放位置
                 Text("数据存放位置")
                     .appFont(12, weight: .semibold, design: .rounded)
                     .foregroundStyle(theme.primaryText)

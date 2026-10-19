@@ -93,7 +93,7 @@ public final class RemoteASRAdapter: ASRProvider, @unchecked Sendable {
             base: resolved.base,
             operation: .transcriptions
         )
-        let model = intent.model
+        let model = intent.model ?? ""
         let wav = WhisperASRAdapter.wavData(samples: request.audioSamples, sampleRate: wireSampleRate)
 
         // 边界**每请求随机**：常量会被端点预知（见 `RemoteCommon.makeMultipartBoundary`）。

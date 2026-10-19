@@ -1018,19 +1018,41 @@ public final class ChatService {
         request.streaming = false
 
         let tokensBefore = estimatedContextTokens
-        guard let response = try? await services.llm.generate(request) else {
+        let response: LLMResponse
+        do {
+            response = try await services.llm.generate(request)
+        } catch {
+            // 与主路径 ④ 同构：失败必须说清「哪个模型、什么原因」。
+            // 以前这里是 `try?` 静默吞掉 —— 开场白位置永远空白，
+            // 用户只会以为应用坏了，日志里却连一条线索都没有。
+            if !(error is CancellationError), errorMessage == nil {
+                errorMessage = ModelDiagnostics.describe(
+                    providerName: context.providerName, model: context.model, error: error
+                )
+            }
             engine.send(.generationFailed)
             return
         }
         let text = Self.stripThinking(response.text).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !Task.isCancelled else {
-            if !Task.isCancelled { engine.send(.generationFailed) }
+            // 空正文与主路径 ⑤ 同构：多半是推理模型把输出预算全用在思考上了。
+            if !Task.isCancelled {
+                errorMessage = ModelDiagnostics.label(providerName: context.providerName, model: context.model)
+                    + " 这次没有给出开场招呼。请再点一次对话，或换个模型试试。"
+                engine.send(.generationFailed)
+            }
             return
         }
         // 开场轮没有新的学员发言，但恢复的会话里上一位学员消息还在 ——
         // 拿它当比对基准，老师若把旧纠错原样吐进开场白，同样在这里被丢弃。
         let parsed = Self.extractCorrections(text, learnerText: latestUserMessage())
         guard !parsed.cleanText.isEmpty else {
+            // 正文剥完纠错块后空了（模型只吐了 [[FIX]] 行）——同样给可读提示，
+            // 别让开场白位置无声无息地空白着。
+            if !Task.isCancelled {
+                errorMessage = ModelDiagnostics.label(providerName: context.providerName, model: context.model)
+                    + " 这次没有给出开场招呼。请再点一次对话，或换个模型试试。"
+            }
             engine.send(.generationFailed)
             return
         }

@@ -20,6 +20,8 @@ public actor RemoteCallAudit {
     private var stamps: [RemoteCallPolicy.Stamp] = []
     private var billableTotal = 0
     private var discoveryTotal = 0
+    /// 公共服务（天气预报）次数：不计费、也不是模型列表探测，单独一档（见 `RemoteCallSummary`）。
+    private var publicServiceTotal = 0
     private var blockedTotal = 0
 
     /// 内存里保留的记录条数（UI 只展示最近若干条）。
@@ -153,14 +155,20 @@ public actor RemoteCallAudit {
         )
         if case .denied = decision {
             blockedTotal += 1
+            // 被拦的只可能是云端能力（公共服务不计费，走不到这道模型准入），
+            // 但留痕仍统一按 `subject` 存 —— 记录格式只有一种，读它的人才不用判两类。
+            var subject = intent.subject
+            if case .provider(let kind, let providerID, let model) = subject,
+               model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                subject = .provider(kind, providerID: providerID, model: "(未选择)")
+            }
             append(RemoteCallRecord(
-                at: now, kind: intent.kind, providerID: intent.providerID,
-                model: intent.model.isEmpty ? "(未选择)" : intent.model,
+                at: now, subject: subject,
                 host: intent.host, endpoint: intent.endpoint, operation: intent.operation,
                 outcome: .blocked, detail: "费用护栏拦截"
             ))
             AppLog.warning(
-                "云端调用被拦截：\(intent.operation.rawValue) · \(intent.providerID)",
+                "云端调用被拦截：\(intent.operation.rawValue) · \(intent.providerID ?? intent.service?.rawValue ?? "公共服务")",
                 category: "remote-call"
             )
         }
@@ -182,6 +190,9 @@ public actor RemoteCallAudit {
     ) {
         if outcome == .blocked {
             blockedTotal += 1
+        } else if intent.subject.service != nil {
+            // 公共服务（#604 天气）：免密钥、无模型 —— 既不计费，也不是模型列表探测。
+            publicServiceTotal += 1
         } else if !intent.billable {
             // 免费调用（Provider 声明 billable=false）：照常留痕，但不进计费统计——
             // 「计费 N 次」必须始终等于用户真正花过钱的次数。
@@ -192,12 +203,21 @@ public actor RemoteCallAudit {
                 discoveryTotal += 1
             default:
                 billableTotal += 1
-                stamps.append(RemoteCallPolicy.Stamp(at: now, model: intent.model, operation: intent.operation))
-                pruneStamps(now: now)
             }
         }
+        // ⚠️ 频率护栏（`decide`）读的是 `stamps`，而它原先只给**计费**调用写 ——
+        // 于是 `Limits.perMinute` 里给 `models` 写的那句「仅用于防失控循环」是空头承诺，
+        // #604 给 weather 写的那句也会一样空着。**护栏没读点就等于不存在。**
+        //
+        // 所以：只要这次请求真的发出来了，就记一枚 stamp（含探测与公共服务）。
+        // 不计费的那些 model 字段是空的，`fanOutWarning` 早就把空模型名排除在外，
+        // 不会因此误报「调用了 N 个不同模型」。
+        if outcome != .blocked {
+            stamps.append(RemoteCallPolicy.Stamp(at: now, model: intent.model ?? "", operation: intent.operation))
+            pruneStamps(now: now)
+        }
         append(RemoteCallRecord(
-            at: now, kind: intent.kind, providerID: intent.providerID, model: intent.model,
+            at: now, subject: intent.subject,
             host: intent.host, endpoint: intent.endpoint, operation: intent.operation, outcome: outcome,
             detail: httpStatus.map { "HTTP \($0)" },
             isFreeCall: !intent.billable
@@ -213,7 +233,7 @@ public actor RemoteCallAudit {
 
     /// 本次运行的汇总 + 异常扇出预警。
     public func summary(now: Date = Date()) -> RemoteCallSummary {
-        let billableModels = records.filter(\.isBillable).map(\.model)
+        let billableModels = records.filter(\.isBillable).compactMap(\.model)
         var counts: [String: Int] = [:]
         for record in records where record.isBillable {
             counts[record.operation.rawValue, default: 0] += 1
@@ -221,6 +241,7 @@ public actor RemoteCallAudit {
         return RemoteCallSummary(
             billableTotal: billableTotal,
             discoveryTotal: discoveryTotal,
+            publicServiceTotal: publicServiceTotal,
             blockedTotal: blockedTotal,
             models: Array(Set(billableModels)).sorted(),
             countsByOperation: counts,
@@ -234,6 +255,7 @@ public actor RemoteCallAudit {
         stamps.removeAll()
         billableTotal = 0
         discoveryTotal = 0
+        publicServiceTotal = 0
         blockedTotal = 0
     }
 
@@ -340,7 +362,10 @@ public actor RemoteCallAudit {
     /// 落盘结构（字段名稳定，便于用户/脚本直接 diff 账单）。
     private struct RecordDTO: Encodable {
         let at: Date
+        /// 云端能力时是能力名（`llm` / `tts`…）；公共服务时统一为字面量 `public-service`。
         let kind: String
+        /// 公共服务名（#604：`ip-geolocation` / `weather-forecast`）；云端能力调用时没有。
+        let service: String?
         let provider: String
         let model: String
         let host: String
@@ -354,9 +379,10 @@ public actor RemoteCallAudit {
 
         init(_ record: RemoteCallRecord) {
             self.at = record.at
-            self.kind = record.kind.rawValue
-            self.provider = record.providerID
-            self.model = record.model
+            self.kind = record.kind?.rawValue ?? PublicService.jsonlKind
+            self.service = record.service?.rawValue
+            self.provider = record.providerID ?? ""
+            self.model = record.model ?? ""
             self.host = record.host
             self.endpoint = record.endpoint
             self.operation = record.operation.rawValue

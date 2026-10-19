@@ -51,6 +51,10 @@ public struct LivelyAnimal: View {
     /// 眨眼初相种子：透传给 `CuteAnimalView`。编排层给同一屏的每只动物传不同的值，
     /// 否则它们会整排一起眨。默认 0 = 不偏移（单只用法行为不变）。
     public var blinkPhaseSeed: Int = 0
+    /// 当前季节（nil = 不换季节装扮）。由地面带从 `ForestTheme.season` 透传。
+    public var season: ForestSeason? = nil
+    /// 当前天气（nil = 无降水行为）。下雨打伞、下雪哆嗦；从 `ForestTheme.weather` 透传。
+    public var weather: ForestWeather? = nil
 
     @State private var hopLift: CGFloat = 0
     @State private var shakeAngle: Double = 0
@@ -61,7 +65,7 @@ public struct LivelyAnimal: View {
     public init(kind: AnimalKind, isSleeping: Bool = false, size: CGFloat = 48,
                 facing: CGFloat = 1, actionTick: Int = 0, actionKind: LivelyAnimalAction = .hop,
                 onTap: (() -> Void)? = nil, onSpontaneousBubble: (() -> Void)? = nil,
-                blinkPhaseSeed: Int = 0) {
+                blinkPhaseSeed: Int = 0, season: ForestSeason? = nil, weather: ForestWeather? = nil) {
         self.kind = kind
         self.isSleeping = isSleeping
         self.size = size
@@ -71,11 +75,14 @@ public struct LivelyAnimal: View {
         self.onTap = onTap
         self.onSpontaneousBubble = onSpontaneousBubble
         self.blinkPhaseSeed = blinkPhaseSeed
+        self.season = season
+        self.weather = weather
     }
 
     public var body: some View {
         CuteAnimalView(kind: kind, isSleeping: isSleeping, size: size, bobbing: false,
-                       blinkPhaseSeed: blinkPhaseSeed)
+                       blinkPhaseSeed: blinkPhaseSeed,
+                       season: season, weather: weather)
             .scaleEffect(x: facing, y: 1, anchor: .center)
             .scaleEffect(x: bodyScaleX, y: bodyScaleY, anchor: .bottom)
             .rotationEffect(.degrees(shakeAngle))
