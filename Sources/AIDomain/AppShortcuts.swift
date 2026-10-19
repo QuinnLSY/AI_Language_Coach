@@ -13,6 +13,8 @@ public enum ShortcutGroup: String, CaseIterable, Sendable, Identifiable {
     case review
     /// 页面跳转：任何时候都生效。
     case navigation
+    /// 全局动作（#599）：打开搜索 / 设置 / 说明这类「不挑当前在哪一页」的入口。
+    case global
 
     public var id: String { rawValue }
 
@@ -20,6 +22,7 @@ public enum ShortcutGroup: String, CaseIterable, Sendable, Identifiable {
         switch self {
         case .review: return "复习卡"
         case .navigation: return "页面跳转"
+        case .global: return "全局"
         }
     }
 
@@ -28,6 +31,7 @@ public enum ShortcutGroup: String, CaseIterable, Sendable, Identifiable {
         switch self {
         case .review: return "仅在复习卡进行时生效"
         case .navigation: return "任何时候都生效"
+        case .global: return "任何时候都生效（有浮层盖着时不响应）"
         }
     }
 }
@@ -121,6 +125,18 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable, Identifiabl
     case reviewRemembered
     case reviewForgotten
     case reviewSpeak
+    /// #599：开口跟读这个词（录音）。原来只有鼠标点麦克风一条路。
+    case reviewToggleRecording
+    /// #599：回放自己刚才录的那一遍。
+    case reviewReplay
+
+    // 全局（#599：不挑当前在哪一页的入口）
+    /// 跨页搜索（原来只有侧栏那颗放大镜能开）。
+    case openSearch
+    /// 设置浮层。
+    case openSettings
+    /// 应用内帮助中心。
+    case openHelp
 
     // 页面跳转（数字与侧栏位置一致，由 `AppSection.shortcutDigit` 推出来）
     case openPractice
@@ -138,8 +154,11 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable, Identifiabl
 
     public var group: ShortcutGroup {
         switch self {
-        case .reviewReveal, .reviewRemembered, .reviewForgotten, .reviewSpeak:
+        case .reviewReveal, .reviewRemembered, .reviewForgotten, .reviewSpeak,
+             .reviewToggleRecording, .reviewReplay:
             return .review
+        case .openSearch, .openSettings, .openHelp:
+            return .global
         default:
             return .navigation
         }
@@ -151,6 +170,11 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable, Identifiabl
         case .reviewRemembered: return "记得（认识）"
         case .reviewForgotten: return "忘了"
         case .reviewSpeak: return "朗读这个词"
+        case .reviewToggleRecording: return "跟读这个词"
+        case .reviewReplay: return "回放我的录音"
+        case .openSearch: return "全局搜索"
+        case .openSettings: return "打开设置"
+        case .openHelp: return "使用说明"
         case .openPractice: return "去「练习」"
         case .openShadowing: return "去「跟读」"
         case .openWriting: return "去「写作」"
@@ -193,6 +217,15 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable, Identifiabl
         case .reviewRemembered: return ShortcutBinding(key: "1")
         case .reviewForgotten: return ShortcutBinding(key: "2")
         case .reviewSpeak: return ShortcutBinding(key: "r")
+        // #599：m = 麦克风（录音跟读），p = play（回放自己的那一遍）。
+        // 与既有四个复习键同在无修饰键那一档 —— 复习页没有文本输入框，
+        // 不会因为「打字时抢键」被打断（`isTextInputFocused` 这道护栏仍然在）。
+        case .reviewToggleRecording: return ShortcutBinding(key: "m")
+        case .reviewReplay: return ShortcutBinding(key: "p")
+        // 全局三个都带 ⌘：既避开复习那档无修饰键，也避开「跳转 ⌘1…⌘9」。
+        case .openSearch: return ShortcutBinding(key: "k", command: true)
+        case .openSettings: return ShortcutBinding(key: ",", command: true)
+        case .openHelp: return ShortcutBinding(key: "/", command: true)
         default:
             // 页面跳转统一走 ⌘ + 侧栏序号：顺序从 `AppSection.allCases` 推，
             // 加一页时编号自动跟着走（这也是 `shortcutDigit` 存在的理由）。

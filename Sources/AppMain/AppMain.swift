@@ -47,9 +47,14 @@ struct AILanguageCoachApp: App {
             // 设置：SwiftUI 只会为独立的 `Settings` 场景自动提供 ⌘,，
             // 而本应用的设置是**浮在内容之上的浮层**（打开它不关掉底下那一页），
             // 所以这一项要自己接管 —— 否则 ⌘, 会静默失效。
+            //
+            // #599：⌘, 现在是**可改的**绑定（`ShortcutAction.openSettings`），
+            // 这里只负责把当前那颗键显示在菜单上（真正分发仍在 `ShortcutMonitor`）。
+            // ⚠️ 不写死 `",", modifiers: .command`：用户改成别的键之后，菜单上还印着
+            // ⌘, 就是界面在撒谎（与「前往」菜单同一条规矩，见 `MenuKeyHint`）。
             CommandGroup(replacing: .appSettings) {
                 Button("设置…") { state.showingSettings = true }
-                    .keyboardShortcut(",", modifiers: .command)
+                    .modifier(MenuKeyHint(binding: state.shortcutBinding(for: .openSettings)))
             }
 
             // 退出（自停）：接管 ⌘Q，退出前先停掉**本应用亲手拉起**的本地服务
@@ -66,7 +71,8 @@ struct AILanguageCoachApp: App {
             // 换成直接开应用内帮助中心 —— 说明不该只有「先打开设置、再滚到第一张卡」这一条路。
             CommandGroup(replacing: .help) {
                 Button("语林使用说明") { state.showingHelp = true }
-                    .keyboardShortcut("/", modifiers: .command)
+                    // #599：与设置同款 —— 显示**当前**绑定，不写死 ⌘/。
+                    .modifier(MenuKeyHint(binding: state.shortcutBinding(for: .openHelp)))
             }
 
             // 「前往」菜单：与侧栏读同一份 `AppSection`，

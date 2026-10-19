@@ -315,7 +315,7 @@ final class UIStateMachineTests: XCTestCase {
         state.isSpeaking = true
         state.speechPhase = .speaking
         state.speakingText = "Nice to meet you!"
-        try? await state.services.setModelRunning(.asr, running: false)
+        _ = try? await state.services.setModelRunning(.asr, running: false)
         await state.startVoiceInput()
         XCTAssertNil(state.speakRequestToken, "在途朗读的收尾回写必须被作废")
         XCTAssertFalse(state.isSpeaking, "学员开口即收声")

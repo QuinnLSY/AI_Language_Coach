@@ -179,6 +179,16 @@ extension AppState {
             await gradeVocabularyReviewCard(remembered: false)
         case .reviewSpeak:
             await speakVocabularyReviewWord()
+        case .reviewToggleRecording:
+            await toggleVocabularyReviewRecording()
+        case .reviewReplay:
+            await replayVocabularyReviewRecording()
+        case .openSearch:
+            openGlobalSearch()
+        case .openSettings:
+            showingSettings = true
+        case .openHelp:
+            showingHelp = true
         case .openPractice, .openShadowing, .openWriting, .openReading, .openListening,
              .openDictionary, .openVocabulary, .openScenarios, .openProgress, .openRecords:
             guard let section = action.section else { return }

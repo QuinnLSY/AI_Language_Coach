@@ -289,4 +289,117 @@ final class ShortcutTests: XCTestCase {
         let consumed = state.handleShortcutEvent(ShortcutEventKey(key: "z", command: true, option: true, control: true))
         XCTAssertFalse(consumed)
     }
+
+    // MARK: - #599 覆盖盘点（补进去的动作，与「以后别再漏」的闸）
+
+    /// 每个动作都要在 `perform` 里被覆盖到，而且**不许有 `default` 兜底**。
+    ///
+    /// 现在「漏接行为」是编译器替我们钉着的：`perform` 的 switch 穷举 `ShortcutAction`，
+    /// 少一个 case 就编译不过。真正会坏的是**后人为省事加一句 `default: break`** ——
+    /// 从那一刻起，「设置页里有这一行、按下去没反应」又变回静默的了。
+    ///
+    /// 反证：在 `perform` 里加 `default: break` → 本条红在「不许用 default 兜底」。
+    func testEveryActionIsCoveredAndNoDefaultFallback() throws {
+        let src = try source("AppUI/AppState+Shortcuts.swift")
+        let body = self.body(
+            of: "public func perform(shortcut action: ShortcutAction) async {", in: src
+        )
+        XCTAssertFalse(body.isEmpty, "找不到 perform(shortcut:)")
+        XCTAssertFalse(
+            body.contains("default:"),
+            "perform 不许用 default 兜底：那会让漏接的动作变成「配了键、按下去没反应」"
+        )
+        for action in ShortcutAction.allCases {
+            XCTAssertTrue(
+                body.contains(".\(action.rawValue)"),
+                "「\(action.title)」在 perform 里没有出现 —— 那就是个死键"
+            )
+        }
+    }
+
+    /// 三个全局动作真的把各自的面板开出来。
+    ///
+    /// #599 之前：搜索只有侧栏那颗放大镜能开，设置 / 说明的键写死在菜单里
+    /// （改不了，也没进绑定表）。
+    func testGlobalActionsOpenTheirPanels() async {
+        let state = makeState()
+        await state.perform(shortcut: .openSearch)
+        XCTAssertTrue(state.showingGlobalSearch, "全局搜索要能不靠侧栏那颗按钮开出来")
+        await state.perform(shortcut: .openSettings)
+        XCTAssertTrue(state.showingSettings)
+        await state.perform(shortcut: .openHelp)
+        XCTAssertTrue(state.showingHelp)
+    }
+
+    /// 全局动作的出厂键都带修饰键：无修饰键那一档是留给复习卡的（且会和打字抢字母）。
+    func testGlobalDefaultsAreNotPlainKeys() {
+        for action in ShortcutAction.allCases where action.group == .global {
+            XCTAssertFalse(
+                action.defaultBinding.isPlainKey,
+                "「\(action.title)」出厂就用了无修饰键，打字时会被它抢走字母"
+            )
+        }
+    }
+
+    /// 复习卡新补的两个键（跟读录音 / 回放）受「复习进行中」这条上下文管着。
+    ///
+    /// 反证：把这两个动作的 `group` 改成 `.global` → 没在复习时按 m / p 也会响 → 本条红。
+    func testReviewExtrasNeedAnActiveSession() {
+        let bindings = ShortcutBindingArchive.defaults()
+        let idle = ShortcutResolver.Context(isReviewActive: false)
+        XCTAssertNil(ShortcutResolver.action(
+            for: ShortcutEventKey(key: "m"), bindings: bindings, context: idle
+        ))
+        XCTAssertNil(ShortcutResolver.action(
+            for: ShortcutEventKey(key: "p"), bindings: bindings, context: idle
+        ))
+        let reviewing = ShortcutResolver.Context(isReviewActive: true)
+        XCTAssertEqual(
+            ShortcutResolver.action(
+                for: ShortcutEventKey(key: "m"), bindings: bindings, context: reviewing
+            ),
+            .reviewToggleRecording
+        )
+        XCTAssertEqual(
+            ShortcutResolver.action(
+                for: ShortcutEventKey(key: "p"), bindings: bindings, context: reviewing
+            ),
+            .reviewReplay
+        )
+    }
+
+    /// 设置页按分组画格子：新加的分组要真有动作，否则画出来是一块空的。
+    func testEveryGroupHasAtLeastOneAction() {
+        for group in ShortcutGroup.allCases {
+            XCTAssertFalse(
+                ShortcutCenterCard.actions(in: group).isEmpty,
+                "「\(group.title)」分组一个动作都没有，快捷键中心会画出一块空地"
+            )
+        }
+    }
+
+    // MARK: - 工具
+
+    private func source(_ relativePath: String) throws -> String {
+        try String(contentsOfFile: "Sources/\(relativePath)", encoding: .utf8)
+    }
+
+    /// 取出函数体：从 `needle` 起到下一个成员声明为止。
+    ///
+    /// ⚠️ **整行注释先剔掉**：判据字符串一旦在注释里出现过，哨兵就是假绿。
+    /// 与 `VoiceInputWiringTests.codeLines` / `PracticeProgressTests.body` 同一条纪律。
+    private func body(of needle: String, in source: String) -> String {
+        guard let range = source.range(of: needle) else { return "" }
+        let rest = source[range.lowerBound...]
+        let tail = rest.dropFirst(needle.count)
+        let terminators = ["\n    public func ", "\n    private func ", "\n    func ",
+                           "\n    public var ", "\n    private var ", "\n    var ",
+                           "\n    // MARK:", "\n}"]
+        let ends = terminators.compactMap { tail.range(of: $0)?.lowerBound }
+        let raw = ends.min().map { String(rest[..<$0]) } ?? String(rest)
+        return raw
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+    }
 }

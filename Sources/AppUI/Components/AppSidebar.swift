@@ -167,7 +167,8 @@ public struct AppSidebar: View {
                 icon: "gearshape.fill",
                 title: "设置",
                 isActive: state.showingSettings,
-                shortcutDigit: nil
+                // #599：这两颗键现在可改，提示必须读**当前**绑定（写死就是在撒谎）。
+                shortcutHint: state.shortcutBinding(for: .openSettings).displayString
             ) {
                 state.showingSettings = true
             }
@@ -178,7 +179,7 @@ public struct AppSidebar: View {
                 icon: "magnifyingglass",
                 title: "搜索",
                 isActive: state.showingGlobalSearch,
-                shortcutDigit: nil
+                shortcutHint: state.shortcutBinding(for: .openSearch).displayString
             ) {
                 state.openGlobalSearch()
             }
@@ -331,6 +332,9 @@ public struct AppSidebar: View {
         isActive: Bool = false,
         isEnabled: Bool = true,
         shortcutDigit: Int? = nil,
+        /// #599：可改键的浮层入口（设置 / 搜索）用它显示**当前**那颗键。
+        /// 与 `shortcutDigit` 的区别：那边是「⌘ + 侧栏序号」推出来的，这个是绑定表里读的。
+        shortcutHint: String? = nil,
         badge: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
@@ -381,15 +385,21 @@ public struct AppSidebar: View {
         .buttonStyle(.appPressable)
         .disabled(!isEnabled)
         // 提示里带上快捷键：不写出来的快捷键等于不存在（这是全项目唯一一处能看见它们的地方）。
-        .help(helpText(title: title, isEnabled: isEnabled, shortcutDigit: shortcutDigit))
+        .help(helpText(title: title, isEnabled: isEnabled, shortcutDigit: shortcutDigit, shortcutHint: shortcutHint))
         // VoiceOver：读出来的要是「跟读（⌘2）」而不是光一个「跟读」；
         // 当前所在页另外报成选中态 —— 高亮是靠底色画的，读屏看不见底色。
-        .accessibilityLabel(helpText(title: title, isEnabled: isEnabled, shortcutDigit: shortcutDigit))
+        .accessibilityLabel(helpText(title: title, isEnabled: isEnabled, shortcutDigit: shortcutDigit, shortcutHint: shortcutHint))
         .accessibilityAddTraits(isActive ? [.isSelected] : [])
     }
 
-    private func helpText(title: String, isEnabled: Bool, shortcutDigit: Int?) -> String {
+    private func helpText(
+        title: String,
+        isEnabled: Bool,
+        shortcutDigit: Int?,
+        shortcutHint: String? = nil
+    ) -> String {
         guard isEnabled else { return "\(title)（即将推出）" }
+        if let shortcutHint { return "\(title)（\(shortcutHint)）" }
         guard let shortcutDigit else { return title }
         return "\(title)（⌘\(shortcutDigit)）"
     }
