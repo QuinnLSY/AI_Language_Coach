@@ -289,6 +289,43 @@ final class UIStateMachineTests: XCTestCase {
         XCTAssertTrue(stop.contains("speakRequestToken = nil"), "停声也要作废在途那次的回写")
     }
 
+    // MARK: - S4-13 学员开口即收声（#597）
+
+    /// 点麦克风时老师还在读：先把朗读收干净，再谈起不起得来。
+    ///
+    /// 一条同时钉两个失效方式（都真实存在过）：
+    /// - 只调服务层的停声（声音停了）而不作废 `speakRequestToken` → 在途朗读的
+    ///   收尾回写仍然通行，会把 phase / voiceError 写回录音态，用户看到的录音
+    ///   错误被一句过期的语音状态抹掉；
+    /// - 停声放在 ASR 守卫之后 → 模型没启动时直接 return，老师继续念完，
+    ///   用户被提示挡住、耳边还在朗读（「开口」连收声都没换来）。
+    ///
+    /// ⚠️ 先把 ASR 置为「已关闭」：`isModelRunning` 的语义是用户意图，新环境默认
+    /// 全为启动态，不关就会一路走到 `startRecording()` —— 那会在测试机上真的开麦，
+    /// 且在有 / 无麦克风权限的机器上走不同分支（CI 上必然无权限）。关掉之后
+    /// 走的正是要钉的那条早退路径。`setModelRunning` 的停服务命令有过授权闸门，
+    /// 测试环境（无授权）只会记意图，不会真去停本机的 whisper。
+    ///
+    /// 反证：把 `await stopSpeaking()` 挪到 ASR 守卫之后 → 本条红在
+    /// `speakRequestToken` / `isSpeaking` 两条断言上。
+    func testStartingVoiceInputStopsTheTeacherBeforeAnythingElse() async {
+        let state = makeState()
+        // 模拟「老师正在读」：世代令牌 + 四个界面态都挂上（与一次在途朗读的形态一致）。
+        state.speakRequestToken = UUID()
+        state.isSpeaking = true
+        state.speechPhase = .speaking
+        state.speakingText = "Nice to meet you!"
+        try? await state.services.setModelRunning(.asr, running: false)
+        await state.startVoiceInput()
+        XCTAssertNil(state.speakRequestToken, "在途朗读的收尾回写必须被作废")
+        XCTAssertFalse(state.isSpeaking, "学员开口即收声")
+        XCTAssertEqual(state.speechPhase, .idle)
+        XCTAssertNil(state.speakingText)
+        XCTAssertEqual(state.voicePhase, .idle, "ASR 没启动不能乐观进录音态（更不许为此去开麦）")
+        XCTAssertTrue(state.voiceError?.contains("已关闭") == true,
+                      "ASR 未启动要有可读提示，实际：\(state.voiceError ?? "nil")")
+    }
+
     /// 翻译：回填前复查正文没变（编辑重发会保留同一个 id）。
     ///
     /// 反证：删掉那条 `guard ... content == source` → 本条红。

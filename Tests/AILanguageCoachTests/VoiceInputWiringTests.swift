@@ -91,6 +91,30 @@ final class VoiceInputWiringTests: XCTestCase {
                       "startVoiceInput 必须先确认处在空闲态")
     }
 
+    // MARK: - ②-bis 学员开口即收声（#597）
+
+    /// 点麦克风时老师还在读：停声必须是 `startVoiceInput` 的**第一件事**，
+    /// 且必须排在 ASR 运行守卫**之前**（模型没启动也要先收声，见行序断言）。
+    ///
+    /// 两个失效方式各红一处：删掉停声调用 → 「找不到停声调用」红；
+    /// 把它挪到守卫之后 → 行序断言红（用户被 ASR 提示挡住，耳边朗读继续念完）。
+    ///
+    /// ⚠️ 走 `codeLines`（跳过注释行）：判据字符串不许被注释里的同款文字假绿。
+    func testStartingVoiceInputStopsSpeakingBeforeTheASRGuard() throws {
+        let voice = try source("AppUI/AppState+Voice.swift")
+        let lines = codeLines(voice)
+        guard let start = firstLine("public func startVoiceInput()", in: lines) else {
+            return XCTFail("找不到 startVoiceInput")
+        }
+        let body = lines.filter { $0.number > start }
+        guard let stopLine = firstLine("await stopSpeaking()", in: body),
+              let guardLine = firstLine("guard await services.isModelRunning(.asr)", in: body) else {
+            return XCTFail("startVoiceInput 里找不到停声调用或 ASR 运行守卫")
+        }
+        XCTAssertLessThan(stopLine, guardLine,
+                          "停声要先于 ASR 守卫（第 \(stopLine) 行 vs 第 \(guardLine) 行）：模型没启动也要先收声")
+    }
+
     // MARK: - ③ 取消要真的取消（结果不许回填）
 
     /// 取消后，在途识别的结果回来时必须**作废**：换令牌 + 两处令牌校验。

@@ -63,6 +63,15 @@ extension AppState {
         // 这时重开麦克风会让两次识别在串行的语音服务上排队，新一段迟迟没有中间结果
         // ——用户看到的就是「说完一句话，一个字都不出」。等上一次结束或点取消。
         guard voicePhase == .idle else { return }
+        // 学员开口即收声（#597）：老师还在读 → 先停，再谈录不录得了。
+        // ⚠️ 必须走 **AppState 层**的停声（不是服务层那个只停声音的）：它同时作废
+        // `speakRequestToken`，在途朗读的收尾回写于是被拦住 —— 否则那一次会把
+        // phase / voiceError 写回一个已经（或即将）进入录音态的界面，用户看到的
+        // 录音错误被一句过期的语音状态抹掉。
+        // ⚠️ 还必须放在 **ASR 守卫之前**：模型没启动时这里原本直接 return，
+        // 用户点了麦克风（意图就是「我要说话了」）却被提示挡住，耳边老师的朗读
+        // 继续念完 —— 「开口」这个动作连收声都没换来。
+        await stopSpeaking()
         // 语音识别模型不在运行 → 资源管理挂起的自动恢复；用户关闭的才提示怎么打开。
         // ⚠️ 状态一律问**服务层真源**（`services.isModelRunning`），绝不用 `isModelRunning`
         // 那份界面快照：巡检挂起后它不会立刻刷新，会让这里误判「还在跑」而跳过自动恢复，
@@ -75,9 +84,7 @@ extension AppState {
             return
         }
         voiceError = nil
-        isSpeaking = false
         voiceTranscript = nil
-        await services.voice.stopSpeaking()
         await services.voice.setPartialLanguage(learningLanguageName)
         // 本段语音的令牌：取消 / 重开都会换掉它，让在途识别自己作废。
         voiceInputToken = UUID()
