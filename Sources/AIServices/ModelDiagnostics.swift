@@ -101,12 +101,27 @@ public enum ModelDiagnostics {
         return trimmed
     }
 
+    /// `NSURLErrorDomain` 里「连不上」那一族的错误码。
+    ///
+    /// ⚠️ 认码不认字的原因：`URLError.localizedDescription` 是随系统语言变的，而且
+    /// **中英两版都不含任何已收录关键词**（英文那句是 "The operation couldn't be
+    /// completed. (NSURLErrorDomain error -1009.)"）。数字码是那句话里唯一不变的部分，
+    /// 认它才能在两种语言下都给出建议（#616）。
+    private static let unreachableCodes = ["-1009", "-1004", "-1003", "-1005", "-1006"]
+
     /// 按关键词给一句可操作的建议（只说该做什么，不猜实现细节）。
+    ///
+    /// 两条匹配互为兜底：传输层已改产稳定文案（`TransportFailure.reason`），
+    /// 但各 Provider 仍有自己拼的原因文案（中英都有），关键词这条路不能撤。
     private static func hint(for reason: String) -> String {
         let text = reason.lowercased()
-        let serviceWords = ["refused", "could not connect", "connection", "not connected", "network",
-                            "host", "unreachable", "ssl", "超时", "timed out", "timeout"]
-        if serviceWords.contains(where: { text.contains($0) }) {
+        let serviceWords = ["refused", "could not connect", "couldn't connect", "connection",
+                            "not connected", "network", "host", "unreachable", "ssl",
+                            "超时", "timed out", "timeout",
+                            "网络", "连不上", "无法连接", "连接失败", "连接中断",
+                            "找不到服务器", "拒绝", "离线"]
+        if serviceWords.contains(where: { text.contains($0) })
+            || unreachableCodes.contains(where: { text.contains($0) }) {
             return "。请确认该模型的服务已启动（本地模型可在设置里点「启动」）。"
         }
         if text.contains("404") || text.contains("not found") {

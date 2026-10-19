@@ -25,11 +25,24 @@ final class AnimalSeasonOutfitRenderTests: XCTestCase {
 
     private let canvas = CGSize(width: 120, height: 120)
 
+    /// ⚠️ `setUp` / `tearDown` 是**非隔离**的，里面碰 `@MainActor` 的
+    /// `CuteAnimalView.animationsEnabled` 编译期就报；而 `addTeardownBlock` 会把
+    /// `self` 送进一个 `@Sendable` 闭包（区域隔离同样报错）。于是：开关整段包进
+    /// `MainActor.assumeIsolated`（测试进程本就跑在主线程），原值经这个静态槽
+    /// 搬到 `tearDown` 里还原（默认 `true`，但仍还原「进来时是什么」而不是猜）。
+    nonisolated(unsafe) private static var savedAnimations = true
+
     override func setUp() {
         super.setUp()
-        let saved = CuteAnimalView.animationsEnabled
-        CuteAnimalView.animationsEnabled = false
-        addTeardownBlock { CuteAnimalView.animationsEnabled = saved }
+        MainActor.assumeIsolated {
+            Self.savedAnimations = CuteAnimalView.animationsEnabled
+            CuteAnimalView.animationsEnabled = false
+        }
+    }
+
+    override func tearDown() {
+        MainActor.assumeIsolated { CuteAnimalView.animationsEnabled = Self.savedAnimations }
+        super.tearDown()
     }
 
     private func makeHost(_ view: some View, size: CGSize) throws -> Render {

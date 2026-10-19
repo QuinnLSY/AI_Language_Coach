@@ -127,9 +127,13 @@ final class ManualScenarioTests: XCTestCase {
         let message = try XCTUnwrap(chat.errorMessage, "全死必须给出可读错误，而不是转圈到底")
         XCTAssertTrue(message.contains("mock-model"), "错误要点名是哪个模型：\(message)")
         XCTAssertTrue(message.contains("连接失败"), "错误要落在连接失败这一档：\(message)")
-        // 不断言「请确认该模型的服务已启动」：中文 Locale 下 URLError 的原因文案
-        // 匹配不上 hint 的英文关键词（#616 已记缺口）—— 钉一句现在并不成立的话，
-        // 只会让这条用例天天红，直到有人误删断言。
+        // #616：连不上必须带一句「该做什么」。中英两版的 URLError 描述都不含诊断
+        // 关键词，所以这句建议曾在任何语言下都不出现 —— 现在传输层改产稳定文案
+        // （带错误码），这句就成了这条链路的回归闸。
+        XCTAssertTrue(
+            message.contains("请确认该模型的服务已启动"),
+            "连不上必须告诉用户去启动服务（否则他只能盯着一句 NSURLErrorDomain 发呆）：\(message)"
+        )
         XCTAssertFalse(chat.isGenerating, "失败后必须退出生成态（否则界面永远转圈）")
     }
 
@@ -337,14 +341,13 @@ private final class HalfDeadLLMProvider: LLMProvider, @unchecked Sendable {
 
 /// 全死：stream 与 generate 都连不上（kill 掉本地 runtime 的形态）。
 ///
-/// ⚠️ 抛的是 `connectionFailed(URLError.localizedDescription)` —— 与生产链路**同形**：
-/// `HTTPClient.perform`（HTTPClient.swift:232）就是把 URLError 包装成这个形态上浮的。
+/// ⚠️ 抛的是 `connectionFailed(TransportFailure.reason(URLError))` —— 与生产链路**同形**：
+/// `HTTPClient.perform` 就是把 URLError 经 `mapURLError` 包装成这个形态上浮的。
 /// 桩不忠于这条路径的话，测到的错误分档会与真机上看到的不一样。
 ///
-/// 顺带记一个已存在的缺口（#616，不在本任务范围内修）：中文 Locale 下
-/// `URLError.localizedDescription` 是「未能完成操作。（NSURLErrorDomain错误-1009。）」，
-/// `ModelDiagnostics.hint(for:)` 只匹配英文关键词 → 「请确认该模型的服务已启动」
-/// 这句可操作建议不触发。本用例因此只钉「模型名 + 失败分档 + 不卡圈」。
+/// ⚠️ 用 `TransportFailure.reason` 而不是 `URLError.localizedDescription`：
+/// 后者随系统语言变，且中英两版都不含诊断关键词 → 曾导致「请确认该模型的服务
+/// 已启动」永不出现（#616）。钉住的那句建议正是这个缺口的回归闸。
 private final class FullyDeadLLMProvider: LLMProvider, @unchecked Sendable {
     let providerID = "stub.fully-dead.llm"
     let kind: AIProviderKind = .llm
@@ -361,12 +364,14 @@ private final class FullyDeadLLMProvider: LLMProvider, @unchecked Sendable {
     }
     func discoverModels() async throws -> [DiscoveredModel] { [] }
     func generate(_ request: LLMRequest) async throws -> LLMResponse {
-        throw AIProviderError.connectionFailed(URLError(.notConnectedToInternet).localizedDescription)
+        throw AIProviderError.connectionFailed(
+            TransportFailure.reason(URLError(.notConnectedToInternet))
+        )
     }
     func stream(_ request: LLMRequest) -> AsyncThrowingStream<LLMChunk, Error> {
         AsyncThrowingStream {
             $0.finish(throwing: AIProviderError.connectionFailed(
-                URLError(.notConnectedToInternet).localizedDescription
+                TransportFailure.reason(URLError(.notConnectedToInternet))
             ))
         }
     }

@@ -309,13 +309,14 @@ public struct HTTPClient: Sendable {
         return text.isEmpty ? nil : text
     }
 
+    /// ⚠️ 原因一律走 `TransportFailure.reason`（由错误码推导），**不用**
+    /// `error.localizedDescription`：后者随系统语言变，且中英两版都不含任何
+    /// 已收录的诊断关键词 → 用户拿不到「服务没启动」那句可操作建议（#616）。
     private func mapURLError(_ error: URLError) -> AIProviderError {
         switch error.code {
         case .cancelled: .cancelled
-        case .timedOut: .timeout(error.localizedDescription)
-        case .cannotConnectToHost, .cannotFindHost, .networkConnectionLost, .notConnectedToInternet:
-            .connectionFailed(error.localizedDescription)
-        default: .connectionFailed(error.localizedDescription)
+        case .timedOut: .timeout(TransportFailure.reason(error))
+        default: .connectionFailed(TransportFailure.reason(error))
         }
     }
 }
