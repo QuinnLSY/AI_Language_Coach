@@ -201,22 +201,25 @@ final class Round53ChangeBoardRenderTests: XCTestCase {
 
     /// 版式由「一行一个」改为「一行三个」之后，卡片高度必须真的**掉下来**。
     ///
-    /// 断言方式刻意**不写死阈值**：先量出「同样的 13 个动作一行一个」的**下界**高度
+    /// 断言方式刻意**不写死阈值**：先量出「同样一批动作一行一个」的**下界**高度
     /// （只算标题行与行距，连键面、复位箭头、分组标题都不算），再要求卡片真身比这个下界还矮 ——
-    /// 那等价于「肯定不再是 13 行」。写死阈值的版本会随字号漂移，下界不会。
+    /// 那等价于「肯定不是一行一个」。写死阈值的版本会随字号漂移，下界不会。
     ///
     /// 撤掉改动（`LazyVGrid` 改回 `ForEach { row(...) }`）时这条会红。
+    ///
+    /// ⚠️ 比值阈值 0.85 是随动作数**重新校准**过的（2026-10-20，#617 加了「对话」组）：
+    /// 20 个动作时三列实测 410pt / 下界 508pt = 0.81；临时把网格改成两列实测 486pt = 0.96。
+    /// 阈值取在两者中间 —— 每加一个**分组**（组头 + 不满一行的残余）比值会往上爬一小截，
+    /// 0.85 给这个爬升留了余量，同时两列（0.96）照旧被挡死。
     func testShortcutRowsArePackagedThreePerLine() throws {
         let state = makeState()
         let card = try render(AnyView(ShortcutCenterCard(state: state)), width: 560)
         let oneColumnLowerBound = try oneColumnLowerBoundHeight()
 
         XCTAssertGreaterThan(card.size.height, 120, "前提：卡片真的画出了东西")
-        // 实测：三列 224pt，下界 326pt（比值 0.69）。留到 0.8 仍然钉得住 ——
-        // 退成**两列**时高度会涨到 ~284pt（0.87）也会被这条挡下来。
         XCTAssertLessThan(
-            card.size.height, oneColumnLowerBound * 0.8,
-            "卡片（\(card.size.height)pt）必须明显矮于「13 个动作一行一个」的下界"
+            card.size.height, oneColumnLowerBound * 0.85,
+            "卡片（\(card.size.height)pt）必须明显矮于「一行一个」的下界"
             + "（\(oneColumnLowerBound)pt），否则说明没按三列铺"
         )
         try dump(card.rep, name: "round53-shortcuts-three-per-row-day.png")
@@ -297,8 +300,9 @@ final class Round53ChangeBoardRenderTests: XCTestCase {
         let night = try render(AnyView(ShortcutCenterCard(state: state)), day: false)
 
         // 竖线挂在 `.background` 上、不参与布局：加了它卡片不许长高。
+        // （比值 0.85 的校准见 `testShortcutRowsArePackagedThreePerLine` 的注释。）
         XCTAssertLessThan(
-            day.size.height, lowerBound * 0.8,
+            day.size.height, lowerBound * 0.85,
             "加了两列分隔线之后卡片反倒变高（\(day.size.height)pt）—— 线不该参与布局"
         )
         try dump(day.rep, name: "round53-shortcuts-column-rules-day.png")

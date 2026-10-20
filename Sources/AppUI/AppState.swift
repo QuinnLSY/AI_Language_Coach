@@ -2523,4 +2523,14 @@ public final class AppState {
     /// 全局按键监听（`start()` 里装一次，进程内常驻）。
     var shortcutMonitor: ShortcutMonitor?
 
+    /// 「发送」快捷键的触发票（#617）：按一次 +1，ChatView 观察到变化就替快捷键
+    /// 跑一次发送。
+    ///
+    /// 为什么绕这一圈：全局监听是**唯一**分发器（按钮上那颗写死的
+    /// `keyboardShortcut` 必须让位，否则同键双触发），而发送要读的
+    /// 输入框内容 / 预设轮换 / 待发附件全在 ChatView 的 `@State` 里 ——
+    /// AppState 复现不了那套顺序，只能「敲一下门让视图自己来」。
+    /// 用计数而不是闭包：视图是值类型，`send()` 改 `@State`，escaping 闭包装不进去。
+    public internal(set) var chatComposerSendTicket = 0
+
 }

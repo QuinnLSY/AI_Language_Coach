@@ -129,7 +129,8 @@ extension AppState {
             isTextInputFocused: ShortcutMonitor.isTextInputFocused(),
             isReviewActive: vocabularyReview != nil,
             isCapturing: false,
-            isOverlayPresented: isShortcutBlockingOverlayPresented
+            isOverlayPresented: isShortcutBlockingOverlayPresented,
+            isChatActive: isChatComposerActive
         )
         guard let action = ShortcutResolver.action(
             for: key,
@@ -146,6 +147,15 @@ extension AppState {
     /// 以前这里和那边各写一份清单，各自漏项（这里漏过描述场景浮层，那边漏过考试报告）。
     /// 与 `coveringPanels` 的唯一区别：**已经在别的页上**不算拦截 —— 切页键本来就是干这个的。
     var isShortcutBlockingOverlayPresented: Bool { blockingOverlays }
+
+    /// 「发送」快捷键的上下文（#617）：对话页 + 没在生成 + 模型没被关。
+    ///
+    /// 与 ChatView 里 `canSend` 的差别：输入框里有没有字在视图的 `@State` 里，
+    /// AppState 不知道、也不该知道 —— 这里只挡「按了也一定发不出去」的两种，
+    /// 剩下的交给 `send()` 自己的 guard（空着按发送本来就不做事，与今天一致）。
+    var isChatComposerActive: Bool {
+        activeSection == .practice && llmStoppedNotice == nil && !chat.isGenerating
+    }
 
     /// 当前该响应 Esc 的那一层（叠放栈顶）；nil = 没有浮层。
     ///
@@ -189,6 +199,9 @@ extension AppState {
             showingSettings = true
         case .openHelp:
             showingHelp = true
+        case .sendMessage:
+            // 只敲票：真正的发送在 ChatView（要读输入框 / 轮换 / 附件，见属性注释）。
+            chatComposerSendTicket += 1
         case .openPractice, .openShadowing, .openWriting, .openReading, .openListening,
              .openDictionary, .openVocabulary, .openScenarios, .openProgress, .openRecords:
             guard let section = action.section else { return }

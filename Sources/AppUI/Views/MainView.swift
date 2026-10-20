@@ -513,6 +513,9 @@ public struct MainView: View {
                     onExamSkip: { Task { await state.skipExamQuestion() } },
                     onExamFinish: { Task { await state.finishExam() } },
                     onSend: { text in state.sendChat(text) },
+                    // 「发送」快捷键（#617）：键进了注册表，提示读当前绑定、触发走触发票。
+                    sendShortcutTicket: state.chatComposerSendTicket,
+                    sendShortcutHint: state.shortcutBinding(for: .sendMessage).displayString,
                     onDeleteMessage: { id in state.deleteChatMessage(id) },
                     onResendEditedMessage: { id, text in state.resendEditedChatMessage(id, text: text) },
                     onRegenerateReply: { id in state.regenerateChatReply(to: id) },

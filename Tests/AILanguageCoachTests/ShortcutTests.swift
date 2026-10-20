@@ -378,6 +378,107 @@ final class ShortcutTests: XCTestCase {
         }
     }
 
+    // MARK: - #617 发送键进注册表
+
+    /// 发送键受「对话页且发得出去」这条上下文管着：不在对话页时按 ⌘↩ 不响。
+    ///
+    /// 反证：把 `sendMessage` 的 group 移出 `.chat`（或删掉 resolver 里那道上下文闸）
+    /// → 在词典页按 ⌘↩ 也会触发 → 本条红。
+    func testSendKeyNeedsChatContext() {
+        let bindings = ShortcutBindingArchive.defaults()
+        let elsewhere = ShortcutResolver.Context(isChatActive: false)
+        XCTAssertNil(ShortcutResolver.action(
+            for: ShortcutEventKey(key: "return", command: true),
+            bindings: bindings,
+            context: elsewhere
+        ))
+        let chatting = ShortcutResolver.Context(isChatActive: true)
+        XCTAssertEqual(
+            ShortcutResolver.action(
+                for: ShortcutEventKey(key: "return", command: true),
+                bindings: bindings,
+                context: chatting
+            ),
+            .sendMessage
+        )
+    }
+
+    /// 发送键带 ⌘：正打着字也要能发（无修饰键那一档会被「打字抢字母」护栏挡下）。
+    func testSendKeyWorksWhileTyping() {
+        let bindings = ShortcutBindingArchive.defaults()
+        let typing = ShortcutResolver.Context(isTextInputFocused: true, isChatActive: true)
+        XCTAssertEqual(
+            ShortcutResolver.action(
+                for: ShortcutEventKey(key: "return", command: true),
+                bindings: bindings,
+                context: typing
+            ),
+            .sendMessage
+        )
+    }
+
+    /// 出厂键就是按钮上那颗写死多年的 ⌘↩（改动会让老用户的手感突变）。
+    func testSendDefaultBindingIsCommandReturn() {
+        XCTAssertEqual(ShortcutAction.sendMessage.defaultBinding, ShortcutBinding(key: "return", command: true))
+        XCTAssertEqual(ShortcutAction.sendMessage.defaultBinding.displayString, "⌘回车")
+        XCTAssertEqual(ShortcutAction.sendMessage.group, .chat)
+        XCTAssertFalse(ShortcutAction.sendMessage.defaultBinding.isPlainKey)
+    }
+
+    /// 按下发送键 → 触发票 +1（ChatView 观察到变化才真发，见哨兵两条）。
+    ///
+    /// 只钉「票涨了」：真正的发送要读视图的 @State，AppState 这层复现不了 ——
+    /// 但那套顺序由渲染层与下面的哨兵各管一段。
+    func testPerformSendBumpsTicket() async {
+        let state = makeState()
+        XCTAssertEqual(state.chatComposerSendTicket, 0)
+        await state.perform(shortcut: .sendMessage)
+        XCTAssertEqual(state.chatComposerSendTicket, 1, "发送键按下去必须敲一下票，否则 ChatView 不知道")
+        await state.perform(shortcut: .sendMessage)
+        XCTAssertEqual(state.chatComposerSendTicket, 2, "再按一次要再涨一次（连按两次发两条）")
+    }
+
+    /// 哨兵一：ChatView 必须**观察**触发票并调用发送。
+    ///
+    /// 反证：把 `.onChange(of: sendShortcutTicket)` 从 ChatView 删掉 → 本条红在
+    /// 「没人接这张票」—— 表现是快捷键按下去界面毫无反应。
+    func testChatViewObservesTheSendTicket() throws {
+        let src = try source("AppUI/Views/ChatView.swift")
+        let body = self.body(of: "public var body: some View {", in: src)
+        XCTAssertTrue(
+            body.contains(".onChange(of: sendShortcutTicket)"),
+            "ChatView 必须观察发送触发票，否则快捷键敲了票也没人发送"
+        )
+        XCTAssertTrue(
+            body.contains("send()"),
+            "观察到触发票变化时要调用 send()（那个方法才读得到输入框 / 轮换 / 附件）"
+        )
+    }
+
+    /// 哨兵二：发送按钮上**不许再有自己的** `keyboardShortcut`。
+    ///
+    /// 这是「同键双触发」的防线：按钮那颗留着的话，⌘↩ 会同时走 SwiftUI 的按钮快捷键
+    /// 和全局监听，一条消息发两遍。
+    func testSendButtonHasNoOwnKeyboardShortcut() throws {
+        let src = try source("AppUI/Views/ChatView.swift")
+        let button = self.body(of: "private var sendButton: some View {", in: src)
+        XCTAssertFalse(button.isEmpty, "找不到 sendButton")
+        XCTAssertFalse(
+            button.contains("keyboardShortcut"),
+            "发送按钮不许自带 keyboardShortcut：全局监听是唯一分发器，两处都接会双触发"
+        )
+    }
+
+    /// 哨兵三：悬停提示读当前绑定，不写死 ⌘↩（改了键还显示旧的 = 界面在撒谎）。
+    func testSendButtonHelpReadsTheBinding() throws {
+        let src = try source("AppUI/Views/ChatView.swift")
+        let help = self.body(of: "private var sendButtonHelp: String {", in: src)
+        XCTAssertTrue(
+            help.contains("sendShortcutHint"),
+            "发送提示要读当前绑定（sendShortcutHint），不能写死 ⌘↩"
+        )
+    }
+
     // MARK: - 工具
 
     private func source(_ relativePath: String) throws -> String {

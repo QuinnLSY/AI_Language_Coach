@@ -15,6 +15,8 @@ public enum ShortcutGroup: String, CaseIterable, Sendable, Identifiable {
     case navigation
     /// 全局动作（#599）：打开搜索 / 设置 / 说明这类「不挑当前在哪一页」的入口。
     case global
+    /// 对话页（#617）：发送。挑页面、还挑「此刻发得出去吗」。
+    case chat
 
     public var id: String { rawValue }
 
@@ -23,6 +25,7 @@ public enum ShortcutGroup: String, CaseIterable, Sendable, Identifiable {
         case .review: return "复习卡"
         case .navigation: return "页面跳转"
         case .global: return "全局"
+        case .chat: return "对话"
         }
     }
 
@@ -32,6 +35,7 @@ public enum ShortcutGroup: String, CaseIterable, Sendable, Identifiable {
         case .review: return "仅在复习卡进行时生效"
         case .navigation: return "任何时候都生效"
         case .global: return "任何时候都生效（有浮层盖着时不响应）"
+        case .chat: return "在对话页、未在生成时生效"
         }
     }
 }
@@ -138,6 +142,10 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable, Identifiabl
     /// 应用内帮助中心。
     case openHelp
 
+    // 对话页（#617）
+    /// 发送当前输入（原来是写死在发送按钮上的 `keyboardShortcut`，用户改不了）。
+    case sendMessage
+
     // 页面跳转（数字与侧栏位置一致，由 `AppSection.shortcutDigit` 推出来）
     case openPractice
     case openShadowing
@@ -159,6 +167,8 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable, Identifiabl
             return .review
         case .openSearch, .openSettings, .openHelp:
             return .global
+        case .sendMessage:
+            return .chat
         default:
             return .navigation
         }
@@ -175,6 +185,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable, Identifiabl
         case .openSearch: return "全局搜索"
         case .openSettings: return "打开设置"
         case .openHelp: return "使用说明"
+        case .sendMessage: return "发送"
         case .openPractice: return "去「练习」"
         case .openShadowing: return "去「跟读」"
         case .openWriting: return "去「写作」"
@@ -226,6 +237,9 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable, Identifiabl
         case .openSearch: return ShortcutBinding(key: "k", command: true)
         case .openSettings: return ShortcutBinding(key: ",", command: true)
         case .openHelp: return ShortcutBinding(key: "/", command: true)
+        // 发送沿用按钮上那颗写死多年的 ⌘↩（macOS 聊天工具的惯例）。
+        // 带 ⌘ 所以不撞「无修饰键 + 打字」那道护栏 —— 正打着字也能发。
+        case .sendMessage: return ShortcutBinding(key: "return", command: true)
         default:
             // 页面跳转统一走 ⌘ + 侧栏序号：顺序从 `AppSection.allCases` 推，
             // 加一页时编号自动跟着走（这也是 `shortcutDigit` 存在的理由）。
@@ -325,17 +339,21 @@ public enum ShortcutResolver {
         /// 有整块浮层盖着（设置 / 情景 / 材料上传 / 考试报告）——
         /// 底下那一页此刻看不见，快捷键再切页只会让人莫名其妙。
         public var isOverlayPresented: Bool
+        /// 对话页的输入区在场，且此刻发得出去（#617：决定「发送」要不要响应）。
+        public var isChatActive: Bool
 
         public init(
             isTextInputFocused: Bool = false,
             isReviewActive: Bool = false,
             isCapturing: Bool = false,
-            isOverlayPresented: Bool = false
+            isOverlayPresented: Bool = false,
+            isChatActive: Bool = false
         ) {
             self.isTextInputFocused = isTextInputFocused
             self.isReviewActive = isReviewActive
             self.isCapturing = isCapturing
             self.isOverlayPresented = isOverlayPresented
+            self.isChatActive = isChatActive
         }
     }
 
@@ -357,6 +375,7 @@ public enum ShortcutResolver {
         // 也不能让用户在聊天框里打不出「r」。
         if pressed.isPlainKey, context.isTextInputFocused { return nil }
         if action.group == .review, !context.isReviewActive { return nil }
+        if action.group == .chat, !context.isChatActive { return nil }
         if context.isOverlayPresented { return nil }
         return action
     }

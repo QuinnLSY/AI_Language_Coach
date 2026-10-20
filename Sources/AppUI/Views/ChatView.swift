@@ -193,6 +193,12 @@ public struct ChatView: View {
     var onClearAttachments: (() -> Void)? = nil
     /// 发送（带附件）：发送动作收在 AppState 里，视图不自己拼「取附件 + 清空」的顺序。
     var onSend: ((String) -> Void)? = nil
+    /// 「发送」快捷键的触发票（#617）：AppState 每分发一次 +1，本视图
+    /// `onChange` 到就替快捷键跑一次发送（按钮上那颗写死的 keyboardShortcut
+    /// 已让位给全局监听，避免同键双触发）。
+    var sendShortcutTicket: Int = 0
+    /// 发送键当前绑的键（设置页可改）：悬停提示与 VoiceOver 读它，不写死 ⌘↩。
+    var sendShortcutHint: String = "⌘↩"
     /// 删掉一条学员消息（连同它的老师回复）。
     var onDeleteMessage: ((UUID) -> Void)? = nil
     /// 气泡内编辑后重发：从此处重新开始对话。
@@ -335,6 +341,11 @@ public struct ChatView: View {
                 onExamSkip: (() -> Void)? = nil,
                 onExamFinish: (() -> Void)? = nil,
                 onSend: ((String) -> Void)? = nil,
+                /// 「发送」快捷键的触发票（#617）：每按一次 +1，`onChange` 到就替
+                /// 快捷键跑一次发送。为什么要绕这一圈见 `chatComposerSendTicket` 的注释。
+                sendShortcutTicket: Int = 0,
+                /// 发送键当前绑的是什么（设置页可改）—— 悬停提示读它，不写死 ⌘↩。
+                sendShortcutHint: String = "⌘↩",
                 onDeleteMessage: ((UUID) -> Void)? = nil,
                 onResendEditedMessage: ((UUID, String) -> Void)? = nil,
                 onRegenerateReply: ((UUID) -> Void)? = nil,
@@ -431,6 +442,8 @@ public struct ChatView: View {
         self.onExamSkip = onExamSkip
         self.onExamFinish = onExamFinish
         self.onSend = onSend
+        self.sendShortcutTicket = sendShortcutTicket
+        self.sendShortcutHint = sendShortcutHint
         self.onDeleteMessage = onDeleteMessage
         self.onResendEditedMessage = onResendEditedMessage
         self.onRegenerateReply = onRegenerateReply
@@ -483,6 +496,12 @@ public struct ChatView: View {
             if voicePhase != .idle { onCancelVoiceInput?() }
             // 同上：热身走到「读一遍 / 说这句」时切页，麦克风同样不能跟着走。
             if isWarmUpRecording { onCancelWarmUpRecording?() }
+        }
+        // 「发送」快捷键（#617）：全局监听是唯一分发器，它只负责敲票，
+        // 真正的发送在这里跑 —— 输入框内容 / 预设轮换 / 待发附件都在本视图的
+        // @State 里，AppState 复现不了那套顺序（见 `chatComposerSendTicket`）。
+        .onChange(of: sendShortcutTicket) { _, _ in
+            send()
         }
         // 教师回复完成后自动朗读（设置里可关）；挂在最外层，空态切换分支也不丢事件。
         // ⚠️ 一律读 `visibleMessages`：启动时被「藏起来待复盘」的上一段对话既不该上屏，
@@ -2246,14 +2265,9 @@ public struct ChatView: View {
         }
         .buttonStyle(.appPressable)
         .disabled(chat.isGenerating ? false : !canSend)
-        // ⌘↩ 发送。
-        // ⚠️ 生成中**不给**快捷键：此时这颗按钮是「停止」，把 ⌘↩ 绑成中止只是让人误触
-        // （输入框是多行控件，回车本身不会发送，所以这里不会与换行打架）。
-        .keyboardShortcut(
-            (canSend && !chat.isGenerating)
-                ? KeyboardShortcut(.return, modifiers: .command)
-                : nil
-        )
+        // ⚠️ 这里**不再**挂 `keyboardShortcut`（#617）：发送键已进快捷键注册表，
+        // 由全局监听统一分发（两处都接 = 同键双触发，一条消息发两遍）。
+        // 「生成中不给快捷键」改由 resolver 的 `isChatActive` 上下文把关。
         .help(sendButtonHelp)
         // VoiceOver：这颗粒按钮的内容是图标，读屏读不出「发送 / 停止」的区别 ——
         // 而它恰恰是**同一个控件在两种语义之间切换**，不读出来等于没有出口。
@@ -2263,7 +2277,8 @@ public struct ChatView: View {
     private var sendButtonHelp: String {
         if chat.isGenerating { return "停止" }
         if modelStoppedNotice != nil { return "请先启动对话模型" }
-        return "发送（⌘↩）"
+        // 读当前绑定（#617）：用户在设置里改了键，提示得跟着改 —— 否则界面在撒谎。
+        return "发送（\(sendShortcutHint)）"
     }
 
     /// 输入区下排按钮的统一外观：**同一形状（圆）、同一尺寸、同一描边**。
