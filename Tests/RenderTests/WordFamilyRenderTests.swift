@@ -319,6 +319,47 @@ final class WordFamilyRenderTests: XCTestCase {
         XCTAssertFalse(WordLookupQuery.isPhrase("rival"))
     }
 
+    /// 按键提示行（#619）：给了键面就多画一行芯片，且画的就是传进来的那个键。
+    ///
+    /// 三个度量各管一段（防假闸）：
+    /// ① 等高画布下像素差分 —— 提示行在卡片**底部**，而 `diff` 只比重叠区，
+    ///    不给固定高度时它整行落在重叠区外、差分恒 0（假绿），所以两边都钉 200pt 高；
+    /// ② 键面互换差分 —— 证明画的是入参，不是写死的「⌘D」；
+    /// ③ 自然高度差约一行 —— 佐证它真的占了布局。
+    func testBubbleShowsShortcutHintsWhenProvided() throws {
+        let plain = try render(AnyView(
+            WordLookupBubble(card: bubbleCard()).frame(width: 360, height: 200, alignment: .top)
+        ))
+        let hinted = try render(AnyView(
+            WordLookupBubble(card: bubbleCard(), dictionaryHint: "⌘D", addReviewHint: "⌘R")
+                .frame(width: 360, height: 200, alignment: .top)
+        ))
+        try dump(hinted.rep, name: "round54-word-lookup-bubble-hints-day.png")
+        XCTAssertGreaterThan(diff(plain.rep, hinted.rep).count, 200,
+                            "带键面提示的气泡要多画一行芯片，实测差分 \(diff(plain.rep, hinted.rep).count)")
+
+        let rebound = try render(AnyView(
+            WordLookupBubble(card: bubbleCard(), dictionaryHint: "⌘L", addReviewHint: "⌘E")
+                .frame(width: 360, height: 200, alignment: .top)
+        ))
+        XCTAssertGreaterThan(diff(hinted.rep, rebound.rep).count, 20,
+                             "提示行读的是传进来的键面：换了键，画上去的字要跟着换")
+
+        // 只给一个键面：照样画（另一个空芯片不摆上去）。
+        let half = try render(AnyView(
+            WordLookupBubble(card: bubbleCard(), dictionaryHint: "⌘D")
+                .frame(width: 360, height: 200, alignment: .top)
+        ))
+        XCTAssertGreaterThan(diff(plain.rep, half.rep).count, 100, "只给词典键也要画出提示行")
+
+        let loose = try render(AnyView(
+            WordLookupBubble(card: bubbleCard(), dictionaryHint: "⌘D", addReviewHint: "⌘R")
+        ))
+        let loosePlain = try render(AnyView(WordLookupBubble(card: bubbleCard())))
+        XCTAssertGreaterThan(loose.size.height, loosePlain.size.height + 10,
+                             "提示行占高度：\(loosePlain.size.height) → \(loose.size.height)")
+    }
+
     /// 气泡不能被拉成整行糊在句子上 —— 外层给它多大可用宽度都一样。
     func testBubbleNeverExceedsMaxWidth() throws {
         let longCard = WordLookupCard(

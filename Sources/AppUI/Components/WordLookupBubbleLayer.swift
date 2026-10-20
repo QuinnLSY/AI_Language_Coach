@@ -55,6 +55,9 @@ public struct WordLookupBubbleActions {
     public var onRetryLookup: (String) -> Void
     /// 气泡真正收起（AppState 清掉当前划词卡）。
     public var onDismiss: () -> Void
+    /// 「去词典查 / 加入复习」当前绑的键（#619；空 = 气泡不显示那行提示）。
+    public var openDictionaryHint: String
+    public var addReviewHint: String
 
     public init(
         onSpeak: @escaping (String) -> Void = { _ in },
@@ -63,7 +66,9 @@ public struct WordLookupBubbleActions {
         onOpenDictionary: @escaping (String) -> Void = { _ in },
         onAddToReview: @escaping (String) -> Void = { _ in },
         onRetryLookup: @escaping (String) -> Void = { _ in },
-        onDismiss: @escaping () -> Void = {}
+        onDismiss: @escaping () -> Void = {},
+        openDictionaryHint: String = "",
+        addReviewHint: String = ""
     ) {
         self.onSpeak = onSpeak
         self.onStopSpeak = onStopSpeak
@@ -72,6 +77,8 @@ public struct WordLookupBubbleActions {
         self.onAddToReview = onAddToReview
         self.onRetryLookup = onRetryLookup
         self.onDismiss = onDismiss
+        self.openDictionaryHint = openDictionaryHint
+        self.addReviewHint = addReviewHint
     }
 }
 
@@ -259,7 +266,9 @@ private struct WordLookupBubbleOverlay: ViewModifier {
                 onStopSpeak: { request.actions.onStopSpeak() },
                 onOpenDictionary: { request.actions.onOpenDictionary(request.card.text) },
                 onAddToReview: { request.actions.onAddToReview(request.card.text) },
-                onRetryLookup: { request.actions.onRetryLookup(request.card.text) }
+                onRetryLookup: { request.actions.onRetryLookup(request.card.text) },
+                dictionaryHint: request.actions.openDictionaryHint,
+                addReviewHint: request.actions.addReviewHint
             )
             .onGeometryChange(for: CGSize.self) { $0.size } action: { bubbleSize = $0 }
             // 报出「这块被气泡盖住了」：下面文本视图的悬停与整窗光标都要按它闭嘴

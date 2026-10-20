@@ -17,6 +17,8 @@ public enum ShortcutGroup: String, CaseIterable, Sendable, Identifiable {
     case global
     /// 对话页（#617）：发送。挑页面、还挑「此刻发得出去吗」。
     case chat
+    /// 划词气泡（#619）：查词典 / 加入复习。只在气泡真开着时生效。
+    case wordLookup
 
     public var id: String { rawValue }
 
@@ -26,6 +28,7 @@ public enum ShortcutGroup: String, CaseIterable, Sendable, Identifiable {
         case .navigation: return "页面跳转"
         case .global: return "全局"
         case .chat: return "对话"
+        case .wordLookup: return "划词"
         }
     }
 
@@ -36,6 +39,7 @@ public enum ShortcutGroup: String, CaseIterable, Sendable, Identifiable {
         case .navigation: return "任何时候都生效"
         case .global: return "任何时候都生效（有浮层盖着时不响应）"
         case .chat: return "在对话页、未在生成时生效"
+        case .wordLookup: return "划出词义气泡时才生效"
         }
     }
 }
@@ -146,6 +150,12 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable, Identifiabl
     /// 发送当前输入（原来是写死在发送按钮上的 `keyboardShortcut`，用户改不了）。
     case sendMessage
 
+    // 划词气泡（#619）：气泡开着时不用鼠标去点右上角那颗图标。
+    /// 去词典页查这个词（气泡右上角放大镜那颗）。
+    case wordLookupDictionary
+    /// 把这个词加进词汇本（气泡右上角「加入复习」那颗）。
+    case wordLookupAddReview
+
     // 页面跳转（数字与侧栏位置一致，由 `AppSection.shortcutDigit` 推出来）
     case openPractice
     case openShadowing
@@ -169,6 +179,8 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable, Identifiabl
             return .global
         case .sendMessage:
             return .chat
+        case .wordLookupDictionary, .wordLookupAddReview:
+            return .wordLookup
         default:
             return .navigation
         }
@@ -186,6 +198,8 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable, Identifiabl
         case .openSettings: return "打开设置"
         case .openHelp: return "使用说明"
         case .sendMessage: return "发送"
+        case .wordLookupDictionary: return "查单词"
+        case .wordLookupAddReview: return "加入复习"
         case .openPractice: return "去「练习」"
         case .openShadowing: return "去「跟读」"
         case .openWriting: return "去「写作」"
@@ -240,6 +254,13 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable, Identifiabl
         // 发送沿用按钮上那颗写死多年的 ⌘↩（macOS 聊天工具的惯例）。
         // 带 ⌘ 所以不撞「无修饰键 + 打字」那道护栏 —— 正打着字也能发。
         case .sendMessage: return ShortcutBinding(key: "return", command: true)
+        // 划词两个都带 ⌘（#619，用户 2026-10-20 选定）：
+        // ① 拖选单词后第一响应者是文本视图，**无修饰键会被「打字护栏」挡掉** ——
+        //    气泡最常见的使用场景恰好不灵，所以不能用 plain key；
+        // ② 避开既有出厂键（复习无修饰键 / ⌘1-9 跳转 / ⌘K ⌘, ⌘/ / ⌘↩）。
+        // D = 查词典，R = 加入复习（⌘A 是 Select All，不能抢）。
+        case .wordLookupDictionary: return ShortcutBinding(key: "d", command: true)
+        case .wordLookupAddReview: return ShortcutBinding(key: "r", command: true)
         default:
             // 页面跳转统一走 ⌘ + 侧栏序号：顺序从 `AppSection.allCases` 推，
             // 加一页时编号自动跟着走（这也是 `shortcutDigit` 存在的理由）。
@@ -341,19 +362,23 @@ public enum ShortcutResolver {
         public var isOverlayPresented: Bool
         /// 对话页的输入区在场，且此刻发得出去（#617：决定「发送」要不要响应）。
         public var isChatActive: Bool
+        /// 划词气泡正开着（#619：决定「查单词 / 加入复习」要不要响应）。
+        public var isWordLookupActive: Bool
 
         public init(
             isTextInputFocused: Bool = false,
             isReviewActive: Bool = false,
             isCapturing: Bool = false,
             isOverlayPresented: Bool = false,
-            isChatActive: Bool = false
+            isChatActive: Bool = false,
+            isWordLookupActive: Bool = false
         ) {
             self.isTextInputFocused = isTextInputFocused
             self.isReviewActive = isReviewActive
             self.isCapturing = isCapturing
             self.isOverlayPresented = isOverlayPresented
             self.isChatActive = isChatActive
+            self.isWordLookupActive = isWordLookupActive
         }
     }
 
@@ -376,6 +401,7 @@ public enum ShortcutResolver {
         if pressed.isPlainKey, context.isTextInputFocused { return nil }
         if action.group == .review, !context.isReviewActive { return nil }
         if action.group == .chat, !context.isChatActive { return nil }
+        if action.group == .wordLookup, !context.isWordLookupActive { return nil }
         if context.isOverlayPresented { return nil }
         return action
     }

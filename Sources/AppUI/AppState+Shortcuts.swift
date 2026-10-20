@@ -130,7 +130,10 @@ extension AppState {
             isReviewActive: vocabularyReview != nil,
             isCapturing: false,
             isOverlayPresented: isShortcutBlockingOverlayPresented,
-            isChatActive: isChatComposerActive
+            isChatActive: isChatComposerActive,
+            // 划词气泡（#619）：卡在就是气泡在（含「正在查」那一态）——
+            // 与 `WordLookupBubblePresenter.request` 同一事实的两层，AppState 只认自己这份。
+            isWordLookupActive: wordLookupCard != nil
         )
         guard let action = ShortcutResolver.action(
             for: key,
@@ -202,6 +205,14 @@ extension AppState {
         case .sendMessage:
             // 只敲票：真正的发送在 ChatView（要读输入框 / 轮换 / 附件，见属性注释）。
             chatComposerSendTicket += 1
+        case .wordLookupDictionary:
+            // 划词气泡（#619）。⚠️ 从按键到执行隔着一个 Task，气泡可能已经收了
+            // （鼠标移开 + 宽限期到了）—— 没卡就不做，别拿一个空词去翻词典。
+            guard let word = wordLookupCard?.text, !word.isEmpty else { return }
+            await openDictionaryForLookupWord(word)
+        case .wordLookupAddReview:
+            guard let word = wordLookupCard?.text, !word.isEmpty else { return }
+            await addLookupWordToReview(word)
         case .openPractice, .openShadowing, .openWriting, .openReading, .openListening,
              .openDictionary, .openVocabulary, .openScenarios, .openProgress, .openRecords:
             guard let section = action.section else { return }

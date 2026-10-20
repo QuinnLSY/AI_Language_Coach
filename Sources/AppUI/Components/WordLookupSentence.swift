@@ -17,6 +17,10 @@ public struct WordLookupContext {
     public var onAddToReview: (String) -> Void
     /// 查不到时在卡片上直接重查（不必重新划词 / 进词典页）。
     public var onRetryLookup: (String) -> Void
+    /// 「去词典查」当前绑的键（#619；空 = 不显示那行提示）。
+    public var openDictionaryHint: String
+    /// 「加入复习」当前绑的键（#619；空 = 不显示那行提示）。
+    public var addReviewHint: String
 
     public init(
         card: @escaping (String) -> WordLookupCard?,
@@ -27,7 +31,9 @@ public struct WordLookupContext {
         isSpeaking: @escaping (String) -> Bool = { _ in false },
         onOpenDictionary: @escaping (String) -> Void = { _ in },
         onAddToReview: @escaping (String) -> Void = { _ in },
-        onRetryLookup: @escaping (String) -> Void = { _ in }
+        onRetryLookup: @escaping (String) -> Void = { _ in },
+        openDictionaryHint: String = "",
+        addReviewHint: String = ""
     ) {
         self.card = card
         self.onProbe = onProbe
@@ -38,6 +44,8 @@ public struct WordLookupContext {
         self.onOpenDictionary = onOpenDictionary
         self.onAddToReview = onAddToReview
         self.onRetryLookup = onRetryLookup
+        self.openDictionaryHint = openDictionaryHint
+        self.addReviewHint = addReviewHint
     }
 }
 
@@ -71,6 +79,9 @@ public struct WordLookupSentence: View {
     private let onOpenDictionary: (String) -> Void
     private let onAddToReview: (String) -> Void
     private let onRetryLookup: (String) -> Void
+    /// 「去词典查 / 加入复习」当前绑的键（#619，气泡底部提示行读它）。
+    private let openDictionaryHint: String
+    private let addReviewHint: String
     /// 悬停要不要出气泡（阅读正文关掉，只认拖选 —— #233）。
     private let isHoverLookupEnabled: Bool
     /// 光标形状（I 型 / 箭头），语义见 `WordLookupTextView.showsIBeamCursor`。
@@ -166,6 +177,8 @@ public struct WordLookupSentence: View {
         self.onOpenDictionary = context.onOpenDictionary
         self.onAddToReview = context.onAddToReview
         self.onRetryLookup = context.onRetryLookup
+        self.openDictionaryHint = context.openDictionaryHint
+        self.addReviewHint = context.addReviewHint
         self.isHoverLookupEnabled = hoverLookupEnabled
         self.showsIBeamCursor = showsIBeamCursor
     }
@@ -223,7 +236,9 @@ public struct WordLookupSentence: View {
             onOpenDictionary: onOpenDictionary,
             onAddToReview: onAddToReview,
             onRetryLookup: onRetryLookup,
-            onDismiss: onDismiss
+            onDismiss: onDismiss,
+            openDictionaryHint: openDictionaryHint,
+            addReviewHint: addReviewHint
         )
     }
 
@@ -238,7 +253,9 @@ public struct WordLookupSentence: View {
                 onStopSpeak: onStopSpeak,
                 onOpenDictionary: { onOpenDictionary(data.text) },
                 onAddToReview: { onAddToReview(data.text) },
-                onRetryLookup: { onRetryLookup(data.text) }
+                onRetryLookup: { onRetryLookup(data.text) },
+                dictionaryHint: openDictionaryHint,
+                addReviewHint: addReviewHint
             )
             .onGeometryChange(for: CGSize.self) { $0.size } action: { bubbleSize = $0 }
             // 报出「这块被气泡盖住了」：下面文本视图的悬停与整窗光标都要按它闭嘴

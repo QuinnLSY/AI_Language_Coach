@@ -31,6 +31,10 @@ public struct WordLookupBubble: View {
     private let onOpenDictionary: () -> Void
     private let onAddToReview: () -> Void
     private let onRetryLookup: () -> Void
+    /// 「去词典查」当前绑的键（#619；空 = 不显示提示行）。
+    private let dictionaryHint: String
+    /// 「加入复习」当前绑的键（#619；空 = 不显示提示行）。
+    private let addReviewHint: String
 
     public init(
         card: WordLookupCard,
@@ -39,7 +43,9 @@ public struct WordLookupBubble: View {
         onStopSpeak: @escaping () -> Void = {},
         onOpenDictionary: @escaping () -> Void = {},
         onAddToReview: @escaping () -> Void = {},
-        onRetryLookup: @escaping () -> Void = {}
+        onRetryLookup: @escaping () -> Void = {},
+        dictionaryHint: String = "",
+        addReviewHint: String = ""
     ) {
         self.card = card
         self.isSpeaking = isSpeaking
@@ -48,6 +54,8 @@ public struct WordLookupBubble: View {
         self.onOpenDictionary = onOpenDictionary
         self.onAddToReview = onAddToReview
         self.onRetryLookup = onRetryLookup
+        self.dictionaryHint = dictionaryHint
+        self.addReviewHint = addReviewHint
     }
 
     /// 查词失败（没音标、没释义、只有一句说明）→ 右上角出现「再查一次」。
@@ -129,6 +137,12 @@ public struct WordLookupBubble: View {
                     .appFont(10.5, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+            // 底部按键提示（#619）：两个动作现在也能直接按键触发。
+            // 读的是**当前**绑定（设置里改过键，这行必须跟着变 —— 同复习卡的纪律）；
+            // 两个提示都空（离屏渲染 / 老调用点）时不渲染，不占地方。
+            if !dictionaryHint.isEmpty || !addReviewHint.isEmpty {
+                shortcutHintRow(dictionaryKey: dictionaryHint, reviewKey: addReviewHint)
             }
         }
         .padding(.horizontal, 11)
@@ -226,6 +240,43 @@ public struct WordLookupBubble: View {
             .appFont(11, design: .rounded)
             .foregroundStyle(theme.secondaryText)
             .lineLimit(1)
+    }
+
+    // MARK: - 底部按键提示（#619）
+
+    /// 卡面上唯一的快捷键说明：一颗键盘图标 + 两枚「键面 + 动作」小芯片。
+    ///
+    /// 视觉语言与复习卡底部那行同款（键面浅底圆角、动作灰字）—— 同一个应用的
+    /// 「哪些操作有键」应该长同一个样子。单独一行而不是塞进图标按钮：
+    /// 按钮只有 22pt，塞进去键面（`⌘⇧R` 可能更长）会把图标挤没。
+    private func shortcutHintRow(dictionaryKey: String, reviewKey: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "keyboard")
+                .appFont(10)
+                .foregroundStyle(theme.secondaryText)
+            if !dictionaryKey.isEmpty { hintChip(dictionaryKey, "词典") }
+            if !reviewKey.isEmpty { hintChip(reviewKey, "复习") }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("键盘快捷键：\(dictionaryKey) 去词典查，\(reviewKey) 加入复习")
+    }
+
+    private func hintChip(_ key: String, _ label: String) -> some View {
+        HStack(spacing: 3) {
+            Text(key)
+                .appFont(10, weight: .semibold, design: .rounded)
+                .foregroundStyle(theme.primaryText)
+                .padding(.horizontal, 5)
+                .appPadding(.vertical, 1)
+                .background(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(theme.surfaceAlt)
+                )
+            Text(label)
+                .appFont(10, design: .rounded)
+                .foregroundStyle(theme.secondaryText)
+        }
     }
 
     private func iconButton(

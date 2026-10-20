@@ -26,7 +26,11 @@ extension AppState {
             isSpeaking: { [self] text in speakingText == text && speechPhase != .idle },
             onOpenDictionary: { [self] text in Task { await openDictionaryForLookupWord(text) } },
             onAddToReview: { [self] text in Task { await addLookupWordToReview(text) } },
-            onRetryLookup: { [self] text in Task { await retryWordLookup(text) } }
+            onRetryLookup: { [self] text in Task { await retryWordLookup(text) } },
+            // 按键提示（#619）：读**当前**绑定，不是写死的「⌘D / ⌘R」——
+            // 用户在设置里改过键，气泡上那行必须跟着变（同复习卡的纪律）。
+            openDictionaryHint: shortcutBinding(for: .wordLookupDictionary).displayString,
+            addReviewHint: shortcutBinding(for: .wordLookupAddReview).displayString
         )
     }
 

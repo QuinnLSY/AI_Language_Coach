@@ -479,6 +479,148 @@ final class ShortcutTests: XCTestCase {
         )
     }
 
+    // MARK: - #619 划词气泡两键（查单词 / 加入复习）
+
+    /// 划词两键受「气泡正开着」这条上下文管着：没收着气泡时按 ⌘D / ⌘R 不响
+    /// —— 否则用户在任何一个页面按 ⌘D 都会被莫名跳去词典。
+    ///
+    /// 反证：删掉 resolver 里 `action.group == .wordLookup` 那道闸
+    /// → 任何时候按都会触发 → 本条红。
+    func testWordLookupKeysNeedTheBubble() {
+        let bindings = ShortcutBindingArchive.defaults()
+        let idle = ShortcutResolver.Context(isWordLookupActive: false)
+        XCTAssertNil(ShortcutResolver.action(
+            for: ShortcutEventKey(key: "d", command: true), bindings: bindings, context: idle
+        ))
+        XCTAssertNil(ShortcutResolver.action(
+            for: ShortcutEventKey(key: "r", command: true), bindings: bindings, context: idle
+        ))
+        let bubbling = ShortcutResolver.Context(isWordLookupActive: true)
+        XCTAssertEqual(
+            ShortcutResolver.action(
+                for: ShortcutEventKey(key: "d", command: true), bindings: bindings, context: bubbling
+            ),
+            .wordLookupDictionary
+        )
+        XCTAssertEqual(
+            ShortcutResolver.action(
+                for: ShortcutEventKey(key: "r", command: true), bindings: bindings, context: bubbling
+            ),
+            .wordLookupAddReview
+        )
+    }
+
+    /// 拖选单词后第一响应者是文本视图（⌘A 才会被当 Select All 的那张纸）：
+    /// 划词两键**带 ⌘**，所以「打字抢字母」护栏挡不到它们 —— 无修饰键在这一刻
+    /// 恰好被护栏挡掉，气泡最常见的使用场景就会不灵（选键时的取舍，见注册表注释）。
+    func testWordLookupKeysWorkWhileTextIsSelected() {
+        let bindings = ShortcutBindingArchive.defaults()
+        let selecting = ShortcutResolver.Context(isTextInputFocused: true, isWordLookupActive: true)
+        XCTAssertEqual(
+            ShortcutResolver.action(
+                for: ShortcutEventKey(key: "d", command: true), bindings: bindings, context: selecting
+            ),
+            .wordLookupDictionary
+        )
+        XCTAssertEqual(
+            ShortcutResolver.action(
+                for: ShortcutEventKey(key: "r", command: true), bindings: bindings, context: selecting
+            ),
+            .wordLookupAddReview
+        )
+    }
+
+    /// 出厂键逐字：⌘D = 查词典，⌘R = 加入复习。
+    func testWordLookupDefaultBindings() {
+        XCTAssertEqual(ShortcutAction.wordLookupDictionary.defaultBinding,
+                       ShortcutBinding(key: "d", command: true))
+        XCTAssertEqual(ShortcutAction.wordLookupDictionary.defaultBinding.displayString, "⌘D")
+        XCTAssertEqual(ShortcutAction.wordLookupDictionary.group, .wordLookup)
+        XCTAssertFalse(ShortcutAction.wordLookupDictionary.defaultBinding.isPlainKey)
+        XCTAssertEqual(ShortcutAction.wordLookupAddReview.defaultBinding,
+                       ShortcutBinding(key: "r", command: true))
+        XCTAssertEqual(ShortcutAction.wordLookupAddReview.defaultBinding.displayString, "⌘R")
+        XCTAssertEqual(ShortcutAction.wordLookupAddReview.group, .wordLookup)
+        XCTAssertFalse(ShortcutAction.wordLookupAddReview.defaultBinding.isPlainKey)
+    }
+
+    /// 按 ⌘D → 真的跳到词典页并把这个词查出来（不是「配了键没反应」）。
+    func testPerformWordLookupDictionaryOpensTheDictionary() async {
+        let state = makeState()
+        state.wordLookupCard = WordLookupCard(text: "resilient", translation: "有韧性的")
+        let before = state.activeSection
+
+        await state.perform(shortcut: .wordLookupDictionary)
+
+        XCTAssertNotEqual(state.activeSection, before, "气泡上按 ⌘D 要真的跳到词典页")
+        XCTAssertEqual(state.activeSection, .dictionary)
+        XCTAssertEqual(state.dictionaryQuery, "resilient", "跳过去还要把这个词查出来")
+    }
+
+    /// 按 ⌘R → 这个词真的进词汇本（走的是服务层，:memory: 库上验）。
+    func testPerformWordLookupAddReviewAddsTheWord() async {
+        let state = makeState()
+        state.wordLookupCard = WordLookupCard(text: "resilient", translation: "有韧性的")
+
+        await state.perform(shortcut: .wordLookupAddReview)
+
+        XCTAssertTrue(
+            state.vocabularyEntries.contains { $0.word == "resilient" },
+            "气泡上按 ⌘R 要真的把这个词加进词汇本"
+        )
+    }
+
+    /// 气泡已经收了（按键到执行隔着一个 Task，宽限期可能刚好走完）→ 什么都不做：
+    /// 拿一个空词去翻词典，用户只会看到莫名其妙跳到词典页。
+    ///
+    /// 反证：删掉 perform 里那两个 `guard let word = wordLookupCard?.text` → 本条红。
+    func testPerformWordLookupWithoutACardDoesNothing() async {
+        let state = makeState()
+        state.wordLookupCard = nil
+        let before = state.activeSection
+
+        await state.perform(shortcut: .wordLookupDictionary)
+        await state.perform(shortcut: .wordLookupAddReview)
+
+        XCTAssertEqual(state.activeSection, before, "没有气泡就不该跳页")
+        XCTAssertNil(state.wordLookupCard)
+    }
+
+    /// 气泡底部那行提示读的是**当前**绑定：用户在设置里把 ⌘D 改成了 ⌘L，
+    /// 气泡上必须跟着写 ⌘L —— 写死的那一行就是在撒谎（同复习卡纪律）。
+    ///
+    /// 反证：把 `wordLookupContext` 里两个 hint 写成死串 → 改键后仍显示 ⌘D → 本条红。
+    func testWordLookupHintsFollowCustomizedBinding() {
+        let state = makeState()
+        XCTAssertEqual(state.wordLookupContext.openDictionaryHint, "⌘D", "出厂键下提示应为 ⌘D")
+        XCTAssertEqual(state.wordLookupContext.addReviewHint, "⌘R")
+
+        _ = state.setShortcutBinding(ShortcutBinding(key: "l", command: true), for: .wordLookupDictionary)
+        XCTAssertEqual(state.wordLookupContext.openDictionaryHint, "⌘L", "改过键之后提示必须跟着变")
+
+        _ = state.setShortcutBinding(ShortcutBinding(key: "e", command: true), for: .wordLookupAddReview)
+        XCTAssertEqual(state.wordLookupContext.addReviewHint, "⌘E")
+    }
+
+    /// 哨兵：气泡上要真的渲染那行提示（不写死键面，读传进来的两个 hint）。
+    ///
+    /// 反证：删掉 body 里 `shortcutHintRow(...)` 那一处 → 本条红在
+    /// 「气泡底部要渲染按键提示行」—— 表现是提示数据备齐了却没人画。
+    func testWordLookupBubbleRendersTheHintRow() throws {
+        let src = try source("AppUI/Components/WordLookupBubble.swift")
+        let bubble = self.body(of: "public var body: some View {", in: src)
+        XCTAssertTrue(
+            bubble.contains("shortcutHintRow(dictionaryKey: dictionaryHint, reviewKey: addReviewHint)"),
+            "气泡底部要渲染按键提示行（两个 hint 都空的老调用点不渲染）"
+        )
+        let row = self.body(
+            of: "private func shortcutHintRow(dictionaryKey: String, reviewKey: String) -> some View {", in: src
+        )
+        XCTAssertFalse(row.isEmpty, "找不到 shortcutHintRow")
+        XCTAssertTrue(row.contains("hintChip(dictionaryKey,"), "提示行要画「键面 + 动作」芯片（词典）")
+        XCTAssertTrue(row.contains("hintChip(reviewKey,"), "提示行要画「键面 + 动作」芯片（复习）")
+    }
+
     // MARK: - 工具
 
     private func source(_ relativePath: String) throws -> String {
