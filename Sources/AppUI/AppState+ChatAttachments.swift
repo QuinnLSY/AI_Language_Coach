@@ -152,8 +152,20 @@ extension AppState {
     ///
     /// 收成一个方法而不是让 View 自己「先读 pending 再 send 再 clear」：
     /// 那三步任何一步忘掉，都会表现为「带图发出去、下一句又把同一张图重发一遍」。
+    ///
+    /// ⚠️ **先收声、再发送**（#618）：学员每发出一句新话，老师嘴里那句旧回复就该
+    /// 让位 —— 与「学员开口即收声」（#597，`startVoiceInput`）是同一条规则的两半，
+    /// 打字这一半以前漏了：旧回复会一直被念完，直到新回复到达才被换令牌停掉。
     @discardableResult
-    public func sendChat(_ text: String) -> Bool {
+    public func sendChat(_ text: String) async -> Bool {
+        // 学员按下发送就是让位意图：哪怕这句最终没发出去（空内容 / 模型被关），
+        // 也该先收声 —— 所以放在所有守卫**之前**，与 `startVoiceInput` 里
+        // 「guard 之后、ASR 守卫之前的第一件事」对齐。
+        // ⚠️ 必须**等**它做完再往下走（而不是另起一个 Task 随它去）：那次停声会把
+        // `speakRequestToken` 置空，若新回复的朗读抢先开始，迟到的停声会把新朗读的
+        // 令牌一起清掉 —— 声音在放、界面却说空闲，且它的收尾回写也被拦死
+        // （S4-12 那一类过期快照）。先停完再发送，此后的朗读都带着新令牌。
+        await stopSpeaking()
         let attachments = pendingAttachments
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !attachments.isEmpty else { return false }

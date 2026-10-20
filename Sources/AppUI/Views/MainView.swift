@@ -512,7 +512,7 @@ public struct MainView: View {
                     onExamTimeout: { Task { await state.examQuestionTimedOut() } },
                     onExamSkip: { Task { await state.skipExamQuestion() } },
                     onExamFinish: { Task { await state.finishExam() } },
-                    onSend: { text in state.sendChat(text) },
+                    onSend: { text in Task { await state.sendChat(text) } },
                     // 「发送」快捷键（#617）：键进了注册表，提示读当前绑定、触发走触发票。
                     sendShortcutTicket: state.chatComposerSendTicket,
                     sendShortcutHint: state.shortcutBinding(for: .sendMessage).displayString,
@@ -966,6 +966,7 @@ public struct MainView: View {
         }
         // ⚠️ 走 `sendChat` 而不是 `chat.send`：前者会置「学员开口了」的标志。
         // 少了它，开屏流程可能在这句话落库之后才决定换段，把一段对话劈成两段。
-        state.sendChat("Let's practice: \(level.title)")
+        // （#618 起它还会先收声再发送 —— 与学员开口即收声同一条规则。）
+        await state.sendChat("Let's practice: \(level.title)")
     }
 }

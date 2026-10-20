@@ -147,7 +147,7 @@ final class WarmUpWiringTests: XCTestCase {
 
     // MARK: - 发出去的是「你真说的那句」
 
-    func testSendingSpokenTextSendsWhatWasHeard() {
+    func testSendingSpokenTextSendsWhatWasHeard() async {
         let state = makeState()
         var progress = WarmUpProgress(
             plan: WarmUpPlan(steps: [.speak(prompt: "How was your day?")]),
@@ -160,6 +160,9 @@ final class WarmUpWiringTests: XCTestCase {
 
         state.sendWarmUpSpokenText()
 
+        // #618 起发送走「先收声再发送」，整段在 Task 里跑 —— 消息落库与卡片收起
+        // 都发生在那之后。这里等的是**结果**（原话真的发出去了），不是时序。
+        await waitUntil { state.chat.messages.last?.content == "I had a good day." }
         XCTAssertEqual(
             state.chat.messages.last?.content, "I had a good day.",
             "发出去的必须是识别到的原话 —— 发提示句等于替用户说了一句他没说过的话"
@@ -218,6 +221,15 @@ final class WarmUpWiringTests: XCTestCase {
         )
         // ⚠️ 必须 `:memory:`：裸 `CoachServices()` 的库路径是 nil，会落到真实学习库上。
         return AppState(services: CoachServices(config: store, databasePath: ":memory:"))
+    }
+
+    /// 等一个主线程上的条件成立（轮询 + 超时；超时后由后续断言去红）。
+    private func waitUntil(_ condition: @MainActor @escaping () -> Bool, timeout: TimeInterval = 5) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return }
+            try? await Task.sleep(nanoseconds: 40_000_000)
+        }
     }
 
     /// 读源码做哨兵（去掉纯注释行，避免注释里的同款字串造成假绿）。

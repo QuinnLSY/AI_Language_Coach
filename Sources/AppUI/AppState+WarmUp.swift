@@ -132,9 +132,13 @@ extension AppState {
         guard let text = warmUp?.spokenText,
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return }
-        guard sendChat(text) else { return }
-        warmUp = nil
-        warmUpNotice = nil
+        // 与打字发送同一条路（#618）：先收声再发送 —— `sendChat` 如今是 async 的，
+        // 整段挪进 Task（`warmUp` 只在发送真的被接受后才收，失败要留着让人重来）。
+        Task {
+            guard await sendChat(text) else { return }
+            warmUp = nil
+            warmUpNotice = nil
+        }
     }
 
     /// 收起（结算卡上的「完成」，以及中途退出）。

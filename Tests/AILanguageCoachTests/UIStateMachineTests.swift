@@ -45,6 +45,23 @@ final class UIStateMachineTests: XCTestCase {
         return String(rest)
     }
 
+    /// 源码的**非注释行**（`//` / `///` 开头的整行去掉），行号保留（第 1 行 = index 0）。
+    ///
+    /// 判据字符串一旦写进出源码注释，整文件 `contains` 就会假绿 —— 行序类断言
+    /// 必须走这里（同 `VoiceInputWiringTests` 的纪律）。
+    private func codeLines(_ source: String) -> [(number: Int, text: String)] {
+        source.split(separator: "\n", omittingEmptySubsequences: false).enumerated().compactMap { index, raw in
+            let line = String(raw)
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.hasPrefix("//") else { return nil }
+            return (index + 1, line)
+        }
+    }
+
+    private func firstLine(_ needle: String, in lines: [(number: Int, text: String)]) -> Int? {
+        lines.first { $0.text.contains(needle) }?.number
+    }
+
     private func drill(_ id: String, _ text: String, _ translation: String = "") -> ShadowingDrill {
         ShadowingDrill(id: id, text: text, translation: translation, topic: "测试")
     }
@@ -324,6 +341,52 @@ final class UIStateMachineTests: XCTestCase {
         XCTAssertEqual(state.voicePhase, .idle, "ASR 没启动不能乐观进录音态（更不许为此去开麦）")
         XCTAssertTrue(state.voiceError?.contains("已关闭") == true,
                       "ASR 未启动要有可读提示，实际：\(state.voiceError ?? "nil")")
+    }
+
+    // MARK: - S4-13 学员打字发送也收声（#618）
+
+    /// 打字发送时老师还在读旧回复：先把朗读收干净，再发送。
+    ///
+    /// 与 #597（开口即收声）是同一条规则的两半 —— 打字这一半原来漏了：
+    /// 旧回复会被一直念完，直到新回复到达才被 `speak()` 换令牌停掉。
+    ///
+    /// 反证：删掉 `sendChat` 里的 `await stopSpeaking()` → 本条红在
+    /// `speakRequestToken` / `isSpeaking` 两条断言上（四个态全留着）。
+    func testSendingAMessageStopsTheTeacherFirst() async {
+        let state = makeState()
+        // 模拟「老师正在读」：世代令牌 + 四个界面态都挂上（与一次在途朗读的形态一致）。
+        state.speakRequestToken = UUID()
+        state.isSpeaking = true
+        state.speechPhase = .speaking
+        state.speakingText = "Nice to meet you!"
+
+        let sent = await state.sendChat("Hello, teacher!")
+        XCTAssertTrue(sent, "发送必须被接受（否则后面的断言失去意义）")
+
+        XCTAssertNil(state.speakRequestToken, "在途朗读的收尾回写必须被作废")
+        XCTAssertFalse(state.isSpeaking, "打字发送也收声（#618）")
+        XCTAssertEqual(state.speechPhase, .idle)
+        XCTAssertNil(state.speakingText)
+    }
+
+    /// 停声必须在交给 `ChatService` **之前**：反过来（先发再停）时，新回复的
+    /// 自动朗读可能抢在停声前面开始，迟到的停声连它的令牌一起作废 ——
+    /// 声音在放、界面却说空闲，且它的收尾回写也被拦死（S4-12 那一类过期快照）。
+    ///
+    /// 反证：把 `await stopSpeaking()` 挪到 `chat.send` 之后 → 行序断言红。
+    ///
+    /// ⚠️ 走 `codeLines`（跳过注释行）：判据字符串不许被注释里的同款文字假绿。
+    func testSendingStopsSpeakingBeforeHandingOffToChatService() throws {
+        let src = try source("AppUI/AppState+ChatAttachments.swift")
+        let body = self.body(of: "public func sendChat(_ text: String)", in: src)
+        XCTAssertFalse(body.isEmpty, "找不到 sendChat")
+        let lines = codeLines(body)
+        guard let stopLine = firstLine("await stopSpeaking()", in: lines),
+              let handoffLine = firstLine("chat.send(", in: lines) else {
+            return XCTFail("sendChat 里找不到停声调用或交给 ChatService 的那一行")
+        }
+        XCTAssertLessThan(stopLine, handoffLine,
+                          "停声要先于发送（第 \(stopLine) 行 vs 第 \(handoffLine) 行）：先停完再发送，此后的朗读才带着新令牌")
     }
 
     /// 翻译：回填前复查正文没变（编辑重发会保留同一个 id）。

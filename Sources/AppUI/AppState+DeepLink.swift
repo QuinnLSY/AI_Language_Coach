@@ -54,7 +54,7 @@ extension AppState {
             // 带一句话进来：**跳到练习页再发出去**。顺序反过来（`sendChat` 在前）
             // 会把它发在别的页面的会话里，用户看不到自己的消息出现在哪。
             await openPractice()
-            _ = sendChat(text)
+            _ = await sendChat(text)
         }
     }
 }

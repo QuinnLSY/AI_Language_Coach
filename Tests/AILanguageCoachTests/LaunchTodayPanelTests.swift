@@ -119,7 +119,8 @@ final class LaunchTodayPanelTests: XCTestCase {
         let state = try await makeDeadLLMState(withSeededHistory: true)
         await state.start()
         // 学员抢在老师前面说话（现在没有自动开场了，他就是第一个）。
-        XCTAssertTrue(state.sendChat("I want to practise ordering food."))
+        let engaged = await state.sendChat("I want to practise ordering food.")
+        XCTAssertTrue(engaged, "学员第一句话必须被接受")
         // 等他这一轮收尾（死端口会秒失败，1 秒足够）。
         try await Task.sleep(for: .seconds(1.5))
         XCTAssertTrue(
@@ -132,7 +133,8 @@ final class LaunchTodayPanelTests: XCTestCase {
     func testContinueLastConversationYieldsToTheLearner() async throws {
         let state = try await makeDeadLLMState(withSeededHistory: true)
         await state.start()
-        XCTAssertTrue(state.sendChat("Let's talk about ordering food."))
+        let engaged = await state.sendChat("Let's talk about ordering food.")
+        XCTAssertTrue(engaged, "学员已经开口，这句必须被接受")
         await state.continueLastConversation()
         XCTAssertTrue(
             state.chat.visibleMessages.contains { $0.role == .user && $0.content.contains("ordering food") },

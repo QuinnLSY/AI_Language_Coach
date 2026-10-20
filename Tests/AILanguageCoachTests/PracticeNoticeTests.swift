@@ -83,7 +83,8 @@ final class PracticeNoticeTests: XCTestCase {
         XCTAssertTrue(state.showingRecords, "点了「去看复盘」要真的切到学习记录页")
 
         // 学员开口说下一句：这条回执过期了（再挂着只会挡住对话）。
-        XCTAssertTrue(state.sendChat("Let's continue."))
+        let sent = await state.sendChat("Let's continue.")
+        XCTAssertTrue(sent, "学员开口要把消息真的发出去")
         XCTAssertNil(state.practiceNotice, "学员已经开口，回执该收了")
     }
 

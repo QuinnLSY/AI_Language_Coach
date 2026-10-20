@@ -336,7 +336,8 @@ final class ExamRenderTests: XCTestCase {
         // 作答 → 记进考卷、推进到下一问。
         let answer = "I live in a small apartment near the river because it is quiet at night, "
             + "although the rent has gone up a lot this year."
-        XCTAssertTrue(state.sendChat(answer), "考试模式下发送必须被接受")
+        let accepted = await state.sendChat(answer)
+        XCTAssertTrue(accepted, "考试模式下发送必须被接受")
         XCTAssertEqual(state.examRunner?.answers.count, 1)
         XCTAssertEqual(state.examRunner?.answers.first?.text, answer)
         XCTAssertEqual(
@@ -355,7 +356,7 @@ final class ExamRenderTests: XCTestCase {
             teacherKind: .panda,
             studentKind: .bear,
             exam: state.examBarModel,
-            onSend: { text in state.sendChat(text) }
+            onSend: { text in Task { await state.sendChat(text) } }
         )), day: true, width: 720)
         try dump(live.rep, name: "round42-chat-with-exam-bar.png")
         XCTAssertGreaterThan(live.size.height, 200, "对话区应能把考场条一起画出来")

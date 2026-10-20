@@ -781,8 +781,8 @@ public final class AppState {
     /// ⚠️ 两条链接几乎同时到达时各起一个 `Task`，先后**不保证** ——
     /// ask 链接上那就是「先发的那句后被发出去」，用户看得见。串成一条链，
     /// 后来者等前一个跑完再执行，顺序才等于到达顺序。
-    /// （`applyDeepLink` 里没有长耗时：`sendChat` 同步入队、导航不阻塞，
-    /// 链上等一会儿不会把第二条链接拖死。）
+    /// （`applyDeepLink` 里没有长耗时：`sendChat` 只先等一次停声（本地调用，
+    /// 毫秒级）再入队、导航不阻塞，链上等一会儿不会把第二条链接拖死。）
     public internal(set) var deepLinkTask: Task<Void, Never>? = nil
 
     /// Dock 图标是否已收起（菜单栏模式）。

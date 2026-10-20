@@ -37,7 +37,7 @@ extension AppState {
     public func performKickoff(_ suggestion: KickoffSuggestion) async {
         switch suggestion.action {
         case .send(let text):
-            _ = sendChat(text)
+            _ = await sendChat(text)
         case .openScenario(let id):
             await resumeKickoffScenario(id: id)
         }

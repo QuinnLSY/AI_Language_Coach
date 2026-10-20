@@ -188,7 +188,7 @@ final class MenuBarWiringTests: XCTestCase {
         let raw = try Self.code("Sources/AppUI/AppState+DeepLink.swift")
         XCTAssertTrue(raw.contains("case let .ask(text):"), "ask 分支要还在")
         guard let openRange = raw.range(of: "await openPractice()"),
-              let sendRange = raw.range(of: "_ = sendChat(text)")
+              let sendRange = raw.range(of: "_ = await sendChat(text)")
         else {
             return XCTFail("ask 分支必须「先到练习页、再把这句话发出去」—— 两行都得在")
         }
