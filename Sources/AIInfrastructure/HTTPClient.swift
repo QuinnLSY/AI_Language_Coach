@@ -102,6 +102,66 @@ struct SSELineBuffer {
     }
 }
 
+/// HTTP 会话池：按「走不走系统代理 × 超时」缓存**长生命周期**的 `URLSession`。
+///
+/// 为什么必须复用（#666）：改前 `performOnce` / `streamSSE` **每次请求都新建 session，
+/// 用完立刻 `invalidateAndCancel()`** —— 连接池是挂在会话上的，会话一销毁连接就散了，
+/// 下一次请求只能重走一遍 TCP + TLS 握手。本地回环（8856 / 8858 / 11434）几乎无感；
+/// 云端 API 每次调用都要再付一次握手（一次对话里 LLM / 翻译 / TTS 各一次，攒下来几百毫秒）。
+///
+/// 缓存键为什么要带**超时**：`URLSessionConfiguration` 在建会话的那一刻被拷走，之后改不动
+/// （只有 `URLRequest.timeoutInterval` 能覆盖 `timeoutIntervalForRequest`，
+/// `timeoutIntervalForResource` 根本没有逐任务的覆盖口）。键里不带超时，就会出现
+/// 「借了别人的会话 = 借了别人的超时」—— 流式请求被一个 15s 的会话超时掐断，
+/// 这种问题最难查。带上超时之后，同键的请求拿到的超时与改前逐字一致。
+///
+/// 缓存键为什么要带**代理口径**：回环端点一律绕代理（#S2-8），与走系统代理的云端请求
+/// 绝不能共用同一个会话 —— 共用了就等于把「本机服务」的请求交给代理转发出去，
+/// 界面说着「仅在本机处理」，数据其实出了机器。
+///
+/// 会话**永不 invalidate**：它们是按键缓存的，键的数量有界（代理 2 档 × 少数几档超时）。
+public final class HTTPSessionPool: @unchecked Sendable {
+
+    public static let shared = HTTPSessionPool()
+
+    private struct Key: Hashable {
+        let proxy: Bool
+        let timeout: TimeInterval
+    }
+
+    private let lock = NSLock()
+    private var sessions: [Key: URLSession] = [:]
+    /// 实际新建过的会话数。**测试用它钉「第二次请求没有再建会话」**（否则连接池复用
+    /// 悄悄退化成「每次新建」也无人知晓 —— 编译照过、单测照绿）。
+    private(set) var createdCount = 0
+
+    public init() {}
+
+    /// 取（或首次创建）该口径下的会话。同键必定返回同一个实例。
+    func session(proxy: Bool, timeout: TimeInterval) -> URLSession {
+        let key = Key(proxy: proxy, timeout: timeout)
+        lock.lock()
+        defer { lock.unlock() }
+        if let existing = sessions[key] { return existing }
+        let created = makeSession(proxy: proxy, timeout: timeout)
+        sessions[key] = created
+        createdCount += 1
+        return created
+    }
+
+    private func makeSession(proxy: Bool, timeout: TimeInterval) -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        // 绕开系统代理：本地 runtime 要防 502 劫持；回环端点要防「以为不出机器、却被代理转发出去」。
+        if !proxy {
+            configuration.connectionProxyDictionary = [:]
+        }
+        configuration.timeoutIntervalForRequest = timeout
+        configuration.timeoutIntervalForResource = max(timeout * 4, 60)
+        configuration.httpAdditionalHeaders = ["Accept": "application/json"]
+        return URLSession(configuration: configuration)
+    }
+}
+
 /// 本地 runtime 专用 HTTP 客户端。
 ///
 /// 关键约束（AGENTS.md §0.1）：本机存在系统代理 `HTTP_PROXY=http://127.0.0.1:59067`，
@@ -116,6 +176,8 @@ public struct HTTPClient: Sendable {
     private let transport: Transport?
     /// 瞬时故障重试策略（见 `RetryPolicy`）。
     private let retryPolicy: RetryPolicy
+    /// 会话池（#666）：默认是进程内共享的那一个；测试可注入自己的池来数「建了几次会话」。
+    private let sessionPool: HTTPSessionPool
 
     /// 传输抽象：测试用它把适配器完整跑一遍（请求形状 / 响应解析 / 错误映射），
     /// 无需真的起一个 runtime。
@@ -124,14 +186,16 @@ public struct HTTPClient: Sendable {
     public init(
         useSystemProxy: Bool = false,
         transport: Transport? = nil,
-        retryPolicy: RetryPolicy = .default
+        retryPolicy: RetryPolicy = .default,
+        sessionPool: HTTPSessionPool = .shared
     ) {
         self.useSystemProxy = useSystemProxy
         self.transport = transport
         self.retryPolicy = retryPolicy
+        self.sessionPool = sessionPool
     }
 
-    /// 建一次性的会话。
+    /// 取这次请求该用的会话（**复用，不新建**）。
     ///
     /// ⚠️ `target` 用来判「这个请求是不是发往回环端点」，因为**披露口径与传输层必须
     /// 判同一件事**（#S2-8）：`PrivacyPolicy` 把回环端点判为「数据不出这台机器」，
@@ -142,17 +206,11 @@ public struct HTTPClient: Sendable {
     ///
     /// 修法不是改披露（回环确实不出机器），而是让**回环一律绕代理**：判据复用同一个
     /// `PrivacyRedactor.isLoopbackEndpoint`，别一处判 runtime 一处判 host。
-    private func makeSession(timeout: TimeInterval, target: URL? = nil) -> URLSession {
-        let configuration = URLSessionConfiguration.ephemeral
+    /// （#666 顺带补上：改前 `streamSSE` 建会话时**没传 target**，于是流式请求拿不到
+    /// 这份回环判定 —— 本机 TTS / Ollama 的流式请求照旧被代理接走。）
+    private func session(for target: URL?, timeout: TimeInterval) -> URLSession {
         let isLoopback = target.map { PrivacyRedactor.isLoopbackEndpoint($0.absoluteString) } ?? false
-        // 绕开系统代理：本地 runtime 要防 502 劫持；回环端点要防「以为不出机器、却被代理转发出去」。
-        if !useSystemProxy || isLoopback {
-            configuration.connectionProxyDictionary = [:]
-        }
-        configuration.timeoutIntervalForRequest = timeout
-        configuration.timeoutIntervalForResource = max(timeout * 4, 60)
-        configuration.httpAdditionalHeaders = ["Accept": "application/json"]
-        return URLSession(configuration: configuration)
+        return sessionPool.session(proxy: useSystemProxy && !isLoopback, timeout: timeout)
     }
 
     /// 发起请求并返回原始数据与响应，便于 Adapter 自行做状态码与错误体映射。
@@ -218,8 +276,9 @@ public struct HTTPClient: Sendable {
     }
 
     private func performOnce(_ request: URLRequest, timeout: TimeInterval) async throws -> (Data, HTTPURLResponse) {
-        let session = makeSession(timeout: timeout, target: request.url)
-        defer { session.invalidateAndCancel() }
+        // #666：会话从池里取，**不再每次新建 + 用完就 invalidate** ——
+        // 那样连接池跟着会话一起散，每次请求都要重新握手。
+        let session = self.session(for: request.url, timeout: timeout)
 
         let data: Data
         let response: URLResponse
@@ -242,8 +301,9 @@ public struct HTTPClient: Sendable {
     public func streamSSE(_ request: URLRequest, timeout: TimeInterval) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
-                let session = makeSession(timeout: timeout)
-                defer { session.invalidateAndCancel() }
+                // #666：同 `performOnce`，走池；顺带把 target 传进去（改前漏传 →
+                // 流式请求拿不到回环判定，本机服务被代理接走）。
+                let session = self.session(for: request.url, timeout: timeout)
                 do {
                     let (bytes, response) = try await session.bytes(for: request)
                     guard let http = response as? HTTPURLResponse else {

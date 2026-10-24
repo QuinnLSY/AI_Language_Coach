@@ -102,13 +102,16 @@ final class PrivacyAndTrashTests: XCTestCase {
     /// ⚠️ 这条只能钉源码 —— 真发请求要么起服务、要么被代理劫持，都不是单测能构造的。
     func testLoopbackTargetsBypassTheSystemProxy() throws {
         let raw = try Self.code("Sources/AIInfrastructure/HTTPClient.swift")
-        let body = try Self.declBody(matching: "private func makeSession(timeout: TimeInterval, target:", in: raw)
+        // #666：建会话改走 `HTTPSessionPool`（按代理口径 + 超时缓存），判据本身没变，
+        // 只是从「配一个 configuration」变成「算出一个 proxy 布尔量」。
+        let body = try Self.declBody(matching: "private func session(for target: URL?, timeout:", in: raw)
         XCTAssertTrue(body.contains("isLoopbackEndpoint"), "传输层要用与披露同一个判据")
-        XCTAssertTrue(body.contains("if !useSystemProxy || isLoopback"), "回环必须无条件绕代理")
+        XCTAssertTrue(body.contains("useSystemProxy && !isLoopback"), "回环必须无条件绕代理")
         // 判据不许换成「runtime 标签」或本地重写一份 → 必须是调用那个共用函数
         XCTAssertFalse(body.contains("runtime"), "判据是端点 host，不是 runtime 标签")
-        XCTAssertTrue(raw.contains("let session = makeSession(timeout: timeout, target: request.url)"),
-                      "URL 传不进去就判不了回环")
+        let call = "let session = self.session(for: request.url, timeout: timeout)"
+        XCTAssertEqual(raw.components(separatedBy: call).count - 1, 2,
+                       "普通请求与流式请求**两条路**都要把 URL 传进去，漏一条就判不了回环")
     }
 
     // MARK: - S2-13 用户资产删除进废纸篓
