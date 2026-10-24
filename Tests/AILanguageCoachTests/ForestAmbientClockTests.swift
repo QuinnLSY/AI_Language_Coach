@@ -62,8 +62,14 @@ final class ForestAmbientClockTests: XCTestCase {
         clock.seed(elapsed: 30.72)
         XCTAssertEqual(clock.elapsed, 30.72, accuracy: 1e-6)
         // 拨完接着 advance 也从新相位继续走（lastTick 被清掉，不会补一段）
-        clock.advance(to: Date())
-        clock.advance(to: Date().addingTimeInterval(0.05))
+        //
+        // ⚠️ 基准**只取一次**：原先两次各调 `Date()`，中间真实耗时（构造 Date 那几微秒）
+        // 会叠进 0.05 里，机器一忙就冲过 1e-6 容差 —— 2026-10-24 全量跑实测
+        // 30.77000102519989 vs 30.77 红了一次。判据要钉的是「相位从 30.72 接着走」，
+        // 不是「这台机器此刻有多快」。
+        let base = Date()
+        clock.advance(to: base)
+        clock.advance(to: base.addingTimeInterval(0.05))
         XCTAssertEqual(clock.elapsed, 30.77, accuracy: 1e-6)
     }
 
