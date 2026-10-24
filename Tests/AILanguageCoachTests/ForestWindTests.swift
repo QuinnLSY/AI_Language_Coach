@@ -13,6 +13,40 @@ import XCTest
 @MainActor
 final class ForestWindTests: XCTestCase {
 
+    // MARK: 工具（源码哨兵：只扫代码，注释里为了说明反例写的旧写法不算）
+
+    private nonisolated static func code(_ path: String) throws -> String {
+        let raw = try String(contentsOfFile: path, encoding: .utf8)
+        return raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+    }
+
+    private nonisolated static func declBody(matching marker: String, in source: String) throws -> String {
+        guard let signature = source.range(of: marker) else {
+            throw NSError(domain: "sentinel", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "找不到声明 \(marker)"])
+        }
+        guard let open = source.range(of: "{", range: signature.upperBound..<source.endIndex) else {
+            throw NSError(domain: "sentinel", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "找不到 \(marker) 的声明体开头"])
+        }
+        var depth = 0
+        var index = open.lowerBound
+        while index < source.endIndex {
+            let character = source[index]
+            if character == "{" { depth += 1 }
+            if character == "}" {
+                depth -= 1
+                if depth == 0 { return String(source[open.lowerBound..<index]) }
+            }
+            index = source.index(after: index)
+        }
+        throw NSError(domain: "sentinel", code: 3,
+                      userInfo: [NSLocalizedDescriptionKey: "\(marker) 的声明体没有闭合"])
+    }
+
     // MARK: 共享时钟
 
     func testEveryLayerSharesTheSameGustAtTheSameSpot() {
@@ -95,6 +129,53 @@ final class ForestWindTests: XCTestCase {
         // 位移会整个翻掉 —— 这个阈值对跳变是致命的，对正常一帧则宽松得很。
         XCTAssertLessThan(abs(afterResume - beforePause), 0.5,
                           "暂停期间累计了相位 → 风一恢复草就被甩到反方向")
+    }
+
+    // MARK: #667 不该动的时候连表都不起
+
+    /// 收摊之后：草立正，且恢复时不许把「摘表那段时间」补进相位。
+    ///
+    /// #667 起驱动器在冻结 / 失活时把 `TimelineView` **整颗摘掉**，那时没人再调
+    /// `advance`，只能靠 `freeze()` 收状态。这里钉的正是「摘表」这条新路的语义。
+    func testFrozenClockStandsStraightAndResumesWithoutAJump() {
+        let clock = ForestWindClock()
+        let t0 = Date(timeIntervalSinceReferenceDate: 0)
+        clock.advance(to: t0, blowing: true)
+        clock.advance(to: t0.addingTimeInterval(1.0), blowing: true)
+        let before = clock.offset(x: 180, height: 20)
+        XCTAssertGreaterThan(abs(before), 1e-6, "这个采样点上风恰好为零，换个采样点再验")
+
+        clock.freeze()
+        XCTAssertFalse(clock.isBlowing, "收摊后风场就不该存在了")
+        for x in stride(from: CGFloat(0), through: 600, by: 50) {
+            XCTAssertEqual(clock.offset(x: x, height: 20), 0, accuracy: 1e-12,
+                           "x=\(x) 收摊后仍有位移 → 草会歪着不动")
+        }
+
+        // 摘表 60 秒（跨好几个摆动周期）后恢复：第一帧不许把这段时间补进相位。
+        clock.advance(to: t0.addingTimeInterval(61.0), blowing: true)
+        clock.advance(to: t0.addingTimeInterval(61.0 + 1.0 / 30.0), blowing: true)
+        let after = clock.offset(x: 180, height: 20)
+        XCTAssertLessThan(abs(after - before), 0.5,
+                          "恢复瞬间跳了相位 → freeze() 没清 lastTick，草会被甩到反方向")
+    }
+
+    /// 驱动器不许在「没风可吹 / App 失活」时还挂着调度器。
+    ///
+    /// ⚠️ 这类改动**编译照过、单测照绿**：30fps 空转不报错，只是每秒 30 次
+    /// 拽着所有读风的层重算 body，机器一满就掉帧、电池一直掉 —— 只能扫源码。
+    func testWindDriverDoesNotScheduleWhenThereIsNothingToAnimate() throws {
+        let code = try Self.code("Sources/AppUI/Components/ForestWind.swift")
+        let body = try Self.declBody(matching: "struct ForestWindDriver", in: code)
+        XCTAssertTrue(
+            body.contains("if blowing && scenePhase == .active {"),
+            "没风可吹 / App 失活时仍无条件挂 TimelineView → 每秒 30 次空转推进"
+        )
+        XCTAssertTrue(body.contains("scenePhase"), "App 失活必须停表（用户根本看不到画面）")
+        XCTAssertTrue(
+            body.contains("clock.freeze()"),
+            "调度器被摘掉时要把钟收干净，否则恢复瞬间相位跳一大步"
+        )
     }
 
     // MARK: 总闸（真值表全走一遍：漏一个组合就是只在真机上才看得见的错）

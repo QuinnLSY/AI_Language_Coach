@@ -38,6 +38,20 @@ public final class ForestWindClock {
         phase = WindField.phase(elapsed: elapsed)
     }
 
+    /// 收摊：不再有任何人推进这颗钟时调用（#667）。
+    ///
+    /// 驱动器在「不该动」的时候会**整颗从视图树上摘掉**（见 `ForestWindDriver`），
+    /// 那时没人再调 `advance`，钟必须自己把状态收干净：
+    /// - `isBlowing = false` → `offset` 恒 0，草立正（不是停在当时的弯度上）；
+    /// - `lastTick = nil` → 恢复时第一帧不补间隔，**否则睡过一段之后相位会跳一大步**
+    ///   （切走再回来，草被甩到反方向）；
+    /// - `elapsed` **保留** → 恢复后风从原处接着吹，与 `advance(blowing: false)` 的口径一致。
+    public func freeze() {
+        isBlowing = false
+        phase = 0
+        lastTick = nil
+    }
+
     /// `x` 处、顶端离地 `height` 的东西，当前被风推了多少 pt。冻结时恒 0。
     public func offset(x: CGFloat, height: CGFloat) -> CGFloat {
         guard isBlowing else { return 0 }
@@ -90,23 +104,45 @@ public extension EnvironmentValues {
 /// 风钟驱动器：全场景唯一一颗 `TimelineView`（30fps）推着风钟走。
 ///
 /// 挂在整个窗口根上（MainView 的 ZStack），受风层散在各处也能共享同一相位。
-/// `TimelineView` 而不是 `Timer`：视图不可见时它自己停，不烧电、不扰民。
+///
+/// ⚠️ #667 之前这里写着「`TimelineView` 而不是 `Timer`：视图不可见时它自己停，
+/// 不烧电、不扰民」—— **那是错的**。视图不可见只挡得住渲染，挡不住调度：窗口在
+/// 另一个 Space、被别的窗口完全盖住、或者整个 App 失活时，`TimelineView` 照旧
+/// 每秒 30 次触发 `onChange`，每一跳都是一次可观察状态变更 —— 所有读风的层
+/// （草 / 灌木 / 树冠 / 果树 / 风车 / 围巾）都被拖着重算一遍 body。
+///
+/// 所以「不该动的时候」必须**把调度器整颗从视图树上摘掉**，而不是让它空转：
+/// - 氛围隐藏档（`still`）/ `reduceMotion` → 风本来就是停的，表却在走；
+/// - App 失活（`scenePhase != .active`）→ 用户根本看不到画面。
+/// 摘掉时调 `clock.freeze()` 收干净状态，恢复后风从原处接着吹，不跳一大步。
 struct ForestWindDriver: View {
     let clock: ForestWindClock
     /// 氛围隐藏档（连点天空 5 次）：林子完全安静 —— 与云的收起同一句承诺。
     var still: Bool = false
 
     @Environment(\.appMotion) private var motion
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// 风是否在吹（总闸：氛围隐藏档 / 减弱动态效果，见 `WindField.isBlowing`）。
+    private var blowing: Bool {
+        WindField.isBlowing(ambientHidden: still, reduceMotion: motion.reduceMotion)
+    }
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { context in
+        if blowing && scenePhase == .active {
+            TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { context in
+                Color.clear
+                    // ⚠️ 走 onChange 而不是在闭包里直接写：body 求值途中改可观察状态
+                    // 会触发「Modifying state during view update」。onChange 在更新
+                    // 之后跑，且天然只在 date 真变时跑（首帧不跑，无所谓）。
+                    .onChange(of: context.date) { _, date in
+                        clock.advance(to: date, blowing: true)
+                    }
+            }
+        } else {
+            // 连表都不起：冻结档下这颗调度器根本不该存在（与氛围钟同一条规矩）。
             Color.clear
-                // ⚠️ 走 onChange 而不是在闭包里直接写：body 求值途中改可观察状态
-                // 会触发「Modifying state during view update」。onChange 在更新
-                // 之后跑，且天然只在 date 真变时跑（首帧不跑，无所谓）。
-                .onChange(of: context.date) { _, date in
-                    clock.advance(to: date, blowing: WindField.isBlowing(ambientHidden: still, reduceMotion: motion.reduceMotion))
-                }
+                .onAppear { clock.freeze() }
         }
     }
 }
