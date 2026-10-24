@@ -881,6 +881,9 @@ public final class ChatService {
         var accumulated = ""
         var reasoning = ""
         var failure: Error?
+        // 老师首字计时的起点（#668）：请求**发出**那一刻 —— 建连、排队、模型冷加载
+        // 全在这段时间里，而学员感受到的等待正是从这一刻开始数的。
+        let turnStartedAt = Date()
         do {
             let stream = await services.llm.stream(request)
             for try await chunk in stream {
@@ -891,7 +894,15 @@ public final class ChatService {
                 }
                 if !chunk.textDelta.isEmpty {
                     // 首个正文增量的时刻 = 「正在说」的开始。
-                    if accumulated.isEmpty { engine.send(.firstToken) }
+                    if accumulated.isEmpty {
+                        engine.send(.firstToken)
+                        // ⚠️ 只在**第一个**增量上记一次（外层 `accumulated.isEmpty`
+                        // 就是这个条件）：每个字都记一笔的话，环形缓冲会被这一轮占满，
+                        // 而且「首字延迟」这个数字本身也就没了。
+                        PerformanceTrace.shared.record(
+                            name: PerfMark.firstToken.sampleName(), since: turnStartedAt
+                        )
+                    }
                     accumulated += chunk.textDelta
                     streamingText = accumulated
                 }

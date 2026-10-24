@@ -1,3 +1,4 @@
+import AIDomain
 import AppCore
 import SwiftUI
 
@@ -238,6 +239,70 @@ extension SettingsView {
                 }
             }
         }
+    }
+
+    // MARK: - 耗时打点（#668）
+
+    /// 「耗时打点」卡片：开屏 / 切页 / 老师首字的**实测**数字。
+    ///
+    /// 为什么要摆在界面上：这三项此前一处打点都没有，「慢」只是体感 ——
+    /// 优化靠猜，改完也不知道有没有真的变快。数字来自进程内的环形缓冲
+    /// （`PerformanceTrace`）：不落盘、不外发，退出即空，样本里只有
+    /// 「哪一件事、花了多久」，不含任何学习内容。
+    ///
+    /// ⚠️ 每次打开设置页重读一次（`SettingsView` 是 `if` 分支里新建的）：
+    /// 采集器不是可观察对象，靠 SwiftUI 自动刷新接不住它。
+    var performanceCard: some View {
+        card(title: "耗时打点", systemImage: "stopwatch") {
+            let rows = PerformanceTrace.shared.summary()
+            VStack(alignment: .leading, spacing: 10) {
+                Text("这一版实测的几项耗时。只存在内存里（最近 \(PerformanceTrace.shared.capacity) 条），退出应用即清空；记的是「哪件事花了多久」，不含学习内容。")
+                    .appFont(10, design: .rounded)
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if rows.isEmpty {
+                    Text("还没有样本 —— 切几页、跟老师聊一句就有数字了。")
+                        .appFont(11, design: .rounded)
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ForEach(rows) { row in
+                        performanceRow(row)
+                    }
+                }
+            }
+        }
+    }
+
+    /// 一行汇总：`最近` 是重点（人关心的是「刚才那一下」），中位与次数说明它常不常见。
+    private func performanceRow(_ row: PerformanceSummary) -> some View {
+        HStack(spacing: 8) {
+            Text(performanceTitle(row))
+                .appFont(11, design: .rounded)
+                .foregroundStyle(theme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+            Text("最近 \(PerformanceText.seconds(row.lastSeconds))")
+                .appFont(11, weight: .semibold, design: .rounded)
+                .foregroundStyle(theme.primaryText)
+                .monospacedDigit()
+            Text("中位 \(PerformanceText.seconds(row.medianSeconds)) · \(row.count) 次")
+                .appFont(10, design: .rounded)
+                .foregroundStyle(theme.secondaryText)
+                .monospacedDigit()
+        }
+    }
+
+    /// 把细分维度翻成中文（切页的 `progress` → 「学习进度」）。
+    ///
+    /// 翻不出来就退回原样 —— 埋点名是 **`AIDomain` 的枚举**，界面才认得它；
+    /// `PerformanceSummary` 自己只能给出原始值（AppCore 不认得页面）。
+    private func performanceTitle(_ row: PerformanceSummary) -> String {
+        guard let subject = row.subject,
+              let section = AppSection(rawValue: subject),
+              let mark = row.mark else { return row.title }
+        return "\(mark.title) · \(section.title)"
     }
 
     private func speedRow(label: String, value: String) -> some View {

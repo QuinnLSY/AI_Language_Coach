@@ -104,6 +104,7 @@ public struct SettingsView: View {
                     cacheCard
                     runtimeCard
                     localSpeedCard
+                    performanceCard
                     shortcutCenterCard
                     advancedCard
                     logsCard

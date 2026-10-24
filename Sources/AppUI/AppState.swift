@@ -1748,6 +1748,10 @@ public final class AppState {
                 await self.refreshTodayPanel(force: true)
             }
         }
+        // 冷启动计时收口（#668）：这一刻 = 界面揭开（MainView 不再显示装配态），
+        // 起点是 `AppMain.init()` 里打的那一下。开屏之后还有一堆后台活（情景、
+        // 今日卷轴、短文预生成），它们**不在**这段里 —— 用户看到的就是界面，不是它们。
+        PerformanceTrace.shared.recordSinceLaunch(.launch)
         isBooting = false
         // 情景素材与关卡绑定：启动时就要有 —— 「继续上次的情景任务」要靠它找到那一个情景。
         await loadScenarios()
@@ -2463,6 +2467,18 @@ public final class AppState {
     /// 保留 `open*()` 上那些「顺带加载数据」的动作（进度汇总、记录加载、词汇导入…），
     /// 所以这里是转发而不是直接 `applySection`——少了那一步，页面会打开但内容是空的。
     public func go(to section: AppSection) async {
+        // 切页耗时（#668）：进这一页 → 它的数据就位。含 `open*()` 里顺带的那次取数
+        // （进度汇总 / 记录加载 / 词汇导入…），也正是「点一下卡半秒」通常卡住的地方。
+        //
+        // ⚠️ 打在 `go(to:)` 而不是 `applySection(_:)`：后者只写九个布尔量，
+        // 真正花钱的是后面那次 `await`。量错地方会得出「切页 0.2ms」这种无用数字。
+        let switchStartedAt = Date()
+        defer {
+            PerformanceTrace.shared.record(
+                name: PerfMark.section.sampleName(subject: section.rawValue),
+                since: switchStartedAt
+            )
+        }
         switch section {
         case .practice: await openPractice()
         case .shadowing: await openShadowing()

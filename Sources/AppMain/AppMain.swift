@@ -1,4 +1,5 @@
 import AIDomain
+import AppCore
 import AppUI
 import SwiftUI
 
@@ -13,6 +14,13 @@ struct AILanguageCoachApp: App {
     @NSApplicationDelegateAdaptor(AppURLDelegate.self) var appDelegate
 
     init() {
+        // 冷启动计时的起点（#668）：这是 App 构造的第一行，之后才轮到 AppState
+        // 与界面。终点在 `AppState.start()` 里 `isBooting` 翻 false 那一刻。
+        //
+        // 为什么打在这里而不是 `AppState` 的 init：那一颗要读配置、建服务，
+        // 而「用户双击图标到看见界面」包含它之前的这段 —— 打在后面会系统性偏小，
+        // 偏小的数字最害人（照着它去优化，真正的耗时全在盲区里）。
+        PerformanceTrace.shared.markLaunch()
         // ⚠️ 这里刻意自己建好 `AppState` 再交给 delegate：
         // delegate 的 `applicationDidFinishLaunching` 要用它装菜单栏、处理排队的深链，
         // 而那一次回调发生在 App 之外，拿不到 SwiftUI 内部的 `@State` 值。
