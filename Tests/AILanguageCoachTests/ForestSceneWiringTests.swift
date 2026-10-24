@@ -53,7 +53,7 @@ final class ForestSceneWiringTests: XCTestCase {
     ///
     /// 反证：把 `groundLine` 改回直线（`height − 34`）→ 坡面函数消失 → 红。
     func testGroundBandStandsOnTheHillSurface() throws {
-        let ground = codeLines(try source("AppUI/Components/TreeCanvas.swift"))
+        let ground = codeLines(try TreeCanvasSentinel.joined())
         XCTAssertTrue(ground.contains {
             $0.contains("ForestSceneGeometry.hillSurfaceY(x: x, bandWidth: width, bandHeight: height)")
         }, "地面带必须把坡面函数（hillSurfaceY）接上 —— 改回直线就是「中心埋坡、两角浮空」")
@@ -67,7 +67,7 @@ final class ForestSceneWiringTests: XCTestCase {
     ///
     /// 反证：把 `.frame(height: 96)` 或 `minY - 12` 写回字面量 → 红。
     func testHillCapReadsTheSharedCurveConstants() throws {
-        let ground = try source("AppUI/Components/TreeCanvas.swift")
+        let ground = try TreeCanvasSentinel.joined()
         XCTAssertTrue(ground.contains(".frame(height: ForestSceneGeometry.hillCapHeight)"),
                       "草坡高度必须读地基常量（写回 96 就又多一处会漂的数）")
         XCTAssertTrue(ground.contains("rect.minY - ForestSceneGeometry.hillCapBulge"),

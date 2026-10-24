@@ -53,7 +53,7 @@ final class CourseTreeWiringTests: XCTestCase {
     /// 树冠必须**回到树顶**（用户 2026-10-10 报障：「树冠也要一直保持在树顶，
 /// 现在这个形象太突兀了」），分界交给云带。
 func testCanopyStaysAtTheTopAndCloudsMarkTheBoundary() throws {
-        let raw = try Self.code("Sources/AppUI/Components/TreeCanvas.swift")
+        let raw = try TreeCanvasSentinel.joined()
         // ⚠️ 先把所有空白压成单个空格再比：`crownLift` 参数（#601）把 offset 表达式
         // 拆成了两行，精确串对不上跨行换行 —— e7c0a8c 之后这条哨兵红了一整天
         // （2026-10-21 全量测试才跑出来）。归一化后既钉住**整串调用形态**，
@@ -74,7 +74,7 @@ func testCanopyStaysAtTheTopAndCloudsMarkTheBoundary() throws {
 
     /// 学员只走树干：`climbFraction` 越界要夹在树冠，不许被送进课程段。
     func testLearnerNeverEscapesIntoTheCourseBand() throws {
-        let raw = try Self.code("Sources/AppUI/Components/TreeCanvas.swift")
+        let raw = try TreeCanvasSentinel.joined()
         XCTAssertTrue(raw.contains("let clamped = min(max(climbFraction, 0), 1)"),
                       "learnerY 必须先夹住进度 —— 越界值会被 >1 的课程段接走，学员会「飞」到树冠之上")
     }

@@ -111,7 +111,7 @@ final class AnimalSeasonalPhrasesTests: XCTestCase {
 
     /// 冒泡入口必须走合成池（把 theme 的季节 / 天气带进每一次抽签）。
     func testTreeCanvasBubbleUsesTheSeasonalPool() throws {
-        let canvas = try source("AppUI/Components/TreeCanvas.swift")
+        let canvas = try TreeCanvasSentinel.joined()
         XCTAssertTrue(canvas.contains("bubblePhrases(season: theme.season, weather: theme.weather)"),
                       "requestBubble 必须按当前生效的季节 / 天气合成文案池")
     }

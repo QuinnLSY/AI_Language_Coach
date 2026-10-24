@@ -159,11 +159,8 @@ final class TreeGrowthTests: XCTestCase {
     // MARK: - 夹具
 
     private static func canvasSource() throws -> String {
-        let path = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // AILanguageCoachTests
-            .deletingLastPathComponent()   // Tests
-            .deletingLastPathComponent()   // 仓库根
-            .appendingPathComponent("Sources/AppUI/Components/TreeCanvas.swift")
-        return try String(contentsOf: path, encoding: .utf8)
+        // TreeCanvas 拆成「主体 + 扩展」后，判据改读全家桶拼接文本
+        // （主体 + ForestGroundBand* + TreeBody + TreeCanvas+*，按前缀 glob 排序拼接）。
+        try TreeCanvasSentinel.joined()
     }
 }

@@ -92,7 +92,7 @@ final class AccessibilityWiringTests: XCTestCase {
     ///
     /// 反证：删掉 LevelNode 的 `.accessibilityAddTraits(` → 红。
     func testTreeCanvasHidesDecorationAndExposesLevelsAsButtons() throws {
-        let tree = try source("Sources/AppUI/Components/TreeCanvas.swift")
+        let tree = try TreeCanvasSentinel.joined()
 
         // 装饰收敛：树体 Group、落叶层、地面花草带，至少三处 hidden。
         let hiddenCount = tree.components(separatedBy: ".accessibilityHidden(true)").count - 1

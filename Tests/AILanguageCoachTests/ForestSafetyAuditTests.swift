@@ -31,12 +31,19 @@ final class ForestSafetyAuditTests: XCTestCase {
     }
 
     /// 取出函数体：从 `needle` 起到下一个函数声明 / 类型边界为止。
+    ///
+    /// pad 按 needle 自身缩进动态选：列 0 的成员（顶层类型声明）配列 0 的
+    /// Terminator，4 空格缩进的成员配 4 空格的 —— 拆分后同一判据要同时能读
+    /// 主文件与扩展文件（扩展文件里成员回到列 0）。
     private func body(of needle: String, in source: String) -> String {
         guard let range = source.range(of: needle) else { return "" }
         let rest = source[range.lowerBound...]
         let tail = rest.dropFirst(needle.count)
-        let terminators = ["\n    public func ", "\n    private func ", "\n    func ",
-                           "\n    public nonisolated ", "\n    private struct", "\n    public var "]
+        let atColumnZero = range.lowerBound > source.startIndex
+            && source[source.index(before: range.lowerBound)] == "\n"
+        let pad = atColumnZero ? "" : "    "
+        let terminators = ["\n\(pad)public func ", "\n\(pad)private func ", "\n\(pad)func ",
+                           "\n\(pad)public nonisolated ", "\n\(pad)private struct", "\n\(pad)public var "]
         let ends = terminators.compactMap { tail.range(of: $0)?.lowerBound }
         if let end = ends.min() { return String(rest[..<end]) }
         return String(rest)
@@ -89,8 +96,8 @@ final class ForestSafetyAuditTests: XCTestCase {
     ///
     /// 反证：删掉 `hopTo` 里那句 `hopTokens[index] == token` 的守卫 → 红。
     func testHopToAbortsWhenANewerMoveTakesOver() throws {
-        let canvas = try source("AppUI/Components/TreeCanvas.swift")
-        let hop = self.body(of: "private func hopTo(", in: canvas)
+        let canvas = try TreeCanvasSentinel.joined()
+        let hop = self.body(of: "func hopTo(", in: canvas)
         XCTAssertFalse(hop.isEmpty, "找不到 hopTo")
 
         let lines = codeLines(hop)
@@ -105,8 +112,8 @@ final class ForestSafetyAuditTests: XCTestCase {
     ///
     /// 反证：删掉 `sendEveryoneHome()` 里的 `invalidateHops()` → 红。
     func testSendEveryoneHomeInvalidatesInFlightHops() throws {
-        let canvas = try source("AppUI/Components/TreeCanvas.swift")
-        let home = self.body(of: "private func sendEveryoneHome()", in: canvas)
+        let canvas = try TreeCanvasSentinel.joined()
+        let home = self.body(of: "func sendEveryoneHome()", in: canvas)
         XCTAssertFalse(home.isEmpty, "找不到 sendEveryoneHome")
         XCTAssertTrue(codeLines(home).contains { $0.text.contains("invalidateHops()") },
                       "回家之前必须作废所有在飞的移动批次")
@@ -120,14 +127,14 @@ final class ForestSafetyAuditTests: XCTestCase {
     ///
     /// 反证：删掉 `orchestrateRotation` 的 `defer { bringStraysHome() }` → 红。
     func testRotationBringStraysHomeWhenTheLoopEnds() throws {
-        let canvas = try source("AppUI/Components/TreeCanvas.swift")
-        let rotation = self.body(of: "private func orchestrateRotation(", in: canvas)
+        let canvas = try TreeCanvasSentinel.joined()
+        let rotation = self.body(of: "func orchestrateRotation(", in: canvas)
         XCTAssertFalse(rotation.isEmpty, "找不到 orchestrateRotation")
         XCTAssertTrue(codeLines(rotation).contains { $0.text.contains("defer { bringStraysHome() }") },
                       "轮换循环退出（含被取消）时必须把暂离的居民接回场上")
 
         // 捡词那趟也一样：`away` 置真之后若被打断，同样得接回来。
-        let fetch = self.body(of: "private func fetchWord(", in: canvas)
+        let fetch = self.body(of: "func fetchWord(", in: canvas)
         XCTAssertFalse(fetch.isEmpty, "找不到 fetchWord")
         XCTAssertTrue(codeLines(fetch).contains { $0.text.contains("bringStraysHome()") },
                       "捡词被打断时也不许把这位留在画外")
@@ -138,8 +145,8 @@ final class ForestSafetyAuditTests: XCTestCase {
     ///
     /// 反证：把 `let interval` 挪回 `while` 之前 → 红。
     func testLifeHeartbeatRecomputesItsIntervalEveryRound() throws {
-        let canvas = try source("AppUI/Components/TreeCanvas.swift")
-        let life = self.body(of: "private func orchestrateLife(", in: canvas)
+        let canvas = try TreeCanvasSentinel.joined()
+        let life = self.body(of: "func orchestrateLife(", in: canvas)
         XCTAssertFalse(life.isEmpty, "找不到 orchestrateLife")
 
         guard let loopStart = life.range(of: "while !Task.isCancelled {")?.lowerBound,

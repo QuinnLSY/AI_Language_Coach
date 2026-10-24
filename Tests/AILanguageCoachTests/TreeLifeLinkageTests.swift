@@ -136,7 +136,7 @@ final class TreeLifeLinkageTests: XCTestCase {
     ///
     /// 反证：删掉 `.onChange(of: climbFraction)` 整段 → 两处断言一起红。
     func testGroundBandWatchesClimbFraction() throws {
-        let canvas = try source("AppUI/Components/TreeCanvas.swift")
+        let canvas = try TreeCanvasSentinel.joined()
         let watches = codeLines(canvas).filter { $0.text.contains(".onChange(of: climbFraction)") }
         XCTAssertEqual(watches.count, 1,
                        "地面带没有在盯 `climbFraction`（C 整条链断在最外层）")
@@ -154,8 +154,8 @@ final class TreeLifeLinkageTests: XCTestCase {
     ///
     /// 反证：往 `cheerAscent` 里加一行 `welcomeParty()` → 红。
     func testAscentCheerStaysBelowCelebrationLevel() throws {
-        let canvas = try source("AppUI/Components/TreeCanvas.swift")
-        let body = section(from: "private func cheerAscent() {",
+        let canvas = try TreeCanvasSentinel.joined()
+        let body = section(from: "func cheerAscent() {",
                            to: "// MARK: 边界状态",
                            in: canvas)
         XCTAssertFalse(body.isEmpty, "找不到 `cheerAscent` 的函数体")

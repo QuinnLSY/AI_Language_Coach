@@ -28,12 +28,18 @@ final class ForestResponsivenessTests: XCTestCase {
     }
 
     /// 取出函数体：从 `needle` 起到下一个函数声明 / 存储属性 / 类型边界为止。
+    ///
+    /// pad 按 needle 自身缩进动态选：列 0 的成员（顶层类型声明、扩展文件成员）
+    /// 配列 0 的 Terminator，4 空格缩进的配 4 空格的。
     private func body(of needle: String, in source: String) -> String {
         guard let range = source.range(of: needle) else { return "" }
         let rest = source[range.lowerBound...]
         let tail = rest.dropFirst(needle.count)
-        let terminators = ["\n    public func ", "\n    private func ", "\n    func ",
-                           "\n    public nonisolated ", "\n    private struct", "\n    public var "]
+        let atColumnZero = range.lowerBound > source.startIndex
+            && source[source.index(before: range.lowerBound)] == "\n"
+        let pad = atColumnZero ? "" : "    "
+        let terminators = ["\n\(pad)public func ", "\n\(pad)private func ", "\n\(pad)func ",
+                           "\n\(pad)public nonisolated ", "\n\(pad)private struct", "\n\(pad)public var "]
         let ends = terminators.compactMap { tail.range(of: $0)?.lowerBound }
         if let end = ends.min() { return String(rest[..<end]) }
         return String(rest)
@@ -223,7 +229,7 @@ final class ForestResponsivenessTests: XCTestCase {
     ///
     /// 反证：删掉任意一个 onChange → 红。
     func testGroundBandPlaysEveryNewChannel() throws {
-        let ground = try source("AppUI/Components/TreeCanvas.swift")
+        let ground = try TreeCanvasSentinel.joined()
         for (tick, handler) in [("moduleTick", "playModuleSkit(module)"),
                                 ("abandonTick", "waveGoodbye(module)"),
                                 ("learnerTurnTick", "acknowledgeLearner()"),
@@ -271,7 +277,7 @@ final class ForestResponsivenessTests: XCTestCase {
         XCTAssertFalse(chat.contains("GladeFloor("),
                        "对话区不许再画林间空地（植物搬进林子，别悬浮在聊天上）")
 
-        let ground = try source("AppUI/Components/TreeCanvas.swift")
+        let ground = try TreeCanvasSentinel.joined()
         let floraLine = codeLines(ground).filter { $0.text.contains("ForestFloraBed(theme:") }
         guard floraLine.count == 1 else {
             return XCTFail("地面带必须栽上对话植物（且只栽一处），实际 \(floraLine.count) 处")
@@ -324,8 +330,8 @@ final class ForestResponsivenessTests: XCTestCase {
     ///
     /// 反证：把 celebrate() 的波次循环改回单波（全体同时 trigger 一次）→ 红。
     func testGroundCelebrationIsStaggeredOverSeveralWaves() throws {
-        let body = self.body(of: "private func celebrate()",
-                             in: try source("AppUI/Components/TreeCanvas.swift"))
+        let body = self.body(of: "func celebrate()",
+                             in: try TreeCanvasSentinel.joined())
         XCTAssertTrue(body.contains("for wave in 0..<3"), "庆祝必须跳好几下（三波）")
         XCTAssertTrue(body.contains("Double(order) * 0.18"), "同波之内各只要按位次错开")
         // 气泡这一路改成「先同步派号（`bubblePlan`）、再按位次错峰出场」：

@@ -42,7 +42,7 @@ final class AnimalSeasonOutfitTests: XCTestCase {
 
     /// 地面带必须把季节与天气透传进 `LivelyAnimal`（漏一个 = 那一路装扮静默失效）。
     func testTreeCanvasWiresSeasonAndWeatherIntoResidents() throws {
-        let canvas = try source("AppUI/Components/TreeCanvas.swift")
+        let canvas = try TreeCanvasSentinel.joined()
         XCTAssertTrue(canvas.contains("season: theme.season"),
                       "resident() 必须把 theme 的季节传给每只居民")
         XCTAssertTrue(canvas.contains("weather: theme.weather"),

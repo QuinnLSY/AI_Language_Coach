@@ -137,8 +137,7 @@ final class ForestOrchardTests: XCTestCase {
     ///
     /// 反证：把 `homePosition` 改回内联公式 → 红在第二条。
     func testGroundBandMeasuresWithTheSameFunction() throws {
-        let canvas = try String(
-            contentsOfFile: "Sources/AppUI/Components/TreeCanvas.swift", encoding: .utf8)
+        let canvas = try TreeCanvasSentinel.joined()
         XCTAssertTrue(canvas.contains("ForestGroundPlan.residentSize("),
                       "地面带没有共用居民体型函数")
         XCTAssertFalse(canvas.contains("28 + quantizedWidth * 0.045"),

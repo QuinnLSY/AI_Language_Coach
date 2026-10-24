@@ -113,7 +113,7 @@ final class AtmosphereWiringTests: XCTestCase {
 
     /// 树上学员与空态问候也要接上：树上配饰走 StudentProgression，空态走三档问候。
     func testTreeLearnerAndEmptyHintUseTheNewCopy() throws {
-        let tree = try source("AppUI/Components/TreeCanvas.swift")
+        let tree = try TreeCanvasSentinel.joined()
         XCTAssertTrue(tree.contains("StudentProgression.accessory(totalStars: progress.totalStars)"),
                       "树上学员的配饰没走成长线")
         let chat = try source("AppUI/Views/ChatView.swift")

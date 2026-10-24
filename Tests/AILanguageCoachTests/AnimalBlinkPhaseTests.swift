@@ -88,7 +88,7 @@ final class AnimalBlinkPhaseTests: XCTestCase {
     /// ⚠️ 钉的是调用形态整串而不是「文件里出现过几次 blinkPhaseSeed」——
     /// 后者连 `if false { ... }` 这种死代码都能计数（假绿）。
     func testGroundBandFeedsEachSlotItsOwnSeed() throws {
-        let tree = try source(named: "TreeCanvas", in: "Components")
+        let tree = try TreeCanvasSentinel.joined()
         XCTAssertTrue(tree.contains("blinkPhaseSeed: index"),
                       "地面带必须按槽位号传初相种子；传常量就等于整排一起眨")
     }

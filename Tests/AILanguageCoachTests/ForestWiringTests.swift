@@ -38,12 +38,20 @@ final class ForestWiringTests: XCTestCase {
     }
 
     /// 取出函数体：从 `needle` 起到下一个函数声明 / 存储属性 / 类型边界为止。
+    ///
+    /// ⚠️ 成员声明的缩进跟着所在文件变：类内成员在 4 空格，`TreeCanvas+*.swift` /
+    /// `ForestGroundBand+*.swift` 这类**扩展**成员在列 0（函数体反而落在 4 空格）——
+    /// 按 needle 实际所在的缩进选 Terminator，否则扩展里的函数体语句会被当成成员
+    /// 声明，第一行就切断（#661 拆分后的教训）。
     private func body(of needle: String, in source: String) -> String {
         guard let range = source.range(of: needle) else { return "" }
         let rest = source[range.lowerBound...]
         let tail = rest.dropFirst(needle.count)
-        let terminators = ["\n    public func ", "\n    private func ", "\n    func ",
-                           "\n    public nonisolated ", "\n    private struct", "\n    public var "]
+        let atColumnZero = range.lowerBound > source.startIndex
+            && source[source.index(before: range.lowerBound)] == "\n"
+        let pad = atColumnZero ? "" : "    "
+        let terminators = ["\n\(pad)public func ", "\n\(pad)private func ", "\n\(pad)func ",
+                           "\n\(pad)public nonisolated ", "\n\(pad)private struct", "\n\(pad)public var "]
         let ends = terminators.compactMap { tail.range(of: $0)?.lowerBound }
         if let end = ends.min() {
             return String(rest[..<end])
@@ -151,7 +159,7 @@ final class ForestWiringTests: XCTestCase {
 
     /// 轮换必须走节奏器：结伴分组 / 独立归期 / 错落间隔三样都在场。
     func testRotationUsesThePacingPlanner() throws {
-        let body = self.body(of: "private func orchestrateRotation", in: try source("AppUI/Components/TreeCanvas.swift"))
+        let body = self.body(of: "func orchestrateRotation", in: try TreeCanvasSentinel.joined())
         XCTAssertFalse(body.isEmpty, "找不到 orchestrateRotation")
         XCTAssertTrue(body.contains("ForestRotationPacing.groupSize"), "一批走几只要问节奏器（结伴概率）")
         XCTAssertTrue(body.contains("ForestRotationPacing.returnDelay"), "归期必须独立随机（错落回来）")
@@ -163,17 +171,17 @@ final class ForestWiringTests: XCTestCase {
 
     /// 在场判定：日常动作 / 庆祝 / 绘制三处都只认「没暂离」的居民。
     func testPresentOnlyParticipation() throws {
-        let tree = try source("AppUI/Components/TreeCanvas.swift")
+        let tree = try TreeCanvasSentinel.joined()
         XCTAssertTrue(tree.contains("index < visibleCount && !away[index]"),
                       "居民可见性必须含暂离判定")
         // 挑角统一走 `presentResidents`（**在场且画得出来**的那几只）：
         // 槽位恒为 8，可见的只有 `residentCount` 只，在 8 个里随选会演给画外角色。
-        XCTAssertTrue(tree.contains("private var presentResidents: [Int]")
+        XCTAssertTrue(tree.contains("var presentResidents: [Int]")
                       && tree.contains("(0..<residentCount).filter { !away[$0] }"),
                       "日常动作只能在在场且看得见的居民里挑")
         XCTAssertTrue(tree.contains("let present = presentResidents"),
                       "庆祝只能点在场的居民")
-        let home = self.body(of: "private func sendEveryoneHome", in: tree)
+        let home = self.body(of: "func sendEveryoneHome", in: tree)
         XCTAssertTrue(home.contains("away[i] = false"), "全体回家必须清掉暂离态（否则有人卡在画外）")
     }
 
@@ -194,8 +202,8 @@ final class ForestWiringTests: XCTestCase {
 
     /// 捡词叙事必须真的「跑出去 + 叼回来」：出画暂离、词卡展示、词来自载荷。
     func testFetchWordLeavesAndReturnsWithTheCard() throws {
-        let tree = try source("AppUI/Components/TreeCanvas.swift")
-        let fetch = self.body(of: "private func fetchWord", in: tree)
+        let tree = try TreeCanvasSentinel.joined()
+        let fetch = self.body(of: "func fetchWord", in: tree)
         XCTAssertFalse(fetch.isEmpty, "找不到 fetchWord")
         XCTAssertTrue(fetch.contains("guard activityAllowed, !theme.isNight, !isFetchingWord, let word = wordPayload"),
                       "捡词必须被活动开关/夜晚/并发守卫，且词来自载荷")
@@ -220,8 +228,8 @@ final class ForestWiringTests: XCTestCase {
 
     /// 歪头安慰：纠错后派在场居民演 tilt + 安慰语；夜晚/关活动/关气泡都不吵。
     func testComfortPlaysTiltWithGentleWords() throws {
-        let tree = try source("AppUI/Components/TreeCanvas.swift")
-        let comfort = self.body(of: "private func comfort", in: tree)
+        let tree = try TreeCanvasSentinel.joined()
+        let comfort = self.body(of: "func comfort", in: tree)
         XCTAssertFalse(comfort.isEmpty, "找不到 comfort")
         XCTAssertTrue(comfort.contains("guard activityAllowed, !theme.isNight, bubblesAllowed"),
                       "安慰也要守活动开关与夜晚安静")
@@ -231,8 +239,8 @@ final class ForestWiringTests: XCTestCase {
 
     /// 日常编排必须真的会挑到新动作与双人社交（不是加了枚举却没人演）。
     func testOrchestrationActuallyPlaysTheNewSkits() throws {
-        let tree = try source("AppUI/Components/TreeCanvas.swift")
-        let life = self.body(of: "private func orchestrateLife", in: tree)
+        let tree = try TreeCanvasSentinel.joined()
+        let life = self.body(of: "func orchestrateLife", in: tree)
         XCTAssertFalse(life.isEmpty, "找不到 orchestrateLife")
         // ⚠️ 批次五起跳/摇走「招牌动作插队」那条路（`fallback` 就是原本那一档），
         // 独角戏也从写死的池子换成**按物种**抽 —— 判据跟着语义走，别再钉旧字面量。
@@ -241,7 +249,7 @@ final class ForestWiringTests: XCTestCase {
         XCTAssertTrue(life.contains("AnimalPersonaBook.soloAction(for: kind, roll: signatureRoll)"),
                       "独角戏动作池没接进编排（现在按物种抽）")
         XCTAssertTrue(life.contains("socialise"), "双人社交没接进编排")
-        let social = self.body(of: "private func socialise", in: tree)
+        let social = self.body(of: "func socialise", in: tree)
         XCTAssertTrue(social.contains("action: .wiggle"), "结对摇摆（跳舞）没接进社交")
         XCTAssertTrue(social.contains("performDialogue"), "一问一答没接进社交")
         XCTAssertTrue(social.contains("ForestTheatrePacing.closestPair"), "配对必须找最近的邻居")

@@ -73,7 +73,7 @@ final class EdgeStateWiringTests: XCTestCase {
             "ForestGroundBand 没接到牌子内容，举牌永远空白"
         )
         // 地面带侧要真的接住脉冲（onChangeListener 被删 = 牌子永远不举）。
-        let tree = try source("Sources/AppUI/Components/TreeCanvas.swift")
+        let tree = try TreeCanvasSentinel.joined()
         XCTAssertTrue(
             tree.contains(".onChange(of: errorSignTick)"),
             "ForestGroundBand 必须监听 errorSignTick —— 没有它，举牌脉冲到得了却没人接"
@@ -84,7 +84,7 @@ final class EdgeStateWiringTests: XCTestCase {
 
     /// 退化档必须走纯函数：内联公式删掉后不许悄悄长回来。
     func testGroundBandUsesForestGroundPlanInsteadOfInlineFormulas() throws {
-        let tree = try source("Sources/AppUI/Components/TreeCanvas.swift")
+        let tree = try TreeCanvasSentinel.joined()
         XCTAssertTrue(
             tree.contains("ForestGroundPlan.plan(width:"),
             "居民 / 灌木 / 小花的数量必须走 ForestGroundPlan 三档退化"

@@ -179,7 +179,7 @@ final class ForestStoryArcTests: XCTestCase {
                       "出幕脉冲没接进地面带")
         XCTAssertTrue(band.contains("lastStoryAct: state.forest.lastStoryAct"),
                       "幕名没接进地面带")
-        let tree = try source("AppUI/Components/TreeCanvas.swift")
+        let tree = try TreeCanvasSentinel.joined()
         XCTAssertTrue(tree.contains("performStoryAct(act)"), "出幕回调没接演幕")
         XCTAssertTrue(tree.contains("storyLead = nil") || tree.contains("storyLead = lead"),
                       "演员绑定断了（每次换角就不成剧情了）")
@@ -191,10 +191,10 @@ final class ForestStoryArcTests: XCTestCase {
     /// 画成 `opacity(0)`、气泡也有 `i < count` 守卫 —— 在 8 个里随机挑，六成概率
     /// 演给一个画外角色：动作看不见、气泡也不出，用户只看到「攒够星却什么都没发生」。
     func testCastingOnlyPicksVisibleResidents() throws {
-        let tree = try source("AppUI/Components/TreeCanvas.swift")
+        let tree = try TreeCanvasSentinel.joined()
         XCTAssertFalse(tree.contains("(0..<Self.maxResidents).filter { !away[$0] }"),
                        "挑角不能在所有槽位里随选（会挑到画外的角色）")
-        XCTAssertTrue(tree.contains("private var presentResidents: [Int]"),
+        XCTAssertTrue(tree.contains("var presentResidents: [Int]"),
                       "缺少「可见且在场」的挑角入口")
         XCTAssertTrue(tree.contains("residentCount = value"),
                       "可见居民数没有从布局回写（首帧之后才生效就晚了）")

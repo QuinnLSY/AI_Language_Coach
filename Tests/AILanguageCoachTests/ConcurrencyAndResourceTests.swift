@@ -595,14 +595,14 @@ final class ConcurrencyAndResourceTests: XCTestCase {
     /// `celebrate()` 一次要起几十个错峰 Task（三波欢跳 × 在场只数 + 台词 + 收尾）。
     /// 它们不持有、也没法取消，所以**每个 Task 动手前都要对一次代际令牌**。
     func testCelebrationTasksRevalidateTheirGenerationToken() throws {
-        let raw = try Self.source("Sources/AppUI/Components/TreeCanvas.swift")
-        let celebrate = try Self.body(of: "private func celebrate()", in: raw)
+        let raw = try TreeCanvasSentinel.joined()
+        let celebrate = try Self.body(of: "func celebrate()", in: raw)
         let spawns = celebrate.components(separatedBy: "Task { @MainActor in").count - 1
         XCTAssertGreaterThanOrEqual(spawns, 3, "三处派发点：欢跳 / 台词 / 收尾")
         let checks = celebrate.components(separatedBy: "celebrationToken == token").count - 1
         XCTAssertEqual(checks, spawns, "有 \(spawns) 个 Task 创建点，却只有 \(checks) 处对账")
 
-        let home = try Self.body(of: "private func sendEveryoneHome()", in: raw)
+        let home = try Self.body(of: "func sendEveryoneHome()", in: raw)
         XCTAssertTrue(home.contains("celebrationToken += 1"),
                       "「回家」要把在飞的演出作废，否则它还会把刚站好的队伍拽走一只")
     }

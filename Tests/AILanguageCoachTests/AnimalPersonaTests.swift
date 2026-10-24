@@ -26,11 +26,17 @@ final class AnimalPersonaTests: XCTestCase {
     }
 
     /// 取出某个函数体：从 `needle` 起到下一个函数声明为止。
+    ///
+    /// pad 按 needle 自身缩进动态选：拆分后扩展文件里的成员回到列 0，
+    /// Terminator 也要跟着回列 0，否则函数体一直延伸到文件尾。
     private func funcBody(of needle: String, in source: String) -> String {
         guard let range = source.range(of: needle) else { return "" }
         let rest = source[range.lowerBound...]
         let tail = rest.dropFirst(needle.count)
-        let ends = ["\n    private func ", "\n    public func ", "\n    func "]
+        let atColumnZero = range.lowerBound > source.startIndex
+            && source[source.index(before: range.lowerBound)] == "\n"
+        let pad = atColumnZero ? "" : "    "
+        let ends = ["\n\(pad)private func ", "\n\(pad)public func ", "\n\(pad)func "]
             .compactMap { tail.range(of: $0)?.lowerBound }
         if let end = ends.min() { return String(rest[..<end]) }
         return String(rest)
@@ -152,9 +158,9 @@ final class AnimalPersonaTests: XCTestCase {
     ///
     /// 反证：把 `AnimalPersonaBook.pick` 换回 `present.randomElement()` → 红。
     func testOrchestrationActuallyUsesThePersonas() throws {
-        let file = try source("AppUI/Components/TreeCanvas.swift")
+        let file = try TreeCanvasSentinel.joined()
         // ⚠️ 只扫编排这一段：别的地方（安慰时随机派一只）用 randomElement 是应该的。
-        let body = funcBody(of: "private func orchestrateLife(", in: file)
+        let body = funcBody(of: "func orchestrateLife(", in: file)
         XCTAssertFalse(body.isEmpty, "要能取到编排函数体")
         XCTAssertTrue(body.contains("AnimalPersonaBook.pick(kinds: kinds, present: present,"),
                       "挑谁上场必须按活跃度加权")
@@ -170,7 +176,7 @@ final class AnimalPersonaTests: XCTestCase {
     ///
     /// 反证：改回 `order[index % order.count] == .owl` → 红。
     func testPerchJudgementFollowsTheCurrentSpecies() throws {
-        let tree = codeLines(try source("AppUI/Components/TreeCanvas.swift"))
+        let tree = codeLines(try TreeCanvasSentinel.joined())
         let flat = tree.map(\.text).joined(separator: "\n")
         XCTAssertTrue(flat.contains("let kind = kindAt(index: index, fallback: order[index % order.count])"),
                       "性格要按当前槽位的物种算")
@@ -202,7 +208,7 @@ final class AnimalPersonaTests: XCTestCase {
     ///
     /// 反证：把 `.position(y: learnerY + ...)` 改成自己算一条 y → 红。
     func testCompanionRidesTheLearnerAnchorWithoutTouchingIt() throws {
-        let tree = codeLines(try source("AppUI/Components/TreeCanvas.swift"))
+        let tree = codeLines(try TreeCanvasSentinel.joined())
         let flat = tree.map(\.text).joined(separator: "\n")
         XCTAssertTrue(flat.contains("y: learnerY + ForestCompanion.besideLearner.height"),
                       "伙伴必须挂在学员的 y 上（陪着爬，不是各爬各的）")
@@ -217,7 +223,7 @@ final class AnimalPersonaTests: XCTestCase {
 
     /// 通关时伙伴先跑过去等着（`dashCompanionAhead` 挂在既有的 ceremonyTick 上）。
     func testCompanionDashesOnLevelCompletion() throws {
-        let file = try source("AppUI/Components/TreeCanvas.swift")
+        let file = try TreeCanvasSentinel.joined()
         let flat = codeLines(file).map(\.text).joined(separator: "\n")
         // ⚠️ 钉的是**调用**（挂在 ceremonyTick 上的那一段），函数自己躺在那儿不算数。
         // ⚠️ 逐行拼而不是用多行字面量：后者会按闭合引号缩进整段左移，看着对其实对不上。

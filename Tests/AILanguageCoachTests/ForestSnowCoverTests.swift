@@ -264,11 +264,12 @@ final class ForestSnowCoverTests: XCTestCase {
     ///
     /// 反证：把 `ForestSnowField` 那一段移到 `grassBlade` 之后 → 红。
     func testSnowFieldIsDrawnUnderTheGrass() throws {
-        let source = try String(
-            contentsOfFile: "Sources/AppUI/Components/TreeCanvas.swift", encoding: .utf8)
+        let source = try TreeCanvasSentinel.joined()
         let snow = try XCTUnwrap(source.range(of: "ForestSnowField(theme:"),
                                  "地面带里没有雪盖")
-        let grass = try XCTUnwrap(source.range(of: "grassBlade(x:"),
+        // ⚠️ 钉调用点（`inset +` 那段算式）而不是光名字：`grassBlade` 的定义在
+        // +Scenery 扩展里，joined 拼接顺序下它排在地面带主体之前，会抢走首次匹配。
+        let grass = try XCTUnwrap(source.range(of: "grassBlade(x: inset +"),
                                   "地面带里没有草叶（判据要跟着改）")
         XCTAssertLessThan(snow.lowerBound, grass.lowerBound,
                           "雪盖画在草叶之后了：草被雪埋住，成了「草地贴了张白纸」")

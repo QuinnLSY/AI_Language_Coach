@@ -62,7 +62,7 @@ final class ForestSeasonWiringTests: XCTestCase {
     ///
     /// 反证：把分支的季节改成 `.winter` → 红在「没找到春天分支」。
     func testSpringBranchMountsDandelionsAndButterflies() throws {
-        let lines = codeLines(try source("Sources/AppUI/Components/TreeCanvas.swift"))
+        let lines = codeLines(try TreeCanvasSentinel.joined())
         let block = try XCTUnwrap(blocks(after: "if theme.season == .spring {", in: lines).first?.body,
                                   "地面带里没有春天分支（判据要跟着改）")
         XCTAssertTrue(text(block).contains("ForestDandelions(theme:"), "春天分支没挂蒲公英")
@@ -73,7 +73,7 @@ final class ForestSeasonWiringTests: XCTestCase {
     ///
     /// 反证：删掉 `ForestDragonflies(theme: …)` 那一行 → 红。
     func testSummerBranchMountsDapplesFirefliesAndDragonflies() throws {
-        let lines = codeLines(try source("Sources/AppUI/Components/TreeCanvas.swift"))
+        let lines = codeLines(try TreeCanvasSentinel.joined())
         let block = try XCTUnwrap(blocks(after: "if theme.season == .summer {", in: lines).first?.body,
                                   "地面带里没有夏天分支（判据要跟着改）")
         XCTAssertTrue(text(block).contains("ForestDapples(theme:"), "夏天分支没挂叶隙光斑")
@@ -86,7 +86,7 @@ final class ForestSeasonWiringTests: XCTestCase {
     ///
     /// 反证：把两处并成一处 → 红在「秋天应该是两处分支」或分层混接断言。
     func testAutumnBranchesMountOrchardLeavesAndPumpkins() throws {
-        let lines = codeLines(try source("Sources/AppUI/Components/TreeCanvas.swift"))
+        let lines = codeLines(try TreeCanvasSentinel.joined())
         let found = blocks(after: "if theme.season == .autumn {", in: lines)
         XCTAssertEqual(found.count, 2, "秋天应该是两处分支（果树在草下、落叶南瓜在草上）")
         let orchard = try XCTUnwrap(found.first?.body, "没有果园那一处分支")
@@ -103,7 +103,7 @@ final class ForestSeasonWiringTests: XCTestCase {
     ///
     /// 反证：删掉 `ForestSnowmen(theme: …)` 那一段 → 红。
     func testWinterBranchMountsSnowFieldAndSnowmen() throws {
-        let lines = codeLines(try source("Sources/AppUI/Components/TreeCanvas.swift"))
+        let lines = codeLines(try TreeCanvasSentinel.joined())
         let block = try XCTUnwrap(blocks(after: "if theme.season == .winter {", in: lines).first?.body,
                                   "地面带里没有冬天分支（判据要跟着改）")
         XCTAssertTrue(text(block).contains("ForestSnowField(theme:"), "冬天分支没挂雪地")
@@ -325,9 +325,11 @@ final class ForestSeasonWiringTests: XCTestCase {
     /// 反证：删掉任意一处 `.seasonFade()` → 红在层数对不上；
     /// 给某一层加 `.transition(.scale)` → 红在「换季只许淡，不许挪」。
     func testEverySeasonBranchFadesItsLayers() throws {
-        let files: [(path: String, prefix: String)] = [
-            ("Sources/AppUI/Components/TreeCanvas.swift", "if theme.season == ."),
-            ("Sources/AppUI/Views/MainView.swift", "if state.theme.season == ."),
+        let files: [(name: String, text: String, prefix: String)] = [
+            // 地面带四季分支已随 TreeCanvas 拆到扩展文件：读「主体 + 全部扩展」拼接文本，
+            // 季节分支本身仍在主文件里，块序与处数都不变。
+            ("地面带", try TreeCanvasSentinel.joined(), "if theme.season == ."),
+            ("中栏", try source("Sources/AppUI/Views/MainView.swift"), "if state.theme.season == ."),
         ]
         // 地面带四季十层（雪地+雪人 / 果树 / 蒲公英+蝴蝶 / 光斑+流萤+蜻蜓 /
         // 落叶堆+南瓜）+ 天空两层（风车 / 风筝）。
@@ -337,18 +339,18 @@ final class ForestSeasonWiringTests: XCTestCase {
         // 只设下界：往后加层照绿，但「一处分支都没找到」这种空转会被挡住。
         var layers = 0
         for file in files {
-            let lines = codeLines(try source(file.path))
+            let lines = codeLines(file.text)
             for season in ["spring", "summer", "autumn", "winter"] {
                 for entry in blocks(after: "\(file.prefix)\(season) {", in: lines) {
                     let body = text(entry.body)
                     let calls = occurrences(of: "(theme:", in: body)
                     XCTAssertGreaterThan(calls, 0,
-                                         "\(file.path) 的 \(season) 分支里没有装饰组件（判据要跟着改）")
+                                         "\(file.name) 的 \(season) 分支里没有装饰组件（判据要跟着改）")
                     let fades = occurrences(of: "seasonFade()", in: body)
                     XCTAssertEqual(fades, calls,
-                                   "\(file.path) 的 \(season) 分支有 \(calls) 层、只淡了 \(fades) 层")
+                                   "\(file.name) 的 \(season) 分支有 \(calls) 层、只淡了 \(fades) 层")
                     XCTAssertFalse(body.contains(".transition("),
-                                   "\(file.path) 的 \(season) 分支自己写了过渡：换季只许淡，不许挪")
+                                   "\(file.name) 的 \(season) 分支自己写了过渡：换季只许淡，不许挪")
                     layers += calls
                 }
             }
@@ -382,7 +384,7 @@ final class ForestSeasonWiringTests: XCTestCase {
     ///
     /// 反证：往冬天分支里粘一行 `ForestButterflies(theme: …)` → 红。
     func testSeasonBranchesDoNotLeakAcrossSeasons() throws {
-        let lines = codeLines(try source("Sources/AppUI/Components/TreeCanvas.swift"))
+        let lines = codeLines(try TreeCanvasSentinel.joined())
         func blockText(_ season: String) throws -> String {
             text(blocks(after: "if theme.season == .\(season) {", in: lines).flatMap(\.body))
         }
