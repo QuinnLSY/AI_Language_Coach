@@ -77,7 +77,7 @@ final class AtmosphereWiringTests: XCTestCase {
     /// ⚠️ ChatView 是**手写 init**：新参数必须既进签名、又有显式赋值——
     /// 漏赋值不报错（属性有默认值，静默回落 .student/nil）。
     func testChatViewInitWiresTheNewAtmosphereParameters() throws {
-        let chat = try source("AppUI/Views/ChatView.swift")
+        let chat = try ChatViewSentinel.joined()
         let initBody = self.body(of: "public init(chat: ChatService", in: chat)
         XCTAssertFalse(initBody.isEmpty, "找不到 ChatView 手写 init")
         for (needle, why) in [("studentAccessory: AnimalAccessory = .student", "签名缺 studentAccessory"),
@@ -116,8 +116,8 @@ final class AtmosphereWiringTests: XCTestCase {
         let tree = try TreeCanvasSentinel.joined()
         XCTAssertTrue(tree.contains("StudentProgression.accessory(totalStars: progress.totalStars)"),
                       "树上学员的配饰没走成长线")
-        let chat = try source("AppUI/Views/ChatView.swift")
-        let hint = self.body(of: "private var emptyHint", in: chat)
+        let chat = try ChatViewSentinel.joined()
+        let hint = self.body(of: "var emptyHint", in: chat)
         XCTAssertTrue(hint.contains("PeriodGreeting.emptyStateLines(hour:"), "空态问候没走三档文案")
     }
 

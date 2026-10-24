@@ -24,7 +24,7 @@ final class AppLifecycleGuardTests: XCTestCase {
     /// 也没有 `onDisappear` 去 invalidate —— 每出现一次「正在输入」就永久多一个
     /// 0.35 秒定时器（闭包还捕获着视图），应用久开后闲着也在周期性叫醒主线程。
     func testTypingDotsUsesALifecycleBoundTimer() throws {
-        let raw = try Self.code("Sources/AppUI/Views/ChatView.swift")
+        let raw = try ChatViewSentinel.joinedCode()
         XCTAssertFalse(raw.contains("Timer.scheduledTimer"),
                        "定时器必须随视图生命周期自动断开，不能靠谁记得去 invalidate")
         XCTAssertTrue(raw.contains("Timer.publish(every: 0.35"),

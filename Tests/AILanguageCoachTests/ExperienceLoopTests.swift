@@ -80,8 +80,8 @@ final class ExperienceLoopTests: XCTestCase {
 
     /// 「再练一次」放回输入框的是**原句**（练的是把这句重说对，不是照抄改后句）。
     func testPracticeAgainPutsTheOriginalBackIntoTheComposer() throws {
-        let raw = try Self.code("Sources/AppUI/Views/ChatView.swift")
-        let wiring = try Self.declBody(matching: "private func correctionCard(_ correction: GrammarCorrection)", in: raw)
+        let raw = try ChatViewSentinel.joinedCode()
+        let wiring = try Self.declBody(matching: "func correctionCard(_ correction: GrammarCorrection)", in: raw)
         XCTAssertTrue(wiring.contains("input = correction.original"),
                       "再练一次必须把原句放回输入框（correctionCard 连线体里钉死）")
         XCTAssertTrue(raw.contains("再练一次"), "错题卡上要有「再练一次」按钮")
@@ -89,7 +89,7 @@ final class ExperienceLoopTests: XCTestCase {
 
     /// 解析说明默认收两行、可展开（长解释全铺开会淹掉对话）。
     func testExplanationCollapsesByDefaultAndCanExpand() throws {
-        let raw = try Self.code("Sources/AppUI/Views/ChatView.swift")
+        let raw = try ChatViewSentinel.joinedCode()
         let explanation = try Self.declBody(matching: "private var explanation: some View", in: raw)
         XCTAssertTrue(explanation.contains("isExplanationExpanded ? nil : 2"),
                       "解析说明默认 lineLimit(2)")
@@ -126,8 +126,8 @@ final class ExperienceLoopTests: XCTestCase {
         XCTAssertTrue(search.contains("accessibilityLabel(\"关闭搜索\")"),
                       "全局搜索的 × 要有读屏标签")
 
-        let chat = try Self.code("Sources/AppUI/Views/ChatView.swift")
-        let translate = try Self.declBody(matching: "private struct TranslateButton: View", in: chat)
+        let chat = try ChatViewSentinel.joinedCode()
+        let translate = try Self.declBody(matching: "struct TranslateButton: View", in: chat)
         XCTAssertTrue(translate.contains(".accessibilityLabel("),
                       "翻译按钮（icon-only）要有读屏标签")
 

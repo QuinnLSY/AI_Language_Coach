@@ -59,9 +59,9 @@ final class ThirdBatchWiringTests: XCTestCase {
     func testTeacherPreparingStageWiring() throws {
         let card = try source("AppUI/Components/TeacherPreparingCard.swift")
         XCTAssertTrue(card.contains("var stage: TeacherWaitStage"), "等待卡要收 stage 参数")
-        let chat = try source("AppUI/Views/ChatView.swift")
+        let chat = try ChatViewSentinel.joined()
         XCTAssertTrue(
-            chat.contains("private var isTeacherPreparing: Bool { chat.isGreeting || isPreparingOpening }"),
+            chat.contains("var isTeacherPreparing: Bool { chat.isGreeting || isPreparingOpening }"),
             "「老师在准备」只认两个真实信号（写开场白 / 总结上次），**不认** isBooting"
         )
         XCTAssertTrue(
@@ -97,9 +97,15 @@ final class ThirdBatchWiringTests: XCTestCase {
         ]
         for file in files {
             // #662：设置页拆成「主体 + 10 个主题扩展」，这一格改读全家桶拼接文本。
-            let text = file == "AppUI/Views/SettingsView.swift"
-                ? try SettingsViewSentinel.joined()
-                : try source(file)
+            let text: String
+            if file == "AppUI/Views/SettingsView.swift" {
+                text = try SettingsViewSentinel.joined()
+            } else if file == "AppUI/Views/ChatView.swift" {
+                // #663：对话页同样拆成全家桶。
+                text = try ChatViewSentinel.joined()
+            } else {
+                text = try source(file)
+            }
             XCTAssertTrue(
                 text.contains(".scrollBounceBehavior(.basedOnSize)"),
                 "\(file) 的滚动容器缺 .scrollBounceBehavior(.basedOnSize)"

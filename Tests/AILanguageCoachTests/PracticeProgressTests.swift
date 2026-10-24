@@ -156,8 +156,8 @@ final class PracticeProgressTests: XCTestCase {
     ///   `focusItems` 出现（那是 turnsUsed:0 算的，练习中永远「全未达成」）；
     /// - 进度行不显示「还差哪一步」→ `currentStep` / 「还差：」缺失。
     func testScenarioStripRendersTheLiveProgressRow() throws {
-        let src = try source("AppUI/Views/ChatView.swift")
-        let strip = body(of: "private func scenarioStrip(", in: src)
+        let src = try ChatViewSentinel.joined()
+        let strip = body(of: "func scenarioStrip(", in: src)
         XCTAssertFalse(strip.isEmpty, "找不到 scenarioStrip")
         XCTAssertTrue(strip.contains("liveProgressRow("),
                       "情景条必须挂上常驻进度行（#598：这关还差什么）")

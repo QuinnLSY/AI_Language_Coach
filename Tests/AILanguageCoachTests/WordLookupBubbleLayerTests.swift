@@ -233,7 +233,7 @@ final class WordLookupOverlayMountTests: XCTestCase {
         XCTAssertLessThan(mount.number, geometryClose.number,
                           "浮层必须挂在最外层 ZStack 上（挂在子视图属性里就到不了最上层）")
 
-        let chat = try source("AppUI/Views/ChatView.swift")
+        let chat = try ChatViewSentinel.joined()
         XCTAssertFalse(chat.contains(".wordLookupBubbleOverlay()"), "中间栏不许再挂浮层")
     }
 }

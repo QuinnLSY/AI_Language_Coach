@@ -241,7 +241,7 @@ final class LaunchTodayPanelTests: XCTestCase {
     /// 三个 `lowerBound` 的顺序反转 → 这条红。钉调用形态整串的老规矩在这里换成
     /// 钉位置，是因为这里的判据本来就是「谁先谁后」。
     func testGuideCardListsContinuationFirst() throws {
-        let chat = try Self.code("Sources/AppUI/Views/ChatView.swift")
+        let chat = try ChatViewSentinel.joinedCode()
         let hint = try XCTUnwrap(chat.range(of: "emptyHint")?.lowerBound, "空态问候要在引导卡里")
         let button = try XCTUnwrap(chat.range(of: "continueLastButton")?.lowerBound, "要有那颗按钮")
         let kickoff = try XCTUnwrap(chat.range(of: "KickoffRow(")?.lowerBound, "要有话题卡那一排")

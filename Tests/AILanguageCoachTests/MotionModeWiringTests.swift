@@ -129,7 +129,7 @@ final class MotionModeWiringTests: XCTestCase {
     /// 聊天气泡插入：过渡与动画事务必须**成对**出现 —— 只有 transition 没有事务
     /// 是这个项目里真实存在过的静默失效（transition 从不带动画 = 瞬间出现）。
     func testChatBubbleInsertionHasBothTransitionAndTransaction() throws {
-        let chat = try source("AppUI/Views/ChatView.swift")
+        let chat = try ChatViewSentinel.joined()
         XCTAssertTrue(
             chat.contains(".move(edge: .bottom).combined(with: .opacity)"),
             "新消息要从底部推入"

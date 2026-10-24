@@ -156,7 +156,7 @@ final class VoiceInputWiringTests: XCTestCase {
     /// 主按钮的语义必须**按阶段分派**：识别中那一格若退回「开始录音」，
     /// 用户想停就变成了重新录。
     func testMicButtonDispatchesOnPhase() throws {
-        let chat = try source("AppUI/Views/ChatView.swift")
+        let chat = try ChatViewSentinel.joined()
         XCTAssertTrue(chat.contains("switch voicePhase.primaryAction"),
                       "主按钮要按 voicePhase.primaryAction 分派")
         XCTAssertTrue(chat.contains("case .cancelTranscribe:"),
@@ -173,7 +173,7 @@ final class VoiceInputWiringTests: XCTestCase {
     /// 与录音中的 `waveform` 仍然「不同」，离屏判据照样绿（反证时亲眼撞上）。
     /// 所以「有没有进度指示」只能扫源码钉住。
     func testMicButtonShowsProgressWhileTranscribing() throws {
-        let chat = try source("AppUI/Views/ChatView.swift")
+        let chat = try ChatViewSentinel.joined()
         XCTAssertTrue(chat.contains("if voicePhase.isBusy {"),
                       "主按钮要按 voicePhase.isBusy 切换成进度指示")
         XCTAssertTrue(chat.contains("ProgressView().controlSize(.small)"),
@@ -183,7 +183,7 @@ final class VoiceInputWiringTests: XCTestCase {
     /// 「取消」在**识别中也要在**：识别往往要等好几秒，只给录音中开口子，
     /// 用户就被锁在「必须等它识别完再删字」的流程里。
     func testCancelButtonAppearsWhileTranscribingToo() throws {
-        let chat = try source("AppUI/Views/ChatView.swift")
+        let chat = try ChatViewSentinel.joined()
         XCTAssertTrue(chat.contains("if voicePhase != .idle { cancelVoiceButton }"),
                       "取消按钮的显示条件应是「不在空闲态」")
         XCTAssertFalse(chat.contains("if isRecording { cancelVoiceButton }"),
@@ -195,7 +195,7 @@ final class VoiceInputWiringTests: XCTestCase {
     /// ⚠️ 两处**分别**断言：只写一句 `chat.contains("applyVoiceText(text)")` 是假绿 ——
     /// 流式那一处还在，删掉定稿那一处照样能通过（同名调用有两处）。
     func testStreamingAndFinalTextShareOneMergeEntry() throws {
-        let chat = try source("AppUI/Views/ChatView.swift")
+        let chat = try ChatViewSentinel.joined()
         XCTAssertTrue(chat.contains("VoiceTranscriptMerge.apply("),
                       "合并规则只能来自 AIDomain 的纯函数")
         XCTAssertFalse(chat.contains("Self.mergedInput("),
@@ -203,7 +203,7 @@ final class VoiceInputWiringTests: XCTestCase {
 
         let lines = codeLines(chat)
         // ① 定稿：主按钮拿到识别文本后在 micButton 里写入。
-        guard let micLine = firstLine("private var micButton: some View {", in: lines) else {
+        guard let micLine = firstLine("var micButton: some View {", in: lines) else {
             return XCTFail("找不到 micButton")
         }
         let micBody = lines.filter { $0.number > micLine }.prefix(45).map(\.text).joined(separator: "\n")
@@ -257,7 +257,7 @@ final class VoiceInputWiringTests: XCTestCase {
     /// 去下一个页面**：他切去词典查个词，回来时录音还在继续，中间那几分钟全被采进去了。
     /// （2026-09-27 补：三页原先都没有 `onDisappear`，这是隐私与资源两头的问题。）
     func testLeavingAPageStopsCapture() throws {
-        let chat = try source("AppUI/Views/ChatView.swift")
+        let chat = try ChatViewSentinel.joined()
         XCTAssertTrue(chat.contains("if voicePhase != .idle { onCancelVoiceInput?() }"),
                       "对话页消失时要取消语音输入")
 
@@ -295,9 +295,9 @@ final class VoiceInputWiringTests: XCTestCase {
     /// 而输入框已经清空 —— 用户打的那句就这么没了，还以为是发失败。
     /// 而「老师正在打招呼时抢话」是明确支持的用法（也是 isGenerating），必须放行。
     func testReturnKeyDoesNotClearComposerWhileGenerating() throws {
-        let chat = try source("AppUI/Views/ChatView.swift")
+        let chat = try ChatViewSentinel.joined()
         let lines = codeLines(chat)
-        guard let sendLine = firstLine("private func send() {", in: lines) else {
+        guard let sendLine = firstLine("func send() {", in: lines) else {
             return XCTFail("找不到 send()")
         }
         let head = lines.filter { $0.number > sendLine }.prefix(8).map(\.text).joined(separator: "\n")
@@ -321,9 +321,9 @@ final class VoiceInputWiringTests: XCTestCase {
     /// 发送时如果麦克风还开着，必须先把这段语音收掉 ——
     /// 否则麦克风继续采，用户接着说的话会被录进一条已经发出去的消息里。
     func testSendingWhileRecordingStopsCapture() throws {
-        let chat = try source("AppUI/Views/ChatView.swift")
+        let chat = try ChatViewSentinel.joined()
         let lines = codeLines(chat)
-        guard let sendLine = firstLine("private func send() {", in: lines) else {
+        guard let sendLine = firstLine("func send() {", in: lines) else {
             return XCTFail("找不到 send()")
         }
         let after = lines.filter { $0.number > sendLine }.prefix(30).map(\.text).joined(separator: "\n")

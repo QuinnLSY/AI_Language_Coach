@@ -273,7 +273,7 @@ final class ForestResponsivenessTests: XCTestCase {
     /// ③ 主界面把 `ChatService.learnerTurnCount` 装配进地面带（撤装配 → 林子永远 0 株 → 红）。
     /// 反证标记：`// 反证：`
     func testConversationFloraLivesInTheForestNotInTheChat() throws {
-        let chat = try source("AppUI/Views/ChatView.swift")
+        let chat = try ChatViewSentinel.joined()
         XCTAssertFalse(chat.contains("GladeFloor("),
                        "对话区不许再画林间空地（植物搬进林子，别悬浮在聊天上）")
 

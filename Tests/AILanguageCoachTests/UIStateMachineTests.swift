@@ -107,7 +107,7 @@ final class UIStateMachineTests: XCTestCase {
     ///
     /// 反证：把任意一处改回 `scrollToBottom(proxy)` 直调 → 计数变 3 → 红。
     func testStreamingAutoScrollGoesThroughTheFollowGate() throws {
-        let view = try source("AppUI/Views/ChatView.swift")
+        let view = try ChatViewSentinel.joined()
         // 计数含定义那一处（`private func autoScrollIfFollowing(_ proxy: …`）：
         // 3 个触发点（消息条数 / 流式正文 / 思考文本）+ 1 处定义。
         let mentions = view.components(separatedBy: "autoScrollIfFollowing(").count - 1
@@ -431,7 +431,7 @@ final class UIStateMachineTests: XCTestCase {
     ///
     /// 反证：改回 `count > 0` → 删一条消息会把上一条旧回复重念一遍。
     func testAutoSpeakOnlyFiresWhenMessagesGrew() throws {
-        let view = try source("AppUI/Views/ChatView.swift")
+        let view = try ChatViewSentinel.joined()
         XCTAssertTrue(view.contains("guard count > previous else { return }"),
                       "删除消息不是「老师刚回了一条」")
         XCTAssertFalse(view.contains("if autoSpeak, count > 0, let last"),

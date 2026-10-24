@@ -163,7 +163,8 @@ final class PerformancePassTests: XCTestCase {
 
     /// 消息列表必须用 LazyVStack（长会话只渲染屏幕附近的气泡）。
     func testChatMessageListUsesLazyVStack() throws {
-        let raw = try Self.code("Sources/AppUI/Views/ChatView.swift")
+        // #663：对话页拆成全家桶，判据改读家族拼接文本（剥整行注释，同原语义）。
+        let raw = try ChatViewSentinel.joinedCode()
         XCTAssertTrue(
             raw.contains("LazyVStack(alignment: .leading, spacing: 14)"),
             "消息列表退回 VStack = 长会话一次性搭出全部气泡"
@@ -182,7 +183,7 @@ final class PerformancePassTests: XCTestCase {
 
     /// 轮换下标不得再留在 ChatView 根级：identifier 全文件清零 + 根级 Timer 撤掉 + canSend index-free。
     func testStarterQuestionRotationIsSunkIntoSubview() throws {
-        let raw = try Self.code("Sources/AppUI/Views/ChatView.swift")
+        let raw = try ChatViewSentinel.joinedCode()
         XCTAssertEqual(Self.occurrences(of: "questionIndex", in: raw), 0,
                        "轮换下标又回到根级 = 每 3.4 秒重算整个对话视图")
         XCTAssertEqual(Self.occurrences(of: "Timer.publish", in: raw), 2,

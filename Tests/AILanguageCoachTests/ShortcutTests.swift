@@ -443,7 +443,7 @@ final class ShortcutTests: XCTestCase {
     /// 反证：把 `.onChange(of: sendShortcutTicket)` 从 ChatView 删掉 → 本条红在
     /// 「没人接这张票」—— 表现是快捷键按下去界面毫无反应。
     func testChatViewObservesTheSendTicket() throws {
-        let src = try source("AppUI/Views/ChatView.swift")
+        let src = try ChatViewSentinel.joined()
         let body = self.body(of: "public var body: some View {", in: src)
         XCTAssertTrue(
             body.contains(".onChange(of: sendShortcutTicket)"),
@@ -460,7 +460,7 @@ final class ShortcutTests: XCTestCase {
     /// 这是「同键双触发」的防线：按钮那颗留着的话，⌘↩ 会同时走 SwiftUI 的按钮快捷键
     /// 和全局监听，一条消息发两遍。
     func testSendButtonHasNoOwnKeyboardShortcut() throws {
-        let src = try source("AppUI/Views/ChatView.swift")
+        let src = try ChatViewSentinel.joined()
         let button = self.body(of: "private var sendButton: some View {", in: src)
         XCTAssertFalse(button.isEmpty, "找不到 sendButton")
         XCTAssertFalse(
@@ -471,7 +471,7 @@ final class ShortcutTests: XCTestCase {
 
     /// 哨兵三：悬停提示读当前绑定，不写死 ⌘↩（改了键还显示旧的 = 界面在撒谎）。
     func testSendButtonHelpReadsTheBinding() throws {
-        let src = try source("AppUI/Views/ChatView.swift")
+        let src = try ChatViewSentinel.joined()
         let help = self.body(of: "private var sendButtonHelp: String {", in: src)
         XCTAssertTrue(
             help.contains("sendShortcutHint"),
