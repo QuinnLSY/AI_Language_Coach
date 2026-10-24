@@ -149,10 +149,11 @@ final class ForestWeatherRenderTests: XCTestCase {
     ///
     /// ⚠️ 白天只钉**墨差**，不钉 maxContrast：雪片必须在白天天空上是**白的**才像雪，
     /// 而白天空本身就亮 —— 单像素对比注定到不了 1.8（那是「颜色够深」的尺）。
-    /// 「看得见下雪」靠的是 22 片离散圆点 + 白芯的**形状**，墨差判据正好量这个。
+    /// 「看得见下雪」靠的是 40 片雪花（白芯 + 柔边 + 柔影）的**形状与数量**，
+    /// 墨差判据正好量这个。
     /// 夜雪反之：亮雪片压夜空，对比度轻松越线，两条一起钉。
-    /// 反证：把 ForestSky 里 `if theme.weather == .snow` 的 `SnowLayer(color:)`
-    /// 换成 `Color.clear`（雪层不装配）→ 红。
+    /// 反证：把 ForestSky 里 `if theme.weather == .snow` 的 `ForestSnowfall` 换成
+    /// `Color.clear`（雪层不装配）→ 红。
     func testDaySnowDiffersFromClearSky() throws {
         let clear = try sky(resolved(isNight: false, weather: .clear))
         let snow = try sky(resolved(isNight: false, weather: .snow))

@@ -55,4 +55,30 @@ public enum ForestGroundPlan {
             flowers: min(2 + Int(qw / 150), 7)
         )
     }
+
+    // MARK: 居民体型（草地上一切「拿小动物当尺子」的东西共用）
+
+    /// 一位居民的体型（pt）—— 它的画框就是 `size × size`，所以这就是**一只小动物高**。
+    ///
+    /// ⚠️ 原先只活在 `ForestGroundBand.homePosition` 里（#624 之前）。果树要
+    ///「两个半小动物高」，就得先有一把**同一条尺**：各自抄一份公式，改了动物
+    /// 大小果树不会跟着变，那句「两个半」就成了写在注释里的空话。
+    ///
+    /// - `quantizedWidth`：量化宽（与地面带同一步长）；
+    /// - `depth`：景深（0 = 最近，1 = 地平线）—— 远的那几只小一点；
+    /// - `spread`：个体抖动（0…1）—— 槽位的稳定伪随机。
+    public static func residentSize(
+        quantizedWidth: CGFloat, depth: CGFloat, spread: CGFloat
+    ) -> CGFloat {
+        let base = min(54, 28 + quantizedWidth * 0.045) * (0.72 + depth * 0.42)
+        return base * (0.94 + spread * 0.14)
+    }
+
+    /// **参照体型**（pt）：同一条公式的**中位值**（depth / spread 都取 0.5）。
+    ///
+    /// 一切要拿小动物当尺子的东西（#624 的果树）都量这一把 —— 不随槽位变、
+    /// 不随面板宽抖，是一个稳定的「一只小动物有多高」。
+    public static func referenceResidentSize(quantizedWidth: CGFloat) -> CGFloat {
+        residentSize(quantizedWidth: quantizedWidth, depth: 0.5, spread: 0.5)
+    }
 }

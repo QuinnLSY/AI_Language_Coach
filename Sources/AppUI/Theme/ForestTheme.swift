@@ -69,29 +69,66 @@ public struct ForestTheme: Sendable, Equatable {
     public var isNight: Bool { palette == .night }
 
     // 天空
+    //
+    // 两层叠加，顺序不能反：
+    // ① **时刻**给骨架（黎明偏暖 / 正午透亮 / 黄昏蜜橘）——这层说的是「几点钟」；
+    // ② **季节**给色温（春淡青 / 夏原色 / 秋暖金 / 冬冷白）——这层说的是「几月」。
+    //
+    // 为什么不给四季各写一套渐变：4 季 × 6 时刻 = 24 组手搓色值，谁也说不清第二十四组
+    // 为什么是那个数；而「骨架 + 一层色温」两句话就能讲完，还能同时守住两件事。
+    //
+    // ⚠️ 用户 2026-10-22 报障「整个界面的背景色始终是同一个颜色、不随季节变」——
+    // 在此之前天空只认时刻，四季共用一片天，季节感全靠底部那一小块地面带撑着。
+    // 天空是**整窗**的底（三栏面板都只有 62% 白压在它上面），它一变，整个界面跟着变；
+    // 而它是背景层，压不到任何内容。夜档不掺和：夜里是同一片天（见 `seasonalSkyWash`）。
     public var sky: [Color] {
-        // 夜档不看时刻：夜里就是夜里的天空（时刻只用来给白天的天空上色）。
+        momentSkyHex.map { hex in
+            guard let wash = seasonalSkyWash else { return Color(hex: hex) }
+            return Color(hex: ForestAtmosphere.blend(hex, toward: wash.tone,
+                                                     amount: wash.amount))
+        }
+    }
+
+    /// 季节压在天空上的那层色温（`nil` = 不上色）。
+    ///
+    /// 为什么是「往一个色调上混」而不是换色相：季节改的是**空气**（水汽、尘、雪光），
+    /// 它做的是把整片天冲洗一遍，而不是把天换成另一个颜色。混色天然保留了
+    /// 时刻给出的明暗骨架（黄昏那一档被压白之后仍然比正午暗、仍然偏暖）。
+    ///
+    /// ⚠️ 比例都很小（0.2~0.34）：再大一点，黄昏就被洗成灰，季节会把时刻吃掉。
+    private var seasonalSkyWash: (tone: UInt32, amount: Double)? {
+        guard !isNight, let season else { return nil }
+        switch season {
+        case .spring: return (0xC9EDD2, 0.24)   // 淡青绿：树刚发芽，天也被洗得嫩一档
+        case .summer: return nil                // 原色：夏天的天本来就是最透的那一片
+        case .autumn: return (0xE8B87A, 0.26)   // 暖金：一层薄薄的秋阳
+        case .winter: return (0xDFEDF7, 0.36)   // 冷白蓝：雪把天压淡、压冷
+        }
+    }
+
+    /// 时刻给的天空底色（**未**按季上色）。夜档不看时刻：夜里就是夜里的天空。
+    private var momentSkyHex: [UInt32] {
         if isNight {
-            return [Color(hex: 0x0A1230), Color(hex: 0x152347), Color(hex: 0x24405A)]
+            return [0x0A1230, 0x152347, 0x24405A]
         }
         guard let moment else {
-            return [Color(hex: 0x7FD4F0), Color(hex: 0xB6EAFA), Color(hex: 0xE9F8DE)]
+            return [0x7FD4F0, 0xB6EAFA, 0xE9F8DE]
         }
         switch moment {
         case .dawn:
             // 上头还蓝着、地平线已经暖起来
-            return [Color(hex: 0x8FB6DE), Color(hex: 0xD6DCF0), Color(hex: 0xFFD9AE)]
+            return [0x8FB6DE, 0xD6DCF0, 0xFFD9AE]
         case .morning:
-            return [Color(hex: 0x7FD4F0), Color(hex: 0xB6EAFA), Color(hex: 0xE9F8DE)]
+            return [0x7FD4F0, 0xB6EAFA, 0xE9F8DE]
         case .noon:
-            return [Color(hex: 0x6BCDF2), Color(hex: 0xA6E6FB), Color(hex: 0xDCF6E6)]
+            return [0x6BCDF2, 0xA6E6FB, 0xDCF6E6]
         case .afternoon:
-            return [Color(hex: 0x86CBEE), Color(hex: 0xC2E6F5), Color(hex: 0xF5F3DA)]
+            return [0x86CBEE, 0xC2E6F5, 0xF5F3DA]
         case .dusk:
             // 太阳压到山脊上：整片天被染成蜜橘色
-            return [Color(hex: 0x5A7CA8), Color(hex: 0xE08A5A), Color(hex: 0xF7C97C)]
+            return [0x5A7CA8, 0xE08A5A, 0xF7C97C]
         case .night:
-            return [Color(hex: 0x0A1230), Color(hex: 0x152347), Color(hex: 0x24405A)]
+            return [0x0A1230, 0x152347, 0x24405A]
         }
     }
 
@@ -164,15 +201,170 @@ public struct ForestTheme: Sendable, Equatable {
         isNight ? Color(hex: 0xBFD6EC) : Color(hex: 0x3E6A8F)
     }
 
-    /// 雪片的颜色（2026-10 收窄天气档位时新增）。
-    ///
-    /// ⚠️ 与 `rainColor` 同一把尺（「与当时天空的对比度」，2026-10-01 那次修的教训）：
-    /// 雪在天上必须**是白的**才像雪，而白天的天空本身就亮 —— 直接拿纯白画上去等于
-    /// 看不见（对亮空约 1.1:1）。所以白天压成一朵「带蓝影的雪」（淡蓝灰白，
-    /// 粒芯另叠一点纯白，见 `SnowLayer`），夜里换回亮白（夜空本身够暗，亮雪才显眼）。
-    public var snowColor: Color {
-        isNight ? Color(hex: 0xE8F4FA) : Color(hex: 0xC9DAE8)
+    // 雪花（2026-10-21 重写雪层时拆成三档）
+    //
+    // ⚠️ 一把尺还是「与当时天空的对比度」（2026-10-01 那次修的教训：雨丝与晴空
+    // 只差 1.1:1 时，「设置里写着下雨、画面毫无变化」）。雪更难：它必须**是白的**
+    // 才像雪，可白天的天空 / 雪地都是近白（`0xE9F8DE` / `0xEDF4FA`）——
+    // 实心纯白等于看不见（用户 2026-10-21：「雪花几乎看不见」）。
+    // 解法不是把雪染黑，而是**白芯 + 柔边 + 柔影**：轮廓靠阴影立住，本体还是软的。
+    // 反过来（白芯 + 实心深边）会变成满屏小白珠（第一版出图实测）。
+
+    /// 雪花的外圈（轮廓）：极淡一层，只负责把白芯从浅底上「描」出来。
+    public var snowRim: Color { isNight ? Color(hex: 0xDCEBF4) : Color(hex: 0x9FB6CC) }
+    /// 雪花的白芯：一眼读出「这是雪」，不是一颗灰点。
+    public var snowCore: Color { isNight ? Color(hex: 0xFFFFFF) : Color(hex: 0xFBFDFF) }
+    /// 雪花的柔影：压在任何底色上都能立起来。夜里反过来发一点白光晕。
+    public var snowHalo: Color {
+        isNight ? Color(hex: 0xFFFFFF).opacity(0.10) : Color(hex: 0x6E8AA3).opacity(0.16)
     }
+
+    // 春：天空里的风筝（#620，插画层专用）
+    //
+    // 白天鲜艳（沙燕靛蓝 / 三角朱红 / 金鱼橘金），夜里整体压暗一档 ——
+    // 夜里不该有三只比星星还亮的彩色风筝，但也不能暗到看不见
+    // （夜空 `0x0A1230` 很暗，压暗后的 0x2C4A6E 对比度仍够）。
+    public var kiteSwallow: Color { isNight ? Color(hex: 0x2C4A6E) : Color(hex: 0x3A6EA5) }
+    public var kiteDiamond: Color { isNight ? Color(hex: 0x7C3A34) : Color(hex: 0xD9503E) }
+    public var kiteGoldfish: Color { isNight ? Color(hex: 0x7A5A22) : Color(hex: 0xF0A03A) }
+    /// 提线与尾飘带：比本体淡一档（线是「有东西牵着」的暗示，不是主体）。
+    public var kiteString: Color { isNight ? Color(hex: 0x51657A) : Color(hex: 0x93A9BD) }
+    /// 风筝上的高光 / 眼白 / 骨架。
+    public var kiteAccent: Color { isNight ? Color(hex: 0x8FA3B6) : Color(hex: 0xFFFFFF) }
+
+    // 春：草地上的蝴蝶与蒲公英（#621，插画层专用）
+    //
+    // 白天淡黄（最常见的白粉蝶那一挂），夜里压成暗金 —— 夜里的蝴蝶不该比
+    // 萤火虫还亮（`ForestMotes` 的萤火虫才是夜里唯一该发光的东西）。
+    public var butterflyWing: Color { isNight ? Color(hex: 0x6E6A4E) : Color(hex: 0xF7E6A2) }
+    /// 翅脉与翅缘（比翅面深，翅膀才有「纹」）。
+    public var butterflyEdge: Color { isNight ? Color(hex: 0x4A4630) : Color(hex: 0xC98F3C) }
+    /// 蝶身与触角。
+    public var butterflyBody: Color { isNight ? Color(hex: 0x2A2A22) : Color(hex: 0x5A4632) }
+    /// 蒲公英的白绒球与飘絮（夜里偏冷白：夜里的白是月光白，不是纸白）。
+    public var dandelionPuff: Color { isNight ? Color(hex: 0xB9C6D0) : Color(hex: 0xFFFFFF) }
+
+    // 夏：远处草场上的风车（#622，插画层专用）
+    //
+    // 塔身是石砌的、顶是红瓦、叶片是帆布、支架是木色 —— 四件各有各的色，
+    // 远看才读得出「一座风车」，而不是一团灰影子。夜里整体压暗并偏冷。
+    //
+    // ⚠️ 2026-10-22 塔身由「刷白」改成**暖褐色**：白塔 + 白帆叶压在淡绿的远坡上
+    // 只差 1.1:1，用户看到的是「一团白雾里几根白棍子」（原话：「过于虚化了，
+    // 要有明确的实体」）。远处的实物不是越远越白，而是**越远越灰、越不自带光**；
+    // 给塔身一点深度，帆叶留白才有地方站。夜里反过来：帆叶要提亮，
+    // 不然就是深色帆压在深色天上（与雁阵、雨丝同一条「对比度」纪律）。
+    public var windmillTower: Color { isNight ? Color(hex: 0x41506B) : Color(hex: 0xB98A5E) }
+    public var windmillRoof: Color { isNight ? Color(hex: 0x5A3536) : Color(hex: 0x9E4A38) }
+    public var windmillBlade: Color { isNight ? Color(hex: 0x9AA6BC) : Color(hex: 0xFBF6E9) }
+    public var windmillFrame: Color { isNight ? Color(hex: 0x1F2433) : Color(hex: 0x5E4530) }
+
+    // 夏：草地上的叶隙光斑与夏夜流萤（#623，插画层专用）
+    //
+    // 光斑是**被树冠筛过的阳光**（暖黄，只有白天有）；流萤是夏夜贴着草尖飞的
+    // 那几只（黄绿，只有夜里、只有夏天）——两者不同时出现，正是一天两副样子。
+    public var dappleLight: Color { isNight ? Color(hex: 0x2A2F3A) : Color(hex: 0xFFE98F) }
+    public var fireflyGlow: Color { isNight ? Color(hex: 0xC8E08A) : Color(hex: 0x8FA86A) }
+
+    // 夏：草尖上的蜻蜓（#635，插画层专用）
+    //
+    // ⚠️ 取**蓝**不取绿：夏天白天那一片是 `hillNear` 的绿草地（`0x3F9E67`），
+    // 绿身子压在绿草上等于没有（与雨丝压在晴空上同一个毛病，实测对比约 1.1:1
+    // 时就是「写着有、看着没有」）。蓝是草地上唯一没有的色相，20pt 也能读出来。
+    /// 身子（胸 + 细长的腹部）。
+    public var dragonflyBody: Color { isNight ? Color(hex: 0x1E4E66) : Color(hex: 0x2E7FA8) }
+    /// 翅膀（半透明：蜻蜓的翅是膜的，实心一片就成了四片塑料片）。
+    public var dragonflyWing: Color { isNight ? Color(hex: 0x8FA8B8) : Color(hex: 0xDCEFF6) }
+    /// 复眼（比身子深：蜻蜓的脑袋就是那两颗大眼）。
+    public var dragonflyEye: Color { isNight ? Color(hex: 0x14272F) : Color(hex: 0x1E4658) }
+
+    // 秋：大树脚下那片小果园（#624，插画层专用）
+    //
+    // 果树只有两个半小动物高，取色要能在一地秋黄里**认得出是另一棵树**：树皮
+    // 偏红褐（果树的皮比大树浅、更红），树冠留住夏末的黄绿（结着果子的树不会
+    // 满树枯黄），果子三色 —— 一棵只结一种，才读得出「这是棵苹果树」。
+    public var orchardTrunk: Color { isNight ? Color(hex: 0x3E2A1C) : Color(hex: 0x8A5A3A) }
+    public var orchardTrunkShade: Color { isNight ? Color(hex: 0x2A1C12) : Color(hex: 0x6A4326) }
+    public var orchardCanopy: Color { isNight ? Color(hex: 0x1E4432) : Color(hex: 0x7FA653) }
+    /// 背光那几团叶（比冠面深，树冠才有「厚」）。
+    public var orchardCanopyDeep: Color { isNight ? Color(hex: 0x14301F) : Color(hex: 0x5B8340) }
+    /// 迎光那一侧的亮边（太阳钉在右上，见 `ForestLighting`）。
+    public var orchardCanopyWarm: Color { isNight ? Color(hex: 0x2C5238) : Color(hex: 0xA8C264) }
+    public var orchardApple: Color { isNight ? Color(hex: 0x6A2A24) : Color(hex: 0xD8402E) }
+    public var orchardPeach: Color { isNight ? Color(hex: 0x6E4440) : Color(hex: 0xF2A0A0) }
+    public var orchardCitrus: Color { isNight ? Color(hex: 0x6E4A1E) : Color(hex: 0xF09A2E) }
+    /// 果子上的高光（比果色淡，果子才有「圆」）。
+    public var orchardFruitSheen: Color { isNight ? Color(hex: 0x8A9A9C) : Color(hex: 0xFFFFFF) }
+
+    // 秋：草地上的落叶堆与南瓜（#625，插画层专用）
+    //
+    // 一堆落叶是**三色混着**的（金 / 铁锈 / 褐）：只一色读不出「落叶堆」，像一摊
+    // 色块；三色交错才像不同树上落下来的。夜里整体压暗并偏冷 —— 夜里没有阳光，
+    // 落叶该是「被夜色泡过的褐」，不是白天那片金。
+    public var autumnLeafGold: Color { isNight ? Color(hex: 0x6B5220) : Color(hex: 0xE0A43A) }
+    public var autumnLeafRust: Color { isNight ? Color(hex: 0x5E3218) : Color(hex: 0xC4632A) }
+    public var autumnLeafBrown: Color { isNight ? Color(hex: 0x412A16) : Color(hex: 0x8E5A2E) }
+    /// 叶缘与叶脉（比叶面深，一片片叶子才分得开）。
+    public var autumnLeafEdge: Color { isNight ? Color(hex: 0x2A1B0E) : Color(hex: 0x6E3F1C) }
+    /// 南瓜的果身（比落叶更饱和：它是画面里唯一还「鲜」着的东西）。
+    public var pumpkinBody: Color { isNight ? Color(hex: 0x6E3A12) : Color(hex: 0xE9761F) }
+    /// 南瓜的棱（比果身深 —— 南瓜是被棱分成一瓣瓣的，不是一颗圆球）。
+    public var pumpkinRib: Color { isNight ? Color(hex: 0x5A2E0E) : Color(hex: 0xBE4E12) }
+    /// 南瓜蒂（还带点青，刚摘下来那种）。
+    public var pumpkinStem: Color { isNight ? Color(hex: 0x2E3A1C) : Color(hex: 0x5E7A34) }
+    /// 南瓜上的高光（比果身淡，果身才有「圆」）。
+    public var pumpkinSheen: Color { isNight ? Color(hex: 0x8A8272) : Color(hex: 0xFFD9A0) }
+
+    // 秋：南飞的雁阵（#634，插画层专用）
+    //
+    // 雁是**逆着天光看的剪影**：白天压在亮天上就该是深色（浅色雁在晴空
+    // `0x7FD4F0` 上会化掉，与雨丝那次「写着下雨、画面毫无变化」同一个毛病）；
+    // 夜里反过来 —— 夜空本身 `0x0A1230` 极暗，深剪影等于没有，所以夜里提亮成
+    // 被月光勾了一道边的灰蓝。翅膀比身子浅一档：一对翅膀与一枚身子要分得开。
+    public var gooseBody: Color { isNight ? Color(hex: 0x5A6E82) : Color(hex: 0x38434E) }
+    public var gooseWing: Color { isNight ? Color(hex: 0x6E8296) : Color(hex: 0x4A5A66) }
+
+    // 冬：积起来的雪（#626，插画层专用）
+    //
+    // 雪是**画面里最亮的东西**，但它不是纯白：纯白在暖色叶子上会「发光」，
+    // 反而把树冠烧出一个洞。白里带一点天空的冷（白天偏日光、夜里偏月光），
+    // 雪才像被光照着，而不是自己亮着。
+    public var snowCover: Color { isNight ? Color(hex: 0x9FB4C6) : Color(hex: 0xF7FAFC) }
+    /// 雪的暗部（雪帽下沿 / 雪堆根部）：雪自己也有厚度，全一色就是贴纸。
+    public var snowShade: Color { isNight ? Color(hex: 0x6E8296) : Color(hex: 0xCBDCE9) }
+    /// 草地上的雪（比冠上的雪更冷一点：它照不到太阳，反射的是天光）。
+    public var snowGround: Color { isNight ? Color(hex: 0x8FA3B4) : Color(hex: 0xEDF4FA) }
+    /// 雪堆的顶面（比雪地亮一档）：整片雪地上要读出「堆」，靠的就是顶面更亮 + 根部一道冷影。
+    public var snowDrift: Color { isNight ? Color(hex: 0xA9BDCB) : Color(hex: 0xFFFFFF) }
+
+    // 冬：草地上的雪人（#627，插画层专用）
+    //
+    // ⚠️ 雪人的**雪身**不另取色：它就该是 `snowDrift`（比脚下的雪地亮一档），
+    // 否则雪人会在雪地里"隐身"。这里只补它身上那些**不属于雪**的零件。
+    /// 尖顶帽（深炭）：纯黑在夜里会糊成一个洞，留一点冷灰才看得出是顶帽子。
+    public var snowmanHat: Color { isNight ? Color(hex: 0x2A2F36) : Color(hex: 0x3A4048) }
+    /// 帽檐（比帽身浅一档）：一色黑的锥体读成一个三角块。
+    public var snowmanHatBand: Color { isNight ? Color(hex: 0x59636E) : Color(hex: 0x757F8A) }
+    /// 红围巾
+    public var snowmanScarf: Color { isNight ? Color(hex: 0x7E3A3E) : Color(hex: 0xC2453F) }
+    /// 围巾的暗面（垂下来那一角背光）
+    public var snowmanScarfDeep: Color { isNight ? Color(hex: 0x5E2A2E) : Color(hex: 0x96322E) }
+    /// 胡萝卜鼻子
+    public var snowmanNose: Color { isNight ? Color(hex: 0x8A5A2C) : Color(hex: 0xE08A34) }
+    /// 煤球（眼睛 / 纽扣）
+    public var snowmanCoal: Color { isNight ? Color(hex: 0x1A1E24) : Color(hex: 0x2B3038) }
+    /// 枝桠手臂
+    public var snowmanTwig: Color { isNight ? Color(hex: 0x3E2E22) : Color(hex: 0x6B4A32) }
+
+    // 冬：枝下沿的冰柱（#628，插画层专用）
+    //
+    // 冰柱比雪更冷更透：它是**水冻出来的**，不是积起来的雪粉 ——
+    // 所以它的主体比 `snowCover` 更偏蓝，暗侧压得更深（半透明才读得出「锥」）。
+    public var icicleBody: Color { isNight ? Color(hex: 0x8FA9BC) : Color(hex: 0xDDECF5) }
+    /// 冰柱的暗侧（背光那半边，比本体宽一圈探出来）：一色白的锥读成一片纸。
+    public var icicleShade: Color { isNight ? Color(hex: 0x4E6478) : Color(hex: 0xAFC6D8) }
+    /// 冰柱上的高光（左侧一道）：冰面反光总在一侧。
+    public var icicleGlint: Color { isNight ? Color(hex: 0xC2D4E2) : Color(hex: 0xFFFFFF) }
 
     // 强调
     /// 主强调色（琥珀金）：用于**文字 / 图标 / 描边 / 淡底**。
@@ -305,6 +497,48 @@ public struct ForestTheme: Sendable, Equatable {
     public var secondaryText: Color { isNight ? Color(hex: 0x9FB6AE) : Color(hex: 0x5B6B54) }
     public var surface: Color { isNight ? Color(hex: 0x152238, opacity: 0.92) : Color(hex: 0xFFFFFF, opacity: 0.92) }
     public var surfaceAlt: Color { isNight ? Color(hex: 0x1D2C46, opacity: 0.85) : Color(hex: 0xF3F7EF, opacity: 0.9) }
+
+    /// 中间对话栏的底色（2026-10-23，需求：中间栏背景跟着季节一起变）。
+    ///
+    /// ⚠️ 原先这里用的是 `surfaceAlt.opacity(0.55)` —— 一层**不随季节变**的近白面纱，
+    /// 把最外层那片跟着季节变的天空（`ForestSky`）整个盖住。症状：右栏（成长之树）
+    /// 的背景明显跟着季节走，中间栏却是同一个灰白，两栏接不上。
+    ///
+    /// 做法不是把天空原样搬过来（那会让聊天气泡底下的蓝太跳），而是
+    /// **季节天空的浅档压一层面纱**：天空占比够高（四季一眼分得出），
+    /// 面纱占比保证文字对比度。夜档不掺和季节（与 `seasonalSkyWash` 同一条约定：
+    /// 夜里是同一片天）。
+    public var chatBackdrop: Color {
+        Color(hex: chatBackdropHex)
+    }
+
+    /// 中间栏底色的不透明度：**白天透、夜里实**。
+    ///
+    /// 白天这一档要透：季节底色之上还有一层飞鸟（`ForestSeasonBirds`，画在最底层
+    /// 的天空之上、内容之下）—— 鸟群是贯穿中间栏与右栏的，底色不透就只看得见
+    /// 右栏那半截。夜里反过来收实：夜空的对比度本来就低，文字可读性优先。
+    public var chatBackdropOpacity: Double {
+        isNight ? 0.78 : 0.62
+    }
+
+    /// 中间栏底色的十六进制（与 `chatBackdrop` 同一条算式，单测直接钉它）。
+    ///
+    /// ⚠️ 故意不是 `private`：`ThemeContrastTests` 要按四季逐个数这串色值
+    /// （「四季两两不同」），private 的话只能退化成渲染像素判据，慢且钝。
+    var chatBackdropHex: UInt32 {
+        // 取天空**最浅那一档**（地平线附近）而不是顶部那档：顶部是深蓝，
+        // 拿来做面板底色会比右栏暗一截，两栏接不上。
+        let sky = momentSkyHex[momentSkyHex.count - 1]
+        let washed = seasonalSkyWash.map {
+            ForestAtmosphere.blend(sky, toward: $0.tone, amount: $0.amount)
+        } ?? sky
+        return ForestAtmosphere.blend(washed, toward: surfaceVeilHex, amount: 0.42)
+    }
+
+    /// 底色那层「面纱」：与 `surfaceAlt` 同一个色相，只取它的不透明值。
+    private var surfaceVeilHex: UInt32 {
+        isNight ? 0x1D2C46 : 0xF3F7EF
+    }
     public var bubbleUser: Color { isNight ? Color(hex: 0x3A5B7A) : Color(hex: 0xDFF3E4) }
     public var bubbleCoach: Color { isNight ? Color(hex: 0x24405A) : Color(hex: 0xFFFFFF) }
     public var divider: Color { isNight ? Color(hex: 0x2A3A57) : Color(hex: 0xDCE7D6) }

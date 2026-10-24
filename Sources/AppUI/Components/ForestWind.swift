@@ -59,6 +59,32 @@ public extension EnvironmentValues {
     }
 }
 
+// MARK: - 氛围演出隐藏档（连点天空 5 次）
+
+private struct ForestAmbientStillKey: EnvironmentKey {
+    /// 默认 false：未注入的上下文（离屏渲染夹具、SwiftUI 预览）照常演出。
+    static let defaultValue: Bool = false
+}
+
+public extension EnvironmentValues {
+    /// 「林子完全安静」档（批次六 · E：连点天空 5 次）。
+    ///
+    /// 为什么要有这个环境值：`ambientHidden` 此前只能**逐层传参** —— 天空层的
+    /// 云 / 雨 / 雪、风筝、雁阵都拿到了，可地面带里那几层**自己起表**的装饰
+    /// （春蝶 / 蒲公英絮 / 夏夜流萤 / 蜻蜓）隔着 `TreeScrollView → TreeCanvas →
+    /// ForestGroundBand` 三层，一个都没接到 —— 于是「连点天空 5 次」之后林子
+    /// 安静了、蝴蝶照飞（2026-10-23 审计实测）。凡是**传参够不着**、又自带
+    /// `TimelineView` 的装饰层一律读这里（够得着的那几层 —— 风筝 / 雁阵 /
+    /// 雪花 —— 仍旧直接传 `still:`，两条路同效）。
+    ///
+    /// ⚠️ 只管**自己推进时间**的层；靠风钟位移的层（`ForestLeafPiles` / 果树 /
+    /// 风车 / 雪人围巾）风停即静止，不用读它。
+    var forestAmbientStill: Bool {
+        get { self[ForestAmbientStillKey.self] }
+        set { self[ForestAmbientStillKey.self] = newValue }
+    }
+}
+
 // MARK: - 风钟驱动器
 
 /// 风钟驱动器：全场景唯一一颗 `TimelineView`（30fps）推着风钟走。

@@ -67,10 +67,11 @@ public struct ForestSky: View {
                 RainLayer(color: theme.rainColor)
             }
 
-            // 雪（2026-10 收窄天气档位时新增）：与雨同构，只是粒是圆的、落得更慢，
-            // 颜色跟 `theme.snowColor` 走；静态档同样整层收。
+            // 雪（2026-10-21 重写）：位置由时间算出来（`SnowfallLayout`）——
+            // 只会向下、折返点在画外，永远不会「往上跳」。静态档（连点天空 5 次）
+            // 整层收：与雨天同一条约定，「林子完全安静」包含雪停。
             if theme.weather == .snow, !ambientStill {
-                SnowLayer(color: theme.snowColor)
+                ForestSnowfall(theme: theme, density: .far)
             }
 
             VStack {
@@ -282,94 +283,6 @@ private struct RainLayer: View {
             }
         }
         .onAppear { falling = true }
-    }
-}
-
-// MARK: - 雪（2026-10 收窄天气档位时新增）
-
-/// 单枚雪片（从 `SnowLayer` 拆出来：整层塞进一个 `ForEach` 会让 Swift 前端
-/// 类型检查超时，报「unable to type-check this expression in reasonable time」）。
-private struct Snowflake: View {
-    let color: Color
-    /// 外圈直径（pt）；白芯按 0.73 比例收在里面。
-    let size: CGFloat
-    var x: CGFloat
-    var y: CGFloat
-    var swayOffset: CGFloat
-    var opacity: Double
-    var animates: Bool
-    var swaying: Bool
-    var fallDuration: Double
-    var swayDuration: Double
-
-    var body: some View {
-        ZStack {
-            // 粒芯：一点纯白 —— 白天淡蓝灰的雪片靠这点白读出「雪」而不是「灰点」
-            // （白天空太亮，整片压深就不像雪了；白芯是那个「像」的关键）。
-            Circle().fill(.white.opacity(0.85))
-                .frame(width: size * 0.73, height: size * 0.73)
-            Circle().fill(color)
-                .frame(width: size, height: size)
-        }
-        .position(x: x, y: y)
-        // 横向轻摆：雪片小，摆幅也小（±9pt）—— 幅度大了像被风横着吹走。
-        .offset(x: swayOffset)
-        .opacity(opacity)
-        .loopAnimation(
-            .easeInOut(duration: swayDuration).repeatForever(autoreverses: true),
-            value: swaying
-        )
-        // 匀速缓落、不回弹 —— 与雨同一套落法，只是慢一半。
-        .loopAnimation(
-            .linear(duration: fallDuration).repeatForever(autoreverses: false),
-            value: animates
-        )
-    }
-}
-
-/// 雪片层：圆点从天缓缓飘落（各自错峰、比雨慢一半，还带一点横向游移 ——
-/// 雪不是直直砸下来的）。日夜共用，颜色由 `theme.snowColor` 给。
-/// 位置用种子随机 —— 与星星 / 雨一样，布局必须稳定，不能每次布局换一场新雪。
-private struct SnowLayer: View {
-    let color: Color
-
-    private static let flakes: [CGPoint] = {
-        var generator = SeededRandom(seed: 20_261_103)
-        return (0..<22).map { _ in
-            CGPoint(x: generator.next(), y: generator.next() * 0.72)
-        }
-    }()
-
-    @State private var falling = false
-    @State private var swaying = false
-
-    private var animates: Bool { AmbientMotion.animates(armed: falling, still: false) }
-
-    var body: some View {
-        GeometryReader { proxy in
-            ForEach(0..<Self.flakes.count, id: \.self) { index in
-                let point = Self.flakes[index]
-                Snowflake(
-                    color: color,
-                    // 三档大小错落：一眼望去不是同一枚雪花复制 22 遍。
-                    size: 3.2 + CGFloat(index % 3) * 0.6,
-                    x: point.x * proxy.size.width,
-                    // 行程同样真的跨过天空（与雨同一条 2026-10-01 修出来的判据）：
-                    // 按天空高度的五成五落，匀速直落。
-                    y: point.y * proxy.size.height + (animates ? proxy.size.height * 0.55 : 0),
-                    swayOffset: swaying ? CGFloat((index % 5) - 2) * 9 : 0,
-                    opacity: animates ? 0.85 : 0.5,
-                    animates: animates,
-                    swaying: swaying,
-                    fallDuration: Double(160 + (index % 5) * 20) / 100,
-                    swayDuration: 2.4 + Double(index % 4) * 0.5
-                )
-            }
-        }
-        .onAppear {
-            falling = true
-            swaying = true
-        }
     }
 }
 

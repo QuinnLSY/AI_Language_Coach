@@ -55,4 +55,20 @@ final class AnimalSeasonOutfitTests: XCTestCase {
         XCTAssertTrue(lively.contains("season: season, weather: weather"),
                       "LivelyAnimal 必须把季节与天气透传给 CuteAnimalView")
     }
+
+    /// 伞必须同时过**两道**闸门：行为是打伞、且天气确实是下雨（源码哨兵）。
+    ///
+    /// 为什么用源码哨兵而不是渲染断言（2026-10-21 反证实测的结果）：把第二道闸门
+    /// 拆掉（`if behavior == .umbrella {`）之后，全部渲染用例依然全绿 —— 因为
+    /// `forWeather(.snow)` 返回 `.shiver`，这条路径**运行时不可达**，任何画面都照不出区别。
+    /// 用户当年在雪天看到帽子底下一排深橘红小点（伞面画坏了在冒充装饰），根因是
+    /// AppState 切天气时 theme 没同步；这道闸门是防「将来有人把 weather 表改错」的保险，
+    /// 而保险只能靠源码形态钉住。
+    ///
+    /// ⚠️ 钉的是**挂载那一行的整串形态**，不是出现次数：只数次数会被注释里的字符串骗过去。
+    func testUmbrellaIsGatedOnRainTwice() throws {
+        let animals = try source("AppUI/Theme/Animals.swift")
+        XCTAssertTrue(animals.contains("if behavior == .umbrella, weather == .rain {"),
+                      "伞必须同时过 behavior 与 weather 两道闸门（两者缺一就可能在雪天冒出来）")
+    }
 }

@@ -356,6 +356,47 @@ final class ForestSceneTests: XCTestCase {
         XCTAssertLessThan(trough, 0.35, "山脊线要沉得下低谷，实测 \(trough)")
     }
 
+    // MARK: - 离地高度（风场的高度放大口径）
+
+    /// 离地高度 = 坡面 y − 物体 y（`WindField.airHeight`），且**不许**是恒 0。
+    ///
+    /// 这是 2026-10-23 审计实测到的缺陷：春蝶 / 蒲公英絮 / 夏夜流萤三处把高度
+    /// 写成 `max(0, -spot.y)` —— 面板 / 地面带坐标 y 朝下、站在坡上的东西 y 恒为
+    /// 正，于是这个式子**恒等于 0**：高度放大（`heightFactor`）静默失效，
+    /// 高处的蝴蝶与贴地的草摆得一样多，而注释写着「离草坡表面那么高」。
+    ///
+    /// 反证：把 `airHeight` 换成 `max(0, -objectY)` → 红在「恒等于 0」；
+    /// 换成 `objectY - groundY` → 红在符号（离地高度反倒变成「埋多深」）。
+    func testAirHeightIsMeasuredUpwardFromTheGround() {
+        // 坡面在 y = 116（地面带内的草坡表面线），蝴蝶停在它上方 34pt
+        XCTAssertEqual(WindField.airHeight(groundY: 116, objectY: 82), 34, accuracy: 1e-9)
+        // 贴着坡面 = 0，不是负的
+        XCTAssertEqual(WindField.airHeight(groundY: 116, objectY: 116), 0, accuracy: 1e-9)
+        // 掉到坡面以下（抖动 / 极端参数）夹回 0，不许把负高度喂给风场
+        XCTAssertEqual(WindField.airHeight(groundY: 116, objectY: 130), 0, accuracy: 1e-9)
+        // 真的喂进风场后，高处比贴地摆得开（高度放大没有塌掉）
+        let phase = 1.7
+        let low = abs(WindField.offset(x: 200, phase: phase, height: 0))
+        let high = abs(WindField.offset(x: 200, phase: phase, height: 300))
+        XCTAssertGreaterThan(low, 1e-6, "这个相位上风恰好为零，换个采样点")
+        XCTAssertGreaterThan(high, low, "高度放大失效：高处与贴地摆得一样多")
+    }
+
+    /// 反面钉死：那个恒 0 的旧写法必须**不成立**，否则上一条就是空转。
+    func testNegatedObjectYIsNotAnAirHeight() {
+        // 旧写法 `max(0, -spot.y)` 在面板坐标里的真实取值。
+        // 只取**坡面以上**的 y（40…110）：落到坡以下的那些两边都是 0，
+        // 拿来反证就变成「两边相等」的假红了。
+        for objectY in stride(from: 40.0, through: 110.0, by: 10.0) {
+            let legacy = max(0.0, -objectY)
+            XCTAssertEqual(legacy, 0, accuracy: 1e-9,
+                           "这个反例失效了：换一个正的 objectY")
+            XCTAssertNotEqual(WindField.airHeight(groundY: 116, objectY: CGFloat(objectY)),
+                              CGFloat(legacy),
+                              "airHeight 与恒 0 的旧写法结果相同 → 上一条断言抓不到回归")
+        }
+    }
+
     // MARK: - 度量
 
     /// sRGB 空间的两色距离（大气透视断言用）。

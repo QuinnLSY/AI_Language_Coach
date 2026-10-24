@@ -351,8 +351,20 @@ private enum Fur {
     static let scarfDeep = Color(hex: 0xA63E2C)
     static let woolHat = Color(hex: 0xE86A92)
     static let woolHatDeep = Color(hex: 0xC24E77)
+    /// 落在帽子上的雪（#626）：比帽子亮、比纯白冷一点，才读成「雪」不是「白线」。
+    static let hatSnow = Color(hex: 0xF2F8FC)
+    static let hatSnowShade = Color(hex: 0xC3D6E4)
     static let umbrellaTop = Color(hex: 0xE8703A)
     static let umbrellaDeep = Color(hex: 0xC85A28)
+
+    // MARK: 白哈气（#628）
+
+    /// 嘴边那团哈气（近嘴那一团）：比雪色更灰更蓝 —— 它是一团**水汽**，不是一团雪。
+    /// 雪地（`ForestTheme.snowGround` 白天 0xEDF4FA）上要读得出这团雾，靠的就是
+    /// 压下来那一档蓝。再淡就看不见了（实测 0xD9E7F2 在白底上几乎隐形）。
+    static let breath = Color(hex: 0xC9DEEE)
+    /// 哈气的外沿（飘得最远、最小那一团）：更淡，雾才散得开。
+    static let breathDeep = Color(hex: 0xA6BDD4)
 }
 
 // MARK: - 角色配件
@@ -414,6 +426,96 @@ public enum AnimalWeatherBehavior: Equatable, Sendable {
     }
 }
 
+/// 白哈气（#628）的规则（纯函数）：天冷才哈气。
+///
+/// - 冬天（`season == .winter`）：冷空气就是哈气的理由；
+/// - 下雪天（`weather == .snow`）：别的季节下雪同样冷（学习节奏驱动的天气偏晴时，
+///   冬天也可能晴 —— 那时照样哈气，判据在季节上）。
+///
+/// ⚠️ 睡着不哈：Zzz 已经是睡着的记号，再加一团雾就读成「冒烟」。
+/// 与 `AnimalWeatherBehavior`（伞 / 哆嗦）同一条纪律：睡着的动物不折腾。
+public enum AnimalBreath {
+
+    public static func shows(
+        season: ForestSeason?, weather: ForestWeather?, isSleeping: Bool
+    ) -> Bool {
+        guard !isSleeping else { return false }
+        if weather == .snow { return true }
+        return season == .winter
+    }
+}
+
+// MARK: - 哆嗦（2026-10-21 重写：偶发一小段，整只一起抖）
+
+/// 下雪天哆嗦的规则（纯函数）：**隔十几秒来一小段**，不是一直高频抖。
+///
+/// 用户 2026-10-21 报了两件事，都出在旧实现上：
+/// ① 旧版是 `.repeatForever` 的 0.11s 高频抖动 —— 一直抖，像筛糠；
+/// ② 无限循环一旦没被取消，退出下雪后还在抖（「要切换好几次天气才恢复」）。
+///
+/// 现在拆成「节奏 + 姿态」两块纯函数，视图只负责按节拍推相位：
+/// - 节奏（`wait` / `strokeCount` / `stroke`）：每 15…20s 一小段，各只按种子错开；
+/// - 姿态（`offset` / `tilt`）：**绕脚底**的刚性小抖动（位移 + 倾斜）。
+///   倾斜是关键 —— 帽子在最上面、离脚底最远，于是帽子摆得最明显，
+///   整只（身体 + 帽子 + 配件）读成「一起在抖」，而不是只有肚子在挪。
+public enum AnimalShiver {
+
+    /// 两段哆嗦之间的间隔（秒）。
+    public static let intervalRange: ClosedRange<Double> = 15...20
+
+    /// 一段哆嗦里左右各抖几程（一程 = `stroke` 秒）。
+    public static let strokeCount = 6
+
+    /// 一程的时长（秒）：0.09s ≈ 11Hz，是「冷得发抖」那档频率。
+    public static let stroke: Double = 0.09
+
+    /// 横向幅度（身位比例）。只在短促的一段里出现，幅度不宜大。
+    public static let amplitudeRatio: CGFloat = 0.018
+
+    /// 刚性倾斜幅度（度，绕脚底）。1.1° 在帽尖上能看出几像素的摆。
+    public static let tiltDegrees: Double = 1.1
+
+    /// 一段哆嗦的总时长（秒）。
+    public static var burstDuration: Double { stroke * Double(strokeCount) }
+
+    /// 这一只此刻该不该抖：**只由天气 + 睡意决定**。
+    ///
+    /// 判据复用 `AnimalWeatherBehavior`（唯一真相）：`shiver` 档才抖，
+    /// 雨（伞）/ 晴 / 不跟随天气都不抖；睡着不折腾（与哈气同一条纪律）。
+    public static func trembles(weather: ForestWeather?, isSleeping: Bool) -> Bool {
+        guard !isSleeping else { return false }
+        return AnimalWeatherBehavior.forWeather(weather) == .shiver
+    }
+
+    /// 第 `phase` 程的横向位移：`0` = 静止（正中），奇偶交替左右。
+    ///
+    /// ⚠️ 静止时**必须**是 0（不是某一侧的固定偏移）：否则「下雪天但没在抖」
+    /// 与「晴天」会差出一个身位，基准画面全漂（旧版 `shivering ? +2% : -2%` 就是这个坑）。
+    public static func offset(phase: Int, size: CGFloat) -> CGFloat {
+        guard phase > 0 else { return 0 }
+        return (phase.isMultiple(of: 2) ? 1 : -1) * amplitudeRatio * size
+    }
+
+    /// 第 `phase` 程的倾斜（度，绕脚底）。与位移同相：整只往一边倒，而不是先挪后倒。
+    public static func tilt(phase: Int) -> Double {
+        guard phase > 0 else { return 0 }
+        return (phase.isMultiple(of: 2) ? 1 : -1) * tiltDegrees
+    }
+
+    /// 下一次哆嗦要等多久（秒）：`15…20` 之间，按种子用**黄金比例低差异序列**错开。
+    ///
+    /// 为什么不用 `Double.random`：一屏八只各抽一次，撞在一起的概率不低（两只同时
+    /// 哆嗦看着像排练过）；黄金比例保证任意连续 N 个种子的取值尽可能铺满区间
+    /// （与 `blinkLead` 同一个理由）。
+    public static func wait(seed: Int) -> Double {
+        let phi = 0.618_033_988_749_895
+        let scaled = Double(abs(seed)) * phi
+        let frac = scaled - scaled.rounded(.down)
+        let span = intervalRange.upperBound - intervalRange.lowerBound
+        return intervalRange.lowerBound + span * frac
+    }
+}
+
 // MARK: - 主体
 
 /// 纯矢量绘制的可爱小动物。夜晚进入「睡觉」状态（闭眼 + Zzz），白天蹦跳眨眼。
@@ -461,21 +563,44 @@ public struct CuteAnimalView: View {
     /// 与 `forcedHoveredMessageID` / `DictionaryBookCard.isHovered` 是同一类接缝。
     public static var animationsEnabled = true
 
+    /// 是否画白哈气（#628）。**只为反证而存在**：渲染测试用它出「同一只冬天的
+    /// 动物、不哈气」的对照图，证明哈气真的画在嘴边（而不是根本没画 / 被脸挡住）。
+    /// 生产路径永远是默认值 `true`。
+    public var drawsBreath: Bool = true
+
+    /// **离屏夹具专用**：把哆嗦钉在第 `n` 程（`nil` = 跟着定时器走）。
+    ///
+    /// 为什么需要它：哆嗦是「偶发一小段」的定时演出，离屏一帧抓不到它正在进行的那一刻。
+    /// 这个接缝让渲染测试能出「同温度、正在抖 / 静止」两张对照图，证明
+    /// **整只（身体 + 帽子 + 配件）都在抖**，而不是只有身子在挪。
+    /// 生产路径永远是默认值 `nil`（不参与任何判断）。
+    public var forcedShiverPhase: Int? = nil
+
     @State private var isBlinking = false
     @State private var isHopping = false
     /// 庆祝跳一下的抬起量（一次性）。与 `isHopping` 的常驻浮动各走各的 offset，互不打断。
     @State private var hopLift: CGFloat = 0
-    /// 下雪哆嗦的高频小抖（`AnimalWeatherBehavior.shiver`）。左右 ±2% 尺寸、0.11s 一程。
-    @State private var shivering = false
+    /// 下雪哆嗦的**程数**（`AnimalShiver`）：0 = 静止，奇偶交替左右。
+    ///
+    /// 不再是「一直开着的布尔」：由 `.task(id:)` 里的节拍推着走，一段抖完回到 0。
+    @State private var shiverPhase = 0
+    /// 白哈气的呼出量（#628）：`false` = 呼完了（雾团收小），`true` = 正呼出来。
+    @State private var breathing = false
 
     @Environment(\.appMotion) private var motion
 
     private let blinkTimer = Timer.publish(every: Self.blinkPeriod, on: .main, in: .common).autoconnect()
 
+    /// 哈气的节奏（秒，#628）：呼一团 → 停一下 → 再呼一团。
+    ///
+    /// 比眨眼慢一倍 —— 呼吸是慢动作，跟眨眼一个节奏会读成「抽搐」。
+    private let breathTimer = Timer.publish(every: 2.6, on: .main, in: .common).autoconnect()
+
     public init(kind: AnimalKind, isSleeping: Bool = false, size: CGFloat = 64,
                 accessory: AnimalAccessory = .none, bobbing: Bool = true,
                 knockTick: Int = 0, hopTick: Int = 0, blinkPhaseSeed: Int = 0,
-                season: ForestSeason? = nil, weather: ForestWeather? = nil) {
+                season: ForestSeason? = nil, weather: ForestWeather? = nil,
+                drawsBreath: Bool = true, forcedShiverPhase: Int? = nil) {
         self.kind = kind
         self.isSleeping = isSleeping
         self.size = size
@@ -486,6 +611,8 @@ public struct CuteAnimalView: View {
         self.blinkPhaseSeed = blinkPhaseSeed
         self.season = season
         self.weather = weather
+        self.drawsBreath = drawsBreath
+        self.forcedShiverPhase = forcedShiverPhase
     }
 
     // MARK: - 眨眼错峰
@@ -550,9 +677,29 @@ public struct CuteAnimalView: View {
                 SeasonOutfit(season: season, size: size, isSleeping: isSleeping)
             }
 
-            // 下雨打伞（#605）：伞撑在身侧偏上，不遮动物的脸。
-            if behavior == .umbrella {
+            // 下雨打伞（#605）：伞撑在头顶偏右，不遮动物的脸。
+            //
+            // ⚠️ 判据写全 `weather == .rain`（而不是只看 `behavior`）：伞是**只属于雨**
+            // 的道具，多一道闸门，将来降水档位再扩也不会让雪天冒出伞来
+            // （2026-10-21 用户看到雪天头上一排橘点，就是伞面画坏了在冒充装饰）。
+            if behavior == .umbrella, weather == .rain {
                 LittleUmbrella(size: size)
+            }
+
+            // 白哈气（#628）：天冷才哈气 —— 嘴边一团慢慢呼出来的冷雾。
+            // 画在配件与季节装扮之后：哈气是**最前面**的一层空气。
+            //
+            // ⚠️ 这里**不再**另给 `offset`：`BreathPuff` 自带一个 `size × size`
+            // 的满框（被父级居中），三团雾在框内的偏移就是「相对动物中心」的坐标 ——
+            // 再叠一个 offset 会把整团挪到头顶上去（实测第一版：雾飘在帽子边上）。
+            if drawsBreath, AnimalBreath.shows(
+                season: season, weather: weather, isSleeping: isSleeping
+            ) {
+                BreathPuff(size: size, puff: breathing ? 1 : 0)
+                    .loopAnimation(
+                        .easeInOut(duration: 1.1).repeatForever(autoreverses: true),
+                        value: breathing
+                    )
             }
         }
         .frame(width: size, height: size)
@@ -560,15 +707,30 @@ public struct CuteAnimalView: View {
         .loopAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: isHopping)
         // 庆祝跳一下（一次性）：与上面的常驻浮动分开两条 offset，谁都不打断谁。
         .offset(y: hopLift)
-        // 下雪哆嗦（#605）：高频小抖一条独立 offset。reduceMotion 下 loopAnimation
-        // 不插值（静态缩着），离屏夹具（animationsEnabled=false）同样停 ——
-        // 「同一份输入连出两次必须逐像素相同」的确定性守卫不能被它破。
-        // ⚠️ 判据不在哆嗦档时位移恒 0（否则「没有天气」也会凭空左移一点）。
-        .offset(x: shiverOffset)
-        .loopAnimation(
-            .linear(duration: 0.11).repeatForever(autoreverses: true),
-            value: shivering
-        )
+        // 下雪哆嗦（2026-10-21 重写）：**偶发的一小段**刚性小抖 —— 位移 + 绕脚底倾斜。
+        //
+        // ⚠️ 这两条都挂在**整只**（身体 + 帽子 + 配件 + 哈气）之后：帽子跟着一起摆，
+        // 才是「冷得发抖」；旧版只有一条 ±2% 的横向位移，帽子在最上面看不清在动，
+        // 读成「只有身子在挪」。
+        // ⚠️ 幅度由 `shiverPhase` 决定、静止时恒 0 —— 没有一段哆嗦在进行，
+        // 画面就与晴天逐像素相同（退出下雪不留残余位移）。
+        .offset(x: AnimalShiver.offset(phase: activeShiverPhase, size: size))
+        .rotationEffect(.degrees(AnimalShiver.tilt(phase: activeShiverPhase)), anchor: .bottom)
+        // 一段哆嗦内部用短线性插值（一程 0.09s）；回正那一下稍慢，收得自然。
+        // 走 `loopAnimation`：reduceMotion 下不插值（相位也不会被推进，见下）。
+        .loopAnimation(.linear(duration: AnimalShiver.stroke), value: activeShiverPhase)
+        // 哆嗦的节拍（2026-10-21）：**不用 `repeatForever`** —— 无限循环一旦漏取消
+        // 就是「退出下雪还在抖」（用户报障）。这里是一段一段跑完就结束的有限循环，
+        // 天气 / 睡意 / 夹具闸门一变，`id` 变了整段任务被取消，相位当场归零。
+        .task(id: shiverToken) {
+            shiverPhase = 0
+            guard shiverToken == 1 else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(AnimalShiver.wait(seed: blinkPhaseSeed)))
+                guard !Task.isCancelled else { break }
+                await tremble()
+            }
+        }
         .onChange(of: hopTick) { _, tick in
             // 睡着了不跳（Zzz 会脱离身体）；渲染夹具关着动画也不跳。
             guard tick > 0, !isSleeping, Self.animationsEnabled else { return }
@@ -586,14 +748,9 @@ public struct CuteAnimalView: View {
             } else {
                 isHopping = false
             }
-            updateShivering(behavior: behavior)
         }
         .onChange(of: isSleeping) { _, sleeping in
             isHopping = (bobbing && !sleeping && Self.animationsEnabled) ? true : false
-            updateShivering(behavior: sleeping ? nil : AnimalWeatherBehavior.forWeather(weather))
-        }
-        .onChange(of: weather) { _, newValue in
-            updateShivering(behavior: isSleeping ? nil : AnimalWeatherBehavior.forWeather(newValue))
         }
         .onReceive(blinkTimer) { _ in
             guard !isSleeping, Self.animationsEnabled else { return }
@@ -606,18 +763,43 @@ public struct CuteAnimalView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + lead) { blink() }
             }
         }
+        .onReceive(breathTimer) { _ in
+            // 睡着 / 不冷 / 夹具闸门：都不哈（`AnimalBreath.shows` 已含睡意判据）
+            guard Self.animationsEnabled,
+                  AnimalBreath.shows(season: season, weather: weather, isSleeping: isSleeping)
+            else { return }
+            breathing.toggle()
+        }
     }
 
-    /// 哆嗦状态跟随天气 / 睡意 / 夹具闸门（放在一处，免得三处 onChange 各写一遍判据）。
-    private func updateShivering(behavior: AnimalWeatherBehavior?) {
-        shivering = behavior == .shiver && Self.animationsEnabled
+    /// 哆嗦的节拍令牌：`1` = 该抖，`0` = 不抖。
+    ///
+    /// 三个闸门缺一不可：天气（`AnimalShiver.trembles`）、离屏夹具
+    /// （`animationsEnabled`）、减弱动态效果（`reduceMotion`）。
+    /// 令牌一变，`.task(id:)` 的旧任务当场取消（`while !Task.isCancelled` 里退出），
+    /// 于是「退出下雪还残留哆嗦」在结构上不成立。
+    private var shiverToken: Int {
+        guard Self.animationsEnabled, !motion.reduceMotion,
+              AnimalShiver.trembles(weather: weather, isSleeping: isSleeping)
+        else { return 0 }
+        return 1
     }
 
-    /// 哆嗦位移（#605）：**判据不在哆嗦档时恒 0** —— 没有天气的动物一点不挪，
-    /// 否则「关掉天气」与「下雪天」的基准画面会差出一个身位，判据全漂。
-    private var shiverOffset: CGFloat {
-        guard !isSleeping, AnimalWeatherBehavior.forWeather(weather) == .shiver else { return 0 }
-        return shivering ? size * 0.02 : -size * 0.02
+    /// 真正参与绘制的相位：令牌不在「该抖」时恒 0（双保险 —— 即便某次相位没归零，
+    /// 判据也不在哆嗦档，位移与倾斜都必须是 0）。
+    private var activeShiverPhase: Int {
+        if let forcedShiverPhase { return forcedShiverPhase }
+        return shiverToken == 1 ? shiverPhase : 0
+    }
+
+    /// 一小段哆嗦：六程来回，收尾回正。跑完就结束，不循环。
+    private func tremble() async {
+        for phase in 1...AnimalShiver.strokeCount {
+            guard !Task.isCancelled else { break }
+            withAnimation(.linear(duration: AnimalShiver.stroke)) { shiverPhase = phase }
+            try? await Task.sleep(for: .seconds(AnimalShiver.stroke))
+        }
+        withAnimation(.easeOut(duration: AnimalShiver.stroke * 1.8)) { shiverPhase = 0 }
     }
 
     @ViewBuilder
@@ -1517,6 +1699,21 @@ private struct SeasonOutfit: View {
                         .fill(Fur.cream)
                         .frame(width: size * 0.075, height: size * 0.075)
                         .offset(y: size * -0.53)
+
+                    // 雪落在小动物身上（#626）：帽子顶上积了一撮、帽檐压了一道。
+                    //
+                    // ⚠️ 只落在**帽子**上，不落到脸上：脸上落雪在 24pt 的尺寸里
+                    // 就是两块白斑，读成「眼睛花了」。帽檐那一道还要比帽顶暗一档
+                    // （`hatSnowShade`）—— 帽檐朝下，接不着多少光。
+                    Ellipse()
+                        .fill(Fur.hatSnowShade)
+                        .frame(width: size * 0.34, height: size * 0.048)
+                        .offset(x: size * 0.012, y: size * -0.302)
+                    Ellipse()
+                        .fill(Fur.hatSnow)
+                        .frame(width: size * 0.245, height: size * 0.085)
+                        .rotationEffect(.degrees(-8))
+                        .offset(x: size * -0.012, y: size * -0.505)
                 }
             }
         }
@@ -1526,32 +1723,153 @@ private struct SeasonOutfit: View {
 
 // MARK: - 降水道具（#605）
 
-/// 小雨伞：橘色伞面 + 伞柄，撑在动物身侧偏上（不遮脸）。
+/// 小雨伞：橘色伞面 + 伞柄，撑在头顶偏右（不遮脸）。
 /// 下雨动物**不消失**，只是打个伞继续在场（用户 2026-10 拍板）。
+///
+/// ⚠️ 伞面必须是一整片**连贯的穹顶**（2026-10-21 修）：旧版用四瓣「相切」的圆拼伞沿，
+/// 圆与圆只是外切、中间没有重叠，放大后读成**一排橘色小点**（用户直接没认出来是伞，
+/// 报成「帽子下面莫名的一排深橘红色小点」）。现在改成一个 `UmbrellaCanopyShape`
+/// 一次画完（上沿弧 + 下沿三瓣波浪），再用一深一浅两层压出厚度。
 private struct LittleUmbrella: View {
     let size: CGFloat
 
+    /// 伞面宽度 / 高度 / 中心位置（相对身位）。
+    private let canopyWidth: CGFloat = 0.44
+    private let canopyHeight: CGFloat = 0.26
+    private let centerX: CGFloat = 0.27
+    private let canopyY: CGFloat = -0.30
+
     var body: some View {
         ZStack {
-            // 伞柄
+            // 伞柄：竖杆一直伸到身侧（伞是「撑着」的，不是浮在头顶）
             Capsule()
                 .fill(Fur.umbrellaDeep)
-                .frame(width: max(1.4, size * 0.022), height: size * 0.26)
-                .offset(x: size * 0.30, y: size * 0.16)
-            // 伞面：四瓣圆拼成一条伞沿（相切无缝、两色交替 = 波浪边）
-            ForEach(0..<4, id: \.self) { index in
-                Circle()
-                    .fill(index % 2 == 0 ? Fur.umbrellaTop : Fur.umbrellaDeep)
-                    .frame(width: size * 0.13, height: size * 0.13)
-                    .offset(x: size * (0.30 - 0.195 + Double(index) * 0.13),
-                            y: size * -0.18)
+                .frame(width: max(1.4, size * 0.024), height: size * 0.42)
+                .offset(x: size * centerX, y: size * (canopyY + 0.17 + 0.20))
+            // 伞柄末端的弯钩（一小段圆弧，朝内）
+            Circle()
+                .trim(from: 0.06, to: 0.46)
+                .stroke(Fur.umbrellaDeep,
+                        style: StrokeStyle(lineWidth: max(1.4, size * 0.024), lineCap: .round))
+                .frame(width: size * 0.10, height: size * 0.10)
+                .rotationEffect(.degrees(180))
+                .offset(x: size * (centerX - 0.05), y: size * (canopyY + 0.58))
+
+            // 伞面暗底（下沿露出的那一线深一档 = 伞的厚度）
+            UmbrellaCanopyShape()
+                .fill(Fur.umbrellaDeep)
+                .frame(width: size * canopyWidth, height: size * canopyHeight)
+                .offset(x: size * centerX, y: size * (canopyY + 0.015))
+            // 伞面本体
+            UmbrellaCanopyShape()
+                .fill(Fur.umbrellaTop)
+                .frame(width: size * canopyWidth, height: size * canopyHeight)
+                .offset(x: size * centerX, y: size * canopyY)
+            // 伞骨：两条细缝，读出「这是布面不是一块塑料」
+            ForEach([CGFloat(-0.5), CGFloat(0.5)], id: \.self) { side in
+                Capsule()
+                    .fill(Fur.umbrellaDeep.opacity(0.55))
+                    .frame(width: max(1, size * 0.008), height: size * canopyHeight * 0.55)
+                    .rotationEffect(.degrees(Double(side) * 24))
+                    .offset(x: size * (centerX + side * canopyWidth * 0.24),
+                            y: size * (canopyY + canopyHeight * 0.10))
             }
             // 伞顶小尖
             Circle()
                 .fill(Fur.umbrellaDeep)
-                .frame(width: size * 0.035, height: size * 0.035)
-                .offset(x: size * 0.30, y: size * -0.235)
+                .frame(width: size * 0.034, height: size * 0.034)
+                .offset(x: size * centerX, y: size * (canopyY - canopyHeight * 0.46))
         }
         .frame(width: size, height: size)
+    }
+}
+
+/// 伞面轮廓：上沿一段扁弧、下沿三瓣向下鼓的波浪。
+///
+/// 用**一个形状**画整片伞面，而不是若干个圆拼：拼出来的圆之间没有重叠就成了一条
+/// 断续的点串（旧版的毛病）；一个路径画完，伞沿是连续的曲线。
+private struct UmbrellaCanopyShape: Shape {
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let lobes = 3
+        let hem = rect.maxY - rect.height * 0.10
+        let lobeWidth = rect.width / CGFloat(lobes)
+
+        path.move(to: CGPoint(x: rect.minX, y: hem))
+        // 上沿：从左边升到顶、再落回右边（控制点抬高到框外 = 扁而饱满的穹顶）
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX, y: hem),
+            control: CGPoint(x: rect.midX, y: rect.minY - rect.height * 0.62)
+        )
+        // 下沿：从右往左三瓣波浪（每瓣向下鼓）
+        var cursor = rect.maxX
+        for index in 0..<lobes {
+            let next = rect.maxX - CGFloat(index + 1) * lobeWidth
+            path.addQuadCurve(
+                to: CGPoint(x: next, y: hem),
+                control: CGPoint(x: (cursor + next) / 2, y: rect.maxY + rect.height * 0.16)
+            )
+            cursor = next
+        }
+        path.closeSubpath()
+        return path
+    }
+}
+
+// MARK: - 白哈气（#628）
+
+/// 嘴边的一团白哈气：三团渐次变小、往上飘的冷雾。
+///
+/// 位置在**嘴的下沿**：所有物种的鼻尖都落在框中心偏上那一横带
+/// （各物种的鼻子偏移 y ∈ [-0.08, -0.03]，即框顶往下 0.42…0.47 个身位），
+/// 嘴在鼻下一点点 —— 哈气从嘴的下沿往上飘，不挡脸、也不浮到头顶上去。
+/// 呼出量 `puff`（0…1）驱动三团一起长大、变实、往上抬。
+///
+/// ⚠️ 偏移是**框顶坐标**（`ZStack(alignment: .topLeading)` + 满框 + 父级居中），
+/// 不是中心坐标：三团圆心分别落在框顶往下 0.52 / 0.56 / 0.60 个身位处
+/// （近嘴那团最低）。第一、二版都把这里当中心坐标算，整团雾飘到了帽子边上
+/// / 脑袋侧面（两次出图复核才发现）。
+///
+/// ⚠️ 颜色走 `Fur.breath*`（静态）：这一整层动物都不随日夜换色
+/// （`SeasonOutfit` 同样用静态 Fur 色），哈气不破这个例。
+private struct BreathPuff: View {
+
+    let size: CGFloat
+    /// 呼出量（0…1）：0 = 呼完了（最小最淡），1 = 正呼出来（最大最实）。
+    var puff: CGFloat
+
+    var body: some View {
+        let rise = size * 0.030 * puff
+        let grow = 0.85 + 0.15 * puff
+        // 三团的**圆心**（框顶坐标，0…1）：近嘴那团最低、最大、最实
+        let near = (x: CGFloat(0.500), y: CGFloat(0.520), w: CGFloat(0.130))
+        let mid  = (x: CGFloat(0.491), y: CGFloat(0.560), w: CGFloat(0.105))
+        let far  = (x: CGFloat(0.508), y: CGFloat(0.600), w: CGFloat(0.075))
+        ZStack(alignment: .topLeading) {
+            // 最远那一团：最小、最淡、位置最高
+            Circle()
+                .fill(Fur.breathDeep.opacity(0.50))
+                .frame(width: size * far.w, height: size * far.w)
+                .scaleEffect(grow)
+                .offset(x: size * (far.x - far.w / 2),
+                        y: size * far.y - size * far.w / 2 - rise)
+            // 中间那一团
+            Circle()
+                .fill(Fur.breath.opacity(0.70))
+                .frame(width: size * mid.w, height: size * mid.w)
+                .scaleEffect(grow)
+                .offset(x: size * (mid.x - mid.w / 2),
+                        y: size * mid.y - size * mid.w / 2 - rise)
+            // 近嘴那一团：最大最实，正对着嘴
+            Circle()
+                .fill(Fur.breath.opacity(0.92))
+                .frame(width: size * near.w, height: size * near.w)
+                .scaleEffect(grow)
+                .offset(x: size * (near.x - near.w / 2),
+                        y: size * near.y - size * near.w / 2 - rise)
+        }
+        .frame(width: size, height: size, alignment: .topLeading)
+        .allowsHitTesting(false)
     }
 }

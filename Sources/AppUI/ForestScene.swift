@@ -368,6 +368,17 @@ public enum WindField {
         sin(phase - Double(x) * waveNumber)
     }
 
+    /// 空中东西在风场里的**离地高度**（pt）：坡面 y − 物体 y，落到地面以下就夹回 0。
+    ///
+    /// ⚠️ 为什么单独成形、且调用点不许自己写：`max(0, -spot.y)` 在面板/地面带坐标里
+    /// （y 朝下、站在坡上的东西 y 恒为正）**恒等于 0** —— 高度放大
+    /// （`heightFactor`）就此静默失效：高处的蝴蝶与贴地的草摆得一样多，
+    /// 而代码与注释都写着「离坡面那么高」。判定与传输必须共用这一个函数。
+    /// （2026-10-23 审计：春蝶 / 蒲公英絮 / 夏夜流萤三处都是这个写法。）
+    public static func airHeight(groundY: CGFloat, objectY: CGFloat) -> CGFloat {
+        max(0, groundY - objectY)
+    }
+
     /// `x` 处、`height` 高的东西，在 `phase` 相位的横向位移（pt）。
     public static func offset(x: CGFloat, phase: Double, height: CGFloat = 0) -> CGFloat {
         baseAmplitude * heightFactor(height) * gust(phase) * wave(x: x, phase: phase)

@@ -24,6 +24,13 @@ public enum AppMotion: String, CaseIterable, Sendable {
     case panel
     /// 成功 / 里程碑这类需要被看见的时刻。全项目唯一允许过冲的一档。
     case emphasis
+    /// 整片场景的大面积换色与装饰交替（换季 / 换天气）。
+    ///
+    /// 为什么单独一档：换季动的是**一整片林子** —— 山丘 / 树冠 / 草坡一起从
+    /// 春绿变秋黄，风筝换成雁阵、草地换成雪地。**比所有既有档都慢，且不过冲**：
+    /// `reveal`（220ms）就是「闪一下」，`emphasis`（带过冲）会让整片林子晃一下。
+    /// 这里要的是「看得出在变、但不惹眼」的一段匀速交叉。
+    case scene
 
     /// 名义时长（秒）。两个用途：
     /// ① reduceMotion 下用它当退化后的上界；
@@ -35,6 +42,7 @@ public enum AppMotion: String, CaseIterable, Sendable {
         case .reveal: 0.22
         case .panel: 0.36
         case .emphasis: 0.55
+        case .scene: 0.9
         }
     }
 
@@ -46,6 +54,8 @@ public enum AppMotion: String, CaseIterable, Sendable {
         case .reveal: .easeOut(duration: 0.22)
         case .panel: .spring(response: 0.32, dampingFraction: 0.86)
         case .emphasis: .spring(response: 0.5, dampingFraction: 0.66)
+        // 交叉淡入淡出要**两头都慢**：起步慢才不显得被踢了一脚，收尾慢才不显得撞墙。
+        case .scene: .easeInOut(duration: 0.9)
         }
     }
 

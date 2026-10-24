@@ -234,6 +234,56 @@ final class ForestAtmosphereTests: XCTestCase {
         XCTAssertEqual(night, nightAtNoon, "夜档的天空不看时刻")
     }
 
+    /// **天空按季节换色温**：四季四片天。
+    ///
+    /// 用户 2026-10-22 报障「整个界面的背景色始终是同一个颜色、不随季节变」——
+    /// 天空是整窗的底（三栏面板只有 62% 白压在它上面），它一变整个界面跟着变。
+    ///
+    /// 反证：把 `seasonalSkyWash` 改成 `nil` → 四季同色 → 红。
+    func testSkyIsTintedBySeason() {
+        let skies = ForestSeason.allCases.map { ForestTheme(palette: .day, season: $0).sky }
+        XCTAssertEqual(Set(skies).count, ForestSeason.allCases.count,
+                       "四季的天空必须是四种：\(skies)")
+    }
+
+    /// 季节只是一层色温 —— **时刻的骨架还在**（黄昏该比正午暗、偏暖）。
+    ///
+    /// 反证：把 `seasonalSkyWash` 的 amount 拉到 1（整片天刷成季节色）→ 红。
+    func testSeasonKeepsTheMomentSkeleton() {
+        for season in ForestSeason.allCases {
+            let dawn = ForestTheme(palette: .day, moment: .dawn, season: season).sky
+            let noon = ForestTheme(palette: .day, moment: .noon, season: season).sky
+            let dusk = ForestTheme(palette: .day, moment: .dusk, season: season).sky
+            XCTAssertNotEqual(dawn, noon, "\(season) 的黎明与正午混成一片了")
+            XCTAssertNotEqual(dusk, noon, "\(season) 的黄昏与正午混成一片了")
+        }
+    }
+
+    /// 夜里不看季节（夜空是同一片天，改了只会把夜景洗白）。
+    ///
+    /// 反证：把 `seasonalSkyWash` 里的 `guard !isNight` 删掉 → 红。
+    func testNightSkyIgnoresTheSeason() {
+        let base = ForestTheme(palette: .night).sky
+        for season in ForestSeason.allCases {
+            XCTAssertEqual(ForestTheme(palette: .night, season: season).sky, base,
+                           "夜档天空不该随 \(season) 变")
+        }
+    }
+
+    /// 混色的两个端点：0 = 原色，1 = 纯色温，中间取中。
+    ///
+    /// 反证：把 `blend` 里的 `t` 写成常量 1（或 0）→ 红。
+    func testBlendEndpointsAndMiddle() {
+        let base: UInt32 = 0x204060
+        let tone: UInt32 = 0xE0C0A0
+        XCTAssertEqual(ForestAtmosphere.blend(base, toward: tone, amount: 0), base)
+        XCTAssertEqual(ForestAtmosphere.blend(base, toward: tone, amount: 1), tone)
+        let middle = ForestAtmosphere.blend(base, toward: tone, amount: 0.5)
+        XCTAssertEqual((middle >> 16) & 0xFF, 0x80, "R 通道没有取中")
+        XCTAssertEqual((middle >> 8) & 0xFF, 0x80, "G 通道没有取中")
+        XCTAssertEqual(middle & 0xFF, 0x80, "B 通道没有取中")
+    }
+
     /// 冬天飘雪、秋天飘金叶（同一套飘落动画换个颜色，季节自己就出来了）。
     func testFallingFlakeFollowsTheSeason() {
         XCTAssertNotEqual(ForestTheme(palette: .day, season: .autumn).fallingFlake,

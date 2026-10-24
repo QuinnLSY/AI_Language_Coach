@@ -1458,6 +1458,35 @@ struct ForestGroundBand: View {
                         )
                         .frame(height: ForestSceneGeometry.hillCapHeight)
 
+                    // 冬：草坡上的积雪（#626）—— 沿坡面盖的一条 + 被风堆起来的三个雪堆。
+                    //
+                    // ⚠️ 画在草叶 / 灌木 / 小花**之前**（更下层）：草是从雪里冒出来的。
+                    // 反过来（雪盖住草）就成了「草地铺了张白纸」。
+                    if theme.season == .winter {
+                        ForestSnowField(theme: theme, groundLine: groundLine)
+                            .seasonFade()
+
+                        // 冬：雪地上的三个雪人（#627）—— 尖帽 / 红围巾 / 胡萝卜鼻 /
+                        // 枝桠臂，**一个半小动物高**（同一个面板里，高矮比得出来）。
+                        // 画在草叶之前（与雪地同一层）：草从雪人脚边冒出来。
+                        ForestSnowmen(theme: theme, groundLine: groundLine,
+                                      quantizedWidth: qw)
+                            .seasonFade()
+                    }
+
+                    // 秋：大树脚下那片小果园（#624）—— 四棵结着果子的树，
+                    // 左两棵右两棵，整体**两个半小动物高**（拿 `ForestGroundPlan`
+                    // 那把尺量的，小动物就在同一个画面里，高矮比得出来）。
+                    //
+                    // ⚠️ 画在草叶 / 灌木 / 小花**之前**（更下层）：草从树根前面
+                    // 长出来，树才像种在坡上，不是贴上去的。居民（小动物）在更
+                    // 上层 —— 它是拿它们当尺子的，画面上必须能比出来。
+                    if theme.season == .autumn {
+                        ForestOrchard(theme: theme, groundLine: groundLine,
+                                      quantizedWidth: qw)
+                            .seasonFade()
+                    }
+
                     // 远处草丛（固定数量，按宽度均布；倾角只跟 index 走，不随宽度乱跳）
                     ForEach(0..<grassCount, id: \.self) { i in
                         grassBlade(x: inset + CGFloat(i) / CGFloat(grassCount - 1) * span,
@@ -1483,6 +1512,55 @@ struct ForestGroundBand: View {
                                palette: i % 3)
                             .opacity(i < flowerCount ? 1 : 0)
                             .appAnimation(.reveal, value: flowerCount)
+                    }
+
+                    // 春：草地上的蒲公英与蝴蝶（#621）。
+                    //
+                    // 只在春天长出来 —— 蒲公英要被认出来靠的是「一根茎顶一个球、
+                    // 絮是从球上走的」这个因果，蝴蝶靠的是会扇的翅膀与朝向，
+                    // 都不是再多撒一层白点（`ForestMotes` 的白天飘絮已经是了）。
+                    // ⚠️ 画在居民**之前**（更下层）：蝴蝶飞过时不盖住小动物。
+                    // 两者自带 `allowsHitTesting(false)`，不抢任何点击。
+                    if theme.season == .spring {
+                        ForestDandelions(theme: theme, groundLine: groundLine)
+                            .seasonFade()
+                        ForestButterflies(theme: theme, groundLine: groundLine)
+                            .seasonFade()
+                    }
+
+                    // 夏：草地上的叶隙光斑与夏夜流萤（#623）。
+                    //
+                    // 两个组件各自判日夜（光斑只在白天、流萤只在夜里）——
+                    // 夏天的草地因此一天两副样子，正午是筛下来的阳光，夜里是贴着
+                    // 草尖飞的虫。这里只判季节，不替它们判日夜。
+                    if theme.season == .summer {
+                        ForestDapples(theme: theme, groundLine: groundLine)
+                            .seasonFade()
+                        ForestFireflies(theme: theme, groundLine: groundLine)
+                            .seasonFade()
+
+                        // 夏：草尖上的蜻蜓（#635）—— 悬停盯半天、忽然蹿去下一根草尖。
+                        //
+                        // 夏天白天原本只有一层**看不出形状的**叶隙光斑（一摊摊柔光，
+                        // 没有轮廓）—— 蜻蜓补的正是这一档：草尖上有一只认得出来的
+                        // 活物。它与流萤同层、按日夜分工（白天蜻蜓 / 夜里流萤）。
+                        ForestDragonflies(theme: theme, groundLine: groundLine)
+                            .seasonFade()
+                    }
+
+                    // 秋：草地上的落叶堆与南瓜（#625）。
+                    //
+                    // 落叶堆画在草叶 / 小花**之后**（更上层）—— 叶子是**落在草上**
+                    // 的，压住草才对；南瓜也是躺在草上的重东西。两者都在居民之前：
+                    // 南瓜是拿小动物当尺子的（比它矮一半还多），画面上必须能比出来。
+                    // ⚠️ 南瓜不跟风动（风推不动躺着的瓜），会挪的只有堆边那几片散叶。
+                    if theme.season == .autumn {
+                        ForestLeafPiles(theme: theme, groundLine: groundLine,
+                                        quantizedWidth: qw)
+                            .seasonFade()
+                        ForestPumpkins(theme: theme, groundLine: groundLine,
+                                       quantizedWidth: qw)
+                            .seasonFade()
                     }
 
                     // 点草地冒出来的花（批次六 · E）：从点下的位置长出来，挤掉最早的
@@ -2345,8 +2423,10 @@ struct ForestGroundBand: View {
                               groundLine: ForestGroundSurface, quantizedWidth: CGFloat)
         -> (x: CGFloat, y: CGFloat, size: CGFloat) {
         let depth = pr(index, 14)
-        let base = min(54, 28 + quantizedWidth * 0.045) * (0.72 + depth * 0.42)
-        let size = base * (0.94 + pr(index, 5) * 0.14)
+        // ⚠️ 体型走 `ForestGroundPlan.residentSize`（#624 起与果树同一把尺）：
+        // 果树说「两个半小动物高」，量的是这里同一个数，不是另抄一份公式。
+        let size = ForestGroundPlan.residentSize(
+            quantizedWidth: quantizedWidth, depth: depth, spread: pr(index, 5))
         let pitch = span / CGFloat(max(1, count))
         let jitter = (pr(index, 4) - 0.5) * min(24, pitch * 0.34)
         let x = inset + (CGFloat(index) + 0.5) * pitch + jitter

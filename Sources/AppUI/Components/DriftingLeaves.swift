@@ -29,9 +29,6 @@ struct DriftingLeaves: View {
 
     @Environment(\.appMotion) private var motion
 
-    /// 计时起点：用 `Date` 的绝对时刻算 progress，重绘不会让相位跳变。
-    @State private var origin = Date()
-
     private struct Drift: Identifiable {
         let id: Int
         /// 横向基准位置（面板宽的 0…1）。
@@ -81,10 +78,8 @@ struct DriftingLeaves: View {
     var body: some View {
         GeometryReader { proxy in
             let width = proxy.size.width
-            TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: still || motion.reduceMotion)) { context in
-                let elapsed = still || motion.reduceMotion
-                    ? 0
-                    : context.date.timeIntervalSince(origin)
+            AmbientTicker(paused: still || motion.reduceMotion) { now in
+                let elapsed = still || motion.reduceMotion ? 0 : now
                 ZStack(alignment: .topLeading) {
                     ForEach(Self.drifts.prefix(count)) { drift in
                         leaf(drift, width: width, elapsed: elapsed)

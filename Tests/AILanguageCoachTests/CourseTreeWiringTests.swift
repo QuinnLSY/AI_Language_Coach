@@ -54,8 +54,14 @@ final class CourseTreeWiringTests: XCTestCase {
 /// 现在这个形象太突兀了」），分界交给云带。
 func testCanopyStaysAtTheTopAndCloudsMarkTheBoundary() throws {
         let raw = try Self.code("Sources/AppUI/Components/TreeCanvas.swift")
-        XCTAssertTrue(raw.contains(".offset(y: Self.canopyOffsetY(for: progress))"),
-                      "树冠的位置必须走 `canopyOffsetY(for:)`（有课程关卡时挂在最高一格之上）")
+        // ⚠️ 先把所有空白压成单个空格再比：`crownLift` 参数（#601）把 offset 表达式
+        // 拆成了两行，精确串对不上跨行换行 —— e7c0a8c 之后这条哨兵红了一整天
+        // （2026-10-21 全量测试才跑出来）。归一化后既钉住**整串调用形态**，
+        // 又不怕将来重新折行。
+        let flat = raw.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        XCTAssertTrue(flat.contains(
+            ".offset(y: Self.canopyOffsetY(for: progress) - Self.crownLift(density: density, hasCourseBand: Self.showsCourseBand(for: progress)))"),
+            "树冠的位置必须走 `canopyOffsetY(for:)` 再减 `crownLift`（有课程关卡时挂在最高一格之上；幼苗态整体抬齐、满星为 0）")
         XCTAssertTrue(raw.contains("if TreeCanvas.showsCourseBand(for: progress)"),
                       "云带只在**有**课程关卡时出现 —— 没有更高的一段时挂一朵云等于凭空多一个层级")
         XCTAssertTrue(raw.contains("CourseCloudBand(theme: theme)"),

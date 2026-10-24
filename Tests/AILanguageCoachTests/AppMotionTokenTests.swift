@@ -74,6 +74,24 @@ final class AppMotionTokenTests: XCTestCase {
         )
     }
 
+    // MARK: - 换季那一档（#636）
+
+    /// 换季是**最慢**的一档：它动的是一整片林子（山丘 / 树冠 / 草坡一起换色，
+    /// 装饰层同时交替），比「成功 / 里程碑」那种要被看见的时刻还要慢。
+    ///
+    /// 慢的意义是**不惹眼**：220ms 放在一整片林子上就是「闪一下」，
+    /// 这正是 #636 要修掉的毛病。
+    ///
+    /// 反证：把 `case .scene` 的时长改成 0.22（= reveal）→ 红。
+    func testSceneIsTheSlowestToken() {
+        for token in AppMotion.allCases where token != .scene {
+            XCTAssertGreaterThan(
+                AppMotion.scene.nominalDuration, token.nominalDuration,
+                "换季（\(AppMotion.scene.nominalDuration)s）必须比 \(token.rawValue) 慢"
+            )
+        }
+    }
+
     /// `Animation.app(_:)` 是给 `@Observable` class 走的那条路 —— 它直接查系统偏好，
     /// 不依赖 SwiftUI 环境。取得到、不崩，就是它的全部契约。
     func testAnimationHelperIsUsableOutsideAView() {

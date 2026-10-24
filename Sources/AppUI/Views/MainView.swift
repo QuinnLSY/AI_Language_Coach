@@ -22,6 +22,11 @@ public struct MainView: View {
     /// 每个 MainView 实例一颗（随窗口重建自然换新的，无跨窗口共享问题）。
     private let windClock = ForestWindClock()
 
+    /// 全局氛围钟（#651）：九层自己推进时间的氛围装饰（春蝶 / 蒲公英絮 / 风筝 /
+    /// 落叶 / 四季飞鸟 / 流萤 / 叶隙光斑 / 蜻蜓 / 落雪）共用这一颗相位源，
+    /// 由 `ForestAmbientDriver` 每帧推进 —— 改造前是九颗各起各的 `TimelineView`。
+    private let ambientClock = ForestAmbientClock()
+
     private let sideDividerWidth: CGFloat = 1
     private let resizeHandleWidth: CGFloat = 14
 
@@ -46,11 +51,39 @@ public struct MainView: View {
                 // （地面带 / 对话植物 / 以后的粒子层）都读同一颗钟。
                 ForestWindDriver(clock: windClock, still: state.forest.ambientHidden)
 
+                // 氛围钟驱动器（#651）：唯一一颗推进氛围相位的 TimelineView。
+                // 与风钟驱动器并排挂在根上，九层氛围装饰散在各处共享同一相位 ——
+                // 同一帧里只发生一次更新，而不是十次互相错开的。
+                // `windowWidth` 喂帧率预算：幅宽越大每帧越贵，帧率往下让一档。
+                ForestAmbientDriver(clock: ambientClock, windowWidth: total)
+
                 // 天空不再自己画天体：右上角的太阳/月亮由 CelestialToggle 画在内容层之上，
                 // 这样它才是「看得见、点得到」的日夜切换控件（点击即切换）。
                 // ambientStill：连点天空 5 次收起云和萤火虫（批次六 · E 可玩彩蛋）。
                 ForestSky(theme: state.theme, showsCelestial: false,
                           ambientStill: state.forest.ambientHidden)
+                // 四季天空里的飞鸟群（2026-10-23）：春白鹭 / 夏家燕 / 秋大雁 / 冬灰鹤。
+                //
+                // ⚠️ 画在**天空之上、内容之下**（最底层，用户 2026-10-23 选定）：鸟群要
+                // 贯穿中间对话栏与右栏，而中间栏有真实的聊天文字 —— 压在文字上会挡住阅读。
+                // 中间栏因此把那层底色改成半透明的季节色（见 `chatBackdrop`），鸟从底下透出来。
+                //
+                // ⚠️ 幅宽是**两栏之和**（chatW + 分割线 + treeW）：只挂右栏的话鸟群到
+                // 分割线就没了，用户看到的正是「只从中间栏的右边出现、没有贯穿中间栏」。
+                // 高度带是**上三分之一**（基准是整窗高，见 `windowHeight` 的说明）。
+                //
+                // ⚠️ `if let season`：用户关掉「跟随季节」时（`theme.season == nil`）
+                // 四季装饰一概不挂 —— 与右栏各季节分支同一条约定。
+                if let season = state.theme.season {
+                    ForestSeasonBirds(
+                        theme: state.theme, kind: BirdKind.forSeason(season),
+                        still: state.forest.ambientHidden,
+                        windowHeight: proxy.size.height
+                    )
+                    .frame(width: chatW + resizeHandleWidth + treeW, height: proxy.size.height / 3)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .seasonFade()
+                }
                 // 氛围微粒（P1-②）：夜里萤火虫 / 白天花粉，飘在天空之上、面板之下
                 // （zIndex 0.5：透过半透明的侧栏与树面板材质仍看得见，中间不透明的
                 // 聊天卡片会挡住一部分 —— 那正是「飘在林子深处」该有的遮挡关系）。
@@ -159,6 +192,14 @@ public struct MainView: View {
             // 不了划词」的修复），插进去会让哨兵红。环境注入是「整棵子树可见」，
             // 与挂在 ZStack 上等价，浮层之后注入照样传得进去。
             .environment(\.forestWind, windClock)
+            // 「林子完全安静」档（连点天空 5 次）：地面带里那几层自己起表的季节装饰
+            // （春蝶 / 蒲公英絮 / 叶隙光斑 / 夏夜流萤 / 蜻蜓）隔着 `TreeScrollView → TreeCanvas →
+            // ForestGroundBand` 三层，参数传不进去 —— 走环境值一处注入、处处生效。
+            .environment(\.forestAmbientStill, state.forest.ambientHidden)
+            // 氛围钟（#651）：把上面那颗驱动器推进的时钟灌进环境，九层氛围装饰
+            // 从环境里读 elapsed —— 一处注入、处处同一相位。
+            // ⚠️ 未注入时（离屏渲染夹具）各层退回自己起表的老路，既有渲染测试零影响。
+            .environment(\.forestAmbientClock, ambientClock)
             // 全局搜索（#414）：挂在**划词浮层之后**。浮层置顶纪律里「越晚挂越在上」，
             // 挂进 ZStack 里会被划词气泡盖掉一截（气泡也在最外层）。
             .overlay {
@@ -204,6 +245,14 @@ public struct MainView: View {
         // 日夜切换作用于全局：原生控件（TextField / Picker / 滚动条）也一起跟随。
         .preferredColorScheme(state.theme.isNight ? .dark : .light)
         .animation(.easeInOut(duration: 0.5), value: state.theme.palette)
+        // 换季也作用于全局（#636）：天空 / 山丘 / 树冠 / 草坡与四季装饰层一起
+        // 交叉淡入淡出，不再「闪一下」就把季节换掉。
+        //
+        // ⚠️ `.scene` 比日夜那一档（0.5s）更慢：换季动的是**一整片林子**的颜色，
+        // 220ms 那种「卡片出现」的节奏放在这里只会更像闪屏。
+        // ⚠️ 这只是**一半**：各季装饰层的插拔还要各自带 `.seasonFade()`
+        // （见 `ForestSeasonFade.swift`），两头都在才有交叉淡入淡出。
+        .appAnimation(.scene, value: state.theme.season)
         // 批次八 · H：欢迎演出要在**地面带到场之后**才发脉冲（发早了 onChange 收不到
         // 第一拍）—— 盯着 isBooting 翻 false 的那一刻消费待演标记。
         .task(id: state.isBooting) {
@@ -525,7 +574,7 @@ public struct MainView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(state.theme.surfaceAlt.opacity(0.55))
+        .background(state.theme.chatBackdrop.opacity(state.theme.chatBackdropOpacity))
         // 每轮对话落库之后复查一次「还存得住吗」：库可能开着开着就写不进去了
         // （磁盘满 / 文件被挪走 / 权限变了）。成功也会把横幅撤掉 ——
         // 恢复了就不该继续挂着一条旧警告吓人。
@@ -620,6 +669,18 @@ public struct MainView: View {
             Divider().overlay(state.theme.divider)
             // 树可上下滚动；林间地面带固定吸附在底部（小动物始终可见、可点击说话）
             ZStack(alignment: .bottom) {
+                // 夏：大树后那片草场上的风车（#622；2026-10-22 由六座改两座，
+                // 并从「浮在半空」挪到坡面上 —— 见 `WindmillLayout.groundY`）。
+                // 两座一左一右，叶片被同一阵风推着转。
+                //
+                // ⚠️ 画在树**之后**（更下层）：远处的东西本就该被树冠挡掉一角，
+                // 画在树之上就成了贴在树上的贴纸。「远」由景深推出来（更小、略带霾、
+                // 站在坡上），不是靠后画的层级。
+                if state.theme.season == .summer {
+                    ForestWindmills(theme: state.theme)
+                        .seasonFade()
+                }
+
                 TreeScrollView(
                     theme: state.theme,
                     progress: state.progress,
@@ -646,6 +707,21 @@ public struct MainView: View {
                 // #418-B：年轮徽记要吃的年度汇总**不在启动关键路径上**（开屏只查窗口），
                 // 树面板到场后在这里补拉一次 —— 幂等（加载过/在途都直接返回），不重复查询。
                 .task { await state.ensureAnnualRecapLoaded() }
+
+                // 春：天空里的三只风筝（#620）—— 沙燕 / 三角 / 金鱼，飘在小动物上方
+                // 三分之一处，随风摆。
+                //
+                // ⚠️ 画在**树之上**：风筝是飘在林子上空的，画在树之后会被树冠吃掉大半。
+                // `allowsHitTesting(false)`（组件自带）：纯装饰，不抢关卡节点与小动物的点击。
+                // still = 氛围隐藏档（连点天空 5 次）——「林子完全安静」包含风筝停摆。
+                if state.theme.season == .spring {
+                    ForestKites(theme: state.theme, still: state.forest.ambientHidden)
+                        .seasonFade()
+                }
+
+                // 秋：天空里南飞的雁阵（#634；2026-10-23 起并入四季飞鸟层
+                // `ForestSeasonBirds`，那层贯穿中间栏与右栏、且四季各配一种鸟）。
+                // 这里不再单独挂雁 —— 否则秋天会有两群雁（一群只在右栏、一群贯穿两栏）。
 
                 ForestGroundBand(
                     theme: state.theme,
@@ -689,6 +765,19 @@ public struct MainView: View {
                 )
                 .frame(height: TreeViewport.groundBandHeight)
                 .allowsHitTesting(true)
+
+                // 冬 · 下雪（2026-10-21）：树栏**前景**的近景雪。
+                //
+                // 为什么要单独一层：天上那层雪（`ForestSky`）画在窗口背景里，上面
+                // 还压着 62% 不透明的面板底 —— 白天的雪片被冲淡到几乎看不见
+                // （用户 2026-10-21：「下雪时雪花几乎看不见，应该像下雨一样清晰可见」）。
+                // 这一层画在插画之上，粒更大、更实，一眼就是「在下雪」。
+                // 与树同一条层级纪律：`allowsHitTesting(false)`（组件自带），
+                // 不抢关卡节点 / 小动物的点击；`still` = 氛围隐藏档（林子完全安静）。
+                if state.theme.weather == .snow {
+                    ForestSnowfall(theme: state.theme, density: .near,
+                                   still: state.forest.ambientHidden)
+                }
             }
             // 通关烟花 + 今日任务全部完成的烟花：盖在整块树面板上（不裁切、不吃点击），放完自动收。
             // ⚠️ 2026-09-29 用户报障「森林也没有任务完成的烟花」：庆祝此前只落在黑板与地面带，

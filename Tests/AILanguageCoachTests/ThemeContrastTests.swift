@@ -1,5 +1,5 @@
 import AppKit
-import AppUI
+@testable import AppUI
 import SwiftUI
 import XCTest
 
@@ -272,5 +272,47 @@ final class ThemeContrastTests: XCTestCase {
             contrast(night.accent, .white), 3,
             "夜档 accent 已亮到能承白字（应 <3:1）—— 「暗底上的亮字」和「白字脚下的底」不能是同一支；要黄底请用 accentFill"
         )
+    }
+}
+
+// MARK: - 中间栏底色跟随季节（2026-10-23，需求 1）
+
+extension ThemeContrastTests {
+
+    /// 中间栏底色必须**跟着季节变**（用户报障：右栏背景随季节走，中间栏却是同一个灰白）。
+    ///
+    /// ⚠️ 判据是「四季两两不同」而不是「与某个固定值不同」—— 后者在改完某一季的
+    /// 色值后仍可能绿（只要不是原来那个灰白），只有两两都比过才钉得住「四季分明」。
+    ///
+    /// 反证：把 `chatBackdropHex` 里的 `seasonalSkyWash` 那一层去掉 → 红在「两两不同」。
+    func testChatBackdropChangesWithTheSeason() {
+        let themes = ForestSeason.allCases.map {
+            ForestTheme(palette: .day, season: $0)
+        }
+        let hexes = themes.map { $0.chatBackdropHex }
+        XCTAssertEqual(Set(hexes).count, 4,
+                       "四季的中间栏底色一样 —— 中间栏背景没跟着季节变")
+    }
+
+    /// 夜档**不掺和季节**（与 `seasonalSkyWash` 同一条约定：夜里是同一片天）。
+    ///
+    /// 反证：把 `chatBackdropHex` 里 `guard !isNight` 去掉 → 红在「夜档四季相同」。
+    func testChatBackdropIsSeasonNeutralAtNight() {
+        let hexes = ForestSeason.allCases.map {
+            ForestTheme(palette: .night, season: $0).chatBackdropHex
+        }
+        XCTAssertEqual(Set(hexes).count, 1,
+                       "夜档的中间栏底色随季节变了（夜里该是同一片天）")
+    }
+
+    /// 白天透、夜里实：白天那一档要让背景层的飞鸟透出来，夜里收实保文字可读性。
+    ///
+    /// 反证：把 `chatBackdropOpacity` 改成恒 0.9 → 红在「白天透」。
+    func testChatBackdropIsMoreTransparentByDay() {
+        let day = ForestTheme(palette: .day, season: .autumn).chatBackdropOpacity
+        let night = ForestTheme(palette: .night, season: .autumn).chatBackdropOpacity
+        XCTAssertLessThan(day, 0.7, "白天档不够透：背景层的飞鸟透不出来（只看得见右栏那半截）")
+        XCTAssertGreaterThan(night, 0.7, "夜里不够实：夜空对比度本来就低，文字可读性优先")
+        XCTAssertLessThan(day, night)
     }
 }

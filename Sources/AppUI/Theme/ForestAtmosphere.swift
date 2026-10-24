@@ -231,6 +231,24 @@ public enum ForestAtmosphere {
         return (channel(rgb.0) << 16) | (channel(rgb.1) << 8) | channel(rgb.2)
     }
 
+    /// 把 `base` 的三个通道按 `amount`（0…1）朝 `tone` 混一档，返回新的十六进制色。
+    ///
+    /// 为什么是 RGB 直接混、不走 HSL 换色相：季节改的是**空气**（水汽 / 尘 / 雪光），
+    /// 它把整片天冲洗一遍，而不是把天换成另一个颜色。混色天然保留了底色给出的明暗骨架
+    /// —— 黄昏那一档被雪光压白之后仍然比正午暗、仍然偏暖。换色相就做不到这一点。
+    ///
+    /// 纯函数（不碰 AppKit）：只有整数运算，单测可以直接钉两侧端点。
+    public static func blend(_ base: UInt32, toward tone: UInt32, amount: Double) -> UInt32 {
+        let t = min(max(amount, 0), 1)
+        func channel(_ shift: UInt32) -> UInt32 {
+            let from = Double((base >> shift) & 0xFF)
+            let to = Double((tone >> shift) & 0xFF)
+            let value = (from + (to - from) * t).rounded()
+            return UInt32(min(max(value, 0), 255))
+        }
+        return (channel(16) << 16) | (channel(8) << 8) | channel(0)
+    }
+
     // MARK: - 天气（#418-A 建立，2026-10 收窄为晴 / 雨 / 雪）
 
     /// 年内日序（1...366）→ 当天的天气。

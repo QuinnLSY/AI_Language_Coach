@@ -39,6 +39,19 @@ struct TreeCrown: View {
     /// 生产路径永远是默认值 `true`。
     var drawsBranches: Bool = true
 
+    /// 是否画冬季积雪（#626）。**只为反证而存在**：渲染测试用它出「同一棵
+    /// 冬天的树、没有雪」的对照图，证明雪真的盖在冠上（而不是根本没画）。
+    /// 生产路径永远是默认值 `true`。
+    var drawsSnow: Bool = true
+
+    /// 是否画**枝上的**雪线（#626）。同样只为反证：冠上的雪与枝上的雪要能分开
+    /// 关掉 —— 否则「冠上没雪」会被枝上那道白线撑住，判据永远是绿的（实测踩过）。
+    var drawsLimbSnow: Bool = true
+
+    /// 是否画**枝下沿的**冰柱（#628）。同样只为反证：枝上雪线与枝下冰柱要能分开
+    /// 关掉 —— 否则「冰柱没画」会被枝上那道白线撑住，判据永远是绿的。
+    var drawsIcicles: Bool = true
+
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
@@ -86,7 +99,32 @@ struct TreeCrown: View {
                     }
                 }
 
-                // ⑤ 统一光（静态：同②，且它罩着接缝，跟着抖会切出硬边）
+                // ⑤ 各层积雪（#626）：雪是**落在这层叶子上**的，所以逐层给、
+                // 并且包进该层的 `WindSway` —— 叶子晃它就跟着晃。
+                // 画在统一光之前：雪也要被太阳照（否则雪会比整棵树还亮，像自己发光）。
+                if theme.season == .winter, drawsSnow {
+                    ForEach(0..<CanopyLayout.bandCount, id: \.self) { band in
+                        swaying(band: band, size: size) {
+                            CrownSnow(theme: theme, band: band, size: size, mask: allClusters)
+                                .frame(width: size.width, height: size.height)
+                            if drawsLimbSnow {
+                                LimbSnow(theme: theme, limbs: bands.limbs[band],
+                                         mask: allClusters)
+                                    .frame(width: size.width, height: size.height)
+                            }
+                            // 枝下沿的冰柱（#628）：与枝上雪线同一层风里 ——
+                            // 雪在枝上、冰在枝下，是同一根枝的上下两侧。
+                            if drawsIcicles {
+                                LimbIcicles(theme: theme, limbs: bands.limbs[band], size: size)
+                            }
+                        }
+                    }
+                    // 换季淡入淡出（#636）：枝上的雪与枝下的冰柱一起淡进淡出，
+                    // 不再「按一下冬天、雪就凭空冒出来」。
+                    .seasonFade()
+                }
+
+                // ⑥ 统一光（静态：同②，且它罩着接缝，跟着抖会切出硬边）
                 CrownUnifyingLight(theme: theme, clusters: allClusters, size: size)
             }
         }

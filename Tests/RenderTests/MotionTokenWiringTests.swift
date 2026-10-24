@@ -102,7 +102,7 @@ final class MotionTokenWiringTests: XCTestCase {
 
     /// 尚未 token 化的内联动画参数不得超过当前登记的数量。
     ///
-    /// 当前 26 处**有意保留**的业务节奏 —— 它们不是「交互反馈」，改快了就不是那个东西：
+    /// 当前 28 处**有意保留**的业务节奏 —— 它们不是「交互反馈」，改快了就不是那个东西：
     /// TreeCanvas 树 ×7（生长 / 花开 / 上干的呼吸感；批次一新增 2：
     /// 通关仪式的多段摆 0.15–0.2s、落叶的随机飘落时长 2.2–3.4s——都是**动态节奏**，
     /// 时长由摆段 / 每片叶子随机决定，token 的固定曲线表达不了）、
@@ -110,7 +110,9 @@ final class MotionTokenWiringTests: XCTestCase {
     /// 追尾巴转圈 0.6s、害羞压扁弹回的 spring ×2、伸懒腰舒展 0.45s + 弹回 spring；
     /// 批次四新增 2：「竖起耳朵」的挺起 spring + 落回 spring——
     /// 每个动作的时长就是它的性格，token 的统一曲线会把「困困点头」和「刨土抖动」拉平）、
-    /// Animals ×3（Zzz 漂浮已带 reduceMotion 守卫、敲黑板 0.11/0.13s）、
+    /// Animals ×5（Zzz 漂浮已带 reduceMotion 守卫、敲黑板 0.11/0.13s；
+    /// 2026-10-21 下雪哆嗦新增 2：六程抖动的单程 0.09s 与收尾回正 0.09×1.8 ——
+    /// 时长由 `AnimalShiver.stroke` 决定，是「冷得发抖」这个动作本身的节奏，不是交互反馈），
     /// DictionarySampleWordsRow ×2（翻卡 `flipDuration`）、TeacherCorner ×1（带 `delay` 的收展）、
     /// MainView ×1（主题切换的慢crossfade）、ChatView ×1（三点已带 reduceMotion 守卫）、
     /// VocabularyView ×1（条件时长：慢翻页 1.8s）。
@@ -119,7 +121,7 @@ final class MotionTokenWiringTests: XCTestCase {
     ///
     /// 反证：在任何普通 View 里内联一条 `.easeOut(duration: 0.3)` → 数量超上限 → 红。
     func testInlineAnimationParametersStayUnderTheRegisteredCeiling() throws {
-        let ceiling = 26
+        let ceiling = 28
         let offenders = try inlineAnimationOffenders()
         XCTAssertLessThanOrEqual(
             offenders.count, ceiling,

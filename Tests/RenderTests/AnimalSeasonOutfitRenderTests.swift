@@ -8,7 +8,9 @@ import XCTest
 ///
 /// 判据走**墨迹差**（不比色值，离屏过色彩空间换算，见技能 macos-ui-verify）：
 /// - 四季各一件装扮，与「没有季节」的画面必须可见地不同；
-/// - 雨天（伞）与雪天（哆嗦位移）与「没有天气」的画面必须不同；
+/// - 雨天画面必须有伞；雪天**默认不许有哆嗦位移**（偶发那一段单独走
+///   `testShiverMovesTheHatTogetherWithTheBody`；它只是「抖起来上下都变」，
+///   「绕脚底倾斜」的几何证明在纯函数 `AnimalShiverTests.testTiltMakesTheHatSwingMost`）；
 /// - 同一份配置渲染两遍必须逐像素一致（夹具关动画 + 种子相位恒定）。
 ///
 /// ⚠️ 必须关 `CuteAnimalView.animationsEnabled`（离屏夹具）：眨眼的 0.14s 与
@@ -91,10 +93,12 @@ final class AnimalSeasonOutfitRenderTests: XCTestCase {
         return Int(Double(count) / (scale * scale))
     }
 
-    private func animal(season: ForestSeason? = nil, weather: ForestWeather? = nil) throws -> Render {
+    private func animal(season: ForestSeason? = nil, weather: ForestWeather? = nil,
+                        shiverPhase: Int? = nil, breath: Bool = true) throws -> Render {
         try makeHost(
             CuteAnimalView(kind: .bear, isSleeping: false, size: 96, bobbing: false,
-                           season: season, weather: weather)
+                           season: season, weather: weather, drawsBreath: breath,
+                           forcedShiverPhase: shiverPhase)
                 .environment(\.appMotion, AppMotionDescriptor(reduceMotion: true, reduceTransparency: true))
                 .frame(width: canvas.width, height: canvas.height),
             size: canvas
@@ -138,13 +142,47 @@ final class AnimalSeasonOutfitRenderTests: XCTestCase {
         XCTAssertGreaterThan(differencePoints(plain, raining), 40, "雨天小伞没有画上去")
     }
 
-    /// 雪天：哆嗦位移让整个身体挪了一个身位，画面与晴天必须不同。
+    /// 雪天**不是一直在抖**（2026-10-21 用户报障后改了契约）：
+    /// 哆嗦是「隔 15–20 秒来一小段」，没有一段在进行时，画面必须与晴天逐像素相同。
     ///
-    /// 反证：把 `shiverOffset` 改成恒 0（哆嗦不挪）→ 红。
-    func testSnowShiverChangesThePicture() throws {
-        let plain = try animal()
-        let snowing = try animal(weather: .snow)
-        XCTAssertGreaterThan(differencePoints(plain, snowing), 40, "雪天哆嗦没有让身体挪位")
+    /// 为什么这条比「雪天长得不一样」更值钱：旧版是 `repeatForever` 的无限抖动，
+    /// 视觉上像筛糠、退出下雪还可能残留。现在静止与晴天**同帧**，等价于
+    /// 「没有正在进行的哆嗦时，一个像素都不许挪」。
+    ///
+    /// ⚠️ 两边都要关哈气（`breath: false`）：#628 起下雪天就会冒白哈气（别的季节
+    /// 下雪一样冷），那是**另一件**与哆嗦无关的画，留着它会把这条判据淹掉。
+    /// 哈气自己的判据在 `ForestBreathRenderTests.testSnowyDayShowsBreathOffSeason`。
+    /// 反证：把 `AnimalShiver.offset` / `tilt` 的静止相位改成非零（例如 phase%2
+    /// 判定反一下）→ 两端各偏出去几像素 → 红。
+    func testSnowIdleLooksExactlyLikeClearWeather() throws {
+        let plain = try animal(breath: false)
+        let snowing = try animal(weather: .snow, breath: false)
+        XCTAssertEqual(differencePoints(plain, snowing), 0,
+                       "下雪天默认就在抖（应当隔十几秒才来一小段）")
+    }
+
+    /// 哆嗦时**整只一起抖**：帽子那一条与身体那一段都必须变。
+    ///
+    /// 用户 2026-10-21：「颤抖时只有身体上的某些部件颤抖，实际应该整个身子
+    /// 包括帽子等配件一起颤抖」。判据因此分上下两块，缺一不可。
+    ///
+    /// ⚠️ 这里只能证明「抖起来时上下都变了」，**证明不了**「是绕脚底倾斜带来的」
+    /// ——2026-10-21 反证：把 `AnimalShiver.tilt` 改成恒 0 后本条照样绿（regions
+    /// 里数出来的差异主要来自形状边缘密度，不是位移量）。「绕脚底」这个几何性质
+    /// 由纯函数判据 `AnimalShiverTests.testTiltMakesTheHatSwingMost` 钉（已做过
+    /// 真撤反证：tilt 归零当场红）。渲染侧不许假装量到了它量不到的东西。
+    /// 本条自己的反证：把 Animals.swift 里哆嗦那两行（offset + rotationEffect）
+    /// 删掉 → 上下两块同时归零 → 红。
+    func testShiverMovesTheHatTogetherWithTheBody() throws {
+        let calm = try animal(season: .winter, weather: .snow)
+        let shaking = try animal(season: .winter, weather: .snow, shiverPhase: 1)
+        let hat = CGRect(x: 0, y: 0, width: canvas.width, height: canvas.height * 0.32)
+        let body = CGRect(x: 0, y: canvas.height * 0.60,
+                          width: canvas.width, height: canvas.height * 0.40)
+        XCTAssertGreaterThan(differencePoints(calm, shaking, in: hat), 8,
+                             "帽子没跟着一起抖（只有身子在挪）")
+        XCTAssertGreaterThan(differencePoints(calm, shaking, in: body), 8,
+                             "身子没抖（只有帽子在动）")
     }
 
     /// 晴（`.clear`）不配道具：画面与「没有天气」一致（天好着打把伞才是怪的）。
