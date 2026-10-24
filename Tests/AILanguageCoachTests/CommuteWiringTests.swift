@@ -55,14 +55,26 @@ final class CommuteWiringTests: XCTestCase {
     // MARK: - ② 教师语音没开 → 说一句为什么
 
     /// 按下去什么都没发生是最坏的结果：要么放，要么说清楚为什么不放。
+    ///
+    /// ⚠️ 「教师语音没开」必须在夹具里**显式造出来**：默认配置里 `remote.kina-tts`
+    /// 是启用态，不关的话 `startCommute` 会真的去合成 5 句（本机 Edge 代理在跑，
+    /// 实测 30s），然后走「自然放完」那条路拿到 notice —— 两条断言都绿，
+    /// 可它验的压根不是「没开时给理由」这一路。所以这里只翻状态、不碰本机代理。
     func testStartWithoutTeacherVoiceExplains() async {
         let state = makeState()
+        await state.services.markStoppedForTests(.tts)
         state.shadowingDrills = Self.drills
 
         await state.startCommute()
 
         XCTAssertFalse(state.isCommuteRunning)
-        XCTAssertNotNil(state.shadowingNotice, "教师语音没开时连播必须给出理由，不能默默什么都不做")
+        XCTAssertNil(state.commuteQueue, "语音没开就不该发车：队列根本不进城")
+        // 必须钉「已关闭」这句：自然放完的 notice 是「这一轮放完了，明天换一批新句子。」
+        // 只断言非 nil 的话，循环真跑完照样能蒙混过关（这条用例实测就这么绿过）。
+        XCTAssertTrue(
+            state.shadowingNotice?.contains("已关闭") == true,
+            "教师语音没开时连播必须给出理由；实际拿到的是「\(state.shadowingNotice ?? "nil")」"
+        )
     }
 
     // MARK: - ③ 停止

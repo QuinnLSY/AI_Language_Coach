@@ -13,20 +13,67 @@ import XCTest
 /// ② 评完分之后，逐句结果卡**真的插进了页面**（而不是算完了没显示）。
 ///
 /// 判据只用**布局高度差**，不比对色值：离屏渲染过一次色彩空间换算，绝对色值本来就不可靠。
-/// ⚠️ 全程不碰真实数据、不请求模型（素材取内置包，识别文本由测试构造）。
+/// ⚠️ 全程不碰真实数据、不请求模型（素材由测试自造，识别文本同样由测试构造）。
 @MainActor
 final class ShadowingPassageRenderTests: XCTestCase {
 
     private var window: NSWindow?
 
     private func makeState() async throws -> AppState {
-        let store = ConfigStore(
-            fileURL: FileManager.default.temporaryDirectory
-                .appendingPathComponent("passage-render-\(UUID().uuidString).json")
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("passage-render-\(UUID().uuidString)", isDirectory: true)
+        let store = ConfigStore(fileURL: directory.appendingPathComponent("config.json"))
+        // ⚠️ 当日跟读缓存必须**单独一份**：`CoachServices` 默认的 `.shared` 读写
+        // **真实用户数据目录**（`.workbuddy/app-config/shadowing-daily.json`），
+        // 而 Ollama 在线时 `isModelRunning(.llm)` 为真 → 取数路径会真发模型请求
+        // （temperature 0.9，每批句子都不同）→ 段落页高度掷硬币。
+        // 2026-10-21 全量实测：同一份代码两次跑出 547.5 / 526.0，一红一绿；
+        // 用户的真实当日缓存还被测试生成的那批覆盖过。
+        let daily = ShadowingDailyStore(
+            fileURL: directory.appendingPathComponent("shadowing-daily.json")
         )
-        let state = AppState(services: CoachServices(config: store, databasePath: ":memory:"))
+        let state = AppState(services: CoachServices(
+            config: store, databasePath: ":memory:", shadowingDailyStore: daily
+        ))
+        // 直接喂自造素材：句子完全确定，`loadShadowing` 见非空即跳过取数
+        //（不请求模型、不读当天缓存）。段落下标指向第一段「不止一句」的段落 ——
+        // 一句的段落与句子模式页高持平，测不出「整段摊开」。
+        state.shadowingDrills = Self.cannedDrills()
+        if let multi = state.shadowingPassages.firstIndex(where: { $0.drills.count > 1 }) {
+            state.shadowingPassageIndex = multi
+        }
         await state.loadShadowing()
         return state
+    }
+
+    /// 夹具自造的四句同情景素材（长句 + 释义 + 要点，与生成素材同规格）。
+    ///
+    /// 为什么不用内置素材：内置「点餐」那三句都短（一句一行），段落卡反而比句子卡
+    /// **更矮**（491.5 < 505.5，2026-10-21 实测）——「整段摊开更高」这条判据依赖
+    /// 句子长度，只有自造长句才钉得住。四句用词各不相同：第二条测试要「漏掉中间
+    /// 一句后它最弱」，词汇重叠会让邻句的词被 LCS 认成它的。
+    ///
+    /// ⚠️ 为什么是**五句**而不是四句：离屏下句模式的 `WordLookupText`（AppKit 文本视图）
+    /// 是固定高度（≈197.5pt 的卡，与文本长短无关），段落每多一句只 +34.5pt ——
+    /// 4 句时余量只有 20.5pt，5 句才有 ≈55pt 的余量扛字体/环境差异。
+    private static func cannedDrills() -> [ShadowingDrill] {
+        let sentences = [
+            "The doctor asked me to describe the pain in my lower back, especially whenever I climb the stairs slowly.",
+            "I have been taking the prescribed medicine twice a day after meals for the past two weeks without problems.",
+            "The nurse told me to come back next Monday morning so they could check my blood pressure again carefully.",
+            "My pharmacist explained that this tablet might cause some drowsiness, so I should not drive afterward.",
+            "We agreed to book a follow-up appointment before the end of this month if the pain has not eased."
+        ]
+        return sentences.enumerated().map { index, text in
+            ShadowingDrill(
+                id: "canned-\(index)",
+                text: text,
+                translation: "这是第 \(index + 1) 句自造的参考句，与其余几句用词不同。",
+                topic: "看医生",
+                difficulty: 2,
+                focus: index == 0 ? "连读" : ""
+            )
+        }
     }
 
     /// 渲染整页，返回宿主视图（高度是可断言的「画了多少」的代理量）。

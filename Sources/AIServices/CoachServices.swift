@@ -1182,6 +1182,22 @@ public actor CoachServices {
         !stoppedKinds.contains(kind) && !suspendedKinds.contains(kind)
     }
 
+    /// 测试夹具专用：把一个能力直接标成「已关闭」，`isModelRunning` 立刻返回 false。
+    ///
+    /// ⚠️ 与 `setModelRunning(_:running:false)` 的差别是**不碰任何真实服务**。
+    /// 默认配置里 `ollama.llm` / `remote.kina-tts` 都是启用态，于是夹具一上手就会
+    /// 顺着 `ensureLLMReady()` / `playReference()` 去打真服务 —— 实测一条用例
+    /// 47s 真推理、另一条 30s 真合成，而它们断言的根本不是模型输出。
+    /// 若改走 `setModelRunning` 关停，它会连带 `syncSiblingLocalServices` 去
+    /// `pkill` 本机代理（授权闸门一旦被同进程别的用例打开就会真杀），夹具付不起这个代价。
+    ///
+    /// 存在意义只有一个：让「考试作答零请求」在夹具层可执行。
+    // periphery:ignore - 只服务于测试夹具，产品路径一律走 setModelRunning
+    public func markStoppedForTests(_ kind: AIProviderKind) {
+        stoppedKinds.insert(kind)
+        suspendedKinds.remove(kind)
+    }
+
     /// 全部能力的启停快照（UI 展示用）。
     public func modelRunStates() -> [AIProviderKind: Bool] {
         var result: [AIProviderKind: Bool] = [:]

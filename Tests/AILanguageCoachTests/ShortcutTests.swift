@@ -547,6 +547,11 @@ final class ShortcutTests: XCTestCase {
     /// 按 ⌘D → 真的跳到词典页并把这个词查出来（不是「配了键没反应」）。
     func testPerformWordLookupDictionaryOpensTheDictionary() async {
         let state = makeState()
+        // 默认配置里 `ollama.llm` 是启用态，而 `dictionaryLookUp` 会先 `ensureLLMReady()`
+        // 真装配它 —— 本机 Ollama 在跑时这一趟就是一次真推理（实测 47s，输出还不确定）。
+        // 本用例只钉「跳页 + 带上 query」，模型结果一个字都不看，所以在夹具层把 LLM 关掉，
+        // 让查词走 notInitialized 的快速失败通道（考试作答零请求）。
+        await state.services.markStoppedForTests(.llm)
         state.wordLookupCard = WordLookupCard(text: "resilient", translation: "有韧性的")
         let before = state.activeSection
 

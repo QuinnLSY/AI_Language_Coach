@@ -6,9 +6,21 @@ import AppCore
 import XCTest
 
 /// 依赖本机 Ollama 的集成测试。运行时不可用时 **Skip 而非 Fail**（AGENTS.md §0.1 / §3B.9）。
+///
+/// ⚠️ 默认整组不跑：本机 Ollama 在跑时这些用例会**真推理**（全量实测 48.5s），
+/// 而日常回归要的是「接线对不对」，不是「模型今天答得好不好」。
+/// 要验真机时一条命令就能开：`ALC_RUN_OLLAMA_TESTS=1 swift test --filter OllamaIntegrationTests`。
 final class OllamaIntegrationTests: XCTestCase {
 
+    /// 真机回归闸门。默认关，避免日常全量为一次用不上的推理付 48.5s。
+    private static var isRealRuntimeRunEnabled: Bool {
+        ProcessInfo.processInfo.environment["ALC_RUN_OLLAMA_TESTS"] == "1"
+    }
+
     private func makeAdapter(modelOverride: String? = nil) async throws -> (OllamaLLMAdapter, ProviderConfig) {
+        guard Self.isRealRuntimeRunEnabled else {
+            throw XCTSkip("真机回归默认关闭：设 ALC_RUN_OLLAMA_TESTS=1 后再跑这一组")
+        }
         let configuration = try DefaultConfiguration.load()
         var providerConfig = try XCTUnwrap(configuration.enabledProvider(for: .llm))
         if let modelOverride { providerConfig.model = modelOverride }

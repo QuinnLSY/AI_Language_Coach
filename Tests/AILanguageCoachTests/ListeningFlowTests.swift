@@ -25,17 +25,20 @@ final class ListeningFlowTests: XCTestCase {
         return AppState(services: CoachServices(config: store, databasePath: ":memory:"))
     }
 
-    /// `listening.log` 这条真实数据的保护：进函数时快照，退出时原样写回。
-    private func snapshotListeningLog() -> Data? {
-        UserDefaults.standard.data(forKey: AppState.listeningLogStorageKey)
-    }
-
-    private func restoreListeningLog(_ snapshot: Data?) {
-        let defaults = UserDefaults.standard
-        if let snapshot {
-            defaults.set(snapshot, forKey: AppState.listeningLogStorageKey)
-        } else {
-            defaults.removeObject(forKey: AppState.listeningLogStorageKey)
+    /// `listening.log` 这条真实数据的保护：进函数时快照**并清空**，退出时原样写回。
+    ///
+    /// ⚠️ 必须连清空一起做（与 `ListeningModesFlowTests.isolateListeningLog`
+    /// 同一范式）：只快照不清空的话，`AppState.init` 会把域里**残留的旧账**读进来 ——
+    /// 2026-10-24 实测，本机 xctest 域里躺着一份被中断的运行留下的 1 句账，
+    /// `testBlankDraftIsRejected` 因此恒红（「0 句」断言拿到 1）。
+    /// 测试数据绝不能留在开发机上（那是**真实用户数据**），也绝不能依赖它为空。
+    private func isolateListeningLog() -> () -> Void {
+        let key = AppState.listeningLogStorageKey
+        let saved = UserDefaults.standard.data(forKey: key)
+        UserDefaults.standard.removeObject(forKey: key)
+        return {
+            if let saved { UserDefaults.standard.set(saved, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
         }
     }
 
@@ -76,8 +79,8 @@ final class ListeningFlowTests: XCTestCase {
 
     /// 交卷：判分 + 落账，**不发起任何模型请求**。
     func testSubmitScoresAndRecordsTheDay() async {
-        let snapshot = snapshotListeningLog()
-        defer { restoreListeningLog(snapshot) }
+        let restore = isolateListeningLog()
+        defer { restore() }
 
         let state = makeState()
         state.listeningRound = [ShadowingDrill(id: "d0", text: "Can I have a receipt", topic: "t")]
@@ -105,8 +108,8 @@ final class ListeningFlowTests: XCTestCase {
 
     /// 空着交不算：不许出现「听了 0 秒就 100%」这种假成绩。
     func testBlankDraftIsRejected() async {
-        let snapshot = snapshotListeningLog()
-        defer { restoreListeningLog(snapshot) }
+        let restore = isolateListeningLog()
+        defer { restore() }
 
         let state = makeState()
         state.listeningRound = [ShadowingDrill(id: "d0", text: "Hello there", topic: "t")]
@@ -122,8 +125,8 @@ final class ListeningFlowTests: XCTestCase {
 
     /// 推进：最后一句之后直接结算，中途不许提前收尾。
     func testAdvanceWalksToTheEndThenSummarises() async {
-        let snapshot = snapshotListeningLog()
-        defer { restoreListeningLog(snapshot) }
+        let restore = isolateListeningLog()
+        defer { restore() }
 
         let state = makeState()
         state.listeningRound = (0..<2).map { ShadowingDrill(id: "d\($0)", text: "line \($0) here", topic: "t") }
@@ -151,8 +154,8 @@ final class ListeningFlowTests: XCTestCase {
 
     /// 退出：会话状态整体清掉，但**今天的账不清**（刚练对的成绩不该被收回）。
     func testExitKeepsTheDayLogButClearsTheSession() async {
-        let snapshot = snapshotListeningLog()
-        defer { restoreListeningLog(snapshot) }
+        let restore = isolateListeningLog()
+        defer { restore() }
 
         let state = makeState()
         state.listeningRound = [ShadowingDrill(id: "d0", text: "good morning", topic: "t")]
@@ -175,8 +178,8 @@ final class ListeningFlowTests: XCTestCase {
     /// 撤掉 `loadListeningLog` 里那一步 `rolledOver`，这条立刻变红 ——
     /// 用户第二天打开会看到「今天写了 6 句」，而他今天一句都没写。
     func testStaleLogFromYesterdayIsDroppedOnLoad() throws {
-        let snapshot = snapshotListeningLog()
-        defer { restoreListeningLog(snapshot) }
+        let restore = isolateListeningLog()
+        defer { restore() }
 
         let stale = ListeningLog(dayKey: "2001-01-01", best: ["x": 0.9, "y": 0.8])
         UserDefaults.standard.set(
@@ -192,8 +195,8 @@ final class ListeningFlowTests: XCTestCase {
 
     /// 今天写过的账要能读回来（与上一条成对：不该清的不能清）。
     func testSameDayLogSurvivesLoad() throws {
-        let snapshot = snapshotListeningLog()
-        defer { restoreListeningLog(snapshot) }
+        let restore = isolateListeningLog()
+        defer { restore() }
 
         let today = ListeningLog.today().recording(drillID: "d0", accuracy: 0.75)
         UserDefaults.standard.set(
