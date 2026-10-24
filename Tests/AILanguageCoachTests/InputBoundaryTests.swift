@@ -38,15 +38,35 @@ final class InputBoundaryTests: XCTestCase {
         try String(contentsOfFile: "Sources/\(relativePath)", encoding: .utf8)
     }
 
+    /// `CoachServices` 的**全体源码**：#660 起它拆成「主体 + 17 个扩展」，
+    /// 哨兵钉的是这个类型而不是某一个文件 —— 按全家桶读，日后按域再拆也不再打破哨兵。
+    private func coachServicesSource() throws -> String {
+        let names = try FileManager.default.contentsOfDirectory(atPath: "Sources/AIServices")
+            .filter { $0.hasPrefix("CoachServices") && $0.hasSuffix(".swift") }
+            .sorted()
+        guard !names.isEmpty else {
+            throw NSError(domain: "sentinel", code: 4,
+                          userInfo: [NSLocalizedDescriptionKey: "Sources/AIServices 下没有 CoachServices*.swift"])
+        }
+        return try names.map { try source("AIServices/\($0)") }.joined(separator: "\n")
+    }
+
     /// 取出函数体：从 `needle` 起到下一个成员声明为止。
+    ///
+    /// ⚠️ 成员声明的缩进跟着所在文件变：类内成员在 4 空格，`CoachServices+*.swift`
+    /// 这类**扩展**成员在列 0（函数体反而落在 4 空格）—— 按 needle 实际所在的
+    /// 缩进选 Terminator，否则扩展里的函数体语句会被当成成员声明，第一行就切断。
     private func body(of needle: String, in source: String) -> String {
         guard let range = source.range(of: needle) else { return "" }
         let rest = source[range.lowerBound...]
         let tail = rest.dropFirst(needle.count)
-        let terminators = ["\n    public func ", "\n    private func ", "\n    func ",
-                           "\n    static func ", "\n    private static func ",
-                           "\n    public static func ", "\n    public var ", "\n    private var ",
-                           "\n    var ", "\n    let ", "\n    // MARK:"]
+        let atColumnZero = range.lowerBound > source.startIndex
+            && source[source.index(before: range.lowerBound)] == "\n"
+        let pad = atColumnZero ? "" : "    "
+        let terminators = ["\n\(pad)public func ", "\n\(pad)private func ", "\n\(pad)func ",
+                           "\n\(pad)static func ", "\n\(pad)private static func ",
+                           "\n\(pad)public static func ", "\n\(pad)public var ", "\n\(pad)private var ",
+                           "\n\(pad)var ", "\n\(pad)let ", "\n\(pad)// MARK:"]
         let ends = terminators.compactMap { tail.range(of: $0)?.lowerBound }
         if let end = ends.min() { return String(rest[..<end]) }
         return String(rest)
@@ -556,7 +576,7 @@ final class InputBoundaryTests: XCTestCase {
 
     /// 导出路径反过来**不许**带上限（截断 = 悄悄少给用户几条学习记录）。
     func testExportPathDoesNotCapMessages() throws {
-        let text = try source("AIServices/CoachServices.swift")
+        let text = try coachServicesSource()
         let export = body(of: "public func exportLearningRecords", in: text)
         XCTAssertFalse(export.isEmpty, "找不到 exportLearningRecords（签名变了就回来改）")
         XCTAssertTrue(export.contains("messages(sessionID:"), "导出仍要取消息")

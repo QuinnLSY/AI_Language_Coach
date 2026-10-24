@@ -226,7 +226,7 @@ final class DataSafetyLoopTests: XCTestCase {
 
     /// 「清除前留底」必须写在删除**之前**，且留底失败要中止删除。
     func testClearLearningMemoryBacksUpBeforeDeleteInSource() throws {
-        let raw = try Self.code("Sources/AIServices/CoachServices.swift")
+        let raw = try Self.coachServicesCode()
         let body = try Self.functionBody(named: "clearLearningMemory", in: raw)
         let backupCall = try XCTUnwrap(
             body.range(of: "export(label: \"清除前\")"),
@@ -311,6 +311,20 @@ final class DataSafetyLoopTests: XCTestCase {
             .map(String.init)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
+    }
+
+    /// `CoachServices` 的**全体源码**：#660 起它拆成「主体 + 17 个扩展」，
+    /// 哨兵钉的是这个类型而不是某一个文件 —— 按全家桶读，日后按域再拆也不再打破哨兵。
+    private nonisolated static func coachServicesCode() throws -> String {
+        let directory = "Sources/AIServices"
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory)
+            .filter { $0.hasPrefix("CoachServices") && $0.hasSuffix(".swift") }
+            .sorted()
+        guard !names.isEmpty else {
+            throw NSError(domain: "sentinel", code: 4,
+                          userInfo: [NSLocalizedDescriptionKey: "\(directory) 下没有 CoachServices*.swift"])
+        }
+        return try names.map { try code("\(directory)/\($0)") }.joined(separator: "\n")
     }
 
     /// 提取某个函数的**函数体**（brace 计数），避免同名调用点干扰。

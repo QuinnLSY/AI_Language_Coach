@@ -25,6 +25,20 @@ final class AppServiceShutdownTests: XCTestCase {
             .joined(separator: "\n")
     }
 
+    /// `CoachServices` 的**全体源码**：#660 起它拆成「主体 + 17 个扩展」，
+    /// 哨兵钉的是这个类型而不是某一个文件 —— 按全家桶读，日后按域再拆也不再打破哨兵。
+    private nonisolated static func coachServicesCode() throws -> String {
+        let directory = "Sources/AIServices"
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory)
+            .filter { $0.hasPrefix("CoachServices") && $0.hasSuffix(".swift") }
+            .sorted()
+        guard !names.isEmpty else {
+            throw NSError(domain: "sentinel", code: 4,
+                          userInfo: [NSLocalizedDescriptionKey: "\(directory) 下没有 CoachServices*.swift"])
+        }
+        return try names.map { try code("\(directory)/\($0)") }.joined(separator: "\n")
+    }
+
     private nonisolated static func declBody(matching marker: String, in source: String) throws -> String {
         guard let signature = source.range(of: marker) else {
             throw NSError(domain: "sentinel", code: 1,
@@ -337,7 +351,7 @@ final class AppServiceShutdownTests: XCTestCase {
         let view = try Self.code("Sources/AppUI/Views/MainView.swift")
         XCTAssertTrue(view.contains("state.serviceLaunchNotices[kind]"), "提示条要在对话区渲染")
 
-        let coach = try Self.code("Sources/AIServices/CoachServices.swift")
+        let coach = try Self.coachServicesCode()
         XCTAssertTrue(coach.contains("public enum LocalServiceLaunchOutcome: Sendable, Equatable"),
                       "自启结果要有一个显式枚举")
         for marker in ["public func ensureEdgeTTSProxyOnLaunch() async -> LocalServiceLaunchOutcome",

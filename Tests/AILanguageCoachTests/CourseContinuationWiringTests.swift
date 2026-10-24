@@ -11,9 +11,22 @@ final class CourseContinuationWiringTests: XCTestCase {
         try String(contentsOfFile: relativePath, encoding: .utf8)
     }
 
+    /// `CoachServices` 的**全体源码**：#660 起它拆成「主体 + 17 个扩展」，
+    /// 哨兵钉的是这个类型而不是某一个文件 —— 按全家桶读，日后按域再拆也不再打破哨兵。
+    private func coachServicesSource() throws -> String {
+        let names = try FileManager.default.contentsOfDirectory(atPath: "Sources/AIServices")
+            .filter { $0.hasPrefix("CoachServices") && $0.hasSuffix(".swift") }
+            .sorted()
+        guard !names.isEmpty else {
+            throw NSError(domain: "sentinel", code: 4,
+                          userInfo: [NSLocalizedDescriptionKey: "Sources/AIServices 下没有 CoachServices*.swift"])
+        }
+        return try names.map { try source("Sources/AIServices/\($0)") }.joined(separator: "\n")
+    }
+
     /// 服务层必须是**追加**、不是另存：`save` 的得是合并后的那条课。
     func testServiceAppendsInsteadOfSavingANewCourse() throws {
-        let text = try source("Sources/AIServices/CoachServices.swift")
+        let text = try coachServicesSource()
         XCTAssertTrue(text.contains("CourseContinuationRule.appending"),
                       "续排必须走 appending（追加），另存一条新课会让树上凭空多一条")
         XCTAssertTrue(text.contains("try await courseStore.save(merged)"),
@@ -22,7 +35,7 @@ final class CourseContinuationWiringTests: XCTestCase {
 
     /// 排新课与续排共用同一条请求链路：各写一份的话，一边改了解析判据另一边迟早不一致。
     func testBothPathsShareOneRequestPipeline() throws {
-        let text = try source("Sources/AIServices/CoachServices.swift")
+        let text = try coachServicesSource()
         XCTAssertTrue(text.contains("try await requestBlueprint(request)"),
                       "两处都得走 requestBlueprint")
         // 只有一处 save 在 generateCourse 里（排新课），续排那处是自己那份 merged。
@@ -34,7 +47,7 @@ final class CourseContinuationWiringTests: XCTestCase {
 
     /// 只有**新排的**那几节的词进词汇本：已有节的词上次就收过了。
     func testOnlyNewWordsGoToTheVocabularyBook() throws {
-        let text = try source("Sources/AIServices/CoachServices.swift")
+        let text = try coachServicesSource()
         XCTAssertTrue(text.contains("addCourseWords(merged, from: existing.lessons.count)"),
                       "续排只收新节的词，重复收会把词汇本灌水")
         XCTAssertTrue(text.contains("addCourseWords(course)"), "排新课则整条收")

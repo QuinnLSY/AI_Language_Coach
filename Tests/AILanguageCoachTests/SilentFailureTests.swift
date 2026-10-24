@@ -20,6 +20,20 @@ final class SilentFailureTests: XCTestCase {
             .joined(separator: "\n")
     }
 
+    /// `CoachServices` 的**全体源码**：#660 起它拆成「主体 + 17 个扩展」，
+    /// 哨兵钉的是这个类型而不是某一个文件 —— 按全家桶读，日后按域再拆也不再打破哨兵。
+    private nonisolated static func coachServicesCode() throws -> String {
+        let directory = "Sources/AIServices"
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory)
+            .filter { $0.hasPrefix("CoachServices") && $0.hasSuffix(".swift") }
+            .sorted()
+        guard !names.isEmpty else {
+            throw NSError(domain: "sentinel", code: 4,
+                          userInfo: [NSLocalizedDescriptionKey: "\(directory) 下没有 CoachServices*.swift"])
+        }
+        return try names.map { try code("\(directory)/\($0)") }.joined(separator: "\n")
+    }
+
     /// 提取某个声明的**声明体**（brace 计数），避免同名调用点干扰。
     private nonisolated static func declBody(matching marker: String, in source: String) throws -> String {
         guard let signature = source.range(of: marker) else {
@@ -130,7 +144,7 @@ final class SilentFailureTests: XCTestCase {
 
     /// 三个子服务的 `failures` 注入**不给默认值**（默认新实例 = 记在自己那份里，UI 看不到）。
     func testSubServicesRequireAnInjectedFailureRecorder() throws {
-        let raw = try Self.code("Sources/AIServices/CoachServices.swift")
+        let raw = try Self.coachServicesCode()
         for name in ["SessionReviewService(llm", "VocabularyService(llm", "ShadowingService(voice"] {
             XCTAssertTrue(raw.contains("\(name)") && raw.contains("failures: self.persistenceFailures"),
                           "\(name) 必须注入共享的 persistenceFailures")
@@ -144,7 +158,7 @@ final class SilentFailureTests: XCTestCase {
 
     /// 用户可见成果的写入不许再 `try?`：逐个函数体里钉死。
     func testVisibleOutcomeWritesAreNoLongerSilentlyOptional() throws {
-        let raw = try Self.code("Sources/AIServices/CoachServices.swift")
+        let raw = try Self.coachServicesCode()
         let guarded = [
             "public func saveProgress(",
             "public func saveQuestProgress(",
@@ -163,7 +177,7 @@ final class SilentFailureTests: XCTestCase {
 
     /// 坏库隔离不完整时，不许再说「文件保留在 corrupt 目录里、没有被删除」。
     func testRecoveryNoteIsHonestAboutIncompleteQuarantine() throws {
-        let raw = try Self.code("Sources/AIServices/CoachServices.swift")
+        let raw = try Self.coachServicesCode()
         let body = try Self.declBody(matching: "private static func recoveryNote(path: String, quarantined: Bool)", in: raw)
         XCTAssertTrue(body.contains("没能完整隔离"),
                       "隔离失败时要如实说找不回来了（原来那句「没有被删除」是假的）")

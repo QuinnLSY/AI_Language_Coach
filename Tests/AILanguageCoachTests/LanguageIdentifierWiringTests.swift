@@ -21,6 +21,27 @@ final class LanguageIdentifierWiringTests: XCTestCase {
         try String(contentsOfFile: "Sources/\(relativePath)", encoding: .utf8)
     }
 
+    /// `CoachServices` 的**全体源码**：#660 起它拆成「主体 + 17 个扩展」，
+    /// 哨兵钉的是这个类型而不是某一个文件 —— 按全家桶读，日后按域再拆也不再打破哨兵。
+    private func coachServicesSource() throws -> String {
+        try coachServicesFiles(for: "AIServices/CoachServices.swift")
+            .map { try source($0) }
+            .joined(separator: "\n")
+    }
+
+    /// 传 `CoachServices` = 它的全体文件（主体 + 各扩展）；其余路径原样返回。
+    private func coachServicesFiles(for relativePath: String) throws -> [String] {
+        guard relativePath == "AIServices/CoachServices.swift" else { return [relativePath] }
+        let names = try FileManager.default.contentsOfDirectory(atPath: "Sources/AIServices")
+            .filter { $0.hasPrefix("CoachServices") && $0.hasSuffix(".swift") }
+            .sorted()
+        guard !names.isEmpty else {
+            throw NSError(domain: "sentinel", code: 4,
+                          userInfo: [NSLocalizedDescriptionKey: "Sources/AIServices 下没有 CoachServices*.swift"])
+        }
+        return names.map { "AIServices/\($0)" }
+    }
+
     /// 源码的**非注释行**（整行 `//` / `///` 去掉），行号保留（第 1 行 = index 0）。
     private func codeLines(_ source: String) -> [(number: Int, text: String)] {
         source.split(separator: "\n", omittingEmptySubsequences: false).enumerated().compactMap { index, raw in
@@ -31,8 +52,11 @@ final class LanguageIdentifierWiringTests: XCTestCase {
     }
 
     private func assertAbsent(_ needle: String, in path: String, reason: String) throws {
-        for line in codeLines(try source(path)) where line.text.contains(needle) {
-            XCTFail("\(path):\(line.number) \(reason)")
+        // `CoachServices` 拆成主体 + 扩展后逐个文件查：失败信息里的行号仍是**真实行号**。
+        for file in try coachServicesFiles(for: path) {
+            for line in codeLines(try source(file)) where line.text.contains(needle) {
+                XCTFail("\(file):\(line.number) \(reason)")
+            }
         }
     }
 
@@ -46,7 +70,7 @@ final class LanguageIdentifierWiringTests: XCTestCase {
             in: "AIServices/CoachServices.swift",
             reason: "配置里的 BCP-47 被直接灌进了提示词（应走 promptLanguage(configuration)）"
         )
-        let coach = try source("AIServices/CoachServices.swift")
+        let coach = try coachServicesSource()
         XCTAssertTrue(coach.contains("learningLanguage: promptLanguage(configuration)"),
                       "CoachServices 应当用 promptLanguage(configuration) 喂提示词")
     }

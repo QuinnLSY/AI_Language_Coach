@@ -14,6 +14,19 @@ final class ForestWiringTests: XCTestCase {
         try String(contentsOfFile: "Sources/\(relativePath)", encoding: .utf8)
     }
 
+    /// `CoachServices` 的**全体源码**：#660 起它拆成「主体 + 17 个扩展」，
+    /// 哨兵钉的是这个类型而不是某一个文件 —— 按全家桶读，日后按域再拆也不再打破哨兵。
+    private func coachServicesSource() throws -> String {
+        let names = try FileManager.default.contentsOfDirectory(atPath: "Sources/AIServices")
+            .filter { $0.hasPrefix("CoachServices") && $0.hasSuffix(".swift") }
+            .sorted()
+        guard !names.isEmpty else {
+            throw NSError(domain: "sentinel", code: 4,
+                          userInfo: [NSLocalizedDescriptionKey: "Sources/AIServices 下没有 CoachServices*.swift"])
+        }
+        return try names.map { try source("AIServices/\($0)") }.joined(separator: "\n")
+    }
+
     /// 源码的**非注释行**（`//` / `///` 开头的整行去掉），行号保留（第 1 行 = index 0）。
     private func codeLines(_ source: String) -> [(number: Int, text: String)] {
         source.split(separator: "\n", omittingEmptySubsequences: false).enumerated().compactMap { index, raw in
@@ -69,7 +82,7 @@ final class ForestWiringTests: XCTestCase {
 
     /// 装配中心必须持有唯一总线，并注入收词 / 复盘两个子服务。
     func testCoachServicesOwnsTheBusAndInjectsIt() throws {
-        let services = try source("AIServices/CoachServices.swift")
+        let services = try coachServicesSource()
         XCTAssertTrue(services.contains("public nonisolated let events = LearningEventBus()"),
                       "唯一的事件总线应声明在 CoachServices 上")
         // ⚠️ 判据跟着签名走：子服务又多注入了 `failures:`（S1 静默失败批次），

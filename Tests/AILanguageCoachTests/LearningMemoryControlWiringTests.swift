@@ -11,6 +11,19 @@ final class LearningMemoryControlWiringTests: XCTestCase {
         try String(contentsOfFile: relativePath, encoding: .utf8)
     }
 
+    /// `CoachServices` 的**全体源码**：#660 起它拆成「主体 + 17 个扩展」，
+    /// 哨兵钉的是这个类型而不是某一个文件 —— 按全家桶读，日后按域再拆也不再打破哨兵。
+    private func coachServicesSource() throws -> String {
+        let names = try FileManager.default.contentsOfDirectory(atPath: "Sources/AIServices")
+            .filter { $0.hasPrefix("CoachServices") && $0.hasSuffix(".swift") }
+            .sorted()
+        guard !names.isEmpty else {
+            throw NSError(domain: "sentinel", code: 4,
+                          userInfo: [NSLocalizedDescriptionKey: "Sources/AIServices 下没有 CoachServices*.swift"])
+        }
+        return try names.map { try source("Sources/AIServices/\($0)") }.joined(separator: "\n")
+    }
+
     /// 截出某个方法的全体（到下一个 `public func` 或文件尾为止）。
     private func body(of method: String, in text: String) -> String {
         guard let start = text.range(of: method) else { return "" }
@@ -75,7 +88,7 @@ final class LearningMemoryControlWiringTests: XCTestCase {
     /// 服务层这两个写路径**不许 `try?`**：绕开错误上抛就等于
     /// 「失败了也当成功」，提示条永远不亮（用户成果类写入的铁律）。
     func testServiceWritePathsNeverSwallowErrors() throws {
-        let text = try source("Sources/AIServices/CoachServices.swift")
+        let text = try coachServicesSource()
 
         let forget = body(of: "public func forgetRecurringError", in: text)
         XCTAssertTrue(forget.contains("guard let learning else { throw AppError.database(\"学习库尚未就绪\") }"),
