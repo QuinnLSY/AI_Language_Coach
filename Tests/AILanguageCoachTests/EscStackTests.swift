@@ -136,7 +136,7 @@ final class EscStackTests: XCTestCase {
     /// 设置页那个挂载点是原生 `keyboardShortcut(.escape)`，同样要参与仲裁；
     /// 若改回无条件挂载，它就永远可关 = 变成第 5 个平等键等价项。
     func testSettingsCloseButtonGoesThroughTheSameArbitration() throws {
-        let raw = try Self.code("Sources/AppUI/Views/SettingsView.swift")
+        let raw = try SettingsViewSentinel.joinedCode()
         XCTAssertTrue(raw.contains("escShortcut(isActive: state.escDismissLayer == .settings)"),
                       "设置页的 Esc 必须走栈顶仲裁")
         XCTAssertEqual(Self.occurrences(of: "keyboardShortcut(.escape", in: raw), 0,

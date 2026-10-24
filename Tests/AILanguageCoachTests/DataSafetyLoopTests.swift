@@ -256,7 +256,7 @@ final class DataSafetyLoopTests: XCTestCase {
 
     /// 设置页要有删除与 Finder 入口；记录页要有导出入口。
     func testManagementEntriesAreWired() throws {
-        let settings = try Self.code("Sources/AppUI/Views/SettingsView.swift")
+        let settings = try SettingsViewSentinel.joinedCode()
         XCTAssertTrue(settings.contains("deleteBackup(at: item.url)"), "备份行上要有删除按钮")
         XCTAssertTrue(settings.contains("revealBackupsInFinder"), "要有「在 Finder 中显示」入口")
 

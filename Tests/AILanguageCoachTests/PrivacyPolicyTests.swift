@@ -177,7 +177,8 @@ final class PrivacyPolicyTests: XCTestCase {
 
     /// 设置页必须把公共服务**单列一组**展示（混在云端能力里，用户就看不懂谁在收数据）。
     func testSettingsViewShowsPublicServiceFlowsSeparately() throws {
-        let settings = try String(contentsOfFile: "Sources/AppUI/Views/SettingsView.swift", encoding: .utf8)
+        // #662：设置页拆成全家桶，判据改读家族拼接文本。
+        let settings = try SettingsViewSentinel.joined()
         XCTAssertTrue(settings.contains("disclosure.publicServiceFlows"), "隐私卡要展示公共服务那组")
         XCTAssertTrue(settings.contains("flow.service.displayName"), "展示服务名而不是拼容器自造的词")
         XCTAssertTrue(settings.contains("flow.outboundNote"), "要把送出去了什么一并写出来")

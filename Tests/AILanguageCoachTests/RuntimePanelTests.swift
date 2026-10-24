@@ -96,7 +96,8 @@ final class RuntimePanelTests: XCTestCase {
 
     /// 设置页打开时要刷语义索引与内存 —— 不刷就永远停在 unknown / 空串。
     func testSettingsRefreshesRuntimePanels() throws {
-        let lines = try codeLines(of: "Sources/AppUI/Views/SettingsView.swift")
+        // #662：设置页拆成全家桶，判据改读家族拼接文本（剥整行注释，同原语义）。
+        let lines = try SettingsViewSentinel.joinedCodeLines()
         XCTAssertTrue(lines.contains { $0.contains("await state.refreshSemanticMemory()") })
         XCTAssertTrue(lines.contains { $0.contains("await state.refreshMemoryPressure()") })
     }
@@ -104,7 +105,7 @@ final class RuntimePanelTests: XCTestCase {
     /// 每日目标控件必须**两页共用同一个组件**：各写一份必然漂移（一边改口径、另一边不跟）。
     func testDailyGoalControlsSharedByBothPages() throws {
         let progress = try codeLines(of: "Sources/AppUI/Views/LearningProgressView.swift")
-        let settings = try codeLines(of: "Sources/AppUI/Views/SettingsView.swift")
+        let settings = try SettingsViewSentinel.joinedCodeLines()
         XCTAssertTrue(progress.contains { $0.contains("DailyGoalControls(state: state)") })
         XCTAssertTrue(settings.contains { $0.contains("DailyGoalControls(state: state)") })
         // 旧的私有副本必须已经删掉（留着就是两份实现）。

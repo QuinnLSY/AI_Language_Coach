@@ -254,7 +254,7 @@ final class MenuBarWiringTests: XCTestCase {
             state.contains("MenuBarController.shared.setStatusItemVisible(!statusBarIconHidden)"),
             "didSet 要把开关翻成 setStatusItemVisible 调用"
         )
-        let settings = try Self.code("Sources/AppUI/Views/SettingsView.swift")
+        let settings = try SettingsViewSentinel.joinedCode()
         XCTAssertTrue(
             settings.contains("state.setStatusBarIconHidden(!on)"),
             "设置页的开关要接到 setter 上"

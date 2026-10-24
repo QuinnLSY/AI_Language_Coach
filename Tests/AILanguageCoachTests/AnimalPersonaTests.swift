@@ -198,7 +198,7 @@ final class AnimalPersonaTests: XCTestCase {
         XCTAssertTrue(scroll.contains("companionAnimal: companionAnimal"),
                       "TreeScrollView 要把小伙伴透传给 TreeCanvas")
 
-        let settings = try source("AppUI/Views/SettingsView.swift")
+        let settings = try SettingsViewSentinel.joined()
         XCTAssertTrue(settings.contains("case .companion: await state.setCompanionAnimal(kind)"),
                       "设置里要能自己选小伙伴")
     }

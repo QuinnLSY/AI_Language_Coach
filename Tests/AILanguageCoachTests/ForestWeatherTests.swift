@@ -160,7 +160,7 @@ final class ForestWeatherTests: XCTestCase {
     }
 
     func testSettingsViewHasTheWeatherToggle() throws {
-        let settings = try source("AppUI/Views/SettingsView.swift")
+        let settings = try SettingsViewSentinel.joined()
         XCTAssertTrue(settings.contains("state.forestFollowsWeather"),
                       "设置页必须读到天气开关")
         XCTAssertTrue(settings.contains("state.setForestFollowsWeather(on)"),

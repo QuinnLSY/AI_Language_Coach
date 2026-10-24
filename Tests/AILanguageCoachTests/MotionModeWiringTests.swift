@@ -97,7 +97,7 @@ final class MotionModeWiringTests: XCTestCase {
 
     /// 设置页必须有那张「动画效果」卡（用户明确要的应用内开关）。
     func testSettingsShowTheMotionCard() throws {
-        let settings = try source("AppUI/Views/SettingsView.swift")
+        let settings = try SettingsViewSentinel.joined()
         XCTAssertTrue(settings.contains("motionCard"), "设置页要挂 motionCard")
         XCTAssertTrue(settings.contains("state.setMotionMode"), "卡片要接 setMotionMode")
     }

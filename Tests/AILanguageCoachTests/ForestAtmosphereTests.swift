@@ -339,7 +339,7 @@ final class ForestAtmosphereTests: XCTestCase {
 
     /// 设置里要有**两个**开关（2026-09-29 拆分：原来是绑在一起的一个）。
     func testSettingsExposesTheTwoFollowToggles() throws {
-        let settings = try source("AppUI/Views/SettingsView.swift")
+        let settings = try SettingsViewSentinel.joined()
         XCTAssertTrue(settings.contains("await state.setForestFollowsClock(on)"),
                       "设置里要有「跟随时间」的开关")
         XCTAssertTrue(settings.contains("await state.setForestFollowsSeason(on)"),

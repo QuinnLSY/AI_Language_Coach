@@ -284,7 +284,7 @@ final class AppServiceShutdownTests: XCTestCase {
         XCTAssertTrue(main.contains("state.approvePendingShellCommand()"), "确认按钮要能放行")
         XCTAssertTrue(main.contains("state.declinePendingShellCommand()"), "也要能拒绝")
 
-        let settings = try Self.code("Sources/AppUI/Views/SettingsView.swift")
+        let settings = try SettingsViewSentinel.joinedCode()
         XCTAssertFalse(settings.contains(".alert(item:"),
                        "确认框只挂一处：设置页再挂一份会双弹")
     }

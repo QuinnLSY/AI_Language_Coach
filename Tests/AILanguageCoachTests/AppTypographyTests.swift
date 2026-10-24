@@ -129,11 +129,8 @@ final class AppTypographyTests: XCTestCase {
 
     /// 设置页必须有档位入口，且两个档都接了持久化 setter。
     func testSettingsHostsTypographyControls() throws {
-        let raw = try String(contentsOfFile: "Sources/AppUI/Views/SettingsView.swift", encoding: .utf8)
-        let lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .map(String.init)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-        let text = lines.joined(separator: "\n")
+        // #662：设置页拆成全家桶，判据改读家族拼接文本（剥整行注释，同原语义）。
+        let text = try SettingsViewSentinel.joinedCode()
         XCTAssertTrue(text.contains("setTypeSize"), "字号档没有接 setter")
         XCTAssertTrue(text.contains("setInterfaceDensity"), "密度档没有接 setter")
         XCTAssertTrue(text.contains("FontSizeMode.allCases"), "字号档没有枚举所有选项")

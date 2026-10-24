@@ -101,7 +101,7 @@ final class ExperienceLoopTests: XCTestCase {
 
     /// 模型管理中心不再列出说话检测（没有 runtime，列出来是假卡片）。
     func testVadCardIsRemovedFromModelCenter() throws {
-        let raw = try Self.code("Sources/AppUI/Views/SettingsView.swift")
+        let raw = try SettingsViewSentinel.joinedCode()
         XCTAssertTrue(raw.contains("[.asr, .tts, .embedding, .pronunciation]"),
                       "能力清单四项：ASR / TTS / 记忆索引 / 发音评测")
         XCTAssertEqual(Self.occurrences(of: ".tts, .vad", in: raw), 0,
@@ -131,7 +131,7 @@ final class ExperienceLoopTests: XCTestCase {
         XCTAssertTrue(translate.contains(".accessibilityLabel("),
                       "翻译按钮（icon-only）要有读屏标签")
 
-        let settings = try Self.code("Sources/AppUI/Views/SettingsView.swift")
+        let settings = try SettingsViewSentinel.joinedCode()
         XCTAssertTrue(settings.contains("accessibilityLabel(\"关闭设置\")"))
         XCTAssertTrue(settings.contains("accessibilityLabel(\"重新检测本地模型\")"))
         XCTAssertTrue(settings.contains("accessibilityLabel(\"重新检测语音服务\")"))

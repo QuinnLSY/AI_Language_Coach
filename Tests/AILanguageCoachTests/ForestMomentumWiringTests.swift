@@ -123,7 +123,7 @@ final class ForestMomentumWiringTests: XCTestCase {
 
     /// 设置页开关必须接上 AppState 的读写。
     func testSettingsViewHasMomentumToggle() throws {
-        let settings = try source("AppUI/Views/SettingsView.swift")
+        let settings = try SettingsViewSentinel.joined()
         XCTAssertTrue(settings.contains("state.setForestFollowsMomentum(on)"),
                       "设置页必须把开关写回 AppState")
         XCTAssertTrue(settings.contains("state.forestFollowsMomentum"),

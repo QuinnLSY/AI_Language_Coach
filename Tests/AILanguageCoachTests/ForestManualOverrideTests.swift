@@ -118,7 +118,7 @@ final class ForestManualOverrideTests: XCTestCase {
 
     /// 设置页两个 segmented 必须接上 AppState 的 setter。
     func testSettingsViewHasBothManualPickers() throws {
-        let settings = try source("AppUI/Views/SettingsView.swift")
+        let settings = try SettingsViewSentinel.joined()
         XCTAssertTrue(settings.contains("state.setForestSeasonOverride(season)"),
                       "设置页必须把手动季节写回 AppState")
         XCTAssertTrue(settings.contains("state.setForestWeatherOverride(weather)"),

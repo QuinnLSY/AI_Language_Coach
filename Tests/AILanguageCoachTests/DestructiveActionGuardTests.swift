@@ -144,7 +144,8 @@ final class DestructiveActionGuardTests: XCTestCase {
     /// 只断言「存在调用点 + 前面有 destructive」是假绿 —— 反证时把按钮改成直接调重置，
     /// 弹窗里那个调用点还在，哨兵照样绿（2026-09-28 亲眼撞上）。
     func testQuestProgressResetGoesThroughConfirmationDialog() throws {
-        let lines = codeLines(try source("AppUI/Views/SettingsView.swift"))
+        // #662：设置页拆成全家桶，行号改按拼接文本序号（前后顺序语义不变）。
+        let lines = codeLines(try SettingsViewSentinel.joinedCode())
         let code = lines.map(\.text).joined(separator: "\n")
 
         let callCount = code.components(separatedBy: "await state.resetQuestProgress()").count - 1

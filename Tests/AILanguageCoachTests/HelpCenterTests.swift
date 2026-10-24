@@ -63,11 +63,8 @@ final class HelpCenterTests: XCTestCase {
 
     /// 接线哨兵：设置页得真的有这张卡，否则帮助中心没有任何入口（等于白写）。
     func testSettingsHostsHelpCenterCard() throws {
-        let raw = try String(contentsOfFile: "Sources/AppUI/Views/SettingsView.swift", encoding: .utf8)
-        let lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
-            .map(String.init)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-        let text = lines.joined(separator: "\n")
+        // #662：设置页拆成全家桶，判据改读家族拼接文本（剥整行注释，同原语义）。
+        let text = try SettingsViewSentinel.joinedCode()
         XCTAssertTrue(text.contains("helpCenterCard"), "设置页没挂帮助中心卡片")
         XCTAssertTrue(text.contains("HelpCenterView"), "卡片上没接 HelpCenterView")
     }
@@ -93,8 +90,7 @@ final class HelpCenterTests: XCTestCase {
         let viewText = viewLines.joined(separator: "\n")
         XCTAssertTrue(viewText.contains("$state.showingHelp"), "MainView 没挂全局帮助浮层")
 
-        let settings = try String(contentsOfFile: "Sources/AppUI/Views/SettingsView.swift",
-                                  encoding: .utf8)
+        let settings = try SettingsViewSentinel.joined()
         XCTAssertFalse(settings.contains("@State private var showingHelp"),
                        "设置页不该再自己持有一份 showingHelp（与全局那份会打架）")
     }

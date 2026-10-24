@@ -96,8 +96,12 @@ final class ThirdBatchWiringTests: XCTestCase {
             "AppUI/Views/RecordsView.swift",
         ]
         for file in files {
+            // #662：设置页拆成「主体 + 10 个主题扩展」，这一格改读全家桶拼接文本。
+            let text = file == "AppUI/Views/SettingsView.swift"
+                ? try SettingsViewSentinel.joined()
+                : try source(file)
             XCTAssertTrue(
-                try source(file).contains(".scrollBounceBehavior(.basedOnSize)"),
+                text.contains(".scrollBounceBehavior(.basedOnSize)"),
                 "\(file) 的滚动容器缺 .scrollBounceBehavior(.basedOnSize)"
             )
         }
