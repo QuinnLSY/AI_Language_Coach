@@ -13,34 +13,68 @@ public enum CacheManager {
     /// 「可清理」会话的保留窗口：更早的会话与消息视为缓存。
     public static let cacheSessionCutoffDays = 30
 
-    /// 数据目录内各文件占用（不跟随符号链接，不递归进子目录——当前为平铺结构）。
+    /// 数据目录内各条目的占用：**递归**进子目录，整个子目录汇总成一行。
     public static func snapshot() -> CacheSnapshot {
-        let directory = AppPaths.userDataDirectory()
-        let fileManager = FileManager.default
-        let contents = (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey])) ?? []
+        snapshot(directory: AppPaths.userDataDirectory())
+    }
 
-        var items: [CacheItemInfo] = []
-        var total: Int64 = 0
-        for url in contents {
-            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
-            guard values?.isRegularFile == true else { continue }
-            let bytes = Int64(values?.fileSize ?? 0)
-            total += bytes
-            let fileName = url.lastPathComponent
-            items.append(CacheItemInfo(name: displayName(for: fileName),
-                                       fileName: fileName,
-                                       bytes: bytes,
-                                       isLearningData: isLearningData(fileName),
-                                       isCallLog: RemoteCallAudit.isCallLogFile(fileName)))
-        }
-        items.sort { $0.bytes > $1.bytes }
-
+    /// 统计本体（目录可注入，测试才能脱离真实数据目录）。
+    ///
+    /// ⚠️ **必须递归**：数据目录里有 `attachments/`、`corrupted/` 等子目录，
+    /// 只数平铺文件会让面板报「合计 1 MB」，而这些子目录实际占了十几 MB ——
+    /// 「磁盘被谁吃了」这件用户真正想问的事，答案是错的。
+    /// 子目录**汇总成一行**而不是逐个文件铺开：面板要回答的是「哪一类东西占了多少」，
+    /// 铺开成几百行文件名只会让用户看不清。
+    ///
+    /// 不跟随符号链接；隐藏条目（`.cache-cleared`、`.restore-pending/`）不计入 ——
+    /// 它们是内部标记与暂存，不是用户该关心的占用。
+    static func snapshot(directory: URL) -> CacheSnapshot {
+        let items = scan(directory: directory, depth: 0).sorted { $0.bytes > $1.bytes }
         return CacheSnapshot(
             directory: directory.path,
-            totalBytes: total,
+            totalBytes: items.reduce(0) { $0 + $1.bytes },
             items: items,
             lastClearedAt: lastClearedMarker()
         )
+    }
+
+    /// 递归扫描的最深层数（再深就是异常目录结构，不该为统计去遍历整棵树）。
+    private static let maxScanDepth = 4
+
+    private static func scan(directory: URL, depth: Int) -> [CacheItemInfo] {
+        let fileManager = FileManager.default
+        let keys: Set<URLResourceKey> = [.fileSizeKey, .isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey]
+        let contents = (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys))) ?? []
+
+        var items: [CacheItemInfo] = []
+        for url in contents {
+            let name = url.lastPathComponent
+            if name.hasPrefix(".") { continue }
+            let values = try? url.resourceValues(forKeys: keys)
+            if values?.isSymbolicLink == true { continue }
+
+            if values?.isDirectory == true {
+                let nested = depth + 1 < maxScanDepth ? scan(directory: url, depth: depth + 1) : []
+                items.append(CacheItemInfo(
+                    name: displayName(forDirectory: name),
+                    fileName: name,
+                    bytes: nested.reduce(0) { $0 + $1.bytes },
+                    kind: kind(forDirectory: name),
+                    isDirectory: true,
+                    fileCount: nested.reduce(0) { $0 + $1.fileCount }
+                ))
+                continue
+            }
+
+            guard values?.isRegularFile == true else { continue }
+            items.append(CacheItemInfo(
+                name: displayName(for: name),
+                fileName: name,
+                bytes: Int64(values?.fileSize ?? 0),
+                kind: kind(forFile: name)
+            ))
+        }
+        return items
     }
 
     /// 清理可再生的缓存：
@@ -84,13 +118,45 @@ public enum CacheManager {
         }
     }
 
+    private static func kind(forFile fileName: String) -> CacheItemKind {
+        if isLearningData(fileName) { return .learningData }
+        if RemoteCallAudit.isCallLogFile(fileName) { return .callLog }
+        return .other
+    }
+
+    private static func kind(forDirectory name: String) -> CacheItemKind {
+        switch name {
+        case "attachments": .attachments
+        case "corrupted": .quarantine
+        default: .other
+        }
+    }
+
     private static func displayName(for fileName: String) -> String {
         switch fileName {
-        case "learning.db": "学习数据库"
-        case "learning.db-wal": "数据库日志 (WAL)"
-        case "learning.db-shm": "数据库共享内存"
-        case "config.json": "应用配置"
-        default: callLogDisplayName(fileName) ?? fileName
+        case "learning.db": return "学习数据库"
+        case "learning.db-wal": return "数据库日志 (WAL)"
+        case "learning.db-shm": return "数据库共享内存"
+        case "config.json": return "应用配置"
+        case "dictionaries.json": return "词典索引"
+        case "shadowing-daily.json": return "跟读日缓存"
+        default: break
+        }
+        if fileName.hasPrefix("config.json.bak-") { return "应用配置（历史份）" }
+        return callLogDisplayName(fileName) ?? fileName
+    }
+
+    /// 子目录的显示名：说**它装的是什么**，而不是甩一个英文目录名。
+    private static func displayName(forDirectory name: String) -> String {
+        switch name {
+        case "attachments": "聊天附件"
+        case "corrupted": "坏库隔离"
+        case "courses": "课程"
+        case "materials": "学习材料"
+        case "scenarios": "自定义情景"
+        case "dictionaries": "词典书"
+        case "voices": "音色参考音频"
+        default: name
         }
     }
 

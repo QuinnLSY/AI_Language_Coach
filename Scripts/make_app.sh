@@ -78,7 +78,13 @@ if [[ "$UNIVERSAL" == 1 && "$NO_BUILD" == 0 ]]; then
 fi
 
 if [[ "$NO_BUILD" == 0 && "$UNIVERSAL" == 0 ]]; then
-  echo "▸ swift build -c release${OPTIMIZE_SIZE:+（-Osize）}"
+  # ⚠️ 不能用 `${OPTIMIZE_SIZE:+（-Osize）}`：变量是 "0" 时 `:+` 照样展开
+  # （非空即真），于是没开 -Osize 也印出「（-Osize）」，与实际编译参数不符。
+  if [[ "$OPTIMIZE_SIZE" == 1 ]]; then
+    echo "▸ swift build -c release（-Osize）"
+  else
+    echo "▸ swift build -c release"
+  fi
   swift build -c release --disable-sandbox "${SIZE_FLAGS[@]}"
 fi
 
@@ -92,7 +98,10 @@ if [[ "$UNIVERSAL" == 1 ]]; then
   RELEASE_DIR=".build/universal/out"
 else
   RELEASE_DIR=""
-  for candidate in ".build/release" .build/*/release ".build/apple/Products/Release"; do
+  # ⚠️ 通配必须带 `(N)`（zsh 的「无匹配就当没有」）：不带的话 `.build/*/release`
+  # 一个都匹配不上时 zsh 会**直接终止脚本**（nomatch），而那种情形很常见 ——
+  # 刚清过 .build / 从没编过 --arch 的机器上都没有这一层。
+  for candidate in ".build/release" .build/*/release(N) ".build/apple/Products/Release"; do
     if [[ -x "$candidate/$EXEC_NAME" ]]; then RELEASE_DIR="$candidate"; break; fi
   done
 fi

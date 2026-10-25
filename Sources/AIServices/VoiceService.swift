@@ -498,7 +498,13 @@ public actor VoiceService {
         // ⚠️ **调门不走这条键** —— 它在播放侧生效（`AVAudioUnitTimePitch.pitch`），
         // 与缓存的音频无关；哪天有人把调门挪进合成请求，这个键就必须跟着加，
         // 否则「改了调门听起来没变」会是一个查不出来源的 bug。
-        let key = "\(voice.voice)|\(voice.referenceAudioPath ?? "")|\(language)"
+        //
+        // ⚠️ **runtime 身份必须进键**（#672）：缓存里躺着的是「这一家供应商合成的声音」。
+        // 用户把教师语音从云端切到本地（或换一家云端）时音色名可能一字不差，
+        // 沿用旧键就是拿上家的音频冒充这一家 —— 症状是「换了音色听起来没变」，
+        // 而它连一次请求都不发，日志里什么都看不到。
+        let identity = await tts.runtimeIdentity
+        let key = "\(identity)|\(voice.voice)|\(voice.referenceAudioPath ?? "")|\(language)"
             + "|\(tone.style ?? "")|\(tone.emotion ?? "")|\(text)"
         if let hit = audioCache[key] { return hit }
         // 同键已经在合成 → 直接等它那一趟，不再发一次请求（#S3-7）。
@@ -520,16 +526,31 @@ public actor VoiceService {
         return wav
     }
 
-    /// 记进 FIFO 缓存（**同一个键只占一格**）。
+    /// 记进 FIFO 缓存（**同一个键只占一格，总量按字节封顶**）。
     ///
     /// ⚠️ 先查重再淘汰：合流的后来者也会走到这里，此时的键已经在队里 ——
     /// 不查重就会「新键没加、老键被删」两头错位，淘汰时把谁都算错。
+    ///
+    /// ⚠️ 两道上限都要（#672）：条数兜住「一堆小音频把队列撑长」，字节兜住
+    /// 「几条云端长音频吃掉上百兆」。只留一道的话，另一头就敞着。
     private func remember(key: String, wav: Data) {
+        // 单条就超限的干脆不进：它既不值得占地方，也不太会被复读。
+        guard SpeechAudioCachePolicy.allowsCaching(bytes: wav.count) else { return }
         if let existing = cacheOrder.firstIndex(of: key) {
             cacheOrder.remove(at: existing)
-        } else if audioCache.count >= cacheLimit, let oldest = cacheOrder.first {
-            audioCache[oldest] = nil
-            cacheOrder.removeFirst()
+        } else {
+            if audioCache.count >= cacheLimit, let oldest = cacheOrder.first {
+                audioCache[oldest] = nil
+                cacheOrder.removeFirst()
+            }
+            let entries = cacheOrder.compactMap { key -> (key: String, bytes: Int)? in
+                guard let data = audioCache[key] else { return nil }
+                return (key, data.count)
+            }
+            for victim in SpeechAudioCachePolicy.evictionPlan(entries: entries, incoming: wav.count) {
+                audioCache[victim] = nil
+                if let index = cacheOrder.firstIndex(of: victim) { cacheOrder.remove(at: index) }
+            }
         }
         audioCache[key] = wav
         cacheOrder.append(key)

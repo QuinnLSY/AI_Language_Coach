@@ -80,6 +80,15 @@ public func deleteBackup(at url: URL) async throws {
     try await backup.deleteBackup(at: url)
 }
 
+/// 回收超出保留窗口的坏库隔离副本（进废纸篓，最近那份永不碰）。
+///
+/// 隔离目录过去**只进不出**：每坏一次多一份，攒几年就是几百 MB，
+/// 而存储面板还报着「1 MB」——谁也不知道磁盘被谁吃了（#674）。
+@discardableResult
+public func pruneQuarantine(base: URL = AppPaths.userDataDirectory()) -> (removed: Int, freedBytes: Int64) {
+    DataResilience.pruneQuarantine(base: base)
+}
+
 /// 把学习记录导出成人类可读的文件：Markdown（会话 + 错题）与 CSV（单词本）。
 ///
 /// 这是「数据出得去」的那一半：备份 zip 是给本应用恢复用的机器格式，

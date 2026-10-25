@@ -1,3 +1,4 @@
+import AIDomain
 import AppCore
 import Foundation
 
@@ -109,6 +110,56 @@ public enum DataResilience {
     /// 主库 + WAL + SHM。
     static func companions(of url: URL) -> [URL] {
         [url, url.appendingPathExtension("-wal"), url.appendingPathExtension("-shm")]
+    }
+
+    // MARK: - 隔离目录的保留策略（#674）
+
+    /// 按保留策略回收老副本（**进废纸篓**，可捞回）。
+    ///
+    /// 与「坏库绝不删除」不冲突：隔离那一刻绝不删（那是证据），
+    /// 这里清的是**超出保留窗口的老副本**，且最近那份永远留着（见 `QuarantineRetention`）。
+    ///
+    /// - Returns: `(removed, freedBytes)` —— 清掉几份、腾出多少字节。
+    @discardableResult
+    public static func pruneQuarantine(
+        base: URL = AppPaths.userDataDirectory(),
+        now: Date = Date()
+    ) -> (removed: Int, freedBytes: Int64) {
+        let manager = FileManager.default
+        let directory = quarantineDirectory(base: base)
+        let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey]
+        guard let urls = try? manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys)) else {
+            return (0, 0) // 目录还不存在 = 一次都没坏过，没什么可回收
+        }
+
+        var entries: [QuarantineRetention.Entry] = []
+        var sizes: [String: Int64] = [:]
+        for url in urls {
+            let values = try? url.resourceValues(forKeys: keys)
+            guard values?.isRegularFile == true else { continue }
+            entries.append(.init(name: url.lastPathComponent,
+                                 modifiedAt: values?.contentModificationDate ?? .distantPast))
+            sizes[url.lastPathComponent] = Int64(values?.fileSize ?? 0)
+        }
+
+        let doomed = Set(QuarantineRetention.prunePlan(entries: entries, now: now))
+        guard !doomed.isEmpty else { return (0, 0) }
+
+        var removed = 0
+        var freed: Int64 = 0
+        for url in urls where doomed.contains(url.lastPathComponent) {
+            if TrashItem.delete(url) {
+                removed += 1
+                freed += sizes[url.lastPathComponent] ?? 0
+            }
+        }
+        if removed > 0 {
+            AppLog.info(
+                "坏库隔离副本保留策略：清掉 \(removed) 份，腾出 \(freed / 1024) KB（已进废纸篓）",
+                category: "database"
+            )
+        }
+        return (removed, freed)
     }
 
     private static func timestamp(_ date: Date) -> String {

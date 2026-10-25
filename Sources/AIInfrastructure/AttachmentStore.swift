@@ -1,5 +1,6 @@
 import AIDomain
 import AppCore
+import CryptoKit
 import Foundation
 
 /// 聊天附件仓库：把用户选中的文件**复制**进应用数据目录，并以相对路径登记。
@@ -25,6 +26,21 @@ public actor AttachmentStore {
     private let directory: URL
     private let fileManager: FileManager
 
+    /// 内容寻址带来的代价：**多个附件可能共用同一个文件**。
+    /// 于是「删掉一个附件」不能再无条件清文件 —— 得先知道还有没有别人拿着它。
+    ///
+    /// 记的是「本进程把某个存储名交出去过几次」，而不是全局引用表：
+    /// 跨进程的那部分（历史消息引用了哪个文件）本进程无从得知，
+    /// 那就一律按「有人引用」处理，保守不清。
+    private var handOutCounts: [String: Int] = [:]
+
+    /// 本进程**亲手复制进来**的存储名。
+    ///
+    /// 只有这一批是可以放心清的：它是本次启动才诞生的，
+    /// 此前不可能有任何历史消息引用它。命中去重（文件已存在）的那些不算 ——
+    /// 它可能正被上一次启动发出去的消息引用着。
+    private var selfCopied: Set<String> = []
+
     /// - Parameter directory: 附件目录；默认 `<用户数据目录>/attachments`（测试可注入临时目录）。
     public init(directory: URL? = nil, fileManager: FileManager = .default) {
         self.fileManager = fileManager
@@ -35,8 +51,11 @@ public actor AttachmentStore {
 
     /// 把外部文件复制进来并登记成一个附件。
     ///
-    /// - 文件名冲突不可能发生：存储名用新 UUID，原始名只留作展示与下载默认名。
-    /// - 体积上限由调用方把关（`AttachmentPolicy`），本层只负责搬运。
+    /// ⚠️ **存储名由内容决定**（`SHA256(内容).扩展名`），不是随机 UUID：
+    /// 同一张图被反复发送时只会落一份，而不是每次都复制一份
+    /// （实测同一张 1.9 MB 的图被存了两遍）。命中即复用，不再复制。
+    ///
+    /// - 体积上限由调用方把关（`AttachmentPolicy`，20 MB），本层只负责搬运与取名。
     public func importFile(at sourceURL: URL) throws -> ChatAttachment {
         let name = sourceURL.lastPathComponent
         let kind = AttachmentClassifier.kind(forFileName: name)
@@ -49,17 +68,23 @@ public actor AttachmentStore {
             throw AppError.storage("这个文件是空的，没有可发送的内容：\(name)")
         }
 
+        let digest = try Self.contentDigest(of: sourceURL)
+        let storedName = "\(digest).\(ext)"
+
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let storedName = "\(UUID().uuidString).\(ext)"
         let destination = directory.appendingPathComponent(storedName)
-        if fileManager.fileExists(atPath: destination.path) {
-            try fileManager.removeItem(at: destination)
+        // 同名文件存在 ≠ 内容一样只看名字就已经够了：**再核一次体积**，
+        // 上一次复制被打断留下的半截文件不会被当成可用的那份复用。
+        let existingSize = (try? destination.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
+        if existingSize != size {
+            do {
+                try fileManager.copyItem(at: sourceURL, to: destination)
+            } catch {
+                throw AppError.storage("复制附件失败：\(error.localizedDescription)")
+            }
+            selfCopied.insert(storedName)
         }
-        do {
-            try fileManager.copyItem(at: sourceURL, to: destination)
-        } catch {
-            throw AppError.storage("复制附件失败：\(error.localizedDescription)")
-        }
+        handOutCounts[storedName, default: 0] += 1
 
         return ChatAttachment(
             kind: kind,
@@ -68,6 +93,20 @@ public actor AttachmentStore {
             byteCount: size,
             storedPath: "attachments/\(storedName)"
         )
+    }
+
+    /// 文件内容的 SHA-256。
+    ///
+    /// ⚠️ **不能用 `StableFingerprint`**：它是 32 位 FNV，两个不同的文件只要撞一次，
+    /// 后发的那张图就会被静默吞掉（消息里挂着别人的图，且查不出原因）。
+    /// 内容寻址必须抗碰撞，所以这里用 SHA-256 —— 哪怕因此多读一遍文件。
+    private nonisolated static func contentDigest(of url: URL) throws -> String {
+        // 上限 20 MB（AttachmentPolicy），整读一次是可接受的；
+        // 不用 `.mappedIfSafe`：映射期间文件被改动会直接把进程带走（SIGBUS）。
+        guard let data = try? Data(contentsOf: url) else {
+            throw AppError.storage("读不出这个附件的内容：\(url.lastPathComponent)")
+        }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     /// 附件的定位规则（唯一口径）：落库的 `storedPath` 带 `attachments/` 前缀是为了**自解释**，
@@ -101,9 +140,24 @@ public actor AttachmentStore {
     ///
     /// ⚠️ 走废纸篓而不是 `removeItem`（#S2-13）：附件是用户攒下来的东西，
     /// 点错一次不该永久消失；废纸篓不可用时 `TrashItem` 内部会回落并落日志。
+    ///
+    /// ⚠️ **共用文件不清**（内容寻址的代价）：同一张图发过一次之后再被加进待发区，
+    /// 两条记录指向同一个文件。这时删掉待发区那一条，若顺手把文件清了，
+    /// 上一条已发出的消息就变成「本地文件已不可用」——用户没删过它。
+    /// 所以只有「本进程亲手复制的、且没有别人还拿着」才真的清。
     @discardableResult
     public func remove(_ attachment: ChatAttachment) -> Bool {
-        TrashItem.delete(fileURL(for: attachment))
+        let name = Self.fileName(of: attachment.storedPath)
+        guard !name.isEmpty, name != "/" else { return false }
+        guard let url = fileURL(for: attachment) else { return false }
+
+        let remaining = (handOutCounts[name] ?? 0) - 1
+        handOutCounts[name] = max(remaining, 0)
+        if remaining > 0 { return false }
+        // 不是本进程复制进来的：它可能正被历史消息引用着，本进程无从核实 —— 保守留着。
+        guard selfCopied.contains(name) else { return false }
+        selfCopied.remove(name)
+        return TrashItem.delete(url)
     }
 
     /// 全量体检：列出目录里没有任何消息引用的孤儿文件（设置页清理用）。

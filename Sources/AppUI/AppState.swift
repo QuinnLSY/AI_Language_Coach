@@ -1633,6 +1633,20 @@ public final class AppState {
 
     // MARK: - 启动
 
+    /// 装配 LLM 并把失败写成开屏提示（#671：这趟要跨网，由 `start()` 放飞与本地取数重叠）。
+    ///
+    /// 单独成方法而不是在 `start()` 里写 `async let { … }()` 闭包：
+    /// `async let` 只接受一个表达式，闭包里再包 `do/catch` 会把「装配失败也要继续开屏」
+    /// 这段逻辑藏进一个不具名的块里，将来想单看它（或给它补测试）无处下手。
+    private func bootstrapLLMWithNotice() async {
+        do {
+            try await services.bootstrapLLM()
+            bootMessage = nil
+        } catch {
+            bootMessage = error.localizedDescription
+        }
+    }
+
     public func start() async {
         // 用户上次在设置页选的日志级别要**在最早一刻**生效，否则启动早期按默认口径收/漏日志。
         LogOptions.applyPersistedLevel()
@@ -1654,6 +1668,16 @@ public final class AppState {
         sound.enabled = configuration.product.soundEffects
         chat.profile.learningLanguage = configuration.product.learningLanguage
         chat.profile.nativeLanguage = configuration.product.nativeLanguage
+        // ⚠️ 并发段（#671）：LLM 装配是一趟**跨网往返**（云端要先拉一次模型目录，
+        // 实测占掉开屏小一半），而它唯一的产物（`llmProvider`）只有最后那次
+        // `refreshStatus()` 用得上 —— 于是把它单独放飞，与下面整条**本地**取数链
+        // （进度 / 情景 / 会话恢复 / 语音 …）重叠跑。
+        //
+        // ⚠️ **只放飞它一个**，其余步骤保持串行：迎新记名、音色对齐都会**改 `product`
+        // 并回写配置**，两处并发改同一个值就是丢更新 —— 「明明欢迎过，下次又演一遍」
+        // 「音色改了又跳回去」这类偶发、难复现的怪事正是这么来的。本地链与改动前逐字一致，
+        // 变的只是它不再干等那趟网络。
+        async let llmBootstrap: Void = bootstrapLLMWithNotice()
         progress = await services.loadProgress()
         // ③ AI 排的课：读一次课目录，把课内情景挂成大树上的关卡。
         // ⚠️ 必须**在** `loadProgress()` **之后** —— `applyScenarioBindings` 会把关卡的
@@ -1675,14 +1699,11 @@ public final class AppState {
         // 用户在万分之一的等待里什么也得不到。失败就退回本地日期模拟，界面自有天气。
         Task { [weak self] in await self?.refreshTodayWeather() }
         Task { [weak self] in await self?.ensureAutoBackupIfNeeded() }
+        // 坏库隔离目录（#674）：过去只进不出，攒几年就是几百 MB。
+        // 后台跑 —— 它要列目录并可能动废纸篓，不该挡在开屏路径上。
+        Task { [weak self] in _ = await self?.services.pruneQuarantine() }
 
         isBooting = true
-        do {
-            try await services.bootstrapLLM()
-            bootMessage = nil
-        } catch {
-            bootMessage = error.localizedDescription
-        }
         // 恢复上次会话的聊天内容（无历史则保持空白）
         await chat.restoreLastSessionIfNeeded()
         // 开屏引导（2026-10-14 改造）：**不再自动开场**。
@@ -1701,24 +1722,11 @@ public final class AppState {
         // 加载情景之类的都不该排在它前面）。
         await prepareLaunchGuide()
         await bootstrapVoice()
-        // 应用启动即拉起本机语音：Edge-TTS 代理（免费微软音色）+ **当前选中的本机语音识别**。
-        // 两者都不阻断开屏；结果转成用户可见的提示（#546）—— 未授权 / 失败从前只有日志，
-        // 用户只会觉得「朗读没声音」「麦克风用不了」，完全不知道服务根本没起来。
-        Task { [weak self] in
-            guard let self else { return }
-            let ttsOutcome = await self.services.ensureEdgeTTSProxyOnLaunch()
-            let asrOutcome = await self.services.ensureLocalASROnLaunch()
-            self.applyLocalServiceLaunchNotice(ttsOutcome, kind: .tts)
-            self.applyLocalServiceLaunchNotice(asrOutcome, kind: .asr)
-            if asrOutcome == .started {
-                // 起来了：设置页的「运行中」标记与 ASR 健康态跟着刷新一次。
-                self.modelRunStates = await self.services.modelRunStates()
-                await self.refreshStatus()
-            }
-            await self.bootstrapVoice()
-        }
         // 发音评测的声学通道（云端发音评估）：没配置也不报错，评测自动走规则推断。
         pronunciationHealth = await services.bootstrapPronunciation()
+        // 并发段收口（#671）：上面放飞的 LLM 装配必须在这里落地 ——
+        // 紧接着的状态刷新要读它注册的 Provider（模型列表 / 健康 / 上下文窗口）。
+        await llmBootstrap
         await refreshStatus()
         refreshTodayTokens()
         modelRunStates = await services.modelRunStates()
@@ -1753,6 +1761,26 @@ public final class AppState {
         // 今日卷轴、短文预生成），它们**不在**这段里 —— 用户看到的就是界面，不是它们。
         PerformanceTrace.shared.recordSinceLaunch(.launch)
         isBooting = false
+        // 应用启动即拉起本机语音：Edge-TTS 代理（免费微软音色）+ **当前选中的本机语音识别**。
+        // 两者都不阻断开屏；结果转成用户可见的提示（#546）—— 未授权 / 失败从前只有日志，
+        // 用户只会觉得「朗读没声音」「麦克风用不了」，完全不知道服务根本没起来。
+        //
+        // ⚠️ 排在 `isBooting = false` **之后**（#671）：拉起本机服务要起进程、等端口通，
+        // 而开屏这一串还要在界面上渲染整片林子 —— 两件重活挤在首屏那一段里互相抢，
+        // 用户等的是它们**加起来**的时间。放到这里，界面先出来，拉起在后台照旧完成。
+        Task { [weak self] in
+            guard let self else { return }
+            let ttsOutcome = await self.services.ensureEdgeTTSProxyOnLaunch()
+            let asrOutcome = await self.services.ensureLocalASROnLaunch()
+            self.applyLocalServiceLaunchNotice(ttsOutcome, kind: .tts)
+            self.applyLocalServiceLaunchNotice(asrOutcome, kind: .asr)
+            if asrOutcome == .started {
+                // 起来了：设置页的「运行中」标记与 ASR 健康态跟着刷新一次。
+                self.modelRunStates = await self.services.modelRunStates()
+                await self.refreshStatus()
+            }
+            await self.bootstrapVoice()
+        }
         // 情景素材与关卡绑定：启动时就要有 —— 「继续上次的情景任务」要靠它找到那一个情景。
         await loadScenarios()
         await refreshQuestRecords()

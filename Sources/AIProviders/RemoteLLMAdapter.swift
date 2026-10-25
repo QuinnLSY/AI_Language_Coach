@@ -88,22 +88,11 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
             return .configurationInvalid(reason: "未填写 API Key")
         }
 
-        var request = URLRequest(url: RemoteEndpoint.modelsURL(base: base))
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         do {
-            let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? 15)
-            if response.statusCode == 401 {
-                return .configurationInvalid(reason: RemoteAuthDiagnostics.unauthorized(
-                    address: Self.address(of: request.url),
-                    keyDescription: CredentialText.safeDescription(apiKey),
-                    serverMessage: Self.serverMessage(from: data)
-                ))
-            }
-            guard (200..<300).contains(response.statusCode) else {
-                return .requestFailed(reason: "HTTP \(response.statusCode)")
-            }
-            let list = try Self.decode(ModelList.self, from: data)
-            let ids = Set(list.data.map(\.id))
+            let models = try await fetchCatalog(
+                base: base, apiKey: apiKey, timeout: config.requestTimeout ?? 15
+            )
+            let ids = Set(models.map(\.id))
             if let model = config.model, !model.isEmpty {
                 return ids.contains(model) ? .connected(model: model) : .modelUnavailable(model: model)
             }
@@ -112,6 +101,11 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
             switch error {
             case .connectionFailed(let reason), .timeout(let reason):
                 return .runtimeUnavailable(reason: reason)
+            case .invalidConfiguration(let reason):
+                // 401 / 端点不可用：诊断原文（`RemoteAuthDiagnostics` 里凭据已打码）一个字不改地透出。
+                return .configurationInvalid(reason: reason)
+            case .serverError(let status, _):
+                return .requestFailed(reason: "HTTP \(status)")
             default:
                 return .requestFailed(reason: error.localizedDescription)
             }
@@ -251,29 +245,51 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
     /// 模型发现：`GET {base}/v1/models`（端点自带 `/v1` 时自动去重，见 `RemoteEndpoint.modelsURL`）。
     public func discoverModels() async throws -> [DiscoveredModel] {
         let (config, base, apiKey) = try await resolved()
-        var request = URLRequest(url: RemoteEndpoint.modelsURL(base: base))
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-        let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? 20)
-        if response.statusCode == 401 {
-            throw AIProviderError.invalidConfiguration(RemoteAuthDiagnostics.unauthorized(
-                address: Self.address(of: request.url),
-                keyDescription: CredentialText.safeDescription(apiKey),
-                serverMessage: Self.serverMessage(from: data)
-            ))
-        }
-        guard (200..<300).contains(response.statusCode) else {
-            throw AIProviderError.serverError(status: response.statusCode, message: String(data: data, encoding: .utf8))
-        }
-        await RemoteCommon.noteDiscovery(kind: .llm, providerID: providerID, base: base)
-        let list = try Self.decode(ModelList.self, from: data)
-        return list.data.map {
-            DiscoveredModel(id: $0.id, name: $0.name ?? $0.id, contextLength: $0.contextLength)
-        }
+        return try await fetchCatalog(
+            base: base, apiKey: apiKey, timeout: config.requestTimeout ?? 20
+        )
     }
 
     // MARK: - 内部
+
+    /// 拉一次模型目录（`GET {base}/v1/models`），**走共享短时缓存**。
+    ///
+    /// 为什么两处（健康探测与模型发现）必须共用这一条路：它们打的是同一个 URL、
+    /// 问的是同一件事，而开屏会把它们连着叫两遍（装配 `load()` + 状态刷新），
+    /// 实测各 300–800ms —— 各自发一次就等于每次开屏多等一趟跨网往返。
+    ///
+    /// ⚠️ 留痕（`noteDiscovery`）留在闭包里：**只记真正发出去的那一趟**。
+    /// 命中缓存时本机没有产生任何对外调用，记进去反而让「一共对外请求了几次」失真。
+    private func fetchCatalog(
+        base: URL,
+        apiKey: String,
+        timeout: TimeInterval
+    ) async throws -> [DiscoveredModel] {
+        let key = RemoteCatalogCache.key(base: base, apiKey: apiKey, kind: kind)
+        return try await RemoteCatalogCache.shared.models(key: key) {
+            var request = URLRequest(url: RemoteEndpoint.modelsURL(base: base))
+            request.httpMethod = "GET"
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            let (data, response) = try await self.client.perform(request, timeout: timeout)
+            if response.statusCode == 401 {
+                throw AIProviderError.invalidConfiguration(RemoteAuthDiagnostics.unauthorized(
+                    address: Self.address(of: request.url),
+                    keyDescription: CredentialText.safeDescription(apiKey),
+                    serverMessage: Self.serverMessage(from: data)
+                ))
+            }
+            guard (200..<300).contains(response.statusCode) else {
+                throw AIProviderError.serverError(
+                    status: response.statusCode, message: String(data: data, encoding: .utf8)
+                )
+            }
+            await RemoteCommon.noteDiscovery(kind: .llm, providerID: self.providerID, base: base)
+            let list = try Self.decode(ModelList.self, from: data)
+            return list.data.map {
+                DiscoveredModel(id: $0.id, name: $0.name ?? $0.id, contextLength: $0.contextLength)
+            }
+        }
+    }
 
     private func resolved() async throws -> (ProviderConfig, URL, String) {
         guard let config = await state.currentConfig else { throw AIProviderError.notInitialized }

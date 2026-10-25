@@ -46,29 +46,29 @@ extension SettingsView {
                     .accessibilityLabel("重新统计缓存占用")
                 }
 
-                // 明细：学习记忆加锁标记（清理时保留）；留痕单独点名（可清，但清的是对账证据）
+                // 明细：每一行都标明它的性质 —— 学习记忆加锁、留痕点名、
+                // 素材是资产（不跟着清理走）、坏库隔离是有据可查的副本。
+                // 子目录汇总成一行（附文件数），否则面板会被几百个文件名淹没。
                 ForEach(snapshot.items) { item in
                     HStack(spacing: 6) {
-                        Image(systemName: item.isLearningData ? "lock.fill" : (item.isCallLog ? "list.bullet.rectangle" : "doc"))
+                        Image(systemName: cacheIcon(item))
                             .appFont(9)
-                            .foregroundStyle(item.isLearningData ? theme.accent : theme.secondaryText)
+                            .foregroundStyle(item.kind == .learningData ? theme.accent : theme.secondaryText)
                         Text(item.name)
                             .appFont(12, design: .rounded)
                             .foregroundStyle(theme.primaryText)
-                        if item.isLearningData {
-                            Text("学习记忆")
+                        if item.isDirectory, item.fileCount > 0 {
+                            Text("\(item.fileCount) 个文件")
+                                .appFont(10, design: .rounded)
+                                .foregroundStyle(theme.secondaryText)
+                        }
+                        if let badge = item.kind.badge {
+                            Text(badge)
                                 .appFont(9, weight: .semibold, design: .rounded)
-                                .foregroundStyle(theme.accent)
+                                .foregroundStyle(cacheBadgeColor(item))
                                 .padding(.horizontal, 5)
                                 .appPadding(.vertical, 2)
-                                .background(Capsule().fill(theme.accent.opacity(0.12)))
-                        } else if item.isCallLog {
-                            Text("对账留痕")
-                                .appFont(9, weight: .semibold, design: .rounded)
-                                .foregroundStyle(theme.warning)
-                                .padding(.horizontal, 5)
-                                .appPadding(.vertical, 2)
-                                .background(Capsule().fill(theme.warning.opacity(0.12)))
+                                .background(Capsule().fill(cacheBadgeColor(item).opacity(0.12)))
                         }
                         Spacer()
                         Text(CacheSnapshot.byteCount(item.bytes))
@@ -112,7 +112,7 @@ extension SettingsView {
                     .help("清理过期对话流水与对外调用留痕，并回收磁盘空间")
                 }
 
-                Text("清除只影响可再生的对话流水、数据库碎片与对外调用留痕（留痕会进废纸篓，可捞回）；学习记忆（错题本、进度）和配置始终保留。")
+                Text("清除只影响可再生的对话流水、数据库碎片与对外调用留痕（留痕会进废纸篓，可捞回）；学习记忆（错题本、进度）、配置与聊天素材始终保留。")
                     .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
 
@@ -340,6 +340,25 @@ extension SettingsView {
                     .appFont(11, design: .rounded)
                     .foregroundStyle(theme.secondaryText)
             }
+        }
+    }
+
+    /// 每一行的图标：性质一眼可辨，不让「一堆 doc 图标」把区别藏起来。
+    private func cacheIcon(_ item: CacheItemInfo) -> String {
+        switch item.kind {
+        case .learningData: "lock.fill"
+        case .callLog: "list.bullet.rectangle"
+        case .attachments: "photo.stack"
+        case .quarantine: "exclamationmark.triangle.fill"
+        case .other: item.isDirectory ? "folder" : "doc"
+        }
+    }
+
+    /// 性质标签的配色：accent = 受保护的资产，warning = 需要用户留意的那几类。
+    private func cacheBadgeColor(_ item: CacheItemInfo) -> Color {
+        switch item.kind {
+        case .learningData, .attachments, .other: theme.accent
+        case .callLog, .quarantine: theme.warning
         }
     }
 

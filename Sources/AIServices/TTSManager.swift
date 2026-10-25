@@ -43,6 +43,18 @@ public actor TTSManager {
     ///
     /// 判断依据是 Provider 自报的 runtime，而不是「用户选了什么」——
     /// 用户切到云端后装配链路会换掉 Provider 实例，这里自然跟着变。
+    /// 当前 Provider 的**身份**（id + runtime），朗读缓存的键要用它（#672）。
+    ///
+    /// 为什么必须进键：缓存里存的是**这一家供应商合成出来的声音**。
+    /// 用户在设置里把教师语音从云端切到本地（或换一家云端），音色名完全可能同名，
+    /// 那时若沿用旧键，读出来的还是上一家的声音 ——
+    /// 「明明换了音色，听起来一点没变」是一种查不出来源的 bug（它连请求都不发）。
+    public var runtimeIdentity: String {
+        guard let provider else { return "none" }
+        let meta = provider.metadata()
+        return "\(meta.id)|\(meta.runtime.rawValue)"
+    }
+
     public var delivery: SpeechDelivery {
         guard let provider else { return .segmented }
         return SpeechDelivery.forRuntime(provider.metadata().runtime)
