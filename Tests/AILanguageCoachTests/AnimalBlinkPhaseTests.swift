@@ -100,11 +100,15 @@ final class AnimalBlinkPhaseTests: XCTestCase {
                       "LivelyAnimal 必须把初相种子透传给 CuteAnimalView")
     }
 
-    /// 眨眼定时器读的是同一个周期常量（别在两处各写一个 3.2）。
-    func testBlinkTimerReadsTheSharedPeriod() throws {
+    /// 眨眼节拍读的是同一个周期常量（别在两处各写一个 3.2）。
+    ///
+    /// #669 起节拍来源从「每实例一个 `Timer.publish`」换成读全局氛围钟的
+    /// `BeatPulse`，钉的字符串跟着换；不变的是这条判据在守的东西 ——
+    /// 周期只有一处来源，纯函数 `blinkLead` 算出的初相才和实际拍子对得上。
+    func testBlinkBeatReadsTheSharedPeriod() throws {
         let animals = try source(named: "Animals", in: "Theme")
-        XCTAssertTrue(animals.contains("Timer.publish(every: Self.blinkPeriod"),
-                      "定时器周期必须取自 blinkPeriod 常量，否则纯函数算出的初相和实际拍子对不上")
+        XCTAssertTrue(animals.contains("BeatPulse(period: Self.blinkPeriod"),
+                      "节拍周期必须取自 blinkPeriod 常量，否则纯函数算出的初相和实际拍子对不上")
     }
 
     // MARK: - 读源码
