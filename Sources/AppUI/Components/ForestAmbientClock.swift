@@ -73,6 +73,86 @@ public extension EnvironmentValues {
     }
 }
 
+// MARK: - 慢节拍脉冲（#669）
+
+/// 慢节拍脉冲：把「每 N 秒一拍」从**每个实例各起一个 Timer** 改成读全局氛围钟的相位。
+///
+/// 为什么（#669）：眨眼 / 哈气 / 教棍挥动这类慢节拍，此前是**每只动物各起一个**
+/// `Timer.publish(every:).autoconnect()`（而且是视图结构体的存储属性 ——
+/// 结构体每次重建都会新造一个发布者，相位还会被重建打断）。林子里几只动物 +
+/// 老师手里的教棍，就是十几个 RunLoop 定时器，注册数随动物数线性涨。
+///
+/// 三条路与 `AmbientTicker` **同构**：
+/// 1. `paused` → 什么都不挂（连读数都不做）；
+/// 2. **注入了钟** → 由钟的相位算拍号，于是主窗口里全世界只有
+///    `ForestAmbientDriver` 那一颗 `TimelineView`；
+/// 3. **没注入钟**（离屏夹具 / 别的场景）→ 自己起一颗，行为与改造前逐拍一致。
+///
+/// ⚠️ 它是**零尺寸的透明层**，且**读相位的是它自己那一层**：若把相位读进动物那一层，
+/// 钟每帧一动，整只动物（几十个 Shape）就得跟着重绘 —— 省下的定时器还不够赔。
+/// 挂法固定为 `.overlay { BeatPulse(...) }`。
+///
+/// ⚠️ `onChange` 只在**拍号变化**时回调：首帧不打第一拍（与改造前的定时器一致，
+/// 都是等满一个周期才第一次响）。
+struct BeatPulse: View {
+
+    /// 拍子周期（秒）。
+    var period: Double
+    /// 初相（秒）：把整条拍子序列整体平移，各实例靠它错峰 —— 共享同一颗钟也不会齐步走。
+    var lead: Double = 0
+    /// 暂停：连读数都不做（渲染夹具闸门 / 睡着了 / 这一档根本不该有这个动作）。
+    var paused: Bool = false
+    /// 自起表那条路的轮询间隔（秒）。
+    ///
+    /// ⚠️ 默认 0.1 而不是 20fps：拍号只需要**百毫秒级**精度（周期最小 2.6s），
+    /// 而这条路只在「没注入钟」的离屏夹具里走到 —— 没必要为它跑满帧。
+    /// ⚠️ 用 `.periodic` 而不是 `.animation(minimumInterval:)`：后者是
+    /// 「跟着动画走」的调度，内容里没有动画时**不保证按间隔响**，
+    /// 而这里要的正是「无条件每隔一会儿醒一次」—— 与改造前的 Timer 同义。
+    var interval: Double = 0.1
+    /// 每拍回调一次。
+    var onBeat: () -> Void
+
+    @Environment(\.forestAmbientClock) private var ambient
+    @State private var origin = Date()
+
+    var body: some View {
+        if paused {
+            Color.clear
+        } else if let ambient {
+            Color.clear.onChange(of: beat(elapsed: ambient.elapsed)) { _, _ in onBeat() }
+        } else {
+            TimelineView(.periodic(from: .now, by: interval)) { context in
+                Color.clear.onChange(
+                    of: beat(elapsed: max(context.date.timeIntervalSince(origin), 0))
+                ) { _, _ in onBeat() }
+            }
+        }
+    }
+
+    /// 拍号：`lead` 加在被除数上 = 整条序列往前平移 `lead` 秒（第 k 拍落在
+    /// `k × period − lead`）。
+    ///
+    /// 改造前是「定时器响 → 再 `asyncAfter(lead)`」，两者错峰效果一致，
+    /// 但这里不再需要那一次延迟派发（少一个会被挂起 / 被打断的调度点）。
+    ///
+    /// ⚠️ `period <= 0` 恒回 0：这个数会被 `Int(...)` 直接收，而
+    /// `Int(Double.infinity)` 是**陷阱**（除零会把整条拍号变成崩溃），
+    /// 「永远不拍」比「拍号算不出来」安全得多。
+    ///
+    /// 静态纯函数版（实例版转调它）：抽出来只为单测直接钉相位算式 ——
+    /// 与 `PointerPose` 同一条理由，算错相位是真机上才看得见的「集体抽搐」。
+    nonisolated static func beatIndex(elapsed: Double, period: Double, lead: Double) -> Int {
+        guard period > 0 else { return 0 }
+        return Int((elapsed + lead) / period)
+    }
+
+    /// 实例版：body 里两处 `onChange(of:)` 读它（纯函数，不碰任何状态）。
+    func beat(elapsed: Double) -> Int {
+        Self.beatIndex(elapsed: elapsed, period: period, lead: lead)
+    }
+}
+
 // MARK: - 氛围钟驱动器
 
 /// 氛围钟驱动器：全场景**唯一**一颗推进氛围钟的 `TimelineView`。

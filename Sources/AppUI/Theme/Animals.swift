@@ -589,12 +589,10 @@ public struct CuteAnimalView: View {
 
     @Environment(\.appMotion) private var motion
 
-    private let blinkTimer = Timer.publish(every: Self.blinkPeriod, on: .main, in: .common).autoconnect()
-
     /// 哈气的节奏（秒，#628）：呼一团 → 停一下 → 再呼一团。
     ///
     /// 比眨眼慢一倍 —— 呼吸是慢动作，跟眨眼一个节奏会读成「抽搐」。
-    private let breathTimer = Timer.publish(every: 2.6, on: .main, in: .common).autoconnect()
+    public nonisolated static let breathPeriod: Double = 2.6
 
     public init(kind: AnimalKind, isSleeping: Bool = false, size: CGFloat = 64,
                 accessory: AnimalAccessory = .none, bobbing: Bool = true,
@@ -640,7 +638,7 @@ public struct CuteAnimalView: View {
         return blinkPeriod * frac
     }
 
-    /// 眨一下（闭眼 → 睁眼）。延迟派发后**再判一次**闸门：延迟期间可能已经
+    /// 眨一下（闭眼 → 睁眼）。延迟派发后**再判一次**闸门：闭眼这 0.14s 里可能已经
     /// 切到夜晚（睡着了）或被渲染夹具关掉了动画。
     private func blink() {
         guard !isSleeping, Self.animationsEnabled else { return }
@@ -752,23 +750,26 @@ public struct CuteAnimalView: View {
         .onChange(of: isSleeping) { _, sleeping in
             isHopping = (bobbing && !sleeping && Self.animationsEnabled) ? true : false
         }
-        .onReceive(blinkTimer) { _ in
-            guard !isSleeping, Self.animationsEnabled else { return }
-            let lead = Self.blinkLead(seed: blinkPhaseSeed)
-            if lead < 0.001 {
-                blink()
-            } else {
-                // 每拍都延后同一个 lead —— 等价于把整条眨眼序列整体平移，
-                // 相位永久错开（不会因为跑久了又飘回同步）。
-                DispatchQueue.main.asyncAfter(deadline: .now() + lead) { blink() }
-            }
+        // 眨眼 / 哈气的节拍（#669）：不再每只动物各起一个 `Timer`，改读全局氛围钟的
+        // 相位（`BeatPulse`）—— 主窗口里全世界只剩 `ForestAmbientDriver` 那一颗
+        // TimelineView，拍子由它的相位算出来。
+        //
+        // ⚠️ 挂成**独立的透明层**而不是读进本层：钟每帧都在动，读进本层的话整只
+        // 动物（几十个 Shape）每帧都要重绘一次，省下的定时器还不够赔。
+        // ⚠️ 错峰靠 `lead`（与改造前同一套 `blinkLead`）：共享同一颗钟之后，
+        // 没有初相就会全场齐步眨 —— 那正是当初要修的「一起眨」。
+        .overlay {
+            BeatPulse(period: Self.blinkPeriod,
+                      lead: Self.blinkLead(seed: blinkPhaseSeed),
+                      paused: isSleeping || !Self.animationsEnabled) { blink() }
         }
-        .onReceive(breathTimer) { _ in
+        .overlay {
             // 睡着 / 不冷 / 夹具闸门：都不哈（`AnimalBreath.shows` 已含睡意判据）
-            guard Self.animationsEnabled,
-                  AnimalBreath.shows(season: season, weather: weather, isSleeping: isSleeping)
-            else { return }
-            breathing.toggle()
+            BeatPulse(period: Self.breathPeriod,
+                      lead: Self.blinkLead(seed: blinkPhaseSeed),
+                      paused: !Self.animationsEnabled
+                          || !AnimalBreath.shows(season: season, weather: weather,
+                                                 isSleeping: isSleeping)) { breathing.toggle() }
         }
     }
 
@@ -1420,7 +1421,6 @@ private struct TeacherPointer: View {
 
     @State private var isWaving = false
     @State private var isKnocking = false
-    private let waveTimer = Timer.publish(every: 4.2, on: .main, in: .common).autoconnect()
 
     private var pose: PointerPose { PointerPose.make(knocking: isKnocking, waving: isWaving) }
 
@@ -1456,12 +1456,17 @@ private struct TeacherPointer: View {
             .offset(x: size * pose.xRatio, y: size * pose.yRatio)
         }
         .frame(width: size, height: size)
-        .onReceive(waveTimer) { _ in
-            // 敲黑板的时候不随手挥：两个动作叠在一起会像抽筋
-            guard !isKnocking else { return }
-            // 挥一下再收回：小幅、不频繁
-            isWaving = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { isWaving = false }
+        // 随手挥的节拍（#669）：与眨眼 / 哈气同一套改造 —— 不再自己起 `Timer`，
+        // 改读全局氛围钟的相位（`BeatPulse`）。同样是 overlay 而不是读进本层：
+        // 钟每帧都在动，读进本层的话整根教棍（含两段动画）每帧都要重算。
+        .overlay {
+            BeatPulse(period: 4.2) {
+                // 敲黑板的时候不随手挥：两个动作叠在一起会像抽筋
+                guard !isKnocking else { return }
+                // 挥一下再收回：小幅、不频繁
+                isWaving = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { isWaving = false }
+            }
         }
         .onChange(of: knockTick) { _, _ in
             guard knockTick > 0 else { return }
