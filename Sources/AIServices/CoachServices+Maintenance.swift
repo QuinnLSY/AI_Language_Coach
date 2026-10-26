@@ -23,7 +23,33 @@ public func cacheSnapshot() async -> CacheSnapshot {
 public func clearCaches() async -> CacheSnapshot {
     let snapshot = await CacheManager.clearCaches(database: learning)
     await dictionary.clearCache()
+    // 「清缓存」删掉的是会话流水，而它们引过的图片早就复制进 `attachments/`
+    // —— 引用没了，文件还在。这一步负责带走那些刚变成孤儿的那批。
+    await pruneAttachmentOrphans()
     return snapshot
+}
+
+// MARK: - 附件孤儿回收（#676）
+
+/// 把没有任何消息引用的附件本体请进废纸篓。
+///
+/// ⚠️ 引用采集**失败必须拦住整轮清扫**：`referencedAttachmentPaths` 取不到的时候，
+/// 空集合的字面意思是「一个附件都没被引过」，而它会被翻成「全部可清」——
+/// 一次读库失败不该变成删除用户素材。所以这里把失败翻译成 `.unavailable`，
+/// 由 `AttachmentStore` 那侧统一收手（fail-closed 只有一处实现）。
+@discardableResult
+public func pruneAttachmentOrphans() async -> AttachmentSweepSummary {
+    let references: AttachmentReferenceIndex
+    if let learning {
+        do {
+            references = .verified(try await learning.referencedAttachmentPaths())
+        } catch {
+            references = .unavailable(reason: "读学习库失败：\(error.localizedDescription)")
+        }
+    } else {
+        references = .unavailable(reason: "学习库尚未就绪")
+    }
+    return await attachmentStore.pruneOrphans(references: references)
 }
 
 // MARK: - 隐私（设置页「隐私与安全」）

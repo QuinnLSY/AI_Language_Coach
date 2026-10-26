@@ -578,6 +578,31 @@ public actor LearningDatabase {
         return (try? attachmentsDecoder.decode([ChatAttachment].self, from: data)) ?? []
     }
 
+    /// 当前仍被**任何一条消息**引用的附件存储名（裸文件名）。
+    ///
+    /// 这是「某个文件是不是孤儿」的唯一真相源（`AttachmentStore.pruneOrphans` 用它）。
+    ///
+    /// ⚠️ 必须**抛错**而不是返回空集合：空集合的语义是「一个附件都没被引过」，
+    /// 而下游会把它翻成「全部可清」—— 一次查询失败就变成清除用户素材。
+    /// 调用方要把失败翻译成 `.unavailable`，让清扫那一层收手（见 `AttachmentReferenceIndex`）。
+    ///
+    /// ⚠️ 故意不只读最近会话：孤儿清扫问的是「全库有没有人引用」，
+    /// 漏扫一条老会话就会把还在用的素材判成没人要。
+    public func referencedAttachmentPaths() throws -> Set<String> {
+        let rows = try db.query(
+            "SELECT attachments FROM messages WHERE attachments IS NOT NULL AND attachments != ''",
+            [],
+            map: { row in row.string(0) }
+        )
+        var names: Set<String> = []
+        for json in rows {
+            for attachment in Self.decodeAttachments(json) {
+                names.insert(AttachmentStore.fileName(of: attachment.storedPath))
+            }
+        }
+        return names
+    }
+
     static let attachmentsEncoder: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601

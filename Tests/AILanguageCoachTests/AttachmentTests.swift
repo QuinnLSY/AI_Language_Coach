@@ -170,9 +170,12 @@ final class AttachmentTests: XCTestCase {
         XCTAssertEqual(AttachmentStore.fileName(of: "/tmp/x/attachments/abc.png"), "abc.png")
     }
 
-    /// ⚠️ 回归测试：`orphanFiles` 的入参若不归一，
+    /// ⚠️ 回归测试：孤儿清扫的引用入参若不归一（#676），
     /// 调用方传了带前缀的 `storedPath` 就会**把全部在用附件判成孤儿** —— 而清理不可逆。
-    func testOrphanFilesAcceptsBothPathShapes() async throws {
+    ///
+    /// 归一这件事现在归 `AttachmentOrphanPolicy`（策略层）负责，
+    /// 这里留的是端到端那一端：从数据库形态进来的引用，必须保证文件还在。
+    func testOrphanPruneAcceptsStoredPathShape() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("alc-attach-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -184,15 +187,15 @@ final class AttachmentTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: source) }
         let attachment = try await store.importFile(at: source)
 
-        let byPath = await store.orphanFiles(referenced: [attachment.storedPath])
-        XCTAssertTrue(byPath.isEmpty, "传带前缀的 storedPath 时不应把在用附件判成孤儿")
-
-        let bare = AttachmentStore.fileName(of: attachment.storedPath)
-        let byName = await store.orphanFiles(referenced: [bare])
-        XCTAssertTrue(byName.isEmpty, "传裸文件名同样应被认出来")
-
-        let none = await store.orphanFiles(referenced: [])
-        XCTAssertEqual(none.count, 1, "没人引用时它就是孤儿")
+        // 引用是「带 `attachments/` 前缀」的形态 —— 正是 `LearningDatabase` 交出来的样子。
+        let summary = await store.pruneOrphans(references: .verified([attachment.storedPath]))
+        XCTAssertEqual(summary.removed, 0, "传带前缀的 storedPath 时不应把在用附件判成孤儿")
+        XCTAssertEqual(summary.keptReferenced, 1)
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(AttachmentStore.fileName(of: attachment.storedPath)).path
+            )
+        )
     }
 
     // MARK: - 落库往返（schema v8 的 attachments 列）

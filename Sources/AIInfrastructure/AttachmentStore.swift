@@ -47,6 +47,11 @@ public actor AttachmentStore {
         self.directory = directory ?? Self.defaultDirectory
     }
 
+    /// 本仓库指向的是不是**用户的真实数据目录**（而不是测试注入的临时目录）。
+    private var touchesRealUserDataDirectory: Bool {
+        directory.standardizedFileURL == Self.defaultDirectory.standardizedFileURL
+    }
+
     public var storageDirectory: URL { directory }
 
     /// 把外部文件复制进来并登记成一个附件。
@@ -160,17 +165,86 @@ public actor AttachmentStore {
         return TrashItem.delete(url)
     }
 
-    /// 全量体检：列出目录里没有任何消息引用的孤儿文件（设置页清理用）。
+    // MARK: - 孤儿回收（#676）
+
+    /// 把已经没有任何消息引用的附件本体请进废纸篓。
     ///
-    /// ⚠️ `referenced` 允许传 `storedPath`（带 `attachments/` 前缀）**或**裸文件名 ——
-    /// 这里统一取末段再比较。不归一的话，调用方只要传错一格（传了带前缀的形态），
-    /// 全部在用附件都会被判成孤儿，而清理是不可逆的。
-    public func orphanFiles(referenced: Set<String>) -> [URL] {
-        let live = Set(referenced.map { Self.fileName(of: $0) })
+    /// 为什么需要：清缓存删的是会话流水，而被引用的图片早在发送时**复制**进了 `attachments/`，
+    /// 删引用不带走文件 —— 时间一长，目录里攒的就是一堆再也点不到、用户也说不清是什么的东西。
+    ///
+    /// ⚠️ 三重保护，任一命中就留下：
+    /// - `references` 取不到（`.unavailable`）→ **一个都不删**（「不知道谁在用」≠「没人用」）；
+    /// - 文件名在 `selfCopied` 里 → 本进程刚复制、消息可能还没落库，等下一轮；
+    /// - 修改时间在 `AttachmentOrphanPolicy.graceInterval` 内 → 同上，外加给捞回留时间。
+    ///
+    /// ⚠️ 走废纸篓（`TrashItem`）：判定再保守也只是「此刻没人在用」，
+    /// 用户仍可在废纸篓里捞回来，这一点不能省。
+    @discardableResult
+    public func pruneOrphans(references: AttachmentReferenceIndex, now: Date = Date()) -> AttachmentSweepSummary {
+        // ⚠️ 双重闸门：**测试进程** × **真实数据目录**。
+        //
+        // 为什么要这道闸：`TrashItem` 在拿不到废纸篓的进程里会**回落到永久删除**
+        // （那时文件根本没地方可捞）。测试用例全都老老实实用临时目录 + `:memory:` 库，
+        // 但这份纪律没有任何东西守着 —— 只要将来有一处走到了 `clearCaches()`
+        // （它现在会连着跑清扫）或者开屏那条 Task，属于用户的素材就会被一次性删干净，
+        // 而且从日志里看不出发生过什么。宁可白跑一轮，不可赌这个习惯不出错。
+        if touchesRealUserDataDirectory, ProcessIdentity.isRunningTests {
+            let reason = "测试进程里不做任何删除：测试要用临时目录，不许碰用户的真实数据目录"
+            AppLog.warning("跳过附件孤儿清扫：\(reason)", category: "storage")
+            return AttachmentSweepSummary(skippedReason: reason)
+        }
         let contents = (try? fileManager.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: nil
+            at: directory,
+            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey]
         )) ?? []
-        return contents.filter { !live.contains($0.lastPathComponent) }
+
+        var candidates: [AttachmentOrphanCandidate] = []
+        var bytesByName: [String: Int64] = [:]
+        var urlsByName: [String: URL] = [:]
+        for url in contents {
+            let name = url.lastPathComponent
+            // 内部标记（`.DS_Store` 之类）不是用户素材，也不该被算进清理范围。
+            guard !name.hasPrefix(".") else { continue }
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey])
+            guard values?.isRegularFile == true else { continue }
+            let bytes = Int64(values?.fileSize ?? 0)
+            // 取不到修改时间时按「最老」处理？不 —— 按**最新鲜**处理：宁可留一轮也不冒险。
+            let modifiedAt = values?.contentModificationDate ?? now
+            candidates.append(AttachmentOrphanCandidate(name: name, modifiedAt: modifiedAt, bytes: bytes))
+            bytesByName[name] = bytes
+            urlsByName[name] = url
+        }
+
+        let plan = AttachmentOrphanPolicy.plan(
+            candidates: candidates,
+            references: references,
+            inFlight: selfCopied,
+            now: now
+        )
+        if let reason = plan.blockReason {
+            AppLog.warning("跳过附件孤儿清扫：\(reason)", category: "storage")
+            return AttachmentSweepSummary(skippedReason: reason)
+        }
+
+        var removed = 0
+        var freed: Int64 = 0
+        for name in plan.removable {
+            guard let url = urlsByName[name] else { continue }
+            if TrashItem.delete(url) {
+                removed += 1
+                freed += bytesByName[name] ?? 0
+                // 记账同步：文件已经不在了，再挂着「有人拿着它」会让后面的删除路径做无用功。
+                handOutCounts[name] = nil
+                selfCopied.remove(name)
+            }
+        }
+
+        return AttachmentSweepSummary(
+            removed: removed,
+            freedBytes: freed,
+            keptReferenced: plan.keptReferenced,
+            keptRecent: plan.keptRecent + plan.keptInFlight
+        )
     }
 }
 

@@ -1702,6 +1702,10 @@ public final class AppState {
         // 坏库隔离目录（#674）：过去只进不出，攒几年就是几百 MB。
         // 后台跑 —— 它要列目录并可能动废纸篓，不该挡在开屏路径上。
         Task { [weak self] in _ = await self?.services.pruneQuarantine() }
+        // 孤儿附件（#676）：清缓存删的是会话流水，被引用过的图片本体却一直留在
+        // `attachments/`（本机实测半年攒到 9.5 MB，其中还有一张图重复存了两遍）。
+        // 同样后台跑：要遍历目录 + 可能动废纸篓，且它的结果用户此刻并不需要看到。
+        Task { [weak self] in _ = await self?.services.pruneAttachmentOrphans() }
 
         isBooting = true
         // 恢复上次会话的聊天内容（无历史则保持空白）
