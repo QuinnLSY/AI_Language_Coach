@@ -28,6 +28,14 @@ public final class ForestWindClock {
 
     public init() {}
 
+    /// 累计吹风时长（秒）—— **不归零**的那种时间。
+    ///
+    /// 与 `phase` 的区别正是它存在的理由：`phase` 是「草此刻该往哪边弯」，
+    /// 冻结时归零（草立正）；而云是**位移累积**的东西 —— 拿 `phase` 去推，
+    /// 风一停云就会瞬移回起飞点。这里给的是「风一共吹了多久」，冻结时保留，
+    /// 所以风停了云就停在原处，恢复后接着往同一方向飘。
+    public var blownSeconds: Double { elapsed }
+
     /// 每帧推进一次。`blowing = false` 时只记时间、不累计相位。
     public func advance(to date: Date, blowing: Bool) {
         if let last = lastTick, blowing {

@@ -1458,9 +1458,14 @@ public final class ChatService {
     }
 
     /// 无流式兜底：同样请求再走一次非流式通道，返回可用的正文（失败返回 nil）。
+    ///
+    /// ⚠️ 必须标 `continuesBilledCall`：这是**同一次**学员发言的续作，流式那一趟
+    /// 已经开过一笔账了。不标的话，兜底会在账单与 `remote-calls.jsonl` 上再多记一次 ——
+    /// 而用户明明只说了一句话。
     private func nonStreamingFallback(_ request: LLMRequest) async -> String? {
         var plain = request
         plain.streaming = false
+        plain.continuesBilledCall = true
         do {
             let response = try await services.llm.generate(plain)
             let text = Self.stripThinking(response.text).trimmingCharacters(in: .whitespacesAndNewlines)

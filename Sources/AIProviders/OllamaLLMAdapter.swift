@@ -76,7 +76,7 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
 
         let request = URLRequest(url: base.appendingPathComponent("v1/models"))
         do {
-            let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? 10)
+            let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? RemoteTimeouts.localProbe)
             guard (200..<300).contains(response.statusCode) else {
                 return .requestFailed(reason: "HTTP \(response.statusCode)")
             }
@@ -142,7 +142,7 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
             )
         )
 
-        let (data, response) = try await client.perform(urlRequest, timeout: config.requestTimeout ?? 120)
+        let (data, response) = try await client.perform(urlRequest, timeout: config.requestTimeout ?? RemoteTimeouts.generation)
         try Self.ensureSuccess(statusCode: response.statusCode, data: data)
 
         let decoded = try Self.decode(OllamaChatCompletion.self, from: data)
@@ -191,7 +191,7 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
                     )
 
                     let decoder = Self.makeDecoder()
-                    for try await payload in client.streamSSE(urlRequest, timeout: config.requestTimeout ?? 120) {
+                    for try await payload in client.streamSSE(urlRequest, timeout: config.requestTimeout ?? RemoteTimeouts.generation) {
                         guard let payloadData = payload.data(using: .utf8) else { continue }
                         let chunk: OllamaChatCompletion
                         do {
@@ -225,7 +225,7 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
         var request = URLRequest(url: base.appendingPathComponent("v1/models"))
         request.httpMethod = "GET"
 
-        let (data, response) = try await client.perform(request, timeout: 10)
+        let (data, response) = try await client.perform(request, timeout: RemoteTimeouts.localProbe)
         guard (200..<300).contains(response.statusCode) else {
             throw AIProviderError.serverError(status: response.statusCode, message: String(data: data, encoding: .utf8))
         }
@@ -259,7 +259,7 @@ public final class OllamaLLMAdapter: LLMProvider, @unchecked Sendable {
 
     private func fetchTags(base: URL) async throws -> OllamaTagsResponse {
         let request = URLRequest(url: base.appendingPathComponent("api/tags"))
-        let (data, response) = try await client.perform(request, timeout: 10)
+        let (data, response) = try await client.perform(request, timeout: RemoteTimeouts.localProbe)
         guard (200..<300).contains(response.statusCode) else {
             throw AIProviderError.serverError(status: response.statusCode, message: nil)
         }
@@ -465,7 +465,7 @@ extension OllamaLLMAdapter: ModelServiceControlling {
         request.httpBody = try Self.makeEncoder().encode(
             OllamaLoadRequest(model: model, keepAlive: keepAlive)
         )
-        let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? 120)
+        let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? RemoteTimeouts.generation)
         try Self.ensureSuccess(statusCode: response.statusCode, data: data)
     }
 

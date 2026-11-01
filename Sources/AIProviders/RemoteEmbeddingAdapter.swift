@@ -124,7 +124,12 @@ public final class RemoteEmbeddingAdapter: EmbeddingProvider, @unchecked Sendabl
             )
         )
 
-        let (data, response) = try await client.perform(urlRequest, timeout: config.requestTimeout ?? 60)
+        // `.unsafe`：embedding 同样按 token 计费（单价低不代表可以重复计）。
+        let (data, response) = try await client.perform(
+            urlRequest,
+            timeout: config.requestTimeout ?? RemoteTimeouts.shortRequest,
+            idempotency: .unsafe
+        )
 
         let outcome: RemoteCallRecord.Outcome
         if (200..<300).contains(response.statusCode) {

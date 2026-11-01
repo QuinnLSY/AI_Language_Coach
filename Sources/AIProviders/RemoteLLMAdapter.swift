@@ -90,7 +90,7 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
 
         do {
             let models = try await fetchCatalog(
-                base: base, apiKey: apiKey, timeout: config.requestTimeout ?? 15
+                base: base, apiKey: apiKey, timeout: config.requestTimeout ?? RemoteTimeouts.modelProbe
             )
             let ids = Set(models.map(\.id))
             if let model = config.model, !model.isEmpty {
@@ -132,30 +132,44 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
     public func generate(_ request: LLMRequest) async throws -> LLMResponse {
         let (config, base, apiKey) = try await resolved()
         // 铁律：只调用用户选定的模型（没选就拒绝），并留痕。
-        let intent = try await RemoteCommon.beginBillableCall(
-            kind: .llm,
-            providerID: providerID,
-            selectedModel: request.model ?? config.model,
-            providerModel: config.model,
-            candidateModels: config.candidateModels,
-            base: base,
-            operation: .chat
-        )
+        //
+        // ⚠️ 续作（流式一个字都没拿到 → 改走非流式再试一次）**不再新开一笔**：
+        // 这次操作已经记过账了，再记一条会让「学员说的一句话」在账单上变成两次调用，
+        // 事后既对不上真实操作，也算不清花了多少钱。
+        let intent: RemoteCallPolicy.Intent? = request.continuesBilledCall
+            ? nil
+            : try await RemoteCommon.beginBillableCall(
+                kind: .llm,
+                providerID: providerID,
+                selectedModel: request.model ?? config.model,
+                providerModel: config.model,
+                candidateModels: config.candidateModels,
+                base: base,
+                operation: .chat
+            )
         var urlRequest = try Self.chatRequest(base: base, apiKey: apiKey)
         urlRequest.httpBody = try Self.makeEncoder().encode(
             Self.chatBody(
                 request: request, config: config, stream: false,
-                // 这份 Intent 由 `RemoteCommon.beginBillableCall` 产出，恒定是云端能力
-                // 且模型非空（拿不到模型它就直接抛错了）；`?? ""` 只为抹掉可选性。
-                model: intent.model ?? "", inlineImages: declaredVision
+                // Intent 由 `RemoteCommon.beginBillableCall` 产出，恒定是云端能力且模型非空
+                // （拿不到模型它就直接抛错了）；续作没有 Intent，退回 request/config 里那个模型 ——
+                // 与首次调用是同一个，不会悄悄换模型。
+                model: intent.flatMap(\.model) ?? request.model ?? config.model ?? "",
+                inlineImages: declaredVision
             )
         )
         let data: Data
         let response: HTTPURLResponse
         do {
-            (data, response) = try await client.perform(urlRequest, timeout: config.requestTimeout ?? 120)
+            // `.unsafe`：对话是**扣费 + 有副作用**的请求。服务端可能已经生成完并计了费，
+            // 只是回包失败；此时重发就是第二次扣款，而本地账本与留痕只记 1 条。
+            (data, response) = try await client.perform(
+                urlRequest,
+                timeout: config.requestTimeout ?? RemoteTimeouts.generation,
+                idempotency: .unsafe
+            )
         } catch {
-            await RemoteCommon.endBillableCall(intent, outcome: .failed)
+            if let intent { await RemoteCommon.endBillableCall(intent, outcome: .failed) }
             throw error
         }
         do {
@@ -164,10 +178,14 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
                 url: urlRequest.url, apiKey: apiKey
             )
         } catch {
-            await RemoteCommon.endBillableCall(intent, outcome: .httpError, httpStatus: response.statusCode)
+            if let intent {
+                await RemoteCommon.endBillableCall(intent, outcome: .httpError, httpStatus: response.statusCode)
+            }
             throw error
         }
-        await RemoteCommon.endBillableCall(intent, outcome: .ok, httpStatus: response.statusCode)
+        if let intent {
+            await RemoteCommon.endBillableCall(intent, outcome: .ok, httpStatus: response.statusCode)
+        }
 
         let decoded = try Self.decode(ChatCompletion.self, from: data)
         guard let choice = decoded.choices.first else {
@@ -212,7 +230,7 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
                     )
 
                     let decoder = Self.makeDecoder()
-                    for try await payload in client.streamSSE(urlRequest, timeout: config.requestTimeout ?? 120) {
+                    for try await payload in client.streamSSE(urlRequest, timeout: config.requestTimeout ?? RemoteTimeouts.generation) {
                         guard let payloadData = payload.data(using: .utf8) else { continue }
                         let chunk: ChatCompletion
                         do {
@@ -246,7 +264,7 @@ public final class RemoteLLMAdapter: LLMProvider, @unchecked Sendable {
     public func discoverModels() async throws -> [DiscoveredModel] {
         let (config, base, apiKey) = try await resolved()
         return try await fetchCatalog(
-            base: base, apiKey: apiKey, timeout: config.requestTimeout ?? 20
+            base: base, apiKey: apiKey, timeout: config.requestTimeout ?? RemoteTimeouts.catalog
         )
     }
 

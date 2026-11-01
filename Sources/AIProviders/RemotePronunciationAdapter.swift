@@ -172,7 +172,12 @@ public final class RemotePronunciationAdapter: PronunciationProvider, @unchecked
         request.httpBody = AudioPCM.wav16(samples: samples, sampleRate: Int(MicrophoneSampleRate.rate))
 
         do {
-            let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? 30)
+            // `.unsafe`：发音评测按次计费，重发会重复计。
+            let (data, response) = try await client.perform(
+                request,
+                timeout: config.requestTimeout ?? RemoteTimeouts.evaluation,
+                idempotency: .unsafe
+            )
             try RemoteCommon.ensureSuccess(
                 statusCode: response.statusCode, data: data, url: url, apiKey: resolved.apiKey
             )

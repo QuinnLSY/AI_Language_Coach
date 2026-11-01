@@ -131,6 +131,19 @@ extension SettingsView {
                     Divider().overlay(theme.divider)
                 }
 
+                // 撞上另一个实例时必须说清楚：用户这时既不该翻备份，也不该以为是数据丢了。
+                if let note = state.databaseLockedNote {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "lock.fill")
+                            .appFont(11)
+                            .foregroundStyle(theme.warning)
+                        Text(note)
+                            .appFont(11, design: .rounded)
+                            .foregroundStyle(theme.primaryText)
+                    }
+                    Divider().overlay(theme.divider)
+                }
+
                 // 本轮启动应用了备份恢复：替换了什么要说清楚。
                 if let note = state.restoreNote {
                     HStack(alignment: .top, spacing: 6) {

@@ -202,7 +202,7 @@ public enum RemoteCommon {
             url: modelsURL(config: config, base: resolved.base),
             apiKey: resolved.apiKey
         )
-        let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? 20)
+        let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? RemoteTimeouts.catalog)
         if response.statusCode == 401 {
             // 探测失败也要留痕：以前只在成功时记账，于是「到底被拒了几次、被谁拒的」
             // 在审计里完全看不到，排查只能靠猜（2026-09-14 排查 Agnes 时踩到）。
@@ -250,7 +250,7 @@ public enum RemoteCommon {
         let resolved = try resolve(config)
         guard let url = voicesURL(config: config, base: resolved.base) else { return [] }
         let request = self.request(url: url, apiKey: resolved.apiKey)
-        let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? 20)
+        let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? RemoteTimeouts.catalog)
         guard (200..<300).contains(response.statusCode) else {
             throw AIProviderError.serverError(
                 status: response.statusCode,
@@ -277,7 +277,7 @@ public enum RemoteCommon {
             let resolved = try resolve(config)
             if let url = healthURL(config: config, base: resolved.base) {
                 let request = self.request(url: url, apiKey: resolved.apiKey)
-                let (_, response) = try await client.perform(request, timeout: config.requestTimeout ?? 20)
+                let (_, response) = try await client.perform(request, timeout: config.requestTimeout ?? RemoteTimeouts.catalog)
                 guard (200..<300).contains(response.statusCode) else {
                     return .runtimeUnavailable(reason: "健康检查返回 HTTP \(response.statusCode)")
                 }

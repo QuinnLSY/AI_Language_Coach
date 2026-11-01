@@ -611,6 +611,11 @@ public final class AppState {
     public internal(set) var autoBackupNotice: AppNotice?
     /// 学习库被隔离重建时的说明（nil = 一切正常）——**必须让用户看见**。
     public internal(set) var databaseRecoveryNote: String?
+    /// 本轮因「另一个实例占着学习数据」而没开库的说明（nil = 正常）。
+    ///
+    /// 与上一条互斥，但**必须分开显示**：用户看到"库损坏"会去翻备份，
+    /// 看到"另一个窗口开着"只要退出另一个就好 —— 给错动作比不说话更糟。
+    public internal(set) var databaseLockedNote: String?
     /// 学习记录「存不住」的提示（nil = 一切正常）。**常驻横幅，不自动消失**。
     ///
     /// ⚠️ 为什么必须有这一条：学习库打不开时应用**照常能聊**，「存不住」这件事
@@ -1530,7 +1535,12 @@ public final class AppState {
                                     seasonOverride: forestSeasonOverride,
                                     weatherOverride: forestWeatherOverride,
                                     weatherForecast: weatherForecast,
-                                    momentum: forestMomentum)
+                                    momentum: forestMomentum,
+                                    // 精确时刻（带分钟）：插画的明暗与色温按分钟连续走，
+                                    // 17:00 与 17:59 不再是同一个 afternoon（2026-11-01）。
+                                    // 与天体走同一条弧用的是同一个来源（`clockHour`）——
+                                    // 太阳走到哪，光就该跟到哪，两处各算一次迟早对不上。
+                                    hourFraction: clockHour)
     }
 
     // 供设置页读取的产品字段

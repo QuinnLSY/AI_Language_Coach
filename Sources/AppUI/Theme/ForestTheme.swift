@@ -47,6 +47,16 @@ public struct ForestTheme: Sendable, Equatable {
     /// `accent` / `warning` / `streak` / 文本与表面色一个都不看它 ——
     /// 它们被 `ThemeContrastTests` 用对比度和 ΔE 钉住，随时刻漂会当场失真。
     public let moment: ForestMoment?
+    /// 一天里的**精确时刻**（0…24，带分钟小数；nil = 只知道档位、或压根不跟随时间）。
+    ///
+    /// 为什么档位之外还要这个（2026-11-01「日夜连续光色推移」）：`moment` 是六档，
+    /// 17:00 与 17:59 在它眼里是同一个 `afternoon` —— 一天的推移会变成六次跳变。
+    /// 有了它，插画的明暗与色温可以按分钟连续走（`ForestAtmosphere.daylight(hour:)`），
+    /// 而 `moment` 继续负责**语义**（设置页要显示「黄昏」这种词）。
+    ///
+    /// ⚠️ nil 与「正午」同效：光取 `Daylight.noon`，插画色逐字节不变 ——
+    /// 老用户（不跟随时间）与既有渲染基线都靠这一条不被搅动。
+    public let hourProgress: Double?
     /// 季节（nil = 不分季节）。同样只改插画层。
     public let season: ForestSeason?
     /// 天气（nil = 不跟随天气）。同样只改插画层：多云多几朵云、雨天多一层雨丝，
@@ -58,12 +68,14 @@ public struct ForestTheme: Sendable, Equatable {
     public let momentum: ForestMomentum?
 
     public init(palette: ForestPalette, moment: ForestMoment? = nil, season: ForestSeason? = nil,
-                weather: ForestWeather? = nil, momentum: ForestMomentum? = nil) {
+                weather: ForestWeather? = nil, momentum: ForestMomentum? = nil,
+                hourProgress: Double? = nil) {
         self.palette = palette
         self.moment = moment
         self.season = season
         self.weather = weather
         self.momentum = momentum
+        self.hourProgress = hourProgress
     }
 
     public var isNight: Bool { palette == .night }
@@ -138,10 +150,14 @@ public struct ForestTheme: Sendable, Equatable {
     /// 丰季（`momentum == .flourishing`，#600）在选好的颜色上再「养盛」一档：
     /// 同色相、更饱和、更深（`ForestAtmosphere.lush`）。判据是 `flourishing` 一档 ——
     /// 成长 / 休憩不掺和，非惩罚性（休憩不会让叶色变衰）。
+    ///
+    /// ⚠️ 顺序是「选季节色 → 养盛 → 过光照」（2026-11-01 加最后一步）：光照改的是
+    /// **这一刻的光打在这片叶子上**，与「这是春天还是秋天」「养得盛不盛」是三件事，
+    /// 混在一起的顺序只有一个是对的 —— 先定它是什么颜色，再说它被照成什么样。
     private func seasonal(day: UInt32, night: UInt32,
                           spring: UInt32, autumn: UInt32, winter: UInt32) -> Color {
         if isNight { return Color(hex: night) }
-        guard let season else { return Color(hex: day) }
+        guard let season else { return lit(day) }
         let chosen: UInt32
         switch season {
         case .spring: chosen = spring
@@ -149,8 +165,27 @@ public struct ForestTheme: Sendable, Equatable {
         case .autumn: chosen = autumn
         case .winter: chosen = winter
         }
-        if momentum == .flourishing { return Color(hex: ForestAtmosphere.lush(chosen)) }
-        return Color(hex: chosen)
+        let grown = momentum == .flourishing ? ForestAtmosphere.lush(chosen) : chosen
+        return lit(grown)
+    }
+
+    /// 此刻的光打在这支插画色上的结果（恒等档 = 原色，见 `momentLight`）。
+    private func lit(_ hex: UInt32) -> Color {
+        Color(hex: ForestAtmosphere.sunlit(hex, momentLight))
+    }
+
+    /// 此刻的光。
+    ///
+    /// 三个来源按精确度取用，优先最精确的那个：
+    /// 1. 夜档 → `.night`（插画本来就走夜档色板，光不再往上叠）；
+    /// 2. 有精确时刻（`hourProgress`，跟随时间时由 resolver 填）→ 连续曲线；
+    /// 3. 只有档位（手工构造的主题、单测夹具）→ 该档的代表小时；
+    /// 4. 什么都没有 → 正午（恒等，插画色与改造前逐字节相同）。
+    var momentLight: ForestAtmosphere.Daylight {
+        if isNight { return .night }
+        if let hourProgress { return ForestAtmosphere.daylight(hour: hourProgress) }
+        guard let moment else { return .noon }
+        return ForestAtmosphere.daylight(hour: moment.anchorHour)
     }
 
     // 远景山丘 / 林冠
@@ -168,8 +203,12 @@ public struct ForestTheme: Sendable, Equatable {
     }
 
     // 树
-    public var trunk: Color { isNight ? Color(hex: 0x4A3626) : Color(hex: 0xA9743F) }
-    public var trunkShade: Color { isNight ? Color(hex: 0x33251A) : Color(hex: 0x7E5228) }
+    //
+    // 树干不随季节换色（四季的树皮都是那层褐色），但**随光变**（2026-11-01）：
+    // 黄昏的树干绝不是正午那支亮褐 —— 那是画面里最容易被看出「一刀切」的地方
+    // （一棵树的叶子黄了、树干还亮着，光就不像从天上来的）。
+    public var trunk: Color { isNight ? Color(hex: 0x4A3626) : lit(0xA9743F) }
+    public var trunkShade: Color { isNight ? Color(hex: 0x33251A) : lit(0x7E5228) }
     public var foliage: Color {
         seasonal(day: 0x4FA96B, night: 0x1E5346,
                  spring: 0x6CC476, autumn: 0xC08A3E, winter: 0x7FA8A0)
@@ -661,6 +700,9 @@ public enum ForestThemeResolver {
     ///   只影响两处、都**不覆盖真实天气**：① 叶色/山丘在丰季走盛档（仅白天）；
     ///   ② 取不到预报时的本地兜底模拟偏晴。真实预报拿到了就以它为准 ——
     ///   学业节奏是给森林的氛围奖励，不是给用户播报假天气的许可。
+    /// - Parameter hourFraction: 一天里的精确时刻（0…24，带分钟小数；nil = 只有整点）。
+    ///   **只影响插画层的光**（`ForestTheme.hourProgress` → `ForestAtmosphere.daylight`），
+    ///   不参与 palette / 时刻档位的判定 —— 那两件仍按 `hour` 走，语义不变。
     public static func resolve(mode: ThemeMode, systemIsDark: Bool,
                                hour: Int, month: Int,
                                followsClock: Bool, followsSeason: Bool,
@@ -668,17 +710,24 @@ public enum ForestThemeResolver {
                                seasonOverride: ForestSeason? = nil,
                                weatherOverride: ForestWeather? = nil,
                                weatherForecast: ForestWeather? = nil,
-                               momentum: ForestMomentum? = nil) -> ForestTheme {
+                               momentum: ForestMomentum? = nil,
+                               hourFraction: Double? = nil) -> ForestTheme {
         // 季节：自动开着 = 按月份派生（手动值存着不用）；关着 = 用手动值；都没有 = nil。
         let season: ForestSeason? = followsSeason
             ? ForestAtmosphere.season(month: month)
             : seasonOverride
+        // 精确时刻只跟随时间时才认：关着跟随时间（又没手动）时 theme 必须与旧版逐字相等。
+        // 越界钳回 0…24（调用方给 `Date()` 派生的值，理论上就在范围内，但这里是公共入口）。
+        let progress: Double? = followsClock
+            ? min(max(hourFraction ?? Double(hour), 0), 24)
+            : nil
         let base: ForestTheme
         if followsClock {
             let palette: ForestPalette = ForestAtmosphere.isNightHour(hour) ? .night : .day
             base = ForestTheme(palette: palette,
                                moment: ForestAtmosphere.moment(hour: hour),
-                               season: season)
+                               season: season,
+                               hourProgress: progress)
         } else if season != nil {
             // 不跟时间但有季节（自动或手动都一样）：日夜仍由档位决定，叶色随季节走。
             let manual = resolve(mode: mode, systemIsDark: systemIsDark)
@@ -689,7 +738,8 @@ public enum ForestThemeResolver {
         }
         // 学习节奏（#600）：透传进主题（叶色盛档在 ForestTheme.seasonal 里判）。
         let themed = ForestTheme(palette: base.palette, moment: base.moment,
-                                 season: base.season, momentum: momentum)
+                                 season: base.season, momentum: momentum,
+                                 hourProgress: base.hourProgress)
         // 天气：自动开着 = 真实预报优先，取不到再按日序本地模拟（丰季偏晴）；
         // 关着 = 用手动值；都无 = nil。关着又没手动时 theme 与旧版逐字相等（Equatable 钉得住）。
         //
@@ -701,6 +751,7 @@ public enum ForestThemeResolver {
             : weatherOverride
         guard weather != nil else { return themed }
         return ForestTheme(palette: themed.palette, moment: themed.moment, season: themed.season,
-                           weather: weather, momentum: momentum)
+                           weather: weather, momentum: momentum,
+                           hourProgress: themed.hourProgress)
     }
 }

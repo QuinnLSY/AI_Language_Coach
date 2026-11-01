@@ -120,7 +120,12 @@ public final class RemoteASRAdapter: ASRProvider, @unchecked Sendable {
         let data: Data
         let response: HTTPURLResponse
         do {
-            (data, response) = try await client.perform(urlRequest, timeout: resolved.config.requestTimeout ?? 60)
+            // `.unsafe`：转写按音频时长计费，重发会把同一段录音算两遍。
+            (data, response) = try await client.perform(
+                urlRequest,
+                timeout: resolved.config.requestTimeout ?? RemoteTimeouts.shortRequest,
+                idempotency: .unsafe
+            )
         } catch {
             await RemoteCommon.endBillableCall(intent, outcome: .failed)
             throw error

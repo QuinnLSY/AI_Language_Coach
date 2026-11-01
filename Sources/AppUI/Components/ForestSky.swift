@@ -209,22 +209,49 @@ private struct Clouds: View {
     var dense: Bool = false
     /// 云的着色（夜里不能是白的：白云挂在夜空上像贴纸，见 `ForestSky` 夜间分支）。
     var tint: Color = .white
-    @State private var drift = false
+
+    /// 云的位置/大小/浓度：横向与纵向都是**画幅比例**（不是写死的 pt）。
+    ///
+    /// ⚠️ 改造前这里是 `.offset(x:y: -210)` 一类的负值：天空层铺满整个窗口，
+    /// 负的 y 会把这朵云推到窗口上边缘之外 —— 写到 `GeometryReader` 里按比例定位，
+    /// 云才真的在天上而不是在画外。
+    private static let base: [(x: CGFloat, y: CGFloat, scale: CGFloat, opacity: Double)] = [
+        (0.10, 0.21, 1.00, 0.95),
+        (0.34, 0.29, 0.70, 0.80),
+        (0.56, 0.15, 0.55, 0.70),
+    ]
+    /// 降水天的另外三朵（插在基础三朵之间，天更挤但不重叠）。
+    private static let extras: [(x: CGFloat, y: CGFloat, scale: CGFloat, opacity: Double)] = [
+        (0.22, 0.25, 0.90, 0.90),
+        (0.46, 0.17, 0.65, 0.85),
+        (0.66, 0.33, 0.75, 0.90),
+    ]
+
+    @Environment(\.forestWind) private var wind
 
     var body: some View {
-        ZStack {
-            Cloud(scale: 1.0, opacity: 0.95, tint: tint).offset(x: drift ? 60 : -40, y: -210).padding(.leading, 90)
-            Cloud(scale: 0.7, opacity: 0.8, tint: tint).offset(x: drift ? -50 : 40, y: -280).padding(.leading, 320)
-            Cloud(scale: 0.55, opacity: 0.7, tint: tint).offset(x: drift ? 40 : -30, y: -170).padding(.leading, 520)
-            if dense {
-                Cloud(scale: 0.9, opacity: 0.9, tint: tint).offset(x: drift ? 30 : -20, y: -240).padding(.leading, 210)
-                Cloud(scale: 0.65, opacity: 0.85, tint: tint).offset(x: drift ? -35 : 25, y: -185).padding(.leading, 430)
-                Cloud(scale: 0.75, opacity: 0.9, tint: tint).offset(x: drift ? 45 : -45, y: -300).padding(.leading, 620)
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            let height = proxy.size.height
+            // 行程比画幅宽一档：两端那一截在画外，云才是「飘进来 / 飘出去」。
+            let travel = max(width * 1.2, 320)
+            let seconds = wind?.blownSeconds ?? 0
+            let layout = dense ? Self.base + Self.extras : Self.base
+            ZStack {
+                ForEach(Array(layout.enumerated()), id: \.offset) { pair in
+                    let cloud = pair.element
+                    // 与草地上的云影、与草叶同一阵风（同一次 `CloudDrift` 换算）：
+                    // 阵风一起来，云会真的走快一点 —— 这就是「云跟风」。
+                    let state = CloudDrift.state(index: pair.offset, seconds: seconds,
+                                                 travel: travel)
+                    Cloud(scale: cloud.scale, opacity: cloud.opacity, tint: tint)
+                        .opacity(state.alpha)
+                        .position(x: width * cloud.x + state.x, y: height * cloud.y)
+                }
             }
+            // 未注入风钟（离屏夹具 / 预览）时 `seconds = 0`：云停在初相位置上，
+            // 一像素不动 —— 渲染基线因此稳定，不靠「碰巧同一帧」。
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .loopAnimation(.easeInOut(duration: 26).repeatForever(autoreverses: true), value: drift)
-        .onAppear { drift = true }
     }
 
     struct Cloud: View {
@@ -395,6 +422,11 @@ private struct Hills: View {
                                                depth: ForestSceneGeometry.farHillDepth,
                                                haze: theme.aerialHaze)
             ).frame(height: 150)
+            // 远山脊线上的林带（2026-11-01）：整片森林此前只有右栏那一棵树，
+            // 山是空的 —— 画面读起来像"一棵树插在草地上"而不是"一片林子里的那棵树"。
+            // 画在远山之后、中山之前：中山会盖住树的下半截，"山后有林"由此成立。
+            ForestTreeLine(theme: theme)
+                .frame(maxWidth: .infinity)
             HillShape().fill(
                 ForestAerialPerspective.adjust(theme.hillMid,
                                                depth: ForestSceneGeometry.midHillDepth,

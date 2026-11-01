@@ -113,7 +113,7 @@ public enum LocalServiceRunner {
         let client = HTTPClient()
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if let _ = try? await client.perform(request, timeout: 2) { return true }
+            if let _ = try? await client.perform(request, timeout: RemoteTimeouts.probePing) { return true }
             if Task.isCancelled { return false }
             try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
         }

@@ -68,6 +68,17 @@ public actor CoachServices {
     public private(set) var pendingRestoreNote: String?
     /// 本轮启动学习库的恢复说明（坏库隔离重建时给出）。
     public private(set) var databaseRecoveryNote: String?
+    /// 本轮启动撞上「另一个实例正持有学习数据」时的说明（nil = 没撞）。
+    ///
+    /// 与 `databaseRecoveryNote` **互斥**：撞锁时根本不打开库，所以不会有隔离说明。
+    /// 这两句混在一起说会出人命 —— 「库坏了已重建」和「有人正在用，这轮先别动」
+    /// 是两种完全不同的处置，用户在其中一个情形下会去翻 backup，另一个情形下只要退出就好。
+    public private(set) var databaseLockedNote: String?
+    /// 跨进程写锁（nil = 本轮没取锁：内存库 / 测试进程 / 锁文件建不出来）。
+    ///
+    /// 必须活在 `CoachServices` 上：锁的生命周期要覆盖整个连接期，
+    /// 提前释放等于给别人开门，而连接还开着。
+    internal let dataLock: DataDirectoryLock?
     /// 学习记录**存不住**的次数（库不可用 / 写入抛错各算一次）。
     ///
     /// ⚠️ 这个数必须被 UI 看见：此前所有落库点都是 `try?`，写不进去时用户这边
@@ -139,16 +150,31 @@ public actor CoachServices {
         self.embedding = EmbeddingManager()
         self.voice = VoiceService(asr: self.asr, tts: self.tts)
         let path = databasePath ?? LearningDatabase.defaultURL().path
+        let restoreDataDirectory = URL(fileURLWithPath: (path as NSString).deletingLastPathComponent, isDirectory: true)
+        // 跨进程写锁必须早于本目录的**任何一步写盘**：`applyPendingRestoreIfNeeded` 会改文件，
+        // `openLearningDatabase` 会跑迁移。第二个实例做这两步时遇到的"打不开"其实是
+        // 别人正当地占着 —— 分不清就会把用户正在用的库当坏库隔离掉。
+        let lock = Self.acquireDataLock(directory: restoreDataDirectory, path: path)
+        self.dataLock = lock.lock
+        self.databaseLockedNote = lock.note
         // 备份恢复（#209）：待恢复内容必须在**打开学习库之前**应用——
         // 活连接底下换库文件轻则损坏、重则连当前库一起搭进去。
-        let restoreDataDirectory = URL(fileURLWithPath: (path as NSString).deletingLastPathComponent, isDirectory: true)
-        self.pendingRestoreNote = DataBackup.applyPendingRestoreIfNeeded(dataDirectory: restoreDataDirectory)
+        // 撞锁时连这一步也不做：恢复要覆盖库文件，而另一个实例正连着它。
+        self.pendingRestoreNote = lock.blocked
+            ? nil
+            : DataBackup.applyPendingRestoreIfNeeded(dataDirectory: restoreDataDirectory)
         if let note = self.pendingRestoreNote {
             AppLog.info("备份恢复：\(note)", category: "database")
         }
         // 坏库不等于「不能用」：先把可疑文件隔离保住证据，再重建空库继续服务，
         // 并通过 `databaseRecoveryNote` 把这件事如实告诉用户（沉默降级比崩溃更糟）。
-        let opened = Self.openLearningDatabase(at: path)
+        //
+        // ⚠️ 撞锁时**压根不打开库**：打开后紧接着的迁移写入会撞 SQLITE_BUSY，
+        // 而那条路径把失败读成「库坏了」→ 隔离重建 → 用户正在用的库被改名挪走。
+        // 宁可这一轮完全不读写，也不能让第二个实例动别人的库。
+        let opened: (database: LearningDatabase?, note: String?) = lock.blocked
+            ? (database: nil, note: nil)
+            : Self.openLearningDatabase(at: path)
         let database = opened.database
         self.learning = database
         self.databaseRecoveryNote = opened.note
@@ -177,10 +203,63 @@ public actor CoachServices {
         // 的默认位置 —— 否则测试用临时库时，「清除前留底」会落进用户真实备份目录。
         // 生产路径下两者等价（库就在 `.workbuddy/app-config/`，备份到 `.workbuddy/backups/`）；
         // 显式传入 `backupDirectory` 时以传入值为准（测试隔离用）。
-        self.backup = DataBackup(dataDirectory: restoreDataDirectory, backupDirectory: backupDirectory)
+        self.backup = DataBackup(
+            dataDirectory: restoreDataDirectory,
+            backupDirectory: backupDirectory,
+            // 备份前把 WAL 落回主库，否则可能拷出「旧库 + 新 WAL」的错配组合。
+            // 失败不阻断备份，但必须留痕 —— 静默跳过的 checkpoint 等于没做。
+            checkpoint: { [database] in
+                guard let database else { return }
+                do {
+                    try await database.checkpoint()
+                } catch {
+                    AppLog.warning(
+                        "备份前 checkpoint 失败（备份包可能含未落盘的 WAL）：\(error.localizedDescription)",
+                        category: "database"
+                    )
+                }
+            }
+        )
         if self.learning == nil {
             AppLog.warning("学习数据库不可用（已尝试隔离重建）: \(path)", category: "database")
         }
+    }
+
+    /// 取跨进程写锁。返回锁本体、给用户看的说明、以及是否要**跳过开库**。
+    ///
+    /// 只在「用户真实数据目录 + 非测试进程」时取锁，另两种情形直接放行：
+    /// - 内存库 / 临时库：没有共享面，锁了纯属误伤；
+    /// - 测试进程：RenderTests 是 10 workers 并行，每个用例都构造 `CoachServices`，
+    ///   取锁会让它们互相阻塞 —— 而它们指向的根本不是同一个文件。
+    private static func acquireDataLock(
+        directory: URL,
+        path: String
+    ) -> (lock: DataDirectoryLock?, note: String?, blocked: Bool) {
+        guard path != ":memory:" else { return (nil, nil, false) }
+        guard !ProcessIdentity.isRunningTests else { return (nil, nil, false) }
+        guard directory.standardizedFileURL == AppPaths.userDataDirectory().standardizedFileURL else {
+            return (nil, nil, false)
+        }
+        switch DataDirectoryLock.acquire(directory: directory) {
+        case .acquired(let lock):
+            AppLog.info("已取得学习数据写锁：\(directory.path)", category: "database")
+            return (lock, nil, false)
+        case .busy:
+            AppLog.warning("学习数据已被另一个实例占用，本轮不打开学习库：\(directory.path)", category: "database")
+            return (nil, Self.lockedNote(), true)
+        case .unavailable(let reason):
+            // 锁建不出来 ≠ 有人占用。别因此拒绝启动：按无锁继续，撞了还有 busy_timeout 兜。
+            AppLog.warning("数据目录写锁不可用（\(reason)），本次按无锁运行", category: "database")
+            return (nil, nil, false)
+        }
+    }
+
+    private static func lockedNote() -> String {
+        """
+        另一个语林窗口正在使用学习数据，这一轮不会读取也不会保存你的进度。
+
+        请先退出另一个窗口，再重新打开本应用。
+        """
     }
 
     /// 打开学习库；坏库先隔离再重建，并返回要给用户看的说明。

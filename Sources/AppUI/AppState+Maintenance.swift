@@ -178,6 +178,7 @@ extension AppState {
         backupSnapshots = await services.backups()
         backupTotalText = await services.backupTotalDisplay
         databaseRecoveryNote = await services.recoveryNote
+        databaseLockedNote = await services.lockedNote
     }
 
     /// 删除一份备份（进废纸篓，可恢复）。

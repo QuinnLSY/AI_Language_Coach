@@ -68,7 +68,7 @@ public final class WhisperASRAdapter: ASRProvider, @unchecked Sendable {
         }
         let request = URLRequest(url: base.appendingPathComponent("health"))
         do {
-            let (_, response) = try await client.perform(request, timeout: config.requestTimeout ?? 6)
+            let (_, response) = try await client.perform(request, timeout: config.requestTimeout ?? RemoteTimeouts.voiceProbe)
             return (200..<300).contains(response.statusCode)
                 ? .connected(model: config.model)
                 : .requestFailed(reason: "HTTP \(response.statusCode)")
@@ -125,7 +125,7 @@ public final class WhisperASRAdapter: ASRProvider, @unchecked Sendable {
         body.append(RemoteCommon.multipartTerminator(boundary: boundary))
         urlRequest.httpBody = body
 
-        let (data, response) = try await client.perform(urlRequest, timeout: config.requestTimeout ?? 60)
+        let (data, response) = try await client.perform(urlRequest, timeout: config.requestTimeout ?? RemoteTimeouts.shortRequest)
         guard (200..<300).contains(response.statusCode) else {
             throw AIProviderError.serverError(
                 status: response.statusCode,

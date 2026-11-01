@@ -27,6 +27,23 @@ public enum ForestMoment: String, CaseIterable, Sendable, Identifiable {
         case .night: "夜里"
         }
     }
+
+    /// 这一档时刻的**代表小时**（用于「只有档位、没有精确时刻」时取光）。
+    ///
+    /// 取各档的中点而不是左端点：`dusk` 若是 18 点，落在 `moment(hour: 18)` 的
+    /// 最前一秒上，光却是这一档最亮的那一端 —— 档位与光会各自说话。
+    /// （`noon` / `afternoon` 的区间是 11–15 / 15–18，中点是 13 / 16.5；
+    /// 这里取 12.5 / 16 是为了让「正午」落在真正最亮的那一刻。）
+    public var anchorHour: Double {
+        switch self {
+        case .dawn: 6
+        case .morning: 9
+        case .noon: 12.5
+        case .afternoon: 16
+        case .dusk: 18.5
+        case .night: 22
+        }
+    }
 }
 
 /// 四季。判据是**自然月份**，不是学习进度 —— 进度那条线已经由树冠茂密度
@@ -158,6 +175,117 @@ public enum ForestAtmosphere {
         case 9...11: return .autumn
         default: return .winter
         }
+    }
+
+    // MARK: - 一天里的光（2026-11-01：日夜连续光色推移）
+
+    /// 此刻的光：两个数就够描述「这个点的天是什么样」。
+    ///
+    /// - `level`：日照强度（0 = 天光尽失，1 = 正午直射）。它决定插画**多亮**；
+    /// - `warmth`：色温偏离（0 = 正午的中性白，1 = 贴着地平线那一层暖）。
+    ///   它决定插画**多暖**。
+    ///
+    /// 为什么只用两个标量、而不是给每个时刻编一套色板：插画色有二十几支，
+    /// 六档 × 二十几支 = 一百多个手搓色值，谁也说不清第一百三十个为什么是那个数。
+    /// 「明暗 × 色温」两句话能讲完，还能同时守住「黄昏比正午暗且比正午暖」
+    /// 这类可以用一条断言钉住的结论。
+    public struct Daylight: Equatable, Sendable {
+        public var level: Double
+        public var warmth: Double
+
+        public init(level: Double, warmth: Double) {
+            self.level = level
+            self.warmth = warmth
+        }
+
+        /// 正午：基色的定义点 —— 在这一档上 `sunlit` 是恒等变换（一个字节都不动）。
+        public static let noon = Daylight(level: 1, warmth: 0)
+        /// 夜里：插画已经换成夜档色板，光不再往上叠（否则夜景会被越叠越灰）。
+        public static let night = Daylight(level: 0, warmth: 0)
+    }
+
+    /// 光的关键帧：`(小时, 日照强度, 暖度)`。
+    ///
+    /// 三个端点刻意对齐已有的判据，免得两处各说各的：
+    /// - 5 点 = `sunriseHour`（太阳刚出海平面：暗且很暖）；
+    /// - 12 点 = 最亮、最中性（`level = 1, warmth = 0`，即基色本身）；
+    /// - 19 点 = `sunsetHour`（太阳压到山脊：比 5 点还暖，因为它还带着一整天的余温）；
+    /// - 0 点与 24 点同值 —— 跨零点时曲线不能断（断开就是午夜闪一下）。
+    ///
+    /// ⚠️ 相邻两点之间**线性插值**，不用样条：样条在稀疏关键帧下会过冲
+    /// （13 点比 12 点还亮、21 点比 20 点还暖那种），而这条曲线只该有两个拐点
+    /// 意义上的极值（正午最亮、日落最暖）。
+    static let lightKeyframes: [(hour: Double, level: Double, warmth: Double)] = [
+        (0, 0.10, 0.30),
+        (5, 0.40, 0.64),
+        (7, 0.64, 0.46),
+        (9, 0.86, 0.18),
+        (12, 1.00, 0.00),
+        (15, 0.93, 0.12),
+        (17.5, 0.75, 0.46),
+        (19, 0.48, 0.82),
+        (20, 0.34, 0.88),
+        (24, 0.10, 0.30),
+    ]
+
+    /// 小时（可带小数）→ 此刻的光。越界钳回 0…24，关键帧之间线性插值。
+    ///
+    /// 纯函数（不读 `Date()`）：`ForestTheme` 与单测都从同一处拿光，
+    /// 「黄昏是不是真的比正午暗」因此是一条断言的事。
+    public static func daylight(hour: Double) -> Daylight {
+        let hour = min(max(hour, 0), 24)
+        let frames = lightKeyframes
+        guard let first = frames.first, let last = frames.last else { return .noon }
+        if hour <= first.hour { return Daylight(level: first.level, warmth: first.warmth) }
+        if hour >= last.hour { return Daylight(level: last.level, warmth: last.warmth) }
+        for index in 1..<frames.count where hour <= frames[index].hour {
+            let low = frames[index - 1]
+            let high = frames[index]
+            let span = high.hour - low.hour
+            // 关键帧小时严格递增（见上面的表），span 恒 > 0；这里仍留一道保护，
+            // 免得哪天有人把两点写成同一小时而除出 NaN（NaN 会被下游 `Int(...)` 收走 → 崩）。
+            guard span > 0 else { return Daylight(level: high.level, warmth: high.warmth) }
+            let t = (hour - low.hour) / span
+            return Daylight(
+                level: low.level + (high.level - low.level) * t,
+                warmth: low.warmth + (high.warmth - low.warmth) * t
+            )
+        }
+        return Daylight(level: last.level, warmth: last.warmth)
+    }
+
+    /// 插画色在某个光照下长什么样：先按日照压暗，再往暖调上偏一层。
+    ///
+    /// ⚠️ `level = 1, warmth = 0` 时**原样返回**（恒等）。这条不是优化，是承诺：
+    /// 没开「跟随时间」的用户（`moment == nil`）以及正午那一档，插画色与改造前
+    /// 逐字节相同 —— 否则所有靠既有色值写的断言与渲染基线都会一起漂。
+    ///
+    /// 两步的顺序不能反：先混暖再压暗，暖调也会被压暗一遍（黄昏的暖会褪成灰）；
+    /// 先压暗再混暖，暖调就落在压暗后的底上，读起来才是「低角度阳光照在草地上」。
+    ///
+    /// - Parameter warmTone: 暖调的目标色（黄昏的琥珀）。
+    ///   ⚠️ 它**不能太亮**：第一版取 `0xE9A868`，混暖把压暗那一步整个抵掉了 ——
+    ///   黄昏的草地比正午还亮，而低角度阳光的光学事实恰恰相反（穿过更厚的大气、
+    ///   又被地平线切掉一半）。深色的树干暗部更明显：`0x7E5228` 混到 `0xE9A868`
+    ///   之后亮度是**升**的。现在这支 `0xB0703A` 与插画色的明度是同一档，
+    ///   「暖」与「沉」才不会互相抵消。
+    /// - Parameter maxWarmBlend: 最暖那一档（`warmth = 1`）混多少 —— 封在 0.30，
+    ///   再高一点秋天的山丘就被洗平了（与 `seasonalSkyWash` 同一个理由）。
+    public static func sunlit(_ hex: UInt32, _ light: Daylight,
+                              warmTone: UInt32 = 0xB0703A,
+                              maxWarmBlend: Double = 0.30) -> UInt32 {
+        let level = min(max(light.level, 0), 1)
+        let warmth = min(max(light.warmth, 0), 1)
+        if level >= 0.999 && warmth <= 0.001 { return hex }
+        // 明暗：日照越低越沉（1.0 → 0.72）。下限不能太低 —— 晨曦的林子该是
+        // 「暖而沉」，不是「一片深绿看不见东西」。
+        let scale = 0.72 + 0.28 * level
+        func channel(_ shift: UInt32) -> UInt32 {
+            let value = Double((hex >> shift) & 0xFF) * scale
+            return UInt32(min(max(value.rounded(), 0), 255))
+        }
+        let dimmed = (channel(16) << 16) | (channel(8) << 8) | channel(0)
+        return blend(dimmed, toward: warmTone, amount: maxWarmBlend * warmth)
     }
 
     // MARK: - 学习节奏（#600）

@@ -176,7 +176,13 @@ public final class RemoteTTSAdapter: TTSProvider, VoiceCatalogProvider, RuntimeI
         let data: Data
         let response: HTTPURLResponse
         do {
-            (data, response) = try await client.perform(urlRequest, timeout: resolved.config.requestTimeout ?? 180)
+            // `.unsafe`：合成一次就计费一次。服务端 5xx 不代表"没合成"，
+            // 可能只是回包坏了 —— 重发就是第二份钱。
+            (data, response) = try await client.perform(
+                urlRequest,
+                timeout: resolved.config.requestTimeout ?? RemoteTimeouts.speechSynthesis,
+                idempotency: .unsafe
+            )
         } catch {
             await RemoteCommon.endBillableCall(intent, outcome: .failed)
             throw error

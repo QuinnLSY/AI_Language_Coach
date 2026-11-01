@@ -31,20 +31,44 @@ public actor DataBackup {
         }
     }
 
-    /// 被打包的文件（相对数据目录）。
-    public static let exportedFiles = ["learning.db", "learning.db-wal", "learning.db-shm", "config.json", "remote-calls.jsonl"]
+    /// 被打包的**文件**（相对数据目录）。
+    ///
+    /// ⚠️ 从前只有 db/wal/shm + config + 留痕五件，**附件、克隆音色、导入的词典、
+    /// 今日跟读**全不在包里 —— 换机恢复之后，聊天里挂的图和音色档案变成孤儿，
+    /// 而备份界面显示"成功"。用户素材属于「删了就再也造不出来」的那类数据，
+    /// 必须跟着走。
+    public static let exportedFiles = [
+        "learning.db",
+        "learning.db-wal",
+        "learning.db-shm",
+        "config.json",
+        "remote-calls.jsonl",
+        "voice-profiles.json",
+        "dictionaries.json",
+        "shadowing-daily.json",
+    ]
+
+    /// 被打包的**目录**（相对数据目录）。
+    ///
+    /// 与 `exportedFiles` 一样：目录里全是用户自己产出的东西 ——
+    /// 上传的图片/视频、自建情景、材料、AI 排的课。
+    public static let exportedDirectories = ["attachments", "courses", "materials", "scenarios"]
 
     private let manager: FileManager
     private let dataDirectory: URL
     private let backupDirectory: URL
+    /// 拷贝前让调用方把 WAL 落回主库（见 `export` 里的说明）。nil = 不做（CLI 检查临时库时）。
+    private let checkpoint: (@Sendable () async -> Void)?
 
     public init(
         dataDirectory: URL = AppPaths.userDataDirectory(),
-        backupDirectory: URL? = nil
+        backupDirectory: URL? = nil,
+        checkpoint: (@Sendable () async -> Void)? = nil
     ) {
         self.manager = .default
         self.dataDirectory = dataDirectory
         self.backupDirectory = backupDirectory ?? Self.defaultBackupDirectory(dataDirectory: dataDirectory)
+        self.checkpoint = checkpoint
     }
 
     public static func defaultBackupDirectory(dataDirectory: URL = AppPaths.userDataDirectory()) -> URL {
@@ -74,12 +98,24 @@ public actor DataBackup {
         defer { try? manager.removeItem(at: stagingRoot) }
         try manager.createDirectory(at: payload, withIntermediateDirectories: true)
 
+        // ⚠️ 先 checkpoint 再拷：`learning.db` 与 `learning.db-wal` 是**两次** `copyItem`，
+        // 中间有窗口 —— 拷到「旧库 + 新 WAL」的组合，恢复出来就是损坏或丢近期记录，
+        // 而本项目自己的恢复路径上写着「不同库的 WAL 是毒药」。把 WAL 落回主库之后，
+        // 这份快照退化成「单文件 + 空 WAL」，窗口随之消失。
+        await checkpoint?()
+
         var manifest: [String] = []
         for name in Self.exportedFiles {
             let source = dataDirectory.appendingPathComponent(name)
             guard manager.fileExists(atPath: source.path) else { continue }
             try manager.copyItem(at: source, to: payload.appendingPathComponent(name))
             manifest.append(name)
+        }
+        for name in Self.exportedDirectories {
+            let source = dataDirectory.appendingPathComponent(name, isDirectory: true)
+            guard manager.fileExists(atPath: source.path) else { continue }
+            try manager.copyItem(at: source, to: payload.appendingPathComponent(name, isDirectory: true))
+            manifest.append(name + "/")
         }
 
         guard !manifest.isEmpty else {

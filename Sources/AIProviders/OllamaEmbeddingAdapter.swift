@@ -73,7 +73,7 @@ public final class OllamaEmbeddingAdapter: EmbeddingProvider, @unchecked Sendabl
         }
         let request = URLRequest(url: base.appendingPathComponent("v1/models"))
         do {
-            let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? 10)
+            let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? RemoteTimeouts.localProbe)
             guard (200..<300).contains(response.statusCode) else {
                 return .requestFailed(reason: "HTTP \(response.statusCode)")
             }
@@ -116,7 +116,7 @@ public final class OllamaEmbeddingAdapter: EmbeddingProvider, @unchecked Sendabl
         var request = URLRequest(url: base.appendingPathComponent("v1/models"))
         request.httpMethod = "GET"
 
-        let (data, response) = try await client.perform(request, timeout: 10)
+        let (data, response) = try await client.perform(request, timeout: RemoteTimeouts.localProbe)
         guard (200..<300).contains(response.statusCode) else {
             throw AIProviderError.serverError(status: response.statusCode, message: String(data: data, encoding: .utf8))
         }
@@ -149,7 +149,7 @@ public final class OllamaEmbeddingAdapter: EmbeddingProvider, @unchecked Sendabl
 
     private func fetchTags(base: URL) async throws -> OllamaTagsResponse {
         let request = URLRequest(url: base.appendingPathComponent("api/tags"))
-        let (data, response) = try await client.perform(request, timeout: 10)
+        let (data, response) = try await client.perform(request, timeout: RemoteTimeouts.localProbe)
         guard (200..<300).contains(response.statusCode) else {
             throw AIProviderError.serverError(status: response.statusCode, message: nil)
         }
@@ -170,7 +170,7 @@ public final class OllamaEmbeddingAdapter: EmbeddingProvider, @unchecked Sendabl
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try Self.makeEncoder().encode(OllamaEmbedRequest(model: model, input: texts))
 
-        let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? 60)
+        let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? RemoteTimeouts.shortRequest)
         try Self.ensureSuccess(statusCode: response.statusCode, data: data)
 
         let decoded = try Self.decode(OllamaEmbedResponse.self, from: data)

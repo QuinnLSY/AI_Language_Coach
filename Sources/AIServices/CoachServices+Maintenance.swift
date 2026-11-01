@@ -160,6 +160,12 @@ public var backupDirectory: URL {
 /// 学习库出过什么状况（nil = 一切正常）。界面要把它显示出来。
 public var recoveryNote: String? { databaseRecoveryNote }
 
+/// 本轮是否因「另一个实例占着学习数据」而停摆（nil = 正常）。
+///
+/// 与 `recoveryNote` 分开暴露：这两句给用户的**动作**不一样 ——
+/// 库坏了要去翻 backup，撞锁只需要退出另一个窗口。
+public var lockedNote: String? { databaseLockedNote }
+
 /// 校验一份备份（导入确认框用）：坏包在这里就被拦下，给出明确原因。
 public func inspectBackup(at path: String) async throws -> DataBackup.ImportPlan {
     try await backup.inspectBackup(at: URL(fileURLWithPath: path))

@@ -253,6 +253,11 @@ public struct MainView: View {
         // ⚠️ 这只是**一半**：各季装饰层的插拔还要各自带 `.seasonFade()`
         // （见 `ForestSeasonFade.swift`），两头都在才有交叉淡入淡出。
         .appAnimation(.scene, value: state.theme.season)
+        // 时刻档位的切换也吃同一档过渡（2026-11-01）：天空那三条渐变是按时刻选的，
+        // 不淡入淡出的话，黄昏那一刻整片天会「啪」地换成橘色。
+        // 插画的明暗与色温另有一条**按分钟连续**的路（`ForestTheme.hourProgress`），
+        // 它们之间是「细步 + 大档平滑」两条腿，缺一条都会看出台阶。
+        .appAnimation(.scene, value: state.theme.moment)
         // 批次八 · H：欢迎演出要在**地面带到场之后**才发脉冲（发早了 onChange 收不到
         // 第一拍）—— 盯着 isBooting 翻 false 的那一刻消费待演标记。
         .task(id: state.isBooting) {
@@ -669,6 +674,14 @@ public struct MainView: View {
             Divider().overlay(state.theme.divider)
             // 树可上下滚动；林间地面带固定吸附在底部（小动物始终可见、可点击说话）
             ZStack(alignment: .bottom) {
+                // 中景植被（2026-11-01）：树与草坡之间原本是**空的绿地** ——
+                // 近景的草、花、小动物全挤在底部 150pt 那条带子里，中间什么都没有，
+                // 眼睛读到的只有"前、后"两层。这一层站在坡面稍上方（更远）、
+                // 过大气透视，把纵深补上。画在最下层：远的东西先画，被树挡住一角才对。
+                // 它不分季节（灌木常年在），所以不加 `seasonFade`，只让颜色随季节过渡。
+                ForestMidVegetation(theme: state.theme)
+                    .appAnimation(.scene, value: state.theme.season)
+
                 // 夏：大树后那片草场上的风车（#622；2026-10-22 由六座改两座，
                 // 并从「浮在半空」挪到坡面上 —— 见 `WindmillLayout.groundY`）。
                 // 两座一左一右，叶片被同一阵风推着转。

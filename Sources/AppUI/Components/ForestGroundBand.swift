@@ -75,6 +75,11 @@ struct ForestGroundBand: View {
     /// （在场才认；暂离了就换角重绑）。会话级 @State，重启自然换人。
     @State var storyLead: Int? = nil
 
+    /// 「林子完全安静」档（连点天空 5 次）。云影与云同一条承诺：云收起来，
+    /// 影子也不该还留在地上。走环境值是因为这一层隔着 TreeScrollView 三层，
+    /// 参数传不进来（见 `\.forestAmbientStill`）。
+    @Environment(\.forestAmbientStill) private var ambientStill
+
     /// 画面上**真的画出来**的居民数（由 `ForestGroundPlan` 按面板宽排，随宽度变）。
     ///
     /// 为什么要有它（2026-10-01 修）：槽位总数恒为 8，但窄面板下只排 3~5 只
@@ -443,6 +448,13 @@ struct ForestGroundBand: View {
                         quantizedWidth: qw
                     )
                 }
+                // 草地上的云影（2026-11-01）：云在天上飘、地面一动不动时两件事各说各的 ——
+                // 云影是唯一能把「天上有云」和「脚下这片草地」连起来的东西。
+                //
+                // ⚠️ 画在**居民之后、气泡之前**（不是最早）：云影该盖住草叶与小动物
+                // （这是物理事实），但不许盖住对话气泡与单词卡（那是信息）。
+                // 气泡 / 词卡 / 举牌都带 zIndex 1000+，自然压在它上面。
+                ForestCloudShadows(theme: theme, still: ambientStill)
 
                 // 气泡层：每只小动物一份，统一画在所有居民之上。
                 // 层级由出现序号决定 —— 最新出现的气泡 zIndex 最大，不会被任何动物或其他气泡遮挡。

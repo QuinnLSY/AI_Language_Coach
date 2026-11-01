@@ -3,54 +3,7 @@ import AIInterfaces
 import AppCore
 import Foundation
 
-// MARK: - 重试策略
-
-/// 瞬时故障重试策略。
-///
-/// 存在的理由：`AIProviderError.isRetryable` 把「哪些错误值得重试」写得很完整，
-/// 但**没有任何调用方读它** —— 也就是说不存在重试。断线、服务端 5xx 这类
-/// 一秒钟后自愈的问题，用户看到的是直接失败。
-///
-/// 两条护栏写死在契约里：
-/// - **只重试「上一次根本没拿到响应」的情况**（`perform` 是非流式路径）。
-///   流式请求（`streamSSE`）绝不重试：那会把同一份 Prompt 再发一遍 = 重复计费。
-/// - **超时不重试**：用户已经等满一整轮超时，再等一轮等于把「卡住」变成「卡死」。
-public struct RetryPolicy: Sendable {
-
-    /// 默认：最多 2 次尝试（= 允许 1 次重试），退避 0.35s。
-    public static let `default` = RetryPolicy(maxAttempts: 2, baseDelay: 0.35)
-
-    /// 总尝试次数（1 = 不重试）。
-    public let maxAttempts: Int
-    /// 第 n 次重试前的退避（线性：`baseDelay × n`）。
-    public let baseDelay: TimeInterval
-
-    public init(maxAttempts: Int, baseDelay: TimeInterval) {
-        self.maxAttempts = max(1, maxAttempts)
-        self.baseDelay = max(0, baseDelay)
-    }
-
-    /// 该不该再试一次（传输层错误）。
-    func shouldRetry(_ error: Error, attempt: Int) -> Bool {
-        guard attempt < maxAttempts else { return false }
-        guard let providerError = error as? AIProviderError else { return false }
-        // 用户主动取消：立刻停，不许偷偷再发一次。
-        if case .cancelled = providerError { return false }
-        if case .timeout = providerError { return false }
-        return providerError.isRetryable
-    }
-
-    /// 该不该再试一次（服务端状态码）。
-    ///
-    /// 判定口径**复用** `AIProviderError.isRetryable`，不在这里另写一份 ——
-    /// 「哪些错值得重试」只能有一个答案，两份口径迟早分叉。
-    func shouldRetry(status: Int, attempt: Int) -> Bool {
-        guard attempt < maxAttempts else { return false }
-        return AIProviderError.serverError(status: status, message: nil).isRetryable
-    }
-
-    func delay(forAttempt attempt: Int) -> TimeInterval { baseDelay * Double(attempt) }
-}
+// 重试策略见 `RetryStrategy.swift`（`RetryPolicy` / `RetryAfter` / `TransportRetry`）。
 
 /// SSE 行装配器：把逐字节的流切成「一整行」，并给单行长度设上限。
 ///
@@ -215,30 +168,47 @@ public struct HTTPClient: Sendable {
 
     /// 发起请求并返回原始数据与响应，便于 Adapter 自行做状态码与错误体映射。
     ///
-    /// 瞬时故障（连不上 / 5xx / 限流）按 `retryPolicy` 自动重试一次 —— 重试只可能发生在
-    /// **上一次没有拿到任何可用响应**时，因此不会出现「一次操作被计两次费」。
-    public func perform(_ request: URLRequest, timeout: TimeInterval) async throws -> (Data, HTTPURLResponse) {
+    /// 瞬时故障（断线 / 5xx / 限流）按 `retryPolicy` 自动重试 —— 但**只在 `idempotency`
+    /// 允许时**。扣费请求（chat / TTS / 转写 / 评测）必须传 `.unsafe`：
+    /// 服务端可能已经算完并计了费，只是回包失败，重发就是第二次扣款。
+    public func perform(
+        _ request: URLRequest,
+        timeout: TimeInterval,
+        idempotency: RetryPolicy.Idempotency = .safe
+    ) async throws -> (Data, HTTPURLResponse) {
         // 测试注入：走假传输，不碰真实网络，也不重试（测试要的是确定的单次行为）。
         if let transport {
             return try await transport(request, timeout)
         }
+        // 回环端点（本机语音 / Ollama）失败几乎只有一个原因：服务没起。
+        // 对它重试，只是在「立刻告诉用户」前面插两段等待 —— 冷启动最痛的那几秒就是这么来的。
+        let isLoopback = request.url.map { PrivacyRedactor.isLoopbackEndpoint($0.absoluteString) } ?? false
+        let policy = isLoopback ? RetryPolicy.disabled : retryPolicy
+
         return try await Self.retrying(
-            policy: retryPolicy,
+            policy: policy,
+            idempotency: idempotency,
             sleep: { delay in
                 guard delay > 0 else { return }
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             },
             onRetry: { attempt, reason in
                 AppLog.debug(
-                    "请求失败（\(reason)），\(String(format: "%.2f", retryPolicy.delay(forAttempt: attempt)))s 后重试第 \(attempt + 1)/\(retryPolicy.maxAttempts) 次",
+                    "请求失败（\(reason)），即将重试第 \(attempt + 1)/\(policy.maxAttempts) 次",
                     category: "transport"
                 )
             },
             { _ in
                 let (data, http) = try await performOnce(request, timeout: timeout)
-                return ((data, http), http.statusCode)
+                return (value: (data, http), status: http.statusCode, retryAfter: Self.retryAfterSeconds(http))
             }
         )
+    }
+
+    /// 服务端建议的等待时长（只有 429 / 503 才谈得上）。
+    private static func retryAfterSeconds(_ response: HTTPURLResponse) -> TimeInterval? {
+        guard response.statusCode == 429 || response.statusCode == 503 else { return nil }
+        return RetryAfter.seconds(from: response.value(forHTTPHeaderField: "Retry-After"))
     }
 
     /// 重试循环本体。
@@ -246,28 +216,44 @@ public struct HTTPClient: Sendable {
     /// 抽成独立函数是为了**能测**：真实 `URLSession` 造不出可控的 5xx，
     /// 而这段逻辑恰恰最该有测试 —— 多发一次请求就是「一次操作被计两次费」。
     ///
-    /// `attemptBody` 返回 `(值, HTTP 状态码)`；状态码非 nil 时按策略决定要不要再来一次。
+    /// `attemptBody` 返回 `(值, HTTP 状态码, 服务端建议的等待时长)`；
+    /// 状态码非 nil 时按策略决定要不要再来一次。
     static func retrying<T>(
         policy: RetryPolicy,
+        idempotency: RetryPolicy.Idempotency,
         sleep: (TimeInterval) async -> Void,
         onRetry: (Int, String) -> Void,
-        _ attemptBody: (Int) async throws -> (T, Int?)
+        _ attemptBody: (Int) async throws -> (value: T, status: Int?, retryAfter: TimeInterval?)
     ) async throws -> T {
         var attempt = 1
         while true {
             do {
-                let (value, status) = try await attemptBody(attempt)
+                let outcome = try await attemptBody(attempt)
                 // 5xx / 429 交给适配器之前先生效一次重试：适配器的错误映射一个字都不动，
                 // 最后一轮仍会把原始 response 交回去让它报「服务端错误 (500)」。
-                guard let status,
+                guard let status = outcome.status,
                       !Task.isCancelled,
-                      policy.shouldRetry(status: status, attempt: attempt) else { return value }
+                      policy.shouldRetry(status: status, attempt: attempt, idempotency: idempotency)
+                else { return outcome.value }
                 onRetry(attempt, "HTTP \(status)")
+                // 服务端给了 `Retry-After` 就照办（已夹过上限），否则用本地退避。
+                await sleep(outcome.retryAfter ?? policy.delay(forAttempt: attempt))
+                attempt += 1
+            } catch let urlError as URLError {
+                // ⚠️ 就地判定：只有这一层看得见 `URLError.code`。
+                // 翻成 `AIProviderError` 之后「连不上」和「传输中途断了」就分不出来了，
+                // 而这两者对「要不要重发」的答案正好相反。
+                guard !Task.isCancelled,
+                      policy.shouldRetry(urlError, attempt: attempt, idempotency: idempotency)
+                else { throw Self.mapURLError(urlError) }
+                onRetry(attempt, TransportFailure.reason(urlError))
                 await sleep(policy.delay(forAttempt: attempt))
                 attempt += 1
             } catch {
                 // `shouldRetry` 内部已经把「用户取消」排除掉了，这里只补任务级别的取消。
-                guard !Task.isCancelled, policy.shouldRetry(error, attempt: attempt) else { throw error }
+                guard !Task.isCancelled,
+                      policy.shouldRetry(error, attempt: attempt, idempotency: idempotency)
+                else { throw error }
                 onRetry(attempt, error.localizedDescription)
                 await sleep(policy.delay(forAttempt: attempt))
                 attempt += 1
@@ -285,7 +271,9 @@ public struct HTTPClient: Sendable {
         do {
             (data, response) = try await session.data(for: request)
         } catch let error as URLError {
-            throw mapURLError(error)
+            // 原样抛出：重试判定需要 `URLError.code`（连不上 vs 传输中途断了），
+            // 翻成 `AIProviderError` 之后这条信息就没了。翻译在 `retrying` 的出口做。
+            throw error
         } catch {
             if error is CancellationError { throw AIProviderError.cancelled }
             throw AIProviderError.connectionFailed(error.localizedDescription)
@@ -343,7 +331,7 @@ public struct HTTPClient: Sendable {
                     }
                     continuation.finish()
                 } catch let error as URLError {
-                    continuation.finish(throwing: mapURLError(error))
+                    continuation.finish(throwing: Self.mapURLError(error))
                 } catch {
                     if error is CancellationError {
                         continuation.finish(throwing: AIProviderError.cancelled)
@@ -372,7 +360,7 @@ public struct HTTPClient: Sendable {
     /// ⚠️ 原因一律走 `TransportFailure.reason`（由错误码推导），**不用**
     /// `error.localizedDescription`：后者随系统语言变，且中英两版都不含任何
     /// 已收录的诊断关键词 → 用户拿不到「服务没启动」那句可操作建议（#616）。
-    private func mapURLError(_ error: URLError) -> AIProviderError {
+    private static func mapURLError(_ error: URLError) -> AIProviderError {
         switch error.code {
         case .cancelled: .cancelled
         case .timedOut: .timeout(TransportFailure.reason(error))

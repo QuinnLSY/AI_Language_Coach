@@ -70,6 +70,13 @@ public struct LLMRequest: Sendable {
     /// nil = 不干预，由 Provider 自己的配置决定（对话/老师回复就走这条，尊重用户的推理档位）。
     public var reasoningEffort: String?
 
+    /// 这次调用是**同一次逻辑请求的续作**（典型：流式一个字都没拿到，改走非流式再试一次）。
+    ///
+    /// ⚠️ 为 true 时 Provider **不再新开一笔计费与留痕**：学员说一句话，账单上就该是一次调用。
+    /// 没有这个标记时，兜底会老老实实再记一笔 —— 一次操作变成两条记录，
+    /// 事后既对不上真实操作，也算不清到底花了多少钱。
+    public var continuesBilledCall: Bool
+
     public init(
         messages: [LLMMessage],
         model: String? = nil,
@@ -78,7 +85,8 @@ public struct LLMRequest: Sendable {
         maxTokens: Int? = nil,
         streaming: Bool = false,
         responseFormat: LLMResponseFormat = .text,
-        reasoningEffort: String? = nil
+        reasoningEffort: String? = nil,
+        continuesBilledCall: Bool = false
     ) {
         self.messages = messages
         self.model = model
@@ -88,6 +96,7 @@ public struct LLMRequest: Sendable {
         self.streaming = streaming
         self.responseFormat = responseFormat
         self.reasoningEffort = reasoningEffort
+        self.continuesBilledCall = continuesBilledCall
     }
 
     /// `reasoningEffort` 的「关掉思考」取值。

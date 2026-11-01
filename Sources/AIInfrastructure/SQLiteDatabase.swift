@@ -46,6 +46,14 @@ public final class SQLiteDatabase: @unchecked Sendable {
     private var handle: OpaquePointer?
     public let path: String
 
+    /// 撞锁时的等待上限（毫秒）。
+    ///
+    /// 3 秒是取舍：够等完一次正常写入事务，又不至于让「另一个实例长期占着」的界面
+    /// 卡到 5 秒以上。**不要在 `run`/`query` 外面再套一层重试** ——
+    /// SQLite 的 busy handler 是精确等待（对方一释放就立刻继续），外层重试只会把
+    /// 「等 3 秒」变成「等 3 秒 × 重试次数」，卡顿翻倍却不解决任何问题。
+    public static let busyTimeoutMilliseconds = 3_000
+
     /// `:memory:` 或临时文件路径用于测试。
     public init(path: String) throws {
         self.path = path
@@ -58,6 +66,14 @@ public final class SQLiteDatabase: @unchecked Sendable {
         }
         handle = db
         try run("PRAGMA journal_mode=WAL")
+        // 跨进程撞库（另一个实例 / 测试 / CLI 正在写）时别立刻失败：让 SQLite 自己等。
+        // 少了这一行，第二个进程的任何写都会立刻 SQLITE_BUSY，而启动路径会把它
+        // 误读成「库坏了」→ 隔离重建用户库。见 `DataDirectoryLock`。
+        try run("PRAGMA busy_timeout=\(Self.busyTimeoutMilliseconds)")
+        // WAL 下 NORMAL 是安全的（断电最多丢最后一个事务，不会损坏库文件）。
+        // 显式写出来，是为了把「断电丢多少」从「依赖系统那版 SQLite 的默认值」
+        // 变成钉在代码里的语义 —— 默认值哪天变了不会有人通知我们。
+        try run("PRAGMA synchronous=NORMAL")
         try run("PRAGMA foreign_keys=ON")
     }
 
@@ -79,7 +95,7 @@ public final class SQLiteDatabase: @unchecked Sendable {
         defer { sqlite3_finalize(statement) }
         let code = sqlite3_step(statement)
         guard code == SQLITE_DONE || code == SQLITE_ROW else {
-            throw AppError.database("SQL 执行失败：\(lastError())\nSQL: \(sql)")
+            throw AppError.database("SQL 执行失败：\(failureDescription())\nSQL: \(sql)")
         }
     }
 
@@ -95,7 +111,7 @@ public final class SQLiteDatabase: @unchecked Sendable {
             code = sqlite3_step(statement)
         }
         guard code == SQLITE_DONE else {
-            throw AppError.database("SQL 查询失败：\(lastError())\nSQL: \(sql)")
+            throw AppError.database("SQL 查询失败：\(failureDescription())\nSQL: \(sql)")
         }
         return rows
     }
@@ -182,6 +198,19 @@ public final class SQLiteDatabase: @unchecked Sendable {
 
     private func lastError() -> String {
         String(cString: sqlite3_errmsg(handle))
+    }
+
+    /// 出错时给人看的原因。
+    ///
+    /// ⚠️ 撞锁不能只透出 `lastError()`：那会得到 "database is locked" ——
+    /// 既没说清是谁占着，也没说该等还是该退，用户只会以为应用坏了。
+    private func failureDescription() -> String {
+        let code = sqlite3_errcode(handle)
+        if code == SQLITE_BUSY || code == SQLITE_LOCKED {
+            let seconds = Double(Self.busyTimeoutMilliseconds) / 1000
+            return "学习数据正被另一个实例占用（已等待 \(seconds) 秒）：\(lastError())"
+        }
+        return lastError()
     }
 
     private func bind(_ params: [SQLiteValue], to statement: OpaquePointer) throws {

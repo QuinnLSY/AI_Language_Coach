@@ -73,7 +73,7 @@ public final class Qwen3TTSAdapter: TTSProvider, VoiceCatalogProvider, @unchecke
         }
         let request = URLRequest(url: base.appendingPathComponent("healthz"))
         do {
-            let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? 8)
+            let (data, response) = try await client.perform(request, timeout: config.requestTimeout ?? RemoteTimeouts.ttsProbe)
             guard (200..<300).contains(response.statusCode) else {
                 return .requestFailed(reason: "HTTP \(response.statusCode)")
             }
@@ -136,7 +136,7 @@ public final class Qwen3TTSAdapter: TTSProvider, VoiceCatalogProvider, @unchecke
             )
         )
 
-        let (data, response) = try await client.perform(urlRequest, timeout: config.requestTimeout ?? 120)
+        let (data, response) = try await client.perform(urlRequest, timeout: config.requestTimeout ?? RemoteTimeouts.speechSynthesis)
         guard (200..<300).contains(response.statusCode) else {
             throw AIProviderError.serverError(
                 status: response.statusCode,
@@ -151,7 +151,7 @@ public final class Qwen3TTSAdapter: TTSProvider, VoiceCatalogProvider, @unchecke
     public func availableVoices() async -> [String] {
         guard let config = await state.currentConfig, let base = try? Self.base(config) else { return [] }
         let request = URLRequest(url: RemoteEndpoint.url(base: base, path: "v1/voices"))
-        guard let (data, response) = try? await client.perform(request, timeout: 6),
+        guard let (data, response) = try? await client.perform(request, timeout: RemoteTimeouts.voiceProbe),
               (200..<300).contains(response.statusCode),
               let payload = try? JSONDecoder().decode(VoiceListPayload.self, from: data)
         else { return [] }
